@@ -32,6 +32,7 @@ class SettingsUpdate(BaseModel):
     performance: dict | None = None
     system_prompt: str | None = None
     knowledge_cutoff: str | None = None
+    language: str | None = None
 
 
 @router.get("/")
@@ -54,6 +55,8 @@ async def update_settings(data: SettingsUpdate):
         cfg["system_prompt"] = data.system_prompt
     if data.knowledge_cutoff is not None:
         cfg["knowledge_cutoff"] = data.knowledge_cutoff
+    if data.language is not None:
+        cfg["language"] = data.language
     save_config(cfg)
     return {"status": "ok", "config": cfg}
 

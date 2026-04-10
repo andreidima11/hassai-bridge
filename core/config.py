@@ -47,6 +47,7 @@ DEFAULT_CONFIG = {
         "parallel_page_fetch": True,
     },
     "knowledge_cutoff": "2024-01",
+    "language": "en",
     "users": {
         "default_user": "",
         "api_keys": {},

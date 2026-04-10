@@ -15,7 +15,9 @@ a{color:var(--accent);text-decoration:none}
 .header-left{display:flex;align-items:center;gap:14px}
 .header-left h1{font-size:1.25rem;font-weight:700;letter-spacing:-.3px}
 .header .badge{font-size:.65rem;background:var(--accent);color:#fff;padding:3px 10px;border-radius:12px;font-weight:600;letter-spacing:.5px}
-.header-right{display:flex;gap:10px}
+.header-right{display:flex;gap:10px;align-items:center}
+.lang-select{background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:4px 8px;border-radius:6px;font-size:.78rem;font-weight:600;cursor:pointer;outline:none}
+.lang-select:focus{border-color:var(--accent)}
 
 /* ── Layout ── */
 .container{max-width:980px;margin:24px auto;padding:0 20px}

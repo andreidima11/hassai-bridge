@@ -14,10 +14,10 @@ document.querySelectorAll('.tab').forEach(tab => {
 
 // ── Toast ──
 function toast(msg, isError = false) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast show' + (isError ? ' error' : '');
-  setTimeout(() => t.className = 'toast', 3000);
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => el.className = 'toast', 3000);
 }
 
 // ── API helpers ──
@@ -43,7 +43,7 @@ function formatUptime(seconds) {
   const d = Math.floor(seconds / 86400);
   const h = Math.floor((seconds % 86400) / 3600);
   const m = Math.floor((seconds % 3600) / 60);
-  if (d > 0) return `${d}z ${h}h ${m}m`;
+  if (d > 0) return `${d}d ${h}h ${m}m`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
 }
@@ -73,14 +73,11 @@ function toggleApiKey() {
 function copyText(elementId) {
   const el = document.getElementById(elementId);
   let text = el.textContent;
-  // If it's the API key and hidden, copy the real value
   if (elementId === 'apiKeyDisplay' && !_apiKeyVisible && _apiKeyValue) {
     text = _apiKeyValue;
   }
-  // navigator.clipboard requires secure context (HTTPS or localhost).
-  // On LAN IPs (http://192.168.x.x) we must use the textarea fallback.
   if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(() => toast('Copiat!')).catch(() => _copyFallback(text));
+    navigator.clipboard.writeText(text).then(() => toast(t('toast.copied'))).catch(() => _copyFallback(text));
   } else {
     _copyFallback(text);
   }
@@ -97,9 +94,9 @@ function _copyFallback(text, msg) {
   ta.select();
   try {
     document.execCommand('copy');
-    toast(msg || 'Copiat!');
+    toast(msg || t('toast.copied'));
   } catch (e) {
-    toast('Nu s-a putut copia');
+    toast(t('toast.copyFail'));
   }
   document.body.removeChild(ta);
 }
@@ -108,7 +105,6 @@ async function loadSystemInfo() {
   try {
     const info = await api('GET', '/api/settings/info');
 
-    // Services status
     const lm = info.services.lmstudio;
     const sx = info.services.searxng;
     const mem = info.services.memory;
@@ -121,7 +117,7 @@ async function loadSystemInfo() {
     const lmOnline = lm.status === 'connected';
     lmCard.className = 'service-card ' + (lmOnline ? 'online' : 'offline');
     lmCard.querySelector('.svc-status').className = 'svc-status ' + (lmOnline ? 'online' : 'offline');
-    lmCard.querySelector('.svc-status').textContent = lmOnline ? 'Conectat' : 'Indisponibil';
+    lmCard.querySelector('.svc-status').textContent = lmOnline ? t('status.connected') : t('status.unavailable');
     document.getElementById('svcLMDetail').textContent = `${lm.url} — ${lm.model}`;
 
     // SearXNG
@@ -130,10 +126,10 @@ async function loadSystemInfo() {
     const sxStatusEl = sxCard.querySelector('.svc-status');
     if (!sx.enabled) {
       sxStatusEl.className = 'svc-status disabled';
-      sxStatusEl.textContent = 'Dezactivat';
+      sxStatusEl.textContent = t('status.disabled');
     } else {
       sxStatusEl.className = 'svc-status ' + (sxOnline ? 'online' : 'offline');
-      sxStatusEl.textContent = sxOnline ? 'Conectat' : 'Indisponibil';
+      sxStatusEl.textContent = sxOnline ? t('status.connected') : t('status.unavailable');
     }
     document.getElementById('svcSXDetail').textContent = sx.url;
 
@@ -142,12 +138,12 @@ async function loadSystemInfo() {
     const memStatusEl = memCard.querySelector('.svc-status');
     if (mem.enabled) {
       memStatusEl.className = 'svc-status online';
-      memStatusEl.textContent = mem.auto_extract ? 'Activ + Auto-extracție' : 'Activ';
+      memStatusEl.textContent = mem.auto_extract ? t('status.activeAutoExtract') : t('status.active');
     } else {
       memStatusEl.className = 'svc-status disabled';
-      memStatusEl.textContent = 'Dezactivat';
+      memStatusEl.textContent = t('status.disabled');
     }
-    document.getElementById('svcMemDetail').textContent = `${info.stats.total_memories} memorii stocate`;
+    document.getElementById('svcMemDetail').textContent = t('status.memoriesStored', { count: info.stats.total_memories });
 
     // Header badges
     document.getElementById('statusLM').className = 'status ' + (lmOnline ? 'ok' : 'err');
@@ -184,13 +180,13 @@ async function loadSystemInfo() {
     `).join('');
 
   } catch (e) {
-    toast('Eroare la încărcarea info: ' + e.message, true);
+    toast(t('toast.infoError', { msg: e.message }), true);
   }
 }
 
 function refreshInfo() {
   loadSystemInfo();
-  toast('Info reîmprospătat!');
+  toast(t('toast.infoRefreshed'));
 }
 
 // ══════════════════════════════════════════════════
@@ -205,7 +201,7 @@ async function refreshModelList(selectedModel) {
     const models = data.data || [];
     select.innerHTML = '';
     if (models.length === 0) {
-      select.innerHTML = '<option value="default">default (niciun model detectat)</option>';
+      select.innerHTML = `<option value="default">${t('misc.defaultNoModel')}</option>`;
     } else {
       models.forEach(m => {
         const opt = document.createElement('option');
@@ -214,36 +210,43 @@ async function refreshModelList(selectedModel) {
         select.appendChild(opt);
       });
     }
-    // Set saved value (add it if not in list)
     if (currentVal && currentVal !== 'default') {
       const exists = Array.from(select.options).some(o => o.value === currentVal);
       if (!exists) {
         const opt = document.createElement('option');
         opt.value = currentVal;
-        opt.textContent = currentVal + ' (salvat)';
+        opt.textContent = currentVal + ' ' + t('misc.saved');
         select.appendChild(opt);
       }
       select.value = currentVal;
     }
-    if (!selectedModel) toast('Modele reîncărcate!');
+    if (!selectedModel) toast(t('toast.modelsReloaded'));
   } catch (e) {
-    select.innerHTML = '<option value="default">default (LMStudio indisponibil)</option>';
+    select.innerHTML = `<option value="default">${t('misc.defaultUnavailable')}</option>`;
     if (currentVal && currentVal !== 'default') {
       const opt = document.createElement('option');
       opt.value = currentVal;
-      opt.textContent = currentVal + ' (salvat)';
+      opt.textContent = currentVal + ' ' + t('misc.saved');
       select.appendChild(opt);
       select.value = currentVal;
     }
-    if (!selectedModel) toast('Nu s-au putut încărca modelele: ' + e.message, true);
+    if (!selectedModel) toast(t('toast.loadModelsFail', { msg: e.message }), true);
   }
 }
 
 async function loadSettings() {
   try {
     const cfg = await api('GET', '/api/settings/');
+
+    // Apply saved language
+    const savedLang = cfg.language || 'en';
+    if (savedLang !== currentLang) {
+      setLanguage(savedLang, true);
+    }
+    document.getElementById('settingsLang').value = savedLang;
+    document.getElementById('langSelect').value = savedLang;
+
     document.getElementById('lmUrl').value = cfg.lmstudio.base_url;
-    // Load model list then set saved value
     await refreshModelList(cfg.lmstudio.model);
     document.getElementById('lmTimeout').value = cfg.lmstudio.timeout;
     document.getElementById('lmMaxTokens').value = cfg.lmstudio.max_tokens || 2048;
@@ -262,7 +265,7 @@ async function loadSettings() {
     document.getElementById('perfParallelFetch').checked = perf.parallel_page_fetch !== false;
     document.getElementById('systemPrompt').value = cfg.system_prompt || '';
   } catch (e) {
-    toast('Eroare la încărcarea setărilor: ' + e.message, true);
+    toast(t('toast.settingsError', { msg: e.message }), true);
   }
 }
 
@@ -294,11 +297,12 @@ async function saveSettings() {
       },
       system_prompt: document.getElementById('systemPrompt').value,
       knowledge_cutoff: document.getElementById('knowledgeCutoff').value,
+      language: document.getElementById('settingsLang').value,
     });
-    toast('Setări salvate!');
-    loadSystemInfo(); // refresh info panel
+    toast(t('toast.settingsSaved'));
+    loadSystemInfo();
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
@@ -309,7 +313,7 @@ async function checkHealth() {
     document.getElementById('statusSX').className = 'status ' + (h.searxng === 'connected' ? 'ok' : 'err');
     toast(`LMStudio: ${h.lmstudio} | SearXNG: ${h.searxng}`);
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
@@ -320,14 +324,9 @@ async function checkHealth() {
 let _selectedUser = null;
 let allMemories = [];
 
-const catLabels = {
-  personal_info: 'Personal Info',
-  preferences: 'Preferences',
-  home_setup: 'Home Setup',
-  facts: 'Facts',
-  instructions: 'Instructions',
-  context: 'Context',
-};
+function catLabel(cat) {
+  return t('cat.' + cat) || cat;
+}
 
 async function loadUsersTab() {
   try {
@@ -339,7 +338,6 @@ async function loadUsersTab() {
     const apiKeys = users.api_keys || {};
     document.getElementById('defaultUserInput').value = users.default_user || '';
 
-    // Merge configured users + users with memories
     const userMap = {};
     for (const [key, name] of Object.entries(apiKeys)) {
       if (!userMap[name]) userMap[name] = { keys: [], hasMemories: false };
@@ -353,7 +351,7 @@ async function loadUsersTab() {
     const container = document.getElementById('userCardsList');
     const names = Object.keys(userMap);
     if (names.length === 0) {
-      container.innerHTML = '<div class="card"><p class="card-muted">Niciun utilizator configurat. Adaugă unul mai sus.</p></div>';
+      container.innerHTML = `<div class="card"><p class="card-muted">${t('users.noUsers')}</p></div>`;
       return;
     }
 
@@ -362,10 +360,10 @@ async function loadUsersTab() {
       const isSelected = _selectedUser === name;
       const keyHtml = info.keys.length
         ? '<code>' + escapeHtml(info.keys[0]) + '</code>'
-        : '<span class="no-key">fără API key</span>';
+        : `<span class="no-key">${t('users.noKey')}</span>`;
       const actionsHtml = info.keys.length
-        ? `<button class="btn btn-sm" onclick="event.stopPropagation();copyUserKey('${escapeHtml(info.keys[0])}')" title="Copiază API Key">Copiază</button>
-           <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteUser('${escapeHtml(name)}')" title="Șterge">Șterge</button>`
+        ? `<button class="btn btn-sm" onclick="event.stopPropagation();copyUserKey('${escapeHtml(info.keys[0])}')">${t('users.copy')}</button>
+           <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteUser('${escapeHtml(name)}')">${t('users.delete')}</button>`
         : '';
       return `
         <div class="user-card ${isSelected ? 'selected' : ''}" onclick="selectUser('${escapeHtml(name)}')">
@@ -380,35 +378,34 @@ async function loadUsersTab() {
         </div>`;
     }).join('');
   } catch (e) {
-    toast('Eroare la încărcarea utilizatorilor: ' + e.message, true);
+    toast(t('toast.usersError', { msg: e.message }), true);
   }
 }
 
 async function addUser() {
   const name = document.getElementById('newUserName').value.trim();
-  if (!name) { toast('Introdu un nume de utilizator', true); return; }
+  if (!name) { toast(t('toast.enterUsername'), true); return; }
   try {
     const result = await api('POST', '/api/settings/users', { username: name });
     document.getElementById('newUserName').value = '';
-    toast(`Utilizator "${result.username}" creat!`);
+    toast(t('toast.userCreated', { name: result.username }));
     loadUsersTab();
   } catch (e) {
-    if (e.message.includes('409')) toast('Utilizatorul există deja', true);
-    else toast('Eroare: ' + e.message, true);
+    if (e.message.includes('409')) toast(t('toast.userExists'), true);
+    else toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
 async function deleteUser(username) {
-  if (!confirm(`Ștergi utilizatorul "${username}", API key-ul și TOATE memoriile asociate?\n\nAceastă acțiune este ireversibilă!`)) return;
+  if (!confirm(t('confirm.deleteUser', { name: username }))) return;
   try {
-    // Delete all memories first, then the user
     try { await api('DELETE', `/api/memory/user/${encodeURIComponent(username)}`); } catch(e) { /* no memories */ }
     await api('DELETE', `/api/settings/users/${encodeURIComponent(username)}`);
-    toast(`Utilizator "${username}" șters complet`);
+    toast(t('toast.userDeleted', { name: username }));
     if (_selectedUser === username) closeUserModal();
     loadUsersTab();
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
@@ -421,17 +418,17 @@ async function saveDefaultUser() {
   const name = document.getElementById('defaultUserInput').value.trim();
   try {
     await api('PUT', '/api/settings/users/default', { username: name });
-    toast('Utilizator implicit salvat!');
+    toast(t('toast.defaultUserSaved'));
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
 function copyUserKey(key) {
   if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(key).then(() => toast('API Key copiat!')).catch(() => _copyFallback(key, 'API Key copiat!'));
+    navigator.clipboard.writeText(key).then(() => toast(t('toast.apiKeyCopied'))).catch(() => _copyFallback(key, t('toast.apiKeyCopied')));
   } else {
-    _copyFallback(key, 'API Key copiat!');
+    _copyFallback(key, t('toast.apiKeyCopied'));
   }
 }
 
@@ -456,7 +453,6 @@ function closeUserModal() {
 }
 const deselectUser = closeUserModal;
 
-// Close modal on Escape
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.getElementById('userModal').classList.contains('open')) {
     closeUserModal();
@@ -469,13 +465,13 @@ async function loadStats(userId) {
   try {
     const stats = await api('GET', `/api/memory/stats/${encodeURIComponent(userId)}`);
     const grid = document.getElementById('statsGrid');
-    let html = `<div class="stat-card"><div class="num">${stats.total}</div><div class="lbl">Total</div></div>`;
+    let html = `<div class="stat-card"><div class="num">${stats.total}</div><div class="lbl">${t('modal.total')}</div></div>`;
     for (const [cat, count] of Object.entries(stats.by_category || {})) {
-      html += `<div class="stat-card"><div class="num">${count}</div><div class="lbl">${catLabels[cat] || cat}</div></div>`;
+      html += `<div class="stat-card"><div class="num">${count}</div><div class="lbl">${catLabel(cat)}</div></div>`;
     }
     grid.innerHTML = html;
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
@@ -487,34 +483,34 @@ async function loadMemories(userId) {
     allMemories = data.memories || [];
     renderMemories(allMemories);
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
 function renderMemories(memories) {
   const list = document.getElementById('memList');
   if (!memories.length) {
-    list.innerHTML = '<p style="color:var(--muted);font-size:.9rem">Nicio memorie.</p>';
+    list.innerHTML = `<p style="color:var(--muted);font-size:.9rem">${t('status.noMemory')}</p>`;
     return;
   }
   list.innerHTML = memories.map(m => {
     const stars = '★'.repeat(m.importance) + '☆'.repeat(5 - m.importance);
-    const date = new Date(m.created_at * 1000).toLocaleDateString('ro-RO');
-    const accessed = m.access_count > 0 ? `accesată de ${m.access_count}x` : 'neaccesată';
+    const date = new Date(m.created_at * 1000).toLocaleDateString(currentLang === 'ro' ? 'ro-RO' : 'en-US');
+    const accessed = m.access_count > 0 ? t('status.accessed', { count: m.access_count }) : t('status.notAccessed');
     return `
       <div class="mem-item" data-cat="${m.category}">
         <div class="mem-content">
-          <span class="mem-badge cat-${m.category}">${catLabels[m.category] || m.category}</span>
-          <span class="importance-stars" title="Importanță: ${m.importance}/5">${stars}</span>
+          <span class="mem-badge cat-${m.category}">${catLabel(m.category)}</span>
+          <span class="importance-stars" title="${m.importance}/5">${stars}</span>
           <div style="margin-top:6px">${escapeHtml(m.content)}</div>
           <div class="mem-meta">
             <span>${date}</span>
-            <span>Accesat: ${accessed}</span>
+            <span>${accessed}</span>
             <span>${escapeHtml(m.keywords || '-')}</span>
             <span>${m.source}</span>
           </div>
         </div>
-        <button class="btn btn-danger btn-sm" onclick="deleteMemory(${m.id})">Șterge</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteMemory(${m.id})">${t('users.delete')}</button>
       </div>`;
   }).join('');
 }
@@ -526,9 +522,9 @@ function filterMemories(cat, btn) {
 }
 
 async function addMemory() {
-  if (!_selectedUser) { toast('Selectează un utilizator', true); return; }
+  if (!_selectedUser) { toast(t('toast.selectUser'), true); return; }
   const content = document.getElementById('newMemContent').value;
-  if (!content) { toast('Scrie conținutul', true); return; }
+  if (!content) { toast(t('toast.writeContent'), true); return; }
   try {
     await api('POST', '/api/memory/', {
       user_id: _selectedUser,
@@ -539,53 +535,53 @@ async function addMemory() {
     });
     document.getElementById('newMemContent').value = '';
     document.getElementById('newMemKeywords').value = '';
-    toast('Memorie adăugată!');
+    toast(t('toast.memoryAdded'));
     await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
 async function deleteMemory(id) {
   try {
     await api('DELETE', `/api/memory/${id}`);
-    toast('Memorie ștearsă');
+    toast(t('toast.memoryDeleted'));
     if (_selectedUser) await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
 async function clearUserMemories() {
   if (!_selectedUser) return;
-  if (!confirm(`Ștergi TOATE memoriile pentru "${_selectedUser}"?`)) return;
+  if (!confirm(t('confirm.deleteAllMemories', { name: _selectedUser }))) return;
   try {
     await api('DELETE', `/api/memory/user/${encodeURIComponent(_selectedUser)}`);
-    toast('Memorii șterse');
+    toast(t('toast.memoriesDeleted'));
     await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
     loadUsersTab();
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
 async function consolidateMemories() {
-  if (!_selectedUser) { toast('Selectează un utilizator', true); return; }
-  toast('Se consolidează...');
+  if (!_selectedUser) { toast(t('toast.selectUser'), true); return; }
+  toast(t('toast.consolidating'));
   try {
     await api('POST', `/api/memory/consolidate/${encodeURIComponent(_selectedUser)}`);
-    toast('Consolidare completă!');
+    toast(t('toast.consolidateComplete'));
     await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
 async function restartServer() {
-  if (!confirm('Ești sigur că vrei să restartezi serverul HASSAI Bridge?')) return;
+  if (!confirm(t('confirm.restart'))) return;
   try {
     await api('POST', '/api/settings/restart');
-    toast('Serverul se restartează...');
+    toast(t('toast.serverRestarting'));
     setTimeout(() => {
       const check = setInterval(async () => {
         try {
@@ -596,7 +592,7 @@ async function restartServer() {
       }, 1500);
     }, 2000);
   } catch (e) {
-    toast('Eroare la restart: ' + e.message, true);
+    toast(t('toast.restartError', { msg: e.message }), true);
   }
 }
 
@@ -611,13 +607,13 @@ function downloadBackup() {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  toast('Backup descărcat!');
+  toast(t('toast.backupDownloaded'));
 }
 
 async function uploadRestore(input) {
   const file = input.files[0];
   if (!file) return;
-  if (!confirm('Restaurarea înlocuiește TOATE datele existente!\n\nEști sigur?')) {
+  if (!confirm(t('confirm.restore'))) {
     input.value = '';
     return;
   }
@@ -632,10 +628,10 @@ async function uploadRestore(input) {
       const err = await resp.json().catch(() => ({}));
       throw new Error(err.detail || `HTTP ${resp.status}`);
     }
-    toast('Baza de date restaurată! Se reîncarcă...');
+    toast(t('toast.dbRestored'));
     setTimeout(() => location.reload(), 1500);
   } catch (e) {
-    toast('Eroare la restaurare: ' + e.message, true);
+    toast(t('toast.restoreError', { msg: e.message }), true);
   }
   input.value = '';
 }
@@ -660,7 +656,7 @@ async function refreshConvUsers() {
     for (const name of Object.values(apiKeys)) userSet.add(name);
     for (const u of (memData.users || [])) userSet.add(u);
 
-    select.innerHTML = '<option value="">— Alege —</option>';
+    select.innerHTML = `<option value="">${t('conv.choose')}</option>`;
     for (const name of [...userSet].sort()) {
       const opt = document.createElement('option');
       opt.value = name;
@@ -668,9 +664,9 @@ async function refreshConvUsers() {
       select.appendChild(opt);
     }
     if (prev && userSet.has(prev)) select.value = prev;
-    toast('Utilizatori reîncărcați!');
+    toast(t('toast.usersReloaded'));
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
@@ -683,6 +679,7 @@ async function loadConversations() {
     return;
   }
 
+  const locale = currentLang === 'ro' ? 'ro-RO' : 'en-US';
   try {
     const data = await api('GET', `/api/settings/conversations/${encodeURIComponent(userId)}`);
     const sessions = data.sessions || [];
@@ -690,16 +687,16 @@ async function loadConversations() {
 
     const list = document.getElementById('convSessionsList');
     if (!sessions.length) {
-      list.innerHTML = '<p class="card-muted">Nicio conversație găsită pentru acest utilizator.</p>';
+      list.innerHTML = `<p class="card-muted">${t('conv.noConversations')}</p>`;
       return;
     }
 
     list.innerHTML = sessions.map(s => {
       const started = new Date(s.started_at * 1000);
       const last = new Date(s.last_at * 1000);
-      const dateStr = started.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' });
-      const timeStr = started.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
-      const lastTimeStr = last.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+      const dateStr = started.toLocaleDateString(locale, { day: '2-digit', month: 'short', year: 'numeric' });
+      const timeStr = started.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+      const lastTimeStr = last.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
       const duration = Math.round((s.last_at - s.started_at) / 60);
       const durationStr = duration < 1 ? '<1 min' : duration < 60 ? `${duration} min` : `${Math.floor(duration/60)}h ${duration%60}m`;
       return `
@@ -707,7 +704,7 @@ async function loadConversations() {
           <div class="conv-session-info">
             <div class="conv-session-date">${dateStr} &nbsp; ${timeStr} — ${lastTimeStr}</div>
             <div class="conv-session-meta">
-              <span>${s.message_count} mesaje</span>
+              <span>${s.message_count} ${t('conv.messages')}</span>
               <span>${durationStr}</span>
             </div>
           </div>
@@ -715,7 +712,7 @@ async function loadConversations() {
         </div>`;
     }).join('');
   } catch (e) {
-    toast('Eroare la încărcarea conversațiilor: ' + e.message, true);
+    toast(t('toast.convsError', { msg: e.message }), true);
   }
 }
 
@@ -725,37 +722,36 @@ async function openConvSession(userId, sessionId) {
 
   const modal = document.getElementById('convModal');
   const body = document.getElementById('convModalMessages');
-  body.innerHTML = '<p class="card-muted" style="text-align:center;padding:40px 0">Se încarcă...</p>';
+  body.innerHTML = `<p class="card-muted" style="text-align:center;padding:40px 0">${t('conv.loadingMessages')}</p>`;
 
-  // Open modal
   modal.classList.add('open');
   document.body.style.overflow = 'hidden';
 
+  const locale = currentLang === 'ro' ? 'ro-RO' : 'en-US';
   try {
     const data = await api('GET', `/api/settings/conversations/${encodeURIComponent(userId)}/${encodeURIComponent(sessionId)}`);
     const messages = data.messages || [];
 
-    // Set header info
     if (messages.length) {
       const first = new Date(messages[0].created_at * 1000);
       const last = new Date(messages[messages.length - 1].created_at * 1000);
       document.getElementById('convModalTitle').textContent =
-        first.toLocaleDateString('ro-RO', { day: '2-digit', month: 'long', year: 'numeric' });
+        first.toLocaleDateString(locale, { day: '2-digit', month: 'long', year: 'numeric' });
       document.getElementById('convModalSubtitle').textContent =
-        `${messages.length} mesaje · ${first.toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit'})} — ${last.toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit'})}`;
+        `${messages.length} ${t('conv.messages')} · ${first.toLocaleTimeString(locale, {hour:'2-digit',minute:'2-digit'})} — ${last.toLocaleTimeString(locale, {hour:'2-digit',minute:'2-digit'})}`;
     } else {
-      document.getElementById('convModalTitle').textContent = 'Conversație';
-      document.getElementById('convModalSubtitle').textContent = 'Niciun mesaj';
+      document.getElementById('convModalTitle').textContent = t('conv.conversation');
+      document.getElementById('convModalSubtitle').textContent = t('conv.noMessages');
     }
 
     if (!messages.length) {
-      body.innerHTML = '<p class="card-muted" style="text-align:center;padding:40px 0">Niciun mesaj în această sesiune.</p>';
+      body.innerHTML = `<p class="card-muted" style="text-align:center;padding:40px 0">${t('conv.noMessages')}</p>`;
       return;
     }
 
     body.innerHTML = messages.map(m => {
-      const time = new Date(m.created_at * 1000).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      const roleLabel = m.role === 'user' ? 'Utilizator' : m.role === 'assistant' ? 'Asistent' : m.role;
+      const time = new Date(m.created_at * 1000).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const roleLabel = m.role === 'user' ? t('status.userRole') : m.role === 'assistant' ? t('status.assistantRole') : m.role;
       const content = escapeHtml(m.content).replace(/\n/g, '<br>');
       return `
         <div class="conv-msg conv-msg-${m.role}">
@@ -767,7 +763,7 @@ async function openConvSession(userId, sessionId) {
         </div>`;
     }).join('');
   } catch (e) {
-    body.innerHTML = `<p class="card-muted" style="text-align:center;padding:40px 0;color:var(--danger)">Eroare: ${escapeHtml(e.message)}</p>`;
+    body.innerHTML = `<p class="card-muted" style="text-align:center;padding:40px 0;color:var(--danger)">${t('toast.error', { msg: escapeHtml(e.message) })}</p>`;
   }
 }
 
@@ -780,18 +776,17 @@ function closeConvModal() {
 
 async function deleteCurrentSession() {
   if (!_convUserId || !_convSessionId) return;
-  if (!confirm('Ești sigur că vrei să ștergi această conversație?\n\nAceastă acțiune este ireversibilă!')) return;
+  if (!confirm(t('confirm.deleteSession'))) return;
   try {
     await api('DELETE', `/api/settings/conversations/${encodeURIComponent(_convUserId)}/${encodeURIComponent(_convSessionId)}`);
-    toast('Conversație ștearsă!');
+    toast(t('toast.sessionDeleted'));
     closeConvModal();
     loadConversations();
   } catch (e) {
-    toast('Eroare: ' + e.message, true);
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
-// Close conv modal on Escape
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && document.getElementById('convModal').classList.contains('open')) {
     closeConvModal();
