@@ -15,12 +15,15 @@ def _get_client(timeout: int = 120) -> httpx.AsyncClient:
     return _client
 
 
-async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False) -> dict:
+async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,
+                          tools: list | None = None, tool_choice: str | dict | None = None) -> dict:
     """Send a chat completion request to LMStudio's OpenAI-compatible API."""
     cfg = load_config()["lmstudio"]
     base_url = cfg["base_url"].rstrip("/")
     url = f"{base_url}/v1/chat/completions"
-    used_model = model or cfg["model"]
+    # Config model takes priority (user explicitly set it); fallback to request model
+    cfg_model = cfg.get("model", "default")
+    used_model = cfg_model if cfg_model and cfg_model != "default" else (model or "default")
     timeout = cfg.get("timeout", 120)
 
     payload = {
@@ -28,6 +31,10 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
         "messages": messages,
         "stream": stream,
     }
+    if tools:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
     max_tokens = cfg.get("max_tokens")
     if max_tokens:
         payload["max_tokens"] = max_tokens
@@ -37,16 +44,23 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
 
     client = _get_client(timeout)
     resp = await client.post(url, json=payload)
+    if resp.status_code >= 400:
+        import logging
+        logging.getLogger("hassai.lmstudio").error(
+            f"LMStudio returned {resp.status_code}: {resp.text[:500]}"
+        )
     resp.raise_for_status()
     return resp.json()
 
 
-async def chat_completion_stream(messages: list[dict], model: str | None = None):
+async def chat_completion_stream(messages: list[dict], model: str | None = None,
+                                 tools: list | None = None, tool_choice: str | dict | None = None):
     """Stream chat completion from LMStudio, yielding SSE chunks."""
     cfg = load_config()["lmstudio"]
     base_url = cfg["base_url"].rstrip("/")
     url = f"{base_url}/v1/chat/completions"
-    used_model = model or cfg["model"]
+    cfg_model = cfg.get("model", "default")
+    used_model = cfg_model if cfg_model and cfg_model != "default" else (model or "default")
     timeout = cfg.get("timeout", 120)
 
     payload = {
@@ -54,6 +68,10 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None)
         "messages": messages,
         "stream": True,
     }
+    if tools:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
     max_tokens = cfg.get("max_tokens")
     if max_tokens:
         payload["max_tokens"] = max_tokens

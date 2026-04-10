@@ -61,10 +61,18 @@ def init_db():
                 user_id TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
-                created_at REAL NOT NULL
+                created_at REAL NOT NULL,
+                session_id TEXT NOT NULL DEFAULT ''
             )
         """)
+
+        # Migrate: add session_id column if missing (for existing DBs)
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()]
+        if "session_id" not in cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
+
         conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_user ON conversations(user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_session ON conversations(user_id, session_id)")
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS memory_log (
@@ -123,19 +131,27 @@ def search_memories(user_id, query_keywords, limit=15):
         keyword_clauses = " + ".join(
             ["(CASE WHEN keywords LIKE ? OR content LIKE ? THEN 1 ELSE 0 END)" for _ in query_keywords]
         )
-        params = []
+        kw_params = []
         for kw in query_keywords:
             pattern = f"%{kw.lower()}%"
-            params.extend([pattern, pattern])
-        params.extend([user_id, limit])
+            kw_params.extend([pattern, pattern])
 
+        # Parameters: keyword_clauses (relevance) + keyword_clauses (decay) + time + user_id + limit
+        all_params = kw_params + kw_params + [time.time(), user_id, limit]
+
+        # Memory decay: score combines keyword relevance + importance + recency + access frequency
         rows = conn.execute(
             f"""SELECT id, category, content, keywords, importance, created_at,
                        last_accessed, access_count, source,
-                       ({keyword_clauses}) as relevance
+                       ({keyword_clauses}) as relevance,
+                       (importance * 0.3
+                        + ({keyword_clauses}) * 0.4
+                        + MIN(access_count, 10) * 0.05
+                        + MAX(0, 1.0 - (? - last_accessed) / 2592000.0) * 0.2
+                       ) as decay_score
                 FROM memories WHERE user_id = ? AND active = 1
-                ORDER BY relevance DESC, importance DESC, last_accessed DESC LIMIT ?""",
-            params,
+                ORDER BY decay_score DESC, relevance DESC LIMIT ?""",
+            all_params,
         ).fetchall()
 
         ids = [r["id"] for r in rows if r["relevance"] > 0]
@@ -236,11 +252,29 @@ def log_memory_action(user_id, action, details=""):
 
 # ── Conversation operations ──
 
-def add_conversation_message(user_id, role, content):
+# Session gap: if last message from user was > 30 min ago, start new session
+_SESSION_GAP_SECONDS = 1800
+
+
+def _get_or_create_session(conn, user_id: str) -> str:
+    """Get current session ID or create a new one if gap elapsed."""
+    row = conn.execute(
+        "SELECT session_id, created_at FROM conversations WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    if row and row["session_id"] and (time.time() - row["created_at"]) < _SESSION_GAP_SECONDS:
+        return row["session_id"]
+    import uuid
+    return uuid.uuid4().hex[:12]
+
+
+def add_conversation_message(user_id, role, content, session_id=None):
     with get_db() as conn:
+        if session_id is None:
+            session_id = _get_or_create_session(conn, user_id)
         conn.execute(
-            "INSERT INTO conversations (user_id, role, content, created_at) VALUES (?, ?, ?, ?)",
-            (user_id, role, content, time.time()),
+            "INSERT INTO conversations (user_id, role, content, created_at, session_id) VALUES (?, ?, ?, ?, ?)",
+            (user_id, role, content, time.time(), session_id),
         )
 
 
@@ -251,6 +285,38 @@ def get_conversation_history(user_id, limit=20):
             (user_id, limit),
         ).fetchall()
     return list(reversed([dict(r) for r in rows]))
+
+
+def get_conversation_sessions(user_id, limit=20):
+    """Get conversation sessions for a user with message counts."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT session_id,
+                      MIN(created_at) as started_at,
+                      MAX(created_at) as last_at,
+                      COUNT(*) as message_count
+               FROM conversations
+               WHERE user_id = ? AND session_id != ''
+               GROUP BY session_id
+               ORDER BY MAX(created_at) DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_session_messages(user_id, session_id, limit=100):
+    """Get all messages in a specific session."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT role, content, created_at
+               FROM conversations
+               WHERE user_id = ? AND session_id = ?
+               ORDER BY created_at ASC
+               LIMIT ?""",
+            (user_id, session_id, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def clear_conversation(user_id):

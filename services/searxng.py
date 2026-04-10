@@ -18,6 +18,20 @@ from config import load_config
 
 log = logging.getLogger("hassai.searxng")
 
+# ── Persistent connection pool for SearXNG ──
+_sx_client: httpx.AsyncClient | None = None
+
+
+def _get_sx_client(timeout: int = 15) -> httpx.AsyncClient:
+    global _sx_client
+    if _sx_client is None or _sx_client.is_closed:
+        _sx_client = httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
+        )
+    return _sx_client
+
 # ── Search cache (TTL-based, thread-safe) ──
 
 _SEARCH_CACHE: OrderedDict = OrderedDict()
@@ -318,10 +332,10 @@ async def search(query: str, categories: str = "general") -> list[dict]:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-            resp = await client.get(f"{base_url}/search", params=params)
-            resp.raise_for_status()
-            data = resp.json()
+        client = _get_sx_client(timeout)
+        resp = await client.get(f"{base_url}/search", params=params)
+        resp.raise_for_status()
+        data = resp.json()
     except httpx.TimeoutException:
         log.warning(f"SearXNG timeout for: '{query[:50]}'")
         return []
@@ -377,8 +391,8 @@ async def health_check() -> bool:
         if not cfg.get("enabled"):
             return False
         base_url = cfg["base_url"].rstrip("/")
-        async with httpx.AsyncClient(timeout=5, follow_redirects=True) as client:
-            resp = await client.get(base_url)
-            return resp.status_code == 200
+        client = _get_sx_client(5)
+        resp = await client.get(base_url)
+        return resp.status_code == 200
     except Exception:
         return False

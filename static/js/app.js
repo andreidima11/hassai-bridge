@@ -141,6 +141,11 @@ async function loadSystemInfo() {
     document.getElementById('statConversations').textContent = info.stats.total_conversations;
     document.getElementById('statActions24h').textContent = info.stats.actions_last_24h;
 
+    // Version badge
+    if (info.version) {
+      document.getElementById('versionBadge').textContent = info.version;
+    }
+
     // API Key
     if (info.api_key) {
       _apiKeyValue = info.api_key;
@@ -173,11 +178,54 @@ function refreshInfo() {
 // SETTINGS
 // ══════════════════════════════════════════════════
 
+async function refreshModelList(selectedModel) {
+  const select = document.getElementById('lmModel');
+  const currentVal = selectedModel || select.value;
+  try {
+    const data = await api('GET', '/v1/models');
+    const models = data.data || [];
+    select.innerHTML = '';
+    if (models.length === 0) {
+      select.innerHTML = '<option value="default">default (niciun model detectat)</option>';
+    } else {
+      models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id;
+        opt.textContent = m.id;
+        select.appendChild(opt);
+      });
+    }
+    // Set saved value (add it if not in list)
+    if (currentVal && currentVal !== 'default') {
+      const exists = Array.from(select.options).some(o => o.value === currentVal);
+      if (!exists) {
+        const opt = document.createElement('option');
+        opt.value = currentVal;
+        opt.textContent = currentVal + ' (salvat)';
+        select.appendChild(opt);
+      }
+      select.value = currentVal;
+    }
+    if (!selectedModel) toast('Modele reîncărcate!');
+  } catch (e) {
+    select.innerHTML = '<option value="default">default (LMStudio indisponibil)</option>';
+    if (currentVal && currentVal !== 'default') {
+      const opt = document.createElement('option');
+      opt.value = currentVal;
+      opt.textContent = currentVal + ' (salvat)';
+      select.appendChild(opt);
+      select.value = currentVal;
+    }
+    if (!selectedModel) toast('Nu s-au putut încărca modelele: ' + e.message, true);
+  }
+}
+
 async function loadSettings() {
   try {
     const cfg = await api('GET', '/api/settings/');
     document.getElementById('lmUrl').value = cfg.lmstudio.base_url;
-    document.getElementById('lmModel').value = cfg.lmstudio.model;
+    // Load model list then set saved value
+    await refreshModelList(cfg.lmstudio.model);
     document.getElementById('lmTimeout').value = cfg.lmstudio.timeout;
     document.getElementById('lmMaxTokens').value = cfg.lmstudio.max_tokens || 2048;
     document.getElementById('lmTemperature').value = cfg.lmstudio.temperature ?? 0.7;
@@ -511,6 +559,26 @@ async function consolidateMemories() {
     await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
   } catch (e) {
     toast('Eroare: ' + e.message, true);
+  }
+}
+
+async function restartServer() {
+  if (!confirm('Ești sigur că vrei să restartezi serverul HASSAI Bridge?')) return;
+  try {
+    await api('POST', '/api/settings/restart');
+    toast('Serverul se restartează...');
+    // Wait and reload page
+    setTimeout(() => {
+      const check = setInterval(async () => {
+        try {
+          await fetch('/api/settings/health');
+          clearInterval(check);
+          location.reload();
+        } catch(e) { /* still restarting */ }
+      }, 1500);
+    }, 2000);
+  } catch (e) {
+    toast('Eroare la restart: ' + e.message, true);
   }
 }
 

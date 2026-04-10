@@ -11,7 +11,7 @@
 <div class="header">
   <div class="header-left">
     <h1>🏠 HASSAI Bridge</h1>
-    <span class="badge">v2.0</span>
+    <span class="badge" id="versionBadge">v0.1.0-beta</span>
   </div>
   <div class="header-right" id="statusBadges">
     <span class="status err" id="statusLM"><span class="status-dot"></span> LMStudio</span>
@@ -22,6 +22,7 @@
 <div class="container">
   <div class="tabs">
     <div class="tab active" data-panel="info">📊 Info</div>
+    <div class="tab" data-panel="conversations">💬 Conversații</div>
     <div class="tab" data-panel="settings">⚙️ Setări</div>
     <div class="tab" data-panel="users">👥 Utilizatori</div>
   </div>
@@ -123,6 +124,36 @@
 
     <div class="btn-row">
       <button class="btn btn-success" onclick="refreshInfo()">🔄 Reîmprospătează</button>
+      <button class="btn btn-danger" onclick="restartServer()">🔁 Restart Server</button>
+    </div>
+  </div>
+
+  <!-- ════════════ CONVERSATIONS ════════════ -->
+  <div class="panel" id="conversations">
+    <div class="card">
+      <h2><span class="icon">👤</span> Selectează Utilizator</h2>
+      <div style="display:flex;gap:8px;align-items:end">
+        <div style="flex:1">
+          <label>Utilizator</label>
+          <select id="convUserSelect" onchange="loadConversations()">
+            <option value="">— Alege —</option>
+          </select>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="refreshConvUsers()">🔄</button>
+      </div>
+    </div>
+
+    <div class="card" id="convSessionsCard" style="display:none">
+      <h2><span class="icon">📋</span> Sesiuni de Conversație</h2>
+      <div id="convSessionsList" class="conv-sessions-list"></div>
+    </div>
+
+    <div class="card" id="convMessagesCard" style="display:none">
+      <h2>
+        <span class="icon">💬</span> Mesaje
+        <button class="btn btn-sm" onclick="closeConvMessages()" style="margin-left:auto">✕ Închide</button>
+      </h2>
+      <div id="convMessagesList" class="conv-messages-list"></div>
     </div>
   </div>
 
@@ -133,7 +164,12 @@
       <label>URL Server</label>
       <input type="text" id="lmUrl" placeholder="http://localhost:1234">
       <label>Model</label>
-      <input type="text" id="lmModel" placeholder="default">
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="lmModel" style="flex:1">
+          <option value="default">default</option>
+        </select>
+        <button class="btn btn-sm btn-primary" onclick="refreshModelList()" title="Reîncarcă modele">🔄</button>
+      </div>
       <label>Timeout (secunde)</label>
       <input type="number" id="lmTimeout" value="120" min="10" max="600">
       <label>Max Tokens</label>
@@ -188,6 +224,19 @@
 
     <div class="card">      <h2><span class="icon">�📝</span> System Prompt</h2>
       <textarea id="systemPrompt" rows="4"></textarea>
+    </div>
+
+    <div class="card">
+      <h2><span class="icon">💾</span> Backup / Restaurare</h2>
+      <p class="card-muted">Descarcă o copie a bazei de date sau restaurează din backup.
+        Restaurarea înlocuiește toate datele existente!</p>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="downloadBackup()">📥 Descarcă Backup</button>
+        <label class="btn btn-success" style="cursor:pointer">
+          📤 Restaurează
+          <input type="file" accept=".db" onchange="uploadRestore(this)" style="display:none">
+        </label>
+      </div>
     </div>
 
     <div class="btn-row">

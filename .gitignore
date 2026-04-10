@@ -13,6 +13,7 @@ venv/
 # Data (generated at runtime)
 data/config.json
 data/hassai.db
+.restart_trigger
 data/hassai.db-wal
 data/hassai.db-shm
 

@@ -1,7 +1,10 @@
 import json
+import os
 import time
 import uuid
 from pathlib import Path
+
+VERSION = "v0.1.0-beta"
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 CONFIG_FILE = DATA_DIR / "config.json"
@@ -75,6 +78,9 @@ def load_config() -> dict:
         cfg = _deep_merge(DEFAULT_CONFIG, {})
         mtime = 0.0
 
+    # Apply environment variable overrides
+    _apply_env_overrides(cfg)
+
     # Auto-generate API key if missing
     if not cfg.get("api_key"):
         cfg["api_key"] = _generate_api_key()
@@ -84,6 +90,48 @@ def load_config() -> dict:
     _config_cache = cfg
     _config_mtime = mtime
     return cfg
+
+
+def _apply_env_overrides(cfg: dict):
+    """Override config values with environment variables (HASSAI_ prefix)."""
+    env_map = {
+        "HASSAI_API_KEY": ("api_key",),
+        "HASSAI_PORT": ("port",),
+        "HASSAI_LMSTUDIO_URL": ("lmstudio", "base_url"),
+        "HASSAI_LMSTUDIO_MODEL": ("lmstudio", "model"),
+        "HASSAI_LMSTUDIO_TIMEOUT": ("lmstudio", "timeout"),
+        "HASSAI_LMSTUDIO_MAX_TOKENS": ("lmstudio", "max_tokens"),
+        "HASSAI_SEARXNG_ENABLED": ("searxng", "enabled"),
+        "HASSAI_SEARXNG_URL": ("searxng", "base_url"),
+        "HASSAI_MEMORY_ENABLED": ("memory", "enabled"),
+        "HASSAI_SYSTEM_PROMPT": ("system_prompt",),
+        "HASSAI_KNOWLEDGE_CUTOFF": ("knowledge_cutoff",),
+    }
+    for env_var, path in env_map.items():
+        val = os.environ.get(env_var)
+        if val is None:
+            continue
+        # Navigate to nested key
+        target = cfg
+        for key in path[:-1]:
+            target = target.setdefault(key, {})
+        final_key = path[-1]
+        # Type coercion based on existing value type
+        existing = target.get(final_key)
+        if isinstance(existing, bool):
+            target[final_key] = val.lower() in ("true", "1", "yes")
+        elif isinstance(existing, int):
+            try:
+                target[final_key] = int(val)
+            except ValueError:
+                pass
+        elif isinstance(existing, float):
+            try:
+                target[final_key] = float(val)
+            except ValueError:
+                pass
+        else:
+            target[final_key] = val
 
 
 def save_config(config: dict):
