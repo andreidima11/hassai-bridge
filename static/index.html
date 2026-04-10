@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HASSAI Bridge</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1>🏠 HASSAI Bridge</h1>
+    <span class="badge">v2.0</span>
+  </div>
+  <div class="header-right" id="statusBadges">
+    <span class="status err" id="statusLM"><span class="status-dot"></span> LMStudio</span>
+    <span class="status err" id="statusSX"><span class="status-dot"></span> SearXNG</span>
+  </div>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <div class="tab active" data-panel="info">📊 Info</div>
+    <div class="tab" data-panel="settings">⚙️ Setări</div>
+    <div class="tab" data-panel="users">👥 Utilizatori</div>
+  </div>
+
+  <!-- ════════════ INFO ════════════ -->
+  <div class="panel active" id="info">
+
+    <!-- Status services -->
+    <div class="card">
+      <h2><span class="icon">🔌</span> Status Servicii</h2>
+      <div class="services-grid" id="servicesGrid">
+        <div class="service-card" id="svcLMStudio">
+          <div class="svc-icon">🤖</div>
+          <div class="svc-name">LMStudio</div>
+          <div class="svc-status loading">Se verifică...</div>
+          <div class="svc-detail" id="svcLMDetail">—</div>
+        </div>
+        <div class="service-card" id="svcSearXNG">
+          <div class="svc-icon">🌐</div>
+          <div class="svc-name">SearXNG</div>
+          <div class="svc-status loading">Se verifică...</div>
+          <div class="svc-detail" id="svcSXDetail">—</div>
+        </div>
+        <div class="service-card" id="svcMemory">
+          <div class="svc-icon">🧠</div>
+          <div class="svc-name">Memorie AI</div>
+          <div class="svc-status loading">Se verifică...</div>
+          <div class="svc-detail" id="svcMemDetail">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- System stats -->
+    <div class="card">
+      <h2><span class="icon">📈</span> Statistici Sistem</h2>
+      <div class="info-stats-grid" id="infoStatsGrid">
+        <div class="info-stat">
+          <div class="info-stat-num" id="statUptime">—</div>
+          <div class="info-stat-lbl">Uptime</div>
+        </div>
+        <div class="info-stat">
+          <div class="info-stat-num" id="statUsers">—</div>
+          <div class="info-stat-lbl">Utilizatori</div>
+        </div>
+        <div class="info-stat">
+          <div class="info-stat-num" id="statMemories">—</div>
+          <div class="info-stat-lbl">Total Memorii</div>
+        </div>
+        <div class="info-stat">
+          <div class="info-stat-num" id="statConversations">—</div>
+          <div class="info-stat-lbl">Mesaje</div>
+        </div>
+        <div class="info-stat">
+          <div class="info-stat-num" id="statActions24h">—</div>
+          <div class="info-stat-lbl">Acțiuni (24h)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Endpoint API -->
+    <div class="card endpoint-card">
+      <h2><span class="icon">🔗</span> Conectare Home Assistant</h2>
+      <p class="card-muted">Folosește integrarea <strong>Ollama</strong> din Home Assistant. Introdu URL-ul și API Key-ul de mai jos.</p>
+      <div class="ha-setup-grid">
+        <div class="ha-setup-item">
+          <label>URL (pentru Ollama integration)</label>
+          <div class="endpoint-box">
+            <code id="apiEndpointOllama">http://localhost:8899</code>
+            <button class="btn btn-sm btn-primary" onclick="copyText('apiEndpointOllama')" title="Copiază">📋</button>
+          </div>
+        </div>
+        <div class="ha-setup-item">
+          <label>API Key</label>
+          <div class="endpoint-box">
+            <code id="apiKeyDisplay" class="api-key-blur">••••••••</code>
+            <button class="btn btn-sm" onclick="toggleApiKey()" id="btnToggleKey" title="Arată/Ascunde">👁️</button>
+            <button class="btn btn-sm btn-primary" onclick="copyText('apiKeyDisplay')" title="Copiază">📋</button>
+          </div>
+        </div>
+      </div>
+      <div class="endpoint-detail" style="margin-top:12px">
+        <span>OpenAI (alternativ):</span> <code id="apiEndpoint">http://localhost:8899/v1</code>
+      </div>
+      <div class="endpoint-detail">
+        <span>Chat Completions:</span> <code id="apiEndpointChat">http://localhost:8899/v1/chat/completions</code>
+      </div>
+      <div class="endpoint-detail">
+        <span>Models:</span> <code id="apiEndpointModels">http://localhost:8899/v1/models</code>
+      </div>
+    </div>
+
+    <!-- All endpoints -->
+    <div class="card">
+      <h2><span class="icon">📡</span> Endpointuri Disponibile</h2>
+      <div class="endpoints-table" id="endpointsTable">
+        <p class="card-muted">Se încarcă...</p>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-success" onclick="refreshInfo()">🔄 Reîmprospătează</button>
+    </div>
+  </div>
+
+  <!-- ════════════ SETTINGS ════════════ -->
+  <div class="panel" id="settings">
+    <div class="card">
+      <h2><span class="icon">🤖</span> LMStudio</h2>
+      <label>URL Server</label>
+      <input type="text" id="lmUrl" placeholder="http://localhost:1234">
+      <label>Model</label>
+      <input type="text" id="lmModel" placeholder="default">
+      <label>Timeout (secunde)</label>
+      <input type="number" id="lmTimeout" value="120" min="10" max="600">
+      <label>Max Tokens</label>
+      <input type="number" id="lmMaxTokens" value="2048" min="128" max="32768">
+      <label>Temperatură <span style="color:var(--muted);font-weight:normal">(0.0 = deterministic, 1.0 = creativ)</span></label>
+      <input type="number" id="lmTemperature" value="0.7" min="0" max="2" step="0.1">
+    </div>
+
+    <div class="card">
+      <h2><span class="icon">🌐</span> SearXNG — Căutare Web AI</h2>
+      <p class="card-muted">Când este activat, AI-ul decide singur când trebuie să caute pe internet, bazat pe knowledge cutoff date.</p>
+      <div class="toggle-row">
+        <span>Activat — AI poate căuta pe internet</span>
+        <label class="toggle"><input type="checkbox" id="sxEnabled"><span class="slider"></span></label>
+      </div>
+      <label>Knowledge Cutoff Date <span style="color:var(--muted);font-weight:normal">(luna până la care AI-ul are date de antrenament, ex: 2024-01)</span></label>
+      <input type="text" id="knowledgeCutoff" placeholder="2024-01">
+      <label>URL Server SearXNG</label>
+      <input type="text" id="sxUrl" placeholder="http://localhost:8080">
+      <label>Nr. maxim rezultate per căutare</label>
+      <input type="number" id="sxMaxResults" value="5" min="1" max="20">
+      <label>Caractere maxime per pagină</label>
+      <input type="number" id="sxMaxChars" value="4000" min="500" max="20000">
+      <label>Cache TTL (secunde) <span style="color:var(--muted);font-weight:normal">(cât timp rămân rezultatele în cache)</span></label>
+      <input type="number" id="sxCacheTtl" value="300" min="30" max="3600">
+    </div>
+
+    <div class="card">
+      <h2><span class="icon">🧠</span> Memorie AI</h2>
+      <p class="card-muted">Extracție automată de fapte din conversații, personalizare răspunsuri per utilizator.</p>
+      <div class="toggle-row">
+        <span>Memorie activată</span>
+        <label class="toggle"><input type="checkbox" id="memEnabled" checked><span class="slider"></span></label>
+      </div>
+      <div class="toggle-row">
+        <span>Extracție automată din conversații</span>
+        <label class="toggle"><input type="checkbox" id="memAutoExtract" checked><span class="slider"></span></label>
+      </div>
+      <label>Memorii maxime per utilizator</label>
+      <input type="number" id="memMax" value="500" min="10" max="2000">
+    </div>
+
+    <div class="card">      <h2><span class="icon">⚡</span> Performanță</h2>
+      <p class="card-muted">Optimizări pentru timp de răspuns mai rapid.</p>
+      <label>Limită istoric conversații <span style="color:var(--muted);font-weight:normal">(câte mesaje din istoric se trimit la LLM)</span></label>
+      <input type="number" id="perfHistoryLimit" value="10" min="2" max="50">
+      <div class="toggle-row">
+        <span>Fetch pagini web în paralel</span>
+        <label class="toggle"><input type="checkbox" id="perfParallelFetch" checked><span class="slider"></span></label>
+      </div>
+    </div>
+
+    <div class="card">      <h2><span class="icon">�📝</span> System Prompt</h2>
+      <textarea id="systemPrompt" rows="4"></textarea>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" onclick="saveSettings()">💾 Salvează</button>
+      <button class="btn btn-success" onclick="checkHealth()">🔄 Verifică Conexiune</button>
+    </div>
+  </div>
+
+  <!-- ════════════ USERS ════════════ -->
+  <div class="panel" id="users">
+
+    <!-- Add user + default user -->
+    <div class="card">
+      <h2><span class="icon">➕</span> Utilizator Nou</h2>
+      <div style="display:flex;gap:8px;align-items:end">
+        <div style="flex:1">
+          <label>Nume utilizator</label>
+          <input type="text" id="newUserName" placeholder="ex: maria">
+        </div>
+        <button class="btn btn-primary" onclick="addUser()">🔑 Generează API Key</button>
+      </div>
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+        <div style="display:flex;gap:8px;align-items:center">
+          <label style="margin:0;white-space:nowrap">Utilizator implicit:</label>
+          <input type="text" id="defaultUserInput" placeholder="ex: andrei" style="flex:1">
+          <button class="btn btn-sm btn-primary" onclick="saveDefaultUser()">💾</button>
+        </div>
+        <p class="card-muted" style="margin-top:4px;font-size:.78rem">Folosit când Home Assistant nu trimite informații despre utilizator.</p>
+      </div>
+    </div>
+
+    <!-- User cards -->
+    <div id="userCardsList">
+      <p class="card-muted" style="padding:12px">Se încarcă...</p>
+    </div>
+
+  </div>
+</div>
+
+<!-- ════════════ USER MEMORY MODAL ════════════ -->
+<div class="modal-overlay" id="userModal" onclick="if(event.target===this)closeUserModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <div class="modal-avatar">👤</div>
+        <div>
+          <h2 id="selectedUserName">—</h2>
+          <span class="modal-subtitle">Memorii și configurare utilizator</span>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeUserModal()" title="Închide">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <!-- Stats -->
+      <div class="modal-section">
+        <div class="stat-grid" id="statsGrid"></div>
+      </div>
+
+      <!-- Add memory -->
+      <div class="modal-section">
+        <h3>➕ Adaugă Memorie</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <label>Categorie</label>
+            <select id="newMemCat">
+              <option value="personal_info">👤 Personal Info</option>
+              <option value="preferences">🎨 Preferences</option>
+              <option value="home_setup">🏠 Home Setup</option>
+              <option value="facts" selected>📌 Facts</option>
+              <option value="instructions">📋 Instructions</option>
+              <option value="context">🔄 Context</option>
+            </select>
+          </div>
+          <div>
+            <label>Importanță (1-5)</label>
+            <input type="number" id="newMemImp" value="3" min="1" max="5">
+          </div>
+        </div>
+        <label>Conținut</label>
+        <textarea id="newMemContent" rows="2" placeholder="Ex: Preferă răspunsuri în limba română..."></textarea>
+        <label>Cuvinte cheie (virgulă)</label>
+        <input type="text" id="newMemKeywords" placeholder="limbă, română, preferință">
+        <div class="btn-row">
+          <button class="btn btn-primary btn-sm" onclick="addMemory()">➕ Adaugă</button>
+        </div>
+      </div>
+
+      <!-- Memories list -->
+      <div class="modal-section">
+        <h3>📋 Lista Memoriilor</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <button class="btn btn-sm btn-primary filter-btn active" onclick="filterMemories('all',this)">Toate</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('personal_info',this)">👤</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('preferences',this)">🎨</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('home_setup',this)">🏠</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('facts',this)">📌</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('instructions',this)">📋</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('context',this)">🔄</button>
+        </div>
+        <div class="mem-list" id="memList"></div>
+        <div class="btn-row">
+          <button class="btn btn-primary btn-sm" onclick="consolidateMemories()">🔄 Consolidare AI</button>
+          <button class="btn btn-danger btn-sm" onclick="clearUserMemories()">🗑️ Șterge Tot</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-danger" onclick="deleteUserFull()">🗑️ Șterge Utilizator</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

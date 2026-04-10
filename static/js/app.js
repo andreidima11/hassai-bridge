@@ -1,0 +1,520 @@
+// ── HASSAI Bridge v2 — Frontend ──
+
+const API = '';
+
+// ── Tabs ──
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.panel).classList.add('active');
+  });
+});
+
+// ── Toast ──
+function toast(msg, isError = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 3000);
+}
+
+// ── API helpers ──
+async function api(method, path, body = null) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const resp = await fetch(API + path, opts);
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// ══════════════════════════════════════════════════
+// INFO TAB
+// ══════════════════════════════════════════════════
+
+function formatUptime(seconds) {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}z ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function updateEndpointDisplay(ip, port) {
+  const base = ip && port ? `http://${ip}:${port}` : `${window.location.protocol}//${window.location.host}`;
+  document.getElementById('apiEndpointOllama').textContent = base;
+  document.getElementById('apiEndpoint').textContent = `${base}/v1`;
+  document.getElementById('apiEndpointChat').textContent = `${base}/v1/chat/completions`;
+  document.getElementById('apiEndpointModels').textContent = `${base}/v1/models`;
+}
+
+let _apiKeyVisible = false;
+let _apiKeyValue = '';
+
+function toggleApiKey() {
+  _apiKeyVisible = !_apiKeyVisible;
+  const el = document.getElementById('apiKeyDisplay');
+  if (_apiKeyVisible && _apiKeyValue) {
+    el.textContent = _apiKeyValue;
+    el.classList.remove('api-key-blur');
+  } else {
+    el.textContent = '••••••••••••••••';
+    el.classList.add('api-key-blur');
+  }
+}
+
+function copyText(elementId) {
+  const el = document.getElementById(elementId);
+  let text = el.textContent;
+  // If it's the API key and hidden, copy the real value
+  if (elementId === 'apiKeyDisplay' && !_apiKeyVisible && _apiKeyValue) {
+    text = _apiKeyValue;
+  }
+  navigator.clipboard.writeText(text).then(() => toast('Copiat!')).catch(() => {
+    const ta = document.createElement('textarea'); ta.value = text;
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta); toast('Copiat!');
+  });
+}
+
+async function loadSystemInfo() {
+  try {
+    const info = await api('GET', '/api/settings/info');
+
+    // Services status
+    const lm = info.services.lmstudio;
+    const sx = info.services.searxng;
+    const mem = info.services.memory;
+
+    const lmCard = document.getElementById('svcLMStudio');
+    const sxCard = document.getElementById('svcSearXNG');
+    const memCard = document.getElementById('svcMemory');
+
+    // LMStudio
+    const lmOnline = lm.status === 'connected';
+    lmCard.className = 'service-card ' + (lmOnline ? 'online' : 'offline');
+    lmCard.querySelector('.svc-status').className = 'svc-status ' + (lmOnline ? 'online' : 'offline');
+    lmCard.querySelector('.svc-status').textContent = lmOnline ? 'Conectat' : 'Indisponibil';
+    document.getElementById('svcLMDetail').textContent = `${lm.url} — ${lm.model}`;
+
+    // SearXNG
+    const sxOnline = sx.status === 'connected';
+    sxCard.className = 'service-card ' + (sx.enabled ? (sxOnline ? 'online' : 'offline') : '');
+    const sxStatusEl = sxCard.querySelector('.svc-status');
+    if (!sx.enabled) {
+      sxStatusEl.className = 'svc-status disabled';
+      sxStatusEl.textContent = 'Dezactivat';
+    } else {
+      sxStatusEl.className = 'svc-status ' + (sxOnline ? 'online' : 'offline');
+      sxStatusEl.textContent = sxOnline ? 'Conectat' : 'Indisponibil';
+    }
+    document.getElementById('svcSXDetail').textContent = sx.url;
+
+    // Memory
+    memCard.className = 'service-card ' + (mem.enabled ? 'online' : '');
+    const memStatusEl = memCard.querySelector('.svc-status');
+    if (mem.enabled) {
+      memStatusEl.className = 'svc-status online';
+      memStatusEl.textContent = mem.auto_extract ? 'Activ + Auto-extracție' : 'Activ';
+    } else {
+      memStatusEl.className = 'svc-status disabled';
+      memStatusEl.textContent = 'Dezactivat';
+    }
+    document.getElementById('svcMemDetail').textContent = `${info.stats.total_memories} memorii stocate`;
+
+    // Header badges
+    document.getElementById('statusLM').className = 'status ' + (lmOnline ? 'ok' : 'err');
+    document.getElementById('statusSX').className = 'status ' + (sx.enabled && sxOnline ? 'ok' : 'err');
+
+    // Stats
+    document.getElementById('statUptime').textContent = formatUptime(info.uptime_seconds);
+    document.getElementById('statUsers').textContent = info.stats.total_users;
+    document.getElementById('statMemories').textContent = info.stats.total_memories;
+    document.getElementById('statConversations').textContent = info.stats.total_conversations;
+    document.getElementById('statActions24h').textContent = info.stats.actions_last_24h;
+
+    // API Key
+    if (info.api_key) {
+      _apiKeyValue = info.api_key;
+    }
+
+    // Update endpoints with real LAN IP
+    updateEndpointDisplay(info.local_ip, info.port);
+
+    // Endpoints table
+    const table = document.getElementById('endpointsTable');
+    table.innerHTML = info.endpoints.map(ep => `
+      <div class="ep-row">
+        <span class="ep-method ${ep.method.toLowerCase()}">${escapeHtml(ep.method)}</span>
+        <span class="ep-path">${escapeHtml(ep.path)}</span>
+        <span class="ep-desc">${escapeHtml(ep.description)}</span>
+      </div>
+    `).join('');
+
+  } catch (e) {
+    toast('Eroare la încărcarea info: ' + e.message, true);
+  }
+}
+
+function refreshInfo() {
+  loadSystemInfo();
+  toast('Info reîmprospătat!');
+}
+
+// ══════════════════════════════════════════════════
+// SETTINGS
+// ══════════════════════════════════════════════════
+
+async function loadSettings() {
+  try {
+    const cfg = await api('GET', '/api/settings/');
+    document.getElementById('lmUrl').value = cfg.lmstudio.base_url;
+    document.getElementById('lmModel').value = cfg.lmstudio.model;
+    document.getElementById('lmTimeout').value = cfg.lmstudio.timeout;
+    document.getElementById('lmMaxTokens').value = cfg.lmstudio.max_tokens || 2048;
+    document.getElementById('lmTemperature').value = cfg.lmstudio.temperature ?? 0.7;
+    document.getElementById('sxEnabled').checked = cfg.searxng.enabled;
+    document.getElementById('knowledgeCutoff').value = cfg.knowledge_cutoff || '';
+    document.getElementById('sxUrl').value = cfg.searxng.base_url;
+    document.getElementById('sxMaxResults').value = cfg.searxng.max_results;
+    document.getElementById('sxMaxChars').value = cfg.searxng.max_page_chars;
+    document.getElementById('sxCacheTtl').value = cfg.searxng.cache_ttl || 300;
+    document.getElementById('memEnabled').checked = cfg.memory.enabled;
+    document.getElementById('memAutoExtract').checked = cfg.memory.auto_extract;
+    document.getElementById('memMax').value = cfg.memory.max_memories_per_user;
+    const perf = cfg.performance || {};
+    document.getElementById('perfHistoryLimit').value = perf.history_limit || 10;
+    document.getElementById('perfParallelFetch').checked = perf.parallel_page_fetch !== false;
+    document.getElementById('systemPrompt').value = cfg.system_prompt || '';
+  } catch (e) {
+    toast('Eroare la încărcarea setărilor: ' + e.message, true);
+  }
+}
+
+async function saveSettings() {
+  try {
+    await api('PUT', '/api/settings/', {
+      lmstudio: {
+        base_url: document.getElementById('lmUrl').value,
+        model: document.getElementById('lmModel').value,
+        timeout: parseInt(document.getElementById('lmTimeout').value),
+        max_tokens: parseInt(document.getElementById('lmMaxTokens').value),
+        temperature: parseFloat(document.getElementById('lmTemperature').value),
+      },
+      searxng: {
+        enabled: document.getElementById('sxEnabled').checked,
+        base_url: document.getElementById('sxUrl').value,
+        max_results: parseInt(document.getElementById('sxMaxResults').value),
+        max_page_chars: parseInt(document.getElementById('sxMaxChars').value),
+        cache_ttl: parseInt(document.getElementById('sxCacheTtl').value),
+      },
+      memory: {
+        enabled: document.getElementById('memEnabled').checked,
+        auto_extract: document.getElementById('memAutoExtract').checked,
+        max_memories_per_user: parseInt(document.getElementById('memMax').value),
+      },
+      performance: {
+        history_limit: parseInt(document.getElementById('perfHistoryLimit').value),
+        parallel_page_fetch: document.getElementById('perfParallelFetch').checked,
+      },
+      system_prompt: document.getElementById('systemPrompt').value,
+      knowledge_cutoff: document.getElementById('knowledgeCutoff').value,
+    });
+    toast('Setări salvate!');
+    loadSystemInfo(); // refresh info panel
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+async function checkHealth() {
+  try {
+    const h = await api('GET', '/api/settings/health');
+    document.getElementById('statusLM').className = 'status ' + (h.lmstudio === 'connected' ? 'ok' : 'err');
+    document.getElementById('statusSX').className = 'status ' + (h.searxng === 'connected' ? 'ok' : 'err');
+    toast(`LMStudio: ${h.lmstudio} | SearXNG: ${h.searxng}`);
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+// ══════════════════════════════════════════════════
+// USERS + MEMORY
+// ══════════════════════════════════════════════════
+
+let _selectedUser = null;
+let allMemories = [];
+
+const catLabels = {
+  personal_info: '👤 Personal Info',
+  preferences: '🎨 Preferences',
+  home_setup: '🏠 Home Setup',
+  facts: '📌 Facts',
+  instructions: '📋 Instructions',
+  context: '🔄 Context',
+};
+
+async function loadUsersTab() {
+  try {
+    const [cfg, memUsers] = await Promise.all([
+      api('GET', '/api/settings/'),
+      api('GET', '/api/memory/users'),
+    ]);
+    const users = cfg.users || {};
+    const apiKeys = users.api_keys || {};
+    document.getElementById('defaultUserInput').value = users.default_user || '';
+
+    // Merge configured users + users with memories
+    const userMap = {};
+    for (const [key, name] of Object.entries(apiKeys)) {
+      if (!userMap[name]) userMap[name] = { keys: [], hasMemories: false };
+      userMap[name].keys.push(key);
+    }
+    for (const u of (memUsers.users || [])) {
+      if (!userMap[u]) userMap[u] = { keys: [], hasMemories: true };
+      else userMap[u].hasMemories = true;
+    }
+
+    const container = document.getElementById('userCardsList');
+    const names = Object.keys(userMap);
+    if (names.length === 0) {
+      container.innerHTML = '<div class="card"><p class="card-muted">Niciun utilizator configurat. Adaugă unul mai sus.</p></div>';
+      return;
+    }
+
+    container.innerHTML = names.map(name => {
+      const info = userMap[name];
+      const isSelected = _selectedUser === name;
+      const keyHtml = info.keys.length
+        ? '<code>' + escapeHtml(info.keys[0]) + '</code>'
+        : '<span class="no-key">fără API key</span>';
+      const actionsHtml = info.keys.length
+        ? `<button class="btn btn-sm" onclick="event.stopPropagation();copyUserKey('${escapeHtml(info.keys[0])}')" title="Copiază API Key">📋</button>
+           <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteUser('${escapeHtml(name)}')" title="Șterge">🗑️</button>`
+        : '';
+      return `
+        <div class="user-card ${isSelected ? 'selected' : ''}" onclick="selectUser('${escapeHtml(name)}')">
+          <div class="user-card-main">
+            <div class="user-avatar">👤</div>
+            <div class="user-info">
+              <div class="user-name">${escapeHtml(name)}</div>
+              <div class="user-key">${keyHtml}</div>
+            </div>
+          </div>
+          <div class="user-actions">${actionsHtml}</div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    toast('Eroare la încărcarea utilizatorilor: ' + e.message, true);
+  }
+}
+
+async function addUser() {
+  const name = document.getElementById('newUserName').value.trim();
+  if (!name) { toast('Introdu un nume de utilizator', true); return; }
+  try {
+    const result = await api('POST', '/api/settings/users', { username: name });
+    document.getElementById('newUserName').value = '';
+    toast(`Utilizator "${result.username}" creat!`);
+    loadUsersTab();
+  } catch (e) {
+    if (e.message.includes('409')) toast('Utilizatorul există deja', true);
+    else toast('Eroare: ' + e.message, true);
+  }
+}
+
+async function deleteUser(username) {
+  if (!confirm(`Ștergi utilizatorul "${username}", API key-ul și TOATE memoriile asociate?\n\nAceastă acțiune este ireversibilă!`)) return;
+  try {
+    // Delete all memories first, then the user
+    try { await api('DELETE', `/api/memory/user/${encodeURIComponent(username)}`); } catch(e) { /* no memories */ }
+    await api('DELETE', `/api/settings/users/${encodeURIComponent(username)}`);
+    toast(`Utilizator "${username}" șters complet`);
+    if (_selectedUser === username) closeUserModal();
+    loadUsersTab();
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+async function deleteUserFull() {
+  if (!_selectedUser) return;
+  deleteUser(_selectedUser);
+}
+
+async function saveDefaultUser() {
+  const name = document.getElementById('defaultUserInput').value.trim();
+  try {
+    await api('PUT', '/api/settings/users/default', { username: name });
+    toast('Utilizator implicit salvat!');
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+function copyUserKey(key) {
+  navigator.clipboard.writeText(key).then(() => toast('API Key copiat!')).catch(() => {
+    const ta = document.createElement('textarea'); ta.value = key;
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta); toast('API Key copiat!');
+  });
+}
+
+async function selectUser(username) {
+  _selectedUser = username;
+  document.getElementById('selectedUserName').textContent = username;
+  const overlay = document.getElementById('userModal');
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  document.querySelectorAll('.user-card').forEach(c => {
+    c.classList.toggle('selected', c.querySelector('.user-name')?.textContent === username);
+  });
+  await Promise.all([loadStats(username), loadMemories(username)]);
+}
+
+function closeUserModal() {
+  _selectedUser = null;
+  const overlay = document.getElementById('userModal');
+  overlay.classList.remove('open');
+  document.body.style.overflow = '';
+  document.querySelectorAll('.user-card').forEach(c => c.classList.remove('selected'));
+}
+const deselectUser = closeUserModal;
+
+// Close modal on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('userModal').classList.contains('open')) {
+    closeUserModal();
+  }
+});
+
+// ── Memory functions ──
+
+async function loadStats(userId) {
+  try {
+    const stats = await api('GET', `/api/memory/stats/${encodeURIComponent(userId)}`);
+    const grid = document.getElementById('statsGrid');
+    let html = `<div class="stat-card"><div class="num">${stats.total}</div><div class="lbl">Total</div></div>`;
+    for (const [cat, count] of Object.entries(stats.by_category || {})) {
+      html += `<div class="stat-card"><div class="num">${count}</div><div class="lbl">${catLabels[cat] || cat}</div></div>`;
+    }
+    grid.innerHTML = html;
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+async function loadMemories(userId) {
+  if (!userId) userId = _selectedUser;
+  if (!userId) return;
+  try {
+    const data = await api('GET', `/api/memory/${encodeURIComponent(userId)}?limit=200`);
+    allMemories = data.memories || [];
+    renderMemories(allMemories);
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+function renderMemories(memories) {
+  const list = document.getElementById('memList');
+  if (!memories.length) {
+    list.innerHTML = '<p style="color:var(--muted);font-size:.9rem">Nicio memorie.</p>';
+    return;
+  }
+  list.innerHTML = memories.map(m => {
+    const stars = '★'.repeat(m.importance) + '☆'.repeat(5 - m.importance);
+    const date = new Date(m.created_at * 1000).toLocaleDateString('ro-RO');
+    const accessed = m.access_count > 0 ? `accesată de ${m.access_count}x` : 'neaccesată';
+    return `
+      <div class="mem-item" data-cat="${m.category}">
+        <div class="mem-content">
+          <span class="mem-badge cat-${m.category}">${catLabels[m.category] || m.category}</span>
+          <span class="importance-stars" title="Importanță: ${m.importance}/5">${stars}</span>
+          <div style="margin-top:6px">${escapeHtml(m.content)}</div>
+          <div class="mem-meta">
+            <span>📅 ${date}</span>
+            <span>📊 ${accessed}</span>
+            <span>🏷️ ${escapeHtml(m.keywords || '-')}</span>
+            <span>📥 ${m.source}</span>
+          </div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="deleteMemory(${m.id})">🗑️</button>
+      </div>`;
+  }).join('');
+}
+
+function filterMemories(cat, btn) {
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderMemories(cat === 'all' ? allMemories : allMemories.filter(m => m.category === cat));
+}
+
+async function addMemory() {
+  if (!_selectedUser) { toast('Selectează un utilizator', true); return; }
+  const content = document.getElementById('newMemContent').value;
+  if (!content) { toast('Scrie conținutul', true); return; }
+  try {
+    await api('POST', '/api/memory/', {
+      user_id: _selectedUser,
+      content,
+      category: document.getElementById('newMemCat').value,
+      keywords: document.getElementById('newMemKeywords').value,
+      importance: parseInt(document.getElementById('newMemImp').value),
+    });
+    document.getElementById('newMemContent').value = '';
+    document.getElementById('newMemKeywords').value = '';
+    toast('Memorie adăugată!');
+    await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+async function deleteMemory(id) {
+  try {
+    await api('DELETE', `/api/memory/${id}`);
+    toast('Memorie ștearsă');
+    if (_selectedUser) await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+async function clearUserMemories() {
+  if (!_selectedUser) return;
+  if (!confirm(`Ștergi TOATE memoriile pentru "${_selectedUser}"?`)) return;
+  try {
+    await api('DELETE', `/api/memory/user/${encodeURIComponent(_selectedUser)}`);
+    toast('Memorii șterse');
+    await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
+    loadUsersTab();
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+async function consolidateMemories() {
+  if (!_selectedUser) { toast('Selectează un utilizator', true); return; }
+  toast('Se consolidează...');
+  try {
+    await api('POST', `/api/memory/consolidate/${encodeURIComponent(_selectedUser)}`);
+    toast('Consolidare completă!');
+    await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+// ── Init ──
+loadSystemInfo();
+loadSettings();
+loadUsersTab();
