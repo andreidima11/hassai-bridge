@@ -50,8 +50,7 @@ function formatUptime(seconds) {
 
 function updateEndpointDisplay(ip, port) {
   const base = ip && port ? `http://${ip}:${port}` : `${window.location.protocol}//${window.location.host}`;
-  document.getElementById('apiEndpointOllama').textContent = base;
-  document.getElementById('apiEndpoint').textContent = `${base}/v1`;
+  document.getElementById('apiEndpoint').textContent = base;
   document.getElementById('apiEndpointChat').textContent = `${base}/v1/chat/completions`;
   document.getElementById('apiEndpointModels').textContent = `${base}/v1/models`;
 }
@@ -78,11 +77,31 @@ function copyText(elementId) {
   if (elementId === 'apiKeyDisplay' && !_apiKeyVisible && _apiKeyValue) {
     text = _apiKeyValue;
   }
-  navigator.clipboard.writeText(text).then(() => toast('Copiat!')).catch(() => {
-    const ta = document.createElement('textarea'); ta.value = text;
-    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-    document.body.removeChild(ta); toast('Copiat!');
-  });
+  // navigator.clipboard requires secure context (HTTPS or localhost).
+  // On LAN IPs (http://192.168.x.x) we must use the textarea fallback.
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => toast('Copiat!')).catch(() => _copyFallback(text));
+  } else {
+    _copyFallback(text);
+  }
+}
+
+function _copyFallback(text, msg) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.left = '-9999px';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try {
+    document.execCommand('copy');
+    toast(msg || 'Copiat!');
+  } catch (e) {
+    toast('Nu s-a putut copia');
+  }
+  document.body.removeChild(ta);
 }
 
 async function loadSystemInfo() {
@@ -302,12 +321,12 @@ let _selectedUser = null;
 let allMemories = [];
 
 const catLabels = {
-  personal_info: '👤 Personal Info',
-  preferences: '🎨 Preferences',
-  home_setup: '🏠 Home Setup',
-  facts: '📌 Facts',
-  instructions: '📋 Instructions',
-  context: '🔄 Context',
+  personal_info: 'Personal Info',
+  preferences: 'Preferences',
+  home_setup: 'Home Setup',
+  facts: 'Facts',
+  instructions: 'Instructions',
+  context: 'Context',
 };
 
 async function loadUsersTab() {
@@ -345,13 +364,13 @@ async function loadUsersTab() {
         ? '<code>' + escapeHtml(info.keys[0]) + '</code>'
         : '<span class="no-key">fără API key</span>';
       const actionsHtml = info.keys.length
-        ? `<button class="btn btn-sm" onclick="event.stopPropagation();copyUserKey('${escapeHtml(info.keys[0])}')" title="Copiază API Key">📋</button>
-           <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteUser('${escapeHtml(name)}')" title="Șterge">🗑️</button>`
+        ? `<button class="btn btn-sm" onclick="event.stopPropagation();copyUserKey('${escapeHtml(info.keys[0])}')" title="Copiază API Key">Copiază</button>
+           <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteUser('${escapeHtml(name)}')" title="Șterge">Șterge</button>`
         : '';
       return `
         <div class="user-card ${isSelected ? 'selected' : ''}" onclick="selectUser('${escapeHtml(name)}')">
           <div class="user-card-main">
-            <div class="user-avatar">👤</div>
+            <div class="user-avatar">${escapeHtml(name.substring(0,2).toUpperCase())}</div>
             <div class="user-info">
               <div class="user-name">${escapeHtml(name)}</div>
               <div class="user-key">${keyHtml}</div>
@@ -409,11 +428,11 @@ async function saveDefaultUser() {
 }
 
 function copyUserKey(key) {
-  navigator.clipboard.writeText(key).then(() => toast('API Key copiat!')).catch(() => {
-    const ta = document.createElement('textarea'); ta.value = key;
-    document.body.appendChild(ta); ta.select(); document.execCommand('copy');
-    document.body.removeChild(ta); toast('API Key copiat!');
-  });
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(key).then(() => toast('API Key copiat!')).catch(() => _copyFallback(key, 'API Key copiat!'));
+  } else {
+    _copyFallback(key, 'API Key copiat!');
+  }
 }
 
 async function selectUser(username) {
@@ -489,13 +508,13 @@ function renderMemories(memories) {
           <span class="importance-stars" title="Importanță: ${m.importance}/5">${stars}</span>
           <div style="margin-top:6px">${escapeHtml(m.content)}</div>
           <div class="mem-meta">
-            <span>📅 ${date}</span>
-            <span>📊 ${accessed}</span>
-            <span>🏷️ ${escapeHtml(m.keywords || '-')}</span>
-            <span>📥 ${m.source}</span>
+            <span>${date}</span>
+            <span>Accesat: ${accessed}</span>
+            <span>${escapeHtml(m.keywords || '-')}</span>
+            <span>${m.source}</span>
           </div>
         </div>
-        <button class="btn btn-danger btn-sm" onclick="deleteMemory(${m.id})">🗑️</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteMemory(${m.id})">Șterge</button>
       </div>`;
   }).join('');
 }
@@ -567,7 +586,6 @@ async function restartServer() {
   try {
     await api('POST', '/api/settings/restart');
     toast('Serverul se restartează...');
-    // Wait and reload page
     setTimeout(() => {
       const check = setInterval(async () => {
         try {
@@ -582,7 +600,206 @@ async function restartServer() {
   }
 }
 
+// ══════════════════════════════════════════════════
+// BACKUP / RESTORE
+// ══════════════════════════════════════════════════
+
+function downloadBackup() {
+  const a = document.createElement('a');
+  a.href = API + '/api/settings/backup';
+  a.download = 'hassai_backup.db';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  toast('Backup descărcat!');
+}
+
+async function uploadRestore(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (!confirm('Restaurarea înlocuiește TOATE datele existente!\n\nEști sigur?')) {
+    input.value = '';
+    return;
+  }
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const resp = await fetch(API + '/api/settings/restore/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    toast('Baza de date restaurată! Se reîncarcă...');
+    setTimeout(() => location.reload(), 1500);
+  } catch (e) {
+    toast('Eroare la restaurare: ' + e.message, true);
+  }
+  input.value = '';
+}
+
+// ══════════════════════════════════════════════════
+// CONVERSATIONS TAB
+// ══════════════════════════════════════════════════
+
+let _convUserId = '';
+let _convSessionId = '';
+
+async function refreshConvUsers() {
+  const select = document.getElementById('convUserSelect');
+  const prev = select.value;
+  try {
+    const [cfg, memData] = await Promise.all([
+      api('GET', '/api/settings/'),
+      api('GET', '/api/memory/users'),
+    ]);
+    const userSet = new Set();
+    const apiKeys = (cfg.users || {}).api_keys || {};
+    for (const name of Object.values(apiKeys)) userSet.add(name);
+    for (const u of (memData.users || [])) userSet.add(u);
+
+    select.innerHTML = '<option value="">— Alege —</option>';
+    for (const name of [...userSet].sort()) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+    if (prev && userSet.has(prev)) select.value = prev;
+    toast('Utilizatori reîncărcați!');
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+async function loadConversations() {
+  const userId = document.getElementById('convUserSelect').value;
+  const sessCard = document.getElementById('convSessionsCard');
+
+  if (!userId) {
+    sessCard.style.display = 'none';
+    return;
+  }
+
+  try {
+    const data = await api('GET', `/api/settings/conversations/${encodeURIComponent(userId)}`);
+    const sessions = data.sessions || [];
+    sessCard.style.display = '';
+
+    const list = document.getElementById('convSessionsList');
+    if (!sessions.length) {
+      list.innerHTML = '<p class="card-muted">Nicio conversație găsită pentru acest utilizator.</p>';
+      return;
+    }
+
+    list.innerHTML = sessions.map(s => {
+      const started = new Date(s.started_at * 1000);
+      const last = new Date(s.last_at * 1000);
+      const dateStr = started.toLocaleDateString('ro-RO', { day: '2-digit', month: 'short', year: 'numeric' });
+      const timeStr = started.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+      const lastTimeStr = last.toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit' });
+      const duration = Math.round((s.last_at - s.started_at) / 60);
+      const durationStr = duration < 1 ? '<1 min' : duration < 60 ? `${duration} min` : `${Math.floor(duration/60)}h ${duration%60}m`;
+      return `
+        <div class="conv-session-item" onclick="openConvSession('${escapeHtml(userId)}','${escapeHtml(s.session_id)}')">
+          <div class="conv-session-info">
+            <div class="conv-session-date">${dateStr} &nbsp; ${timeStr} — ${lastTimeStr}</div>
+            <div class="conv-session-meta">
+              <span>${s.message_count} mesaje</span>
+              <span>${durationStr}</span>
+            </div>
+          </div>
+          <div class="conv-session-arrow">›</div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    toast('Eroare la încărcarea conversațiilor: ' + e.message, true);
+  }
+}
+
+async function openConvSession(userId, sessionId) {
+  _convUserId = userId;
+  _convSessionId = sessionId;
+
+  const modal = document.getElementById('convModal');
+  const body = document.getElementById('convModalMessages');
+  body.innerHTML = '<p class="card-muted" style="text-align:center;padding:40px 0">Se încarcă...</p>';
+
+  // Open modal
+  modal.classList.add('open');
+  document.body.style.overflow = 'hidden';
+
+  try {
+    const data = await api('GET', `/api/settings/conversations/${encodeURIComponent(userId)}/${encodeURIComponent(sessionId)}`);
+    const messages = data.messages || [];
+
+    // Set header info
+    if (messages.length) {
+      const first = new Date(messages[0].created_at * 1000);
+      const last = new Date(messages[messages.length - 1].created_at * 1000);
+      document.getElementById('convModalTitle').textContent =
+        first.toLocaleDateString('ro-RO', { day: '2-digit', month: 'long', year: 'numeric' });
+      document.getElementById('convModalSubtitle').textContent =
+        `${messages.length} mesaje · ${first.toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit'})} — ${last.toLocaleTimeString('ro-RO', {hour:'2-digit',minute:'2-digit'})}`;
+    } else {
+      document.getElementById('convModalTitle').textContent = 'Conversație';
+      document.getElementById('convModalSubtitle').textContent = 'Niciun mesaj';
+    }
+
+    if (!messages.length) {
+      body.innerHTML = '<p class="card-muted" style="text-align:center;padding:40px 0">Niciun mesaj în această sesiune.</p>';
+      return;
+    }
+
+    body.innerHTML = messages.map(m => {
+      const time = new Date(m.created_at * 1000).toLocaleTimeString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const roleLabel = m.role === 'user' ? 'Utilizator' : m.role === 'assistant' ? 'Asistent' : m.role;
+      const content = escapeHtml(m.content).replace(/\n/g, '<br>');
+      return `
+        <div class="conv-msg conv-msg-${m.role}">
+          <div class="conv-msg-header">
+            <span class="conv-msg-role">${roleLabel}</span>
+            <span class="conv-msg-time">${time}</span>
+          </div>
+          <div class="conv-msg-content">${content}</div>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    body.innerHTML = `<p class="card-muted" style="text-align:center;padding:40px 0;color:var(--danger)">Eroare: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+function closeConvModal() {
+  document.getElementById('convModal').classList.remove('open');
+  document.body.style.overflow = '';
+  _convUserId = '';
+  _convSessionId = '';
+}
+
+async function deleteCurrentSession() {
+  if (!_convUserId || !_convSessionId) return;
+  if (!confirm('Ești sigur că vrei să ștergi această conversație?\n\nAceastă acțiune este ireversibilă!')) return;
+  try {
+    await api('DELETE', `/api/settings/conversations/${encodeURIComponent(_convUserId)}/${encodeURIComponent(_convSessionId)}`);
+    toast('Conversație ștearsă!');
+    closeConvModal();
+    loadConversations();
+  } catch (e) {
+    toast('Eroare: ' + e.message, true);
+  }
+}
+
+// Close conv modal on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('convModal').classList.contains('open')) {
+    closeConvModal();
+  }
+});
+
 // ── Init ──
 loadSystemInfo();
 loadSettings();
+refreshConvUsers();
 loadUsersTab();

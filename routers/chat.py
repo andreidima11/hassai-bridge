@@ -109,7 +109,6 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
             "⚙️ **Panou de Control:**\n\n"
             f"• **Web UI:** {base}\n"
             f"• **API (OpenAI):** {base}/v1\n"
-            f"• **API (Ollama):** {base}\n"
             f"• **Setări API:** {base}/api/settings/\n"
             f"• **Health Check:** {base}/api/settings/health"
         )
@@ -278,7 +277,7 @@ def _validate_api_key(request: Request):
     user_api_keys = cfg.get("users", {}).get("api_keys", {})
     valid_keys.update(user_api_keys.keys())
 
-    # Try Bearer token first (what HA Ollama sends)
+    # Try Bearer token first
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
         token = auth[7:].strip()
@@ -419,7 +418,14 @@ async def chat_completions(request: Request):
     # ── First LLM call ──
     # For non-streaming: check if LLM requests search, then re-prompt with results
     if not stream:
-        result = await lmstudio.chat_completion(augmented, model=model, tools=tools, tool_choice=tool_choice)
+        try:
+            result = await lmstudio.chat_completion(augmented, model=model, tools=tools, tool_choice=tool_choice)
+        except Exception as e:
+            log.error(f"LMStudio request failed: {e}")
+            return JSONResponse(
+                status_code=502,
+                content={"error": {"message": f"LMStudio error: {e}", "type": "upstream_error"}},
+            )
         try:
             assistant_content = result["choices"][0]["message"]["content"]
         except (KeyError, IndexError):

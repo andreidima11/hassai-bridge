@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from config import load_config, save_config
 from core.config import VERSION
-from database import get_db, get_all_users, get_conversation_sessions, get_session_messages
+from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session
 from services import lmstudio, searxng
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
@@ -160,8 +160,6 @@ async def system_info():
         "endpoints": [
             {"method": "POST", "path": "/v1/chat/completions", "description": "Chat Completions (OpenAI-compatible)"},
             {"method": "GET", "path": "/v1/models", "description": "List Models (OpenAI)"},
-            {"method": "GET", "path": "/api/tags", "description": "List Models (Ollama-compatible)"},
-            {"method": "POST", "path": "/api/chat", "description": "Chat (Ollama-compatible)"},
             {"method": "GET", "path": "/api/settings/", "description": "Get Settings"},
             {"method": "PUT", "path": "/api/settings/", "description": "Update Settings"},
             {"method": "GET", "path": "/api/settings/health", "description": "Health Check"},
@@ -211,6 +209,13 @@ async def get_session(user_id: str, session_id: str, limit: int = 100):
     """Get all messages in a conversation session."""
     messages = get_session_messages(user_id, session_id, limit)
     return {"user_id": user_id, "session_id": session_id, "messages": messages}
+
+
+@router.delete("/conversations/{user_id}/{session_id}")
+async def delete_session(user_id: str, session_id: str):
+    """Delete a conversation session."""
+    delete_conversation_session(user_id, session_id)
+    return {"status": "ok"}
 
 
 # ══════════════════════════════════════════════════

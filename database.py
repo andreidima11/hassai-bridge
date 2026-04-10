@@ -6,5 +6,5 @@ from core.database import (
     clear_memories, get_memory_stats, get_all_users, find_duplicate_memories,
     log_memory_action, add_conversation_message, get_conversation_history,
     get_conversation_sessions, get_session_messages,
-    clear_conversation, CATEGORIES, DB_PATH,
+    delete_conversation_session, clear_conversation, CATEGORIES, DB_PATH,
 )

@@ -4,7 +4,7 @@
 
 ## Funcționalități
 
-- **API compatibil OpenAI** (`/v1/chat/completions`) — se integrează direct cu Home Assistant (integrare Ollama/OpenAI)
+- **API compatibil OpenAI** (`/v1/chat/completions`) — se integrează direct cu Home Assistant prin [integrarea HASSAI Bridge](https://github.com/andreidima11/hassai-bridge-ha)
 - **Proxy LMStudio** — trimite requesturile către LMStudio local
 - **Memorie separată per utilizator** — fiecare utilizator HA are memorii proprii
 - **Căutare web SearXNG** — caută pe internet și preia conținut din pagini (ca ChatGPT)
@@ -22,7 +22,7 @@ Aplicația va rula pe **http://0.0.0.0:8899**
 
 ## Configurare Home Assistant
 
-În Home Assistant, adaugă integrarea **OpenAI** (sau **Ollama**) cu:
+În Home Assistant, adaugă integrarea **HASSAI Bridge** cu:
 
 - **URL**: `http://<IP_HASSAI_BRIDGE>:8899/v1`
 - **API Key**: orice valoare (nu se verifică)

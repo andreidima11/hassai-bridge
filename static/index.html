@@ -10,8 +10,8 @@
 
 <div class="header">
   <div class="header-left">
-    <h1>🏠 HASSAI Bridge</h1>
-    <span class="badge" id="versionBadge">v0.1.0-beta</span>
+    <h1>HASSAI Bridge</h1>
+    <span class="badge" id="versionBadge">v0.1.1-beta</span>
   </div>
   <div class="header-right" id="statusBadges">
     <span class="status err" id="statusLM"><span class="status-dot"></span> LMStudio</span>
@@ -21,10 +21,10 @@
 
 <div class="container">
   <div class="tabs">
-    <div class="tab active" data-panel="info">📊 Info</div>
-    <div class="tab" data-panel="conversations">💬 Conversații</div>
-    <div class="tab" data-panel="settings">⚙️ Setări</div>
-    <div class="tab" data-panel="users">👥 Utilizatori</div>
+    <div class="tab active" data-panel="info">Info</div>
+    <div class="tab" data-panel="conversations">Conversații</div>
+    <div class="tab" data-panel="settings">Setări</div>
+    <div class="tab" data-panel="users">Utilizatori</div>
   </div>
 
   <!-- ════════════ INFO ════════════ -->
@@ -32,22 +32,22 @@
 
     <!-- Status services -->
     <div class="card">
-      <h2><span class="icon">🔌</span> Status Servicii</h2>
+      <h2>Status Servicii</h2>
       <div class="services-grid" id="servicesGrid">
         <div class="service-card" id="svcLMStudio">
-          <div class="svc-icon">🤖</div>
+          <div class="svc-icon">LM</div>
           <div class="svc-name">LMStudio</div>
           <div class="svc-status loading">Se verifică...</div>
           <div class="svc-detail" id="svcLMDetail">—</div>
         </div>
         <div class="service-card" id="svcSearXNG">
-          <div class="svc-icon">🌐</div>
+          <div class="svc-icon">SX</div>
           <div class="svc-name">SearXNG</div>
           <div class="svc-status loading">Se verifică...</div>
           <div class="svc-detail" id="svcSXDetail">—</div>
         </div>
         <div class="service-card" id="svcMemory">
-          <div class="svc-icon">🧠</div>
+          <div class="svc-icon">AI</div>
           <div class="svc-name">Memorie AI</div>
           <div class="svc-status loading">Se verifică...</div>
           <div class="svc-detail" id="svcMemDetail">—</div>
@@ -57,7 +57,7 @@
 
     <!-- System stats -->
     <div class="card">
-      <h2><span class="icon">📈</span> Statistici Sistem</h2>
+      <h2>Statistici</h2>
       <div class="info-stats-grid" id="infoStatsGrid">
         <div class="info-stat">
           <div class="info-stat-num" id="statUptime">—</div>
@@ -84,29 +84,26 @@
 
     <!-- Endpoint API -->
     <div class="card endpoint-card">
-      <h2><span class="icon">🔗</span> Conectare Home Assistant</h2>
-      <p class="card-muted">Folosește integrarea <strong>Ollama</strong> din Home Assistant. Introdu URL-ul și API Key-ul de mai jos.</p>
+      <h2>Conectare Home Assistant</h2>
+      <p class="card-muted">Folosește integrarea <strong>HASSAI Bridge</strong> din Home Assistant. Introdu URL-ul și API Key-ul de mai jos.</p>
       <div class="ha-setup-grid">
         <div class="ha-setup-item">
-          <label>URL (pentru Ollama integration)</label>
+          <label>Base URL (pentru integrare)</label>
           <div class="endpoint-box">
-            <code id="apiEndpointOllama">http://localhost:8899</code>
-            <button class="btn btn-sm btn-primary" onclick="copyText('apiEndpointOllama')" title="Copiază">📋</button>
+            <code id="apiEndpoint">http://localhost:8899</code>
+            <button class="btn btn-sm btn-primary" onclick="copyText('apiEndpoint')" title="Copiază">Copiază</button>
           </div>
         </div>
         <div class="ha-setup-item">
           <label>API Key</label>
           <div class="endpoint-box">
             <code id="apiKeyDisplay" class="api-key-blur">••••••••</code>
-            <button class="btn btn-sm" onclick="toggleApiKey()" id="btnToggleKey" title="Arată/Ascunde">👁️</button>
-            <button class="btn btn-sm btn-primary" onclick="copyText('apiKeyDisplay')" title="Copiază">📋</button>
+            <button class="btn btn-sm" onclick="toggleApiKey()" id="btnToggleKey" title="Arată/Ascunde">Arată</button>
+            <button class="btn btn-sm btn-primary" onclick="copyText('apiKeyDisplay')" title="Copiază">Copiază</button>
           </div>
         </div>
       </div>
       <div class="endpoint-detail" style="margin-top:12px">
-        <span>OpenAI (alternativ):</span> <code id="apiEndpoint">http://localhost:8899/v1</code>
-      </div>
-      <div class="endpoint-detail">
         <span>Chat Completions:</span> <code id="apiEndpointChat">http://localhost:8899/v1/chat/completions</code>
       </div>
       <div class="endpoint-detail">
@@ -116,22 +113,22 @@
 
     <!-- All endpoints -->
     <div class="card">
-      <h2><span class="icon">📡</span> Endpointuri Disponibile</h2>
+      <h2>Endpointuri Disponibile</h2>
       <div class="endpoints-table" id="endpointsTable">
         <p class="card-muted">Se încarcă...</p>
       </div>
     </div>
 
     <div class="btn-row">
-      <button class="btn btn-success" onclick="refreshInfo()">🔄 Reîmprospătează</button>
-      <button class="btn btn-danger" onclick="restartServer()">🔁 Restart Server</button>
+      <button class="btn btn-success" onclick="refreshInfo()">Reîmprospătează</button>
+      <button class="btn btn-danger" onclick="restartServer()">Restart Server</button>
     </div>
   </div>
 
   <!-- ════════════ CONVERSATIONS ════════════ -->
   <div class="panel" id="conversations">
     <div class="card">
-      <h2><span class="icon">👤</span> Selectează Utilizator</h2>
+      <h2>Selectează Utilizator</h2>
       <div style="display:flex;gap:8px;align-items:end">
         <div style="flex:1">
           <label>Utilizator</label>
@@ -139,28 +136,42 @@
             <option value="">— Alege —</option>
           </select>
         </div>
-        <button class="btn btn-primary btn-sm" onclick="refreshConvUsers()">🔄</button>
+        <button class="btn btn-primary btn-sm" onclick="refreshConvUsers()">Reîncarcă</button>
       </div>
     </div>
 
     <div class="card" id="convSessionsCard" style="display:none">
-      <h2><span class="icon">📋</span> Sesiuni de Conversație</h2>
+      <h2>Sesiuni de Conversație</h2>
       <div id="convSessionsList" class="conv-sessions-list"></div>
     </div>
+  </div>
 
-    <div class="card" id="convMessagesCard" style="display:none">
-      <h2>
-        <span class="icon">💬</span> Mesaje
-        <button class="btn btn-sm" onclick="closeConvMessages()" style="margin-left:auto">✕ Închide</button>
-      </h2>
-      <div id="convMessagesList" class="conv-messages-list"></div>
+  <!-- ════════════ CONVERSATION MODAL ════════════ -->
+  <div class="modal-overlay" id="convModal" onclick="if(event.target===this)closeConvModal()">
+    <div class="modal" style="max-width:820px">
+      <div class="modal-header">
+        <div class="modal-title">
+          <div class="modal-avatar" style="background:linear-gradient(135deg,#6c5ce7,#4f8cff)"></div>
+          <div>
+            <h2 id="convModalTitle">Conversație</h2>
+            <span class="modal-subtitle" id="convModalSubtitle">—</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-danger btn-sm" onclick="deleteCurrentSession()" title="Șterge conversația">Șterge</button>
+          <button class="modal-close" onclick="closeConvModal()" title="Închide">✕</button>
+        </div>
+      </div>
+      <div class="modal-body" id="convModalBody">
+        <div id="convModalMessages"></div>
+      </div>
     </div>
   </div>
 
   <!-- ════════════ SETTINGS ════════════ -->
   <div class="panel" id="settings">
     <div class="card">
-      <h2><span class="icon">🤖</span> LMStudio</h2>
+      <h2>LMStudio</h2>
       <label>URL Server</label>
       <input type="text" id="lmUrl" placeholder="http://localhost:1234">
       <label>Model</label>
@@ -168,7 +179,7 @@
         <select id="lmModel" style="flex:1">
           <option value="default">default</option>
         </select>
-        <button class="btn btn-sm btn-primary" onclick="refreshModelList()" title="Reîncarcă modele">🔄</button>
+        <button class="btn btn-sm btn-primary" onclick="refreshModelList()" title="Reîncarcă modele">Reîncarcă</button>
       </div>
       <label>Timeout (secunde)</label>
       <input type="number" id="lmTimeout" value="120" min="10" max="600">
@@ -179,7 +190,7 @@
     </div>
 
     <div class="card">
-      <h2><span class="icon">🌐</span> SearXNG — Căutare Web AI</h2>
+      <h2>SearXNG — Căutare Web AI</h2>
       <p class="card-muted">Când este activat, AI-ul decide singur când trebuie să caute pe internet, bazat pe knowledge cutoff date.</p>
       <div class="toggle-row">
         <span>Activat — AI poate căuta pe internet</span>
@@ -198,7 +209,7 @@
     </div>
 
     <div class="card">
-      <h2><span class="icon">🧠</span> Memorie AI</h2>
+      <h2>Memorie AI</h2>
       <p class="card-muted">Extracție automată de fapte din conversații, personalizare răspunsuri per utilizator.</p>
       <div class="toggle-row">
         <span>Memorie activată</span>
@@ -212,7 +223,7 @@
       <input type="number" id="memMax" value="500" min="10" max="2000">
     </div>
 
-    <div class="card">      <h2><span class="icon">⚡</span> Performanță</h2>
+    <div class="card">      <h2>Performanță</h2>
       <p class="card-muted">Optimizări pentru timp de răspuns mai rapid.</p>
       <label>Limită istoric conversații <span style="color:var(--muted);font-weight:normal">(câte mesaje din istoric se trimit la LLM)</span></label>
       <input type="number" id="perfHistoryLimit" value="10" min="2" max="50">
@@ -222,26 +233,26 @@
       </div>
     </div>
 
-    <div class="card">      <h2><span class="icon">�📝</span> System Prompt</h2>
+    <div class="card">      <h2>System Prompt</h2>
       <textarea id="systemPrompt" rows="4"></textarea>
     </div>
 
     <div class="card">
-      <h2><span class="icon">💾</span> Backup / Restaurare</h2>
+      <h2>Backup / Restaurare</h2>
       <p class="card-muted">Descarcă o copie a bazei de date sau restaurează din backup.
         Restaurarea înlocuiește toate datele existente!</p>
       <div class="btn-row">
-        <button class="btn btn-primary" onclick="downloadBackup()">📥 Descarcă Backup</button>
-        <label class="btn btn-success" style="cursor:pointer">
-          📤 Restaurează
+        <button class="btn btn-primary btn-sm" onclick="downloadBackup()">Descarcă Backup</button>
+        <label class="btn btn-success btn-sm" style="cursor:pointer">
+          Restaurează
           <input type="file" accept=".db" onchange="uploadRestore(this)" style="display:none">
         </label>
       </div>
     </div>
 
     <div class="btn-row">
-      <button class="btn btn-primary" onclick="saveSettings()">💾 Salvează</button>
-      <button class="btn btn-success" onclick="checkHealth()">🔄 Verifică Conexiune</button>
+      <button class="btn btn-primary" onclick="saveSettings()">Salvează</button>
+      <button class="btn btn-success" onclick="checkHealth()">Verifică Conexiune</button>
     </div>
   </div>
 
@@ -250,19 +261,19 @@
 
     <!-- Add user + default user -->
     <div class="card">
-      <h2><span class="icon">➕</span> Utilizator Nou</h2>
+      <h2>Utilizator Nou</h2>
       <div style="display:flex;gap:8px;align-items:end">
         <div style="flex:1">
           <label>Nume utilizator</label>
           <input type="text" id="newUserName" placeholder="ex: maria">
         </div>
-        <button class="btn btn-primary" onclick="addUser()">🔑 Generează API Key</button>
+        <button class="btn btn-primary" onclick="addUser()">Generează API Key</button>
       </div>
       <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
         <div style="display:flex;gap:8px;align-items:center">
           <label style="margin:0;white-space:nowrap">Utilizator implicit:</label>
           <input type="text" id="defaultUserInput" placeholder="ex: andrei" style="flex:1">
-          <button class="btn btn-sm btn-primary" onclick="saveDefaultUser()">💾</button>
+          <button class="btn btn-sm btn-primary" onclick="saveDefaultUser()">Salvează</button>
         </div>
         <p class="card-muted" style="margin-top:4px;font-size:.78rem">Folosit când Home Assistant nu trimite informații despre utilizator.</p>
       </div>
@@ -281,7 +292,7 @@
   <div class="modal">
     <div class="modal-header">
       <div class="modal-title">
-        <div class="modal-avatar">👤</div>
+        <div class="modal-avatar"></div>
         <div>
           <h2 id="selectedUserName">—</h2>
           <span class="modal-subtitle">Memorii și configurare utilizator</span>
@@ -298,17 +309,17 @@
 
       <!-- Add memory -->
       <div class="modal-section">
-        <h3>➕ Adaugă Memorie</h3>
+        <h3>Adaugă Memorie</h3>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
           <div>
             <label>Categorie</label>
             <select id="newMemCat">
-              <option value="personal_info">👤 Personal Info</option>
-              <option value="preferences">🎨 Preferences</option>
-              <option value="home_setup">🏠 Home Setup</option>
-              <option value="facts" selected>📌 Facts</option>
-              <option value="instructions">📋 Instructions</option>
-              <option value="context">🔄 Context</option>
+              <option value="personal_info">Personal Info</option>
+              <option value="preferences">Preferences</option>
+              <option value="home_setup">Home Setup</option>
+              <option value="facts" selected>Facts</option>
+              <option value="instructions">Instructions</option>
+              <option value="context">Context</option>
             </select>
           </div>
           <div>
@@ -321,32 +332,32 @@
         <label>Cuvinte cheie (virgulă)</label>
         <input type="text" id="newMemKeywords" placeholder="limbă, română, preferință">
         <div class="btn-row">
-          <button class="btn btn-primary btn-sm" onclick="addMemory()">➕ Adaugă</button>
+          <button class="btn btn-primary btn-sm" onclick="addMemory()">Adaugă</button>
         </div>
       </div>
 
       <!-- Memories list -->
       <div class="modal-section">
-        <h3>📋 Lista Memoriilor</h3>
+        <h3>Lista Memoriilor</h3>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
           <button class="btn btn-sm btn-primary filter-btn active" onclick="filterMemories('all',this)">Toate</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('personal_info',this)">👤</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('preferences',this)">🎨</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('home_setup',this)">🏠</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('facts',this)">📌</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('instructions',this)">📋</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('context',this)">🔄</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('personal_info',this)">Personal</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('preferences',this)">Preferințe</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('home_setup',this)">Casă</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('facts',this)">Fapte</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('instructions',this)">Instrucțiuni</button>
+          <button class="btn btn-sm filter-btn" onclick="filterMemories('context',this)">Context</button>
         </div>
         <div class="mem-list" id="memList"></div>
         <div class="btn-row">
-          <button class="btn btn-primary btn-sm" onclick="consolidateMemories()">🔄 Consolidare AI</button>
-          <button class="btn btn-danger btn-sm" onclick="clearUserMemories()">🗑️ Șterge Tot</button>
+          <button class="btn btn-primary btn-sm" onclick="consolidateMemories()">Consolidare AI</button>
+          <button class="btn btn-danger btn-sm" onclick="clearUserMemories()">Șterge Tot</button>
         </div>
       </div>
     </div>
 
     <div class="modal-footer">
-      <button class="btn btn-danger" onclick="deleteUserFull()">🗑️ Șterge Utilizator</button>
+      <button class="btn btn-danger" onclick="deleteUserFull()">Șterge Utilizator</button>
     </div>
   </div>
 </div>

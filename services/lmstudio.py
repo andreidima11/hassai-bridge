@@ -43,7 +43,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
         payload["temperature"] = temperature
 
     client = _get_client(timeout)
-    resp = await client.post(url, json=payload)
+    resp = await client.post(url, json=payload, timeout=timeout)
     if resp.status_code >= 400:
         import logging
         logging.getLogger("hassai.lmstudio").error(

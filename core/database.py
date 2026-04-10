@@ -319,6 +319,15 @@ def get_session_messages(user_id, session_id, limit=100):
     return [dict(r) for r in rows]
 
 
+def delete_conversation_session(user_id, session_id):
+    """Delete a specific conversation session."""
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM conversations WHERE user_id = ? AND session_id = ?",
+            (user_id, session_id),
+        )
+
+
 def clear_conversation(user_id):
     with get_db() as conn:
         conn.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))

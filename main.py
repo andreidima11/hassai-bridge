@@ -62,7 +62,7 @@ async def rate_limit_and_timing(request: Request, call_next):
     path = request.url.path
 
     # Rate limit only chat/API endpoints
-    if path.startswith(("/v1/", "/api/chat")):
+    if path.startswith("/v1/"):
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
         bucket = _rate_buckets[client_ip]
