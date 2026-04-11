@@ -190,6 +190,55 @@ def _estimate_tokens(text: str) -> int:
     return max(1, int(len(text.split()) * 1.3))
 
 
+def _sanitize_message_roles(messages: list[dict]) -> list[dict]:
+    """Fix message list to respect role alternation rules expected by chat templates.
+
+    1. Ensure the first non-system message is a user message (drop leading assistants)
+    2. Merge consecutive messages with the same role
+    3. Drop empty content messages (except tool_calls)
+    """
+    system_msgs = []
+    other_msgs = []
+
+    for m in messages:
+        if m.get("role") == "system":
+            system_msgs.append(m)
+        else:
+            other_msgs.append(m)
+
+    if not other_msgs:
+        return system_msgs
+
+    # Drop leading assistant messages (before the first user message)
+    while other_msgs and other_msgs[0].get("role") != "user":
+        other_msgs.pop(0)
+
+    if not other_msgs:
+        return system_msgs
+
+    # Merge consecutive same-role messages and drop empty ones
+    cleaned = []
+    for m in other_msgs:
+        content = (m.get("content") or "").strip()
+        role = m.get("role", "user")
+
+        # Keep tool_calls messages even if content is empty
+        if not content and not m.get("tool_calls") and role != "tool":
+            continue
+
+        if cleaned and cleaned[-1].get("role") == role and role != "tool":
+            # Merge with previous message of same role
+            prev_content = (cleaned[-1].get("content") or "").strip()
+            if content and prev_content:
+                cleaned[-1]["content"] = prev_content + "\n" + content
+            elif content:
+                cleaned[-1]["content"] = content
+        else:
+            cleaned.append(dict(m))
+
+    return system_msgs + cleaned
+
+
 def _trim_messages(messages: list[dict], max_tokens: int) -> list[dict]:
     """Trim conversation to fit within token budget.
 
@@ -403,8 +452,11 @@ async def chat_completions(request: Request):
     if mem_ctx:
         augmented.append({"role": "system", "content": mem_ctx})
 
-    # 4) Conversation history
-    if history:
+    # 4) Conversation history — only add DB history if incoming messages
+    #    don't already contain a conversation (HA sends full history)
+    incoming_roles = {m.get("role") for m in messages}
+    has_incoming_history = "assistant" in incoming_roles and "user" in incoming_roles
+    if history and not has_incoming_history:
         augmented.extend(history)
 
     # 5) Current messages
@@ -417,7 +469,8 @@ async def chat_completions(request: Request):
         if content and role in ("user", "assistant"):
             add_conversation_message(user_id, role, content)
 
-    # ── Trim to fit context window ──
+    # ── Sanitize role order + trim to fit context window ──
+    augmented = _sanitize_message_roles(augmented)
     max_ctx = cfg["lmstudio"].get("max_tokens", 2048) * 3  # rough context budget
     augmented = _trim_messages(augmented, max_ctx)
 
