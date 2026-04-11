@@ -253,13 +253,19 @@ async def _stream_with_keepalive_sse(gen, interval: float = _KEEPALIVE_INTERVAL)
 
     Prevents client disconnect during long prompt processing by sending
     SSE comments (`: keepalive\\n\\n`) which are ignored by spec-compliant clients.
+    Uses asyncio.shield to prevent cancelling the upstream read on timeout.
     """
     gen_iter = gen.__aiter__()
+    next_task = None
     while True:
+        if next_task is None:
+            next_task = asyncio.ensure_future(gen_iter.__anext__())
         try:
-            chunk = await asyncio.wait_for(gen_iter.__anext__(), timeout=interval)
+            chunk = await asyncio.wait_for(asyncio.shield(next_task), timeout=interval)
+            next_task = None
             yield chunk
         except asyncio.TimeoutError:
+            # Upstream read still in progress — send keepalive without cancelling it
             yield ": keepalive\n\n"
         except StopAsyncIteration:
             break
