@@ -502,7 +502,7 @@ async def chat_completions(request: Request):
                 except (json.JSONDecodeError, IndexError, KeyError):
                     token = ""
 
-                if not search_checked and search_enabled and not tools:
+                if not search_checked and search_enabled:
                     # Buffer phase: accumulate tokens to check for search marker
                     buffered_chunks.append(chunk)
                     buffer_text += token
@@ -540,7 +540,7 @@ async def chat_completions(request: Request):
                                 })
 
                             # Re-stream with search results
-                            gen2 = lmstudio.chat_completion_stream(augmented, model=model)
+                            gen2 = lmstudio.chat_completion_stream(augmented, model=model, tools=tools, tool_choice=tool_choice)
                             async for chunk2 in gen2:
                                 yield chunk2
                                 if chunk2.startswith("data: ") and chunk2.strip() != "data: [DONE]":
