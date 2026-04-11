@@ -11,15 +11,49 @@
 - **Web Search** — searches the internet and extracts page content (like ChatGPT)
 - **Web UI** — settings and management panel accessible on port 8899
 
-## Installation
+## Quick Install (one command)
+
+```bash
+git clone https://github.com/andreidima11/hassai-bridge.git ~/hassai-bridge && bash ~/hassai-bridge/install.sh
+```
+
+This will:
+1. Check Python 3.10+ is available
+2. Create a virtual environment and install dependencies
+3. Generate a default config
+4. Create a `hassai-bridge` launcher script
+5. Optionally install as a system service (auto-start on boot)
+
+### Managing the server
 
 ```bash
 cd ~/hassai-bridge
+./hassai-bridge start      # Start (background)
+./hassai-bridge stop       # Stop
+./hassai-bridge restart    # Restart
+./hassai-bridge status     # Check status
+./hassai-bridge logs       # View logs
+./hassai-bridge update     # Pull latest & restart
+```
+
+### Manual Installation
+
+```bash
+cd ~/hassai-bridge
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 python main.py
 ```
 
 The app will run on **http://0.0.0.0:8899**
+
+### Uninstall
+
+```bash
+cd ~/hassai-bridge
+bash uninstall.sh
+```
 
 ## Home Assistant Setup
 
