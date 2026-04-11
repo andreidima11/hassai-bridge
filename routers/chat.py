@@ -601,7 +601,9 @@ async def chat_completions(request: Request):
                     buffered_chunks.append(chunk)
                     buffer_text += token
 
-                    if len(buffer_text) >= _SEARCH_BUFFER_CHARS or _SEARCH_MARKER.search(buffer_text):
+                    # Count all chunks (including reasoning-only) toward buffer limit
+                    # so reasoning models don't stall the buffer phase forever
+                    if len(buffer_text) >= _SEARCH_BUFFER_CHARS or len(buffered_chunks) > 60 or _SEARCH_MARKER.search(buffer_text):
                         search_checked = True
                         match = _SEARCH_MARKER.search(buffer_text)
                         if match:

@@ -103,9 +103,22 @@ def _build_headers(provider: dict) -> dict:
     return headers
 
 
+def _normalize_base_url(raw: str) -> str:
+    """Strip accidental endpoint paths from base_url.
+
+    Users sometimes paste the full endpoint (e.g. https://api.x.ai/v1/chat/completions)
+    instead of just the base (https://api.x.ai).  Normalise that.
+    """
+    import re
+    url = raw.rstrip("/")
+    # Remove known API endpoint suffixes users might paste by mistake
+    url = re.sub(r"/v1/(chat/completions|completions|responses|models|embeddings)$", "", url)
+    return url
+
+
 def _build_url(provider: dict, path: str) -> str:
     """Build the full API URL for a provider."""
-    base = provider.get("base_url", "").rstrip("/")
+    base = _normalize_base_url(provider.get("base_url", ""))
     # Most providers use /v1/chat/completions
     # Some (like local) may already have /v1 in base_url, normalize
     if "/v1" in base and path.startswith("/v1"):
