@@ -203,6 +203,28 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .filter-btn:hover{border-color:var(--accent);color:var(--text)}
 .filter-btn.active{background:var(--accent)!important;color:#fff!important;border-color:var(--accent)!important}
 
+/* ── Endpoints dropdown toggle ── */
+.ep-toggle-arrow{font-size:.85rem;color:var(--muted);transition:transform .2s;user-select:none}
+.ep-toggle-arrow.open{transform:rotate(90deg)}
+
+/* ════════════ STATISTICS TAB ════════════ */
+.stats-overview-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:8px}
+.stats-charts-row{display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.stats-charts-row .card{margin-bottom:0}
+.stats-charts-row canvas{display:block;margin:12px auto 0;max-width:100%}
+.chart-legend{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px;justify-content:center}
+.chart-legend-item{display:flex;align-items:center;gap:5px;font-size:.78rem;color:var(--text)}
+.chart-legend-dot{width:10px;height:10px;border-radius:3px;flex-shrink:0}
+.stats-detail-table{margin-top:8px}
+.stats-detail-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:1px solid var(--border);font-size:.84rem}
+.stats-detail-row:last-child{border-bottom:none}
+.stats-detail-row:hover{background:var(--accent-glow)}
+.stats-detail-name{flex:1;font-weight:500}
+.stats-detail-badge{font-size:.7rem;padding:2px 8px;border-radius:10px;font-weight:600;background:rgba(79,140,255,.15);color:var(--accent);text-transform:uppercase}
+.stats-detail-num{font-weight:600;color:var(--accent);min-width:60px;text-align:right}
+.stats-detail-meta{color:var(--muted);font-size:.78rem;min-width:80px;text-align:right}
+.stats-bar-chart{width:100%;height:200px;position:relative;margin-top:12px}
+
 /* ── Toast ── */
 .toast{position:fixed;bottom:24px;right:24px;padding:12px 22px;background:var(--accent);color:#fff;border-radius:10px;font-size:.88rem;opacity:0;transition:.3s;pointer-events:none;z-index:1100;box-shadow:0 4px 20px rgba(0,0,0,.4)}
 .toast.show{opacity:1;pointer-events:auto}
@@ -230,6 +252,8 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
   .btn-row .btn{width:100%;justify-content:center}
   .provider-item{flex-direction:column;align-items:flex-start;gap:10px}
   .provider-actions{width:100%;justify-content:flex-end}
+  .stats-charts-row{flex-direction:column}
+  .stats-overview-grid{grid-template-columns:repeat(2,1fr)}
 }
 
 /* ── Scrollbar ── */
@@ -267,4 +291,12 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .log-name{color:#a78bfa}
 .log-muted{color:var(--muted)}
 .input-sm{padding:6px 10px;font-size:.82rem;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text)}
+
+/* ── Settings Sub-tabs ── */
+.settings-tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--card);border-radius:var(--radius);padding:4px;border:1px solid var(--border)}
+.settings-tab{flex:1;padding:8px 12px;text-align:center;cursor:pointer;border-radius:8px;transition:.15s;font-size:.82rem;color:var(--muted);white-space:nowrap}
+.settings-tab:hover{background:rgba(79,140,255,.1);color:var(--text)}
+.settings-tab.active{background:var(--accent);color:#fff;font-weight:600}
+.settings-subpanel{display:none}
+.settings-subpanel.active{display:block}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}

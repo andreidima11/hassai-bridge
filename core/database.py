@@ -1,6 +1,7 @@
 import sqlite3
 import json
 import time
+import threading
 from pathlib import Path
 from contextlib import contextmanager
 
@@ -15,12 +16,23 @@ CATEGORIES = [
     "context",
 ]
 
+# Thread-local connection cache (#13)
+_thread_local = threading.local()
+
 
 def _get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = getattr(_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.execute("SELECT 1")  # verify still alive
+            return conn
+        except sqlite3.ProgrammingError:
+            pass  # closed, fall through
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    _thread_local.conn = conn
     return conn
 
 
@@ -30,8 +42,9 @@ def get_db():
     try:
         yield conn
         conn.commit()
-    finally:
-        conn.close()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def init_db():
@@ -125,6 +138,73 @@ def init_db():
         if "topic" not in mem_cols:
             conn.execute("ALTER TABLE memories ADD COLUMN topic TEXT NOT NULL DEFAULT ''")
 
+        # ── Usage statistics table ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS usage_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                provider_id TEXT NOT NULL,
+                provider_name TEXT NOT NULL DEFAULT '',
+                provider_type TEXT NOT NULL DEFAULT '',
+                model TEXT NOT NULL DEFAULT '',
+                tokens_prompt INTEGER NOT NULL DEFAULT 0,
+                tokens_completion INTEGER NOT NULL DEFAULT 0,
+                tokens_total INTEGER NOT NULL DEFAULT 0,
+                response_time_ms INTEGER NOT NULL DEFAULT 0,
+                stream INTEGER NOT NULL DEFAULT 0,
+                search_used INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_user ON usage_stats(user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_provider ON usage_stats(provider_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_model ON usage_stats(model)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_time ON usage_stats(created_at)")
+
+        # ── FTS5 virtual table for fast memory search (#14) ──
+        try:
+            conn.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
+                    content, keywords,
+                    content='memories',
+                    content_rowid='id'
+                )
+            """)
+        except sqlite3.OperationalError:
+            # FTS5 not available in this SQLite build — skip
+            log_msg = "FTS5 not available in this SQLite build, using LIKE fallback"
+            import logging
+            logging.getLogger("hassai.db").warning(log_msg)
+
+
+# ── FTS5 sync helpers (#2) ──
+
+def _fts_sync(conn, memory_id: int):
+    """Re-sync a single memory row into the FTS5 index."""
+    try:
+        row = conn.execute(
+            "SELECT content, keywords FROM memories WHERE id = ?", (memory_id,)
+        ).fetchone()
+        if row:
+            conn.execute("INSERT OR REPLACE INTO memories_fts(rowid, content, keywords) VALUES (?, ?, ?)",
+                         (memory_id, row["content"], row["keywords"]))
+    except sqlite3.OperationalError:
+        pass  # FTS not available
+
+
+def _fts_delete(conn, memory_id: int):
+    """Remove a memory from the FTS5 index."""
+    try:
+        conn.execute("INSERT INTO memories_fts(memories_fts, rowid, content, keywords) VALUES('delete', ?, '', '')",
+                     (memory_id,))
+    except sqlite3.OperationalError:
+        pass  # FTS not available
+
+
+def _escape_like(s: str) -> str:
+    """Escape SQL LIKE special characters (#13)."""
+    return s.replace("%", "\\%").replace("_", "\\_")
+
 
 # ── Memory operations ──
 
@@ -140,7 +220,16 @@ def add_memory(user_id, content, category="facts", keywords="", importance=3,
             (user_id, category, content, keywords.lower(), min(max(importance, 1), 5),
              now, now, source, domain, topic),
         )
-        return cursor.lastrowid
+        mem_id = cursor.lastrowid
+        # Update FTS index (#14)
+        try:
+            conn.execute(
+                "INSERT INTO memories_fts(rowid, content, keywords) VALUES (?, ?, ?)",
+                (mem_id, content, keywords.lower()),
+            )
+        except sqlite3.OperationalError:
+            pass  # FTS not available
+        return mem_id
 
 
 def get_memories(user_id, limit=50):
@@ -172,12 +261,50 @@ def search_memories(user_id, query_keywords, limit=15):
         return get_memories(user_id, limit)
 
     with get_db() as conn:
+        # Try FTS5 first (#14)
+        try:
+            # Sanitize keywords: strip FTS special chars (#12)
+            safe_kws = [kw.replace('"', '').replace("'", "").strip() for kw in query_keywords if kw]
+            safe_kws = [kw for kw in safe_kws if kw]
+            fts_query = " OR ".join(f'"{kw}"' for kw in safe_kws) if safe_kws else ""
+            if fts_query:
+                fts_rows = conn.execute(
+                    """SELECT rowid FROM memories_fts WHERE memories_fts MATCH ?""",
+                    (fts_query,),
+                ).fetchall()
+                fts_ids = [r["rowid"] for r in fts_rows]
+                if fts_ids:
+                    placeholders = ",".join("?" * len(fts_ids))
+                    rows = conn.execute(
+                        f"""SELECT id, category, content, keywords, importance, created_at,
+                                   last_accessed, access_count, source,
+                                   (importance * 0.3
+                                    + MIN(access_count, 10) * 0.05
+                                    + MAX(0, 1.0 - (? - last_accessed) / 2592000.0) * 0.2
+                                   ) as decay_score
+                            FROM memories
+                            WHERE user_id = ? AND active = 1 AND id IN ({placeholders})
+                            ORDER BY decay_score DESC LIMIT ?""",
+                        [time.time(), user_id] + fts_ids + [limit],
+                    ).fetchall()
+                    ids = [r["id"] for r in rows]
+                    if ids:
+                        ph = ",".join("?" * len(ids))
+                        conn.execute(
+                            f"UPDATE memories SET last_accessed = ?, access_count = access_count + 1 WHERE id IN ({ph})",
+                            [time.time()] + ids,
+                        )
+                    return [dict(r) for r in rows]
+        except sqlite3.OperationalError:
+            pass  # FTS not available, fall back to LIKE
+
+        # Fallback: LIKE-based search (with escaped wildcards #13)
         keyword_clauses = " + ".join(
-            ["(CASE WHEN keywords LIKE ? OR content LIKE ? THEN 1 ELSE 0 END)" for _ in query_keywords]
+            ["(CASE WHEN keywords LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' THEN 1 ELSE 0 END)" for _ in query_keywords]
         )
         kw_params = []
         for kw in query_keywords:
-            pattern = f"%{kw.lower()}%"
+            pattern = f"%{_escape_like(kw.lower())}%"
             kw_params.extend([pattern, pattern])
 
         # Parameters: keyword_clauses (relevance) + keyword_clauses (decay) + time + user_id + limit
@@ -227,15 +354,19 @@ def update_memory(memory_id, content=None, category=None, keywords=None, importa
         if fields:
             params.append(memory_id)
             conn.execute(f"UPDATE memories SET {', '.join(fields)} WHERE id = ?", params)
+            # Sync FTS5 index (#2)
+            _fts_sync(conn, memory_id)
 
 
 def deactivate_memory(memory_id):
     with get_db() as conn:
         conn.execute("UPDATE memories SET active = 0 WHERE id = ?", (memory_id,))
+        _fts_delete(conn, memory_id)
 
 
 def delete_memory(memory_id):
     with get_db() as conn:
+        _fts_delete(conn, memory_id)
         conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
 
 
@@ -375,3 +506,135 @@ def delete_conversation_session(user_id, session_id):
 def clear_conversation(user_id):
     with get_db() as conn:
         conn.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))
+
+
+# ── Usage statistics operations ──
+
+def add_usage_stat(user_id, provider_id, provider_name="", provider_type="",
+                   model="", tokens_prompt=0, tokens_completion=0, tokens_total=0,
+                   response_time_ms=0, stream=False, search_used=False):
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO usage_stats
+               (user_id, provider_id, provider_name, provider_type, model,
+                tokens_prompt, tokens_completion, tokens_total,
+                response_time_ms, stream, search_used, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, provider_id, provider_name, provider_type, model,
+             tokens_prompt, tokens_completion, tokens_total,
+             response_time_ms, 1 if stream else 0, 1 if search_used else 0,
+             time.time()),
+        )
+
+
+def get_usage_stats(days=30):
+    """Get comprehensive usage statistics."""
+    cutoff = time.time() - (days * 86400)
+    with get_db() as conn:
+        # Total requests
+        total = conn.execute(
+            "SELECT COUNT(*) as c FROM usage_stats WHERE created_at >= ?", (cutoff,)
+        ).fetchone()["c"]
+
+        # Total tokens
+        tokens = conn.execute(
+            """SELECT COALESCE(SUM(tokens_prompt),0) as prompt,
+                      COALESCE(SUM(tokens_completion),0) as completion,
+                      COALESCE(SUM(tokens_total),0) as total
+               FROM usage_stats WHERE created_at >= ?""", (cutoff,)
+        ).fetchone()
+
+        # Per-provider stats
+        by_provider = conn.execute(
+            """SELECT provider_id, provider_name, provider_type,
+                      COUNT(*) as requests,
+                      COALESCE(SUM(tokens_total),0) as tokens,
+                      CAST(AVG(response_time_ms) AS INTEGER) as avg_response_ms
+               FROM usage_stats WHERE created_at >= ?
+               GROUP BY provider_id
+               ORDER BY requests DESC""", (cutoff,)
+        ).fetchall()
+
+        # Per-model stats
+        by_model = conn.execute(
+            """SELECT model, provider_name, provider_type,
+                      COUNT(*) as requests,
+                      COALESCE(SUM(tokens_total),0) as tokens,
+                      CAST(AVG(response_time_ms) AS INTEGER) as avg_response_ms
+               FROM usage_stats WHERE created_at >= ?
+               GROUP BY model
+               ORDER BY requests DESC""", (cutoff,)
+        ).fetchall()
+
+        # Per-user stats
+        by_user = conn.execute(
+            """SELECT user_id,
+                      COUNT(*) as requests,
+                      COALESCE(SUM(tokens_total),0) as tokens
+               FROM usage_stats WHERE created_at >= ?
+               GROUP BY user_id
+               ORDER BY requests DESC""", (cutoff,)
+        ).fetchall()
+
+        # Daily activity (last N days)
+        daily = conn.execute(
+            """SELECT DATE(created_at, 'unixepoch') as day,
+                      COUNT(*) as requests,
+                      COALESCE(SUM(tokens_total),0) as tokens
+               FROM usage_stats WHERE created_at >= ?
+               GROUP BY day
+               ORDER BY day ASC""", (cutoff,)
+        ).fetchall()
+
+        # Search usage
+        search_count = conn.execute(
+            "SELECT COUNT(*) as c FROM usage_stats WHERE created_at >= ? AND search_used = 1",
+            (cutoff,)
+        ).fetchone()["c"]
+
+        # Stream vs non-stream
+        stream_count = conn.execute(
+            "SELECT COUNT(*) as c FROM usage_stats WHERE created_at >= ? AND stream = 1",
+            (cutoff,)
+        ).fetchone()["c"]
+
+    return {
+        "period_days": days,
+        "total_requests": total,
+        "tokens": {
+            "prompt": tokens["prompt"],
+            "completion": tokens["completion"],
+            "total": tokens["total"],
+        },
+        "by_provider": [dict(r) for r in by_provider],
+        "by_model": [dict(r) for r in by_model],
+        "by_user": [dict(r) for r in by_user],
+        "daily": [dict(r) for r in daily],
+        "search_requests": search_count,
+        "stream_requests": stream_count,
+        "non_stream_requests": total - stream_count,
+    }
+
+
+def cleanup_old_conversations(days: int = 90) -> int:
+    """Delete conversation messages older than N days (#11). Returns count deleted."""
+    cutoff = time.time() - (days * 86400)
+    with get_db() as conn:
+        cursor = conn.execute(
+            "DELETE FROM conversations WHERE created_at < ?", (cutoff,)
+        )
+        deleted = cursor.rowcount
+    return deleted
+
+
+def rebuild_fts_index():
+    """Rebuild FTS5 index from the memories table. Call after bulk operations."""
+    with get_db() as conn:
+        try:
+            conn.execute("DELETE FROM memories_fts")
+            conn.execute(
+                "INSERT INTO memories_fts(rowid, content, keywords) "
+                "SELECT id, content, keywords FROM memories WHERE active = 1"
+            )
+        except sqlite3.OperationalError:
+            pass  # FTS not available

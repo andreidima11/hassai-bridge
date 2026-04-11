@@ -1,15 +1,26 @@
 import time
 import uuid
 import socket
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from config import load_config, save_config
 from core.config import VERSION
-from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session
+from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session, get_usage_stats
 from services import providers, searxng
 from services.providers import get_active_provider, PROVIDER_PRESETS
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+def _require_admin_key(request: Request):
+    """Import-free admin auth — delegates to main._require_admin_key at runtime."""
+    from main import _require_admin_key as _auth
+    return _auth(request)
+
+
+router = APIRouter(
+    prefix="/api/settings",
+    tags=["settings"],
+    dependencies=[Depends(_require_admin_key)],
+)
 
 _start_time = time.time()
 
@@ -137,6 +148,7 @@ async def add_provider(data: dict):
     timeout = data.get("timeout", 120)
     max_tokens = data.get("max_tokens", 2048)
     temperature = data.get("temperature", 0.7)
+    system_prompt = data.get("system_prompt", "").strip()
 
     if not name:
         raise HTTPException(status_code=400, detail="Provider name is required")
@@ -165,6 +177,7 @@ async def add_provider(data: dict):
         "timeout": timeout,
         "max_tokens": max_tokens,
         "temperature": temperature,
+        "system_prompt": system_prompt,
     }
     cfg.setdefault("providers", []).append(provider)
     # Auto-activate if first provider
@@ -180,7 +193,7 @@ async def update_provider(provider_id: str, data: dict):
     cfg = load_config()
     for p in cfg.get("providers", []):
         if p["id"] == provider_id:
-            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature"):
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt"):
                 if key in data:
                     p[key] = data[key]
             save_config(cfg)
@@ -252,6 +265,13 @@ async def health():
     }
 
 
+def _mask_key(key: str) -> str:
+    """Mask an API key for safe display: show first 8 + last 4 chars."""
+    if not key or len(key) <= 12:
+        return "***" if key else ""
+    return key[:8] + "..." + key[-4:]
+
+
 @router.get("/info")
 async def system_info():
     """System info for the Info dashboard tab."""
@@ -276,14 +296,22 @@ async def system_info():
     sx_ok = await searxng.health_check()
     active = get_active_provider()
 
+    # Mask API keys in response (#10)
+    safe_providers = []
+    for p in cfg.get("providers", []):
+        sp = dict(p)
+        if sp.get("api_key"):
+            sp["api_key"] = _mask_key(sp["api_key"])
+        safe_providers.append(sp)
+
     return {
         "version": VERSION,
         "uptime_seconds": round(uptime),
-        "api_key": cfg.get("api_key", ""),
+        "api_key": _mask_key(cfg.get("api_key", "")),
         "local_ip": _get_local_ip(),
         "port": 8899,
         "active_provider": cfg.get("active_provider", ""),
-        "providers": cfg.get("providers", []),
+        "providers": safe_providers,
         "services": {
             "lmstudio": {
                 "status": "connected" if lm_ok else "unreachable",
@@ -321,13 +349,26 @@ async def system_info():
             {"method": "PUT", "path": "/api/settings/", "description": "Update Settings"},
             {"method": "GET", "path": "/api/settings/health", "description": "Health Check"},
             {"method": "GET", "path": "/api/settings/info", "description": "System Info"},
+            {"method": "GET", "path": "/api/settings/stats", "description": "Usage Statistics"},
+            {"method": "POST", "path": "/api/settings/restart", "description": "Restart Server"},
             {"method": "POST", "path": "/api/settings/users", "description": "Add User + Generate API Key"},
             {"method": "DELETE", "path": "/api/settings/users/{username}", "description": "Delete User"},
             {"method": "PUT", "path": "/api/settings/users/default", "description": "Set Default User"},
+            {"method": "GET", "path": "/api/settings/providers", "description": "List Providers"},
+            {"method": "POST", "path": "/api/settings/providers", "description": "Add Provider"},
+            {"method": "PUT", "path": "/api/settings/providers/{id}", "description": "Update Provider"},
+            {"method": "DELETE", "path": "/api/settings/providers/{id}", "description": "Delete Provider"},
+            {"method": "PUT", "path": "/api/settings/providers/{id}/activate", "description": "Activate Provider"},
+            {"method": "GET", "path": "/api/settings/providers/{id}/models", "description": "List Provider Models"},
+            {"method": "GET", "path": "/api/settings/providers/{id}/health", "description": "Provider Health Check"},
+            {"method": "GET", "path": "/api/settings/providers/presets", "description": "Provider Presets"},
             {"method": "GET", "path": "/api/settings/conversations/{user_id}", "description": "List Conversation Sessions"},
             {"method": "GET", "path": "/api/settings/conversations/{user_id}/{session_id}", "description": "Get Session Messages"},
+            {"method": "DELETE", "path": "/api/settings/conversations/{user_id}/{session_id}", "description": "Delete Session"},
             {"method": "GET", "path": "/api/settings/backup", "description": "Download Database Backup"},
-            {"method": "POST", "path": "/api/settings/restore", "description": "Restore Database from Backup"},
+            {"method": "POST", "path": "/api/settings/restore", "description": "Restore Database (path)"},
+            {"method": "POST", "path": "/api/settings/restore/upload", "description": "Restore Database (upload)"},
+            {"method": "GET", "path": "/api/memory/categories", "description": "Memory Categories"},
             {"method": "GET", "path": "/api/memory/users", "description": "List Users"},
             {"method": "GET", "path": "/api/memory/stats/{user_id}", "description": "Memory Stats"},
             {"method": "GET", "path": "/api/memory/{user_id}", "description": "List Memories"},
@@ -336,8 +377,33 @@ async def system_info():
             {"method": "DELETE", "path": "/api/memory/{memory_id}", "description": "Delete Memory"},
             {"method": "DELETE", "path": "/api/memory/user/{user_id}", "description": "Clear User Memories"},
             {"method": "POST", "path": "/api/memory/consolidate/{user_id}", "description": "Consolidate Memories"},
+            {"method": "GET", "path": "/api/memory/graph/{user_id}/stats", "description": "Knowledge Graph Stats"},
+            {"method": "GET", "path": "/api/memory/graph/{user_id}/entities", "description": "List Graph Entities"},
+            {"method": "GET", "path": "/api/memory/graph/{user_id}/entity/{name}", "description": "Entity Detail"},
+            {"method": "POST", "path": "/api/memory/graph/{user_id}/entity", "description": "Add Graph Entity"},
+            {"method": "DELETE", "path": "/api/memory/graph/{user_id}/entity/{name}", "description": "Delete Graph Entity"},
+            {"method": "GET", "path": "/api/memory/graph/{user_id}/relations", "description": "Query Relations"},
+            {"method": "POST", "path": "/api/memory/graph/{user_id}/relation", "description": "Add Relation"},
+            {"method": "POST", "path": "/api/memory/graph/{user_id}/invalidate", "description": "Invalidate Relation"},
+            {"method": "GET", "path": "/api/memory/graph/{user_id}/timeline", "description": "Knowledge Timeline"},
+            {"method": "GET", "path": "/api/memory/graph/{user_id}/context", "description": "Graph Context"},
+            {"method": "GET", "path": "/api/logs", "description": "Server Logs"},
         ],
     }
+
+
+# ══════════════════════════════════════════════════
+# Usage statistics endpoint
+# ══════════════════════════════════════════════════
+
+@router.get("/stats")
+async def get_stats(days: int = 30):
+    """Get usage statistics for the dashboard."""
+    if days < 1:
+        days = 1
+    elif days > 365:
+        days = 365
+    return get_usage_stats(days)
 
 
 # ══════════════════════════════════════════════════
@@ -395,11 +461,8 @@ async def backup_database():
 
 @router.post("/restore")
 async def restore_database(file: bytes = None):
-    """Restore database from uploaded file."""
-    import shutil
-    from fastapi import UploadFile
-    from database import DB_PATH, init_db
-    raise HTTPException(status_code=400, detail="Use the upload endpoint")
+    """Deprecated — use /restore/upload."""
+    raise HTTPException(status_code=410, detail="Deprecated. Use POST /api/settings/restore/upload")
 
 
 from fastapi import UploadFile, File as FastAPIFile

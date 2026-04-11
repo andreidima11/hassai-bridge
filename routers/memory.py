@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel
 from database import (
     get_memories, get_memories_by_category, add_memory, update_memory,
@@ -8,7 +8,18 @@ from database import (
 from services.memory_engine import consolidate_memories
 from services.knowledge_graph import KnowledgeGraph
 
-router = APIRouter(prefix="/api/memory", tags=["memory"])
+
+def _require_admin_key(request: Request):
+    """Import-free admin auth — delegates to main._require_admin_key at runtime."""
+    from main import _require_admin_key as _auth
+    return _auth(request)
+
+
+router = APIRouter(
+    prefix="/api/memory",
+    tags=["memory"],
+    dependencies=[Depends(_require_admin_key)],
+)
 
 
 class MemoryCreate(BaseModel):
