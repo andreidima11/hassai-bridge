@@ -26,7 +26,7 @@ The app will run on **http://0.0.0.0:8899**
 In Home Assistant, add the **HASSAI Bridge** integration with:
 
 - **URL**: `http://<HASSAI_BRIDGE_IP>:8899/v1`
-- **API Key**: any value (not verified)
+- **API Key**: used as the user identifier to separate memories per user (e.g. use a different key for each HA user)
 - **Model**: the model name from your LLM server
 
 ## Project Structure
