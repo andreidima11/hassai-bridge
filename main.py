@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-HASSAI Bridge — AI Bridge between Home Assistant and LMStudio
-Port 8899 | Memory engine | AI-powered web search via SearXNG
+HASSAI Bridge — AI Bridge for Home Assistant
+Port 8899 | Per-user memory & knowledge graph | Web search
 """
 
 import logging
@@ -61,15 +61,15 @@ async def lifespan(app: FastAPI):
     print(f"║       HASSAI Bridge {VERSION} Started        ║")
     print("║  Web UI: http://0.0.0.0:8899                 ║")
     print("║  API:    http://0.0.0.0:8899/v1/             ║")
-    print("║  Memory: LLM-powered auto-extraction         ║")
-    print("║  Search: AI-driven SearXNG integration       ║")
+    print("║  Memory: Tiered retrieval + knowledge graph   ║")
+    print("║  Search: AI-driven web search                 ║")
     print("╚══════════════════════════════════════════════╝")
     yield
 
 
 app = FastAPI(
     title="HASSAI Bridge",
-    description="AI Bridge: Home Assistant ↔ LMStudio with smart memory & web search",
+    description="AI Bridge for Home Assistant with memory, knowledge graph & web search",
     version=VERSION,
     lifespan=lifespan,
 )
