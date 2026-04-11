@@ -198,7 +198,7 @@ def search_memories(user_id, query_keywords, limit=15):
             all_params,
         ).fetchall()
 
-        ids = [r["id"] for r in rows if r["relevance"] > 0]
+        ids = [r["id"] for r in rows]
         if ids:
             placeholders = ",".join("?" * len(ids))
             conn.execute(
