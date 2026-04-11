@@ -798,3 +798,74 @@ loadSystemInfo();
 loadSettings();
 refreshConvUsers();
 loadUsersTab();
+
+// ══════════════════════════════════════════════════
+// LOGS TAB
+// ══════════════════════════════════════════════════
+
+let _logsAutoTimer = null;
+
+async function loadLogs() {
+  const level = document.getElementById('logLevel').value;
+  const search = document.getElementById('logSearch').value.trim();
+  const pre = document.getElementById('logsOutput');
+  try {
+    const params = new URLSearchParams({ limit: 500, level });
+    if (search) params.set('search', search);
+    const resp = await fetch(`${API}/api/logs?${params}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const logs = await resp.json();
+    if (!logs.length) {
+      pre.innerHTML = `<span class="log-muted">${t('logs.noLogs')}</span>`;
+      return;
+    }
+    pre.innerHTML = logs.map(e => {
+      const lvl = escapeHtml(e.level);
+      const name = escapeHtml(e.name);
+      const msg = escapeHtml(e.msg);
+      return `<span class="log-line"><span class="log-ts">${escapeHtml(e.ts)}</span> <span class="log-level-${lvl}">${lvl.padEnd(8)}</span> <span class="log-name">[${name}]</span> ${msg}</span>`;
+    }).join('\n');
+    // Auto-scroll to bottom
+    pre.scrollTop = pre.scrollHeight;
+  } catch (e) {
+    pre.innerHTML = `<span class="log-level-ERROR">${t('logs.loadError', { msg: e.message })}</span>`;
+  }
+}
+
+function clearLogsView() {
+  document.getElementById('logsOutput').innerHTML = `<span class="log-muted">${t('logs.cleared')}</span>`;
+}
+
+function _startLogsAutoRefresh() {
+  _stopLogsAutoRefresh();
+  if (document.getElementById('logAutoRefresh')?.checked) {
+    _logsAutoTimer = setInterval(loadLogs, 3000);
+  }
+}
+
+function _stopLogsAutoRefresh() {
+  if (_logsAutoTimer) { clearInterval(_logsAutoTimer); _logsAutoTimer = null; }
+}
+
+// Auto-refresh control
+document.getElementById('logAutoRefresh')?.addEventListener('change', () => {
+  if (document.getElementById('logAutoRefresh').checked) _startLogsAutoRefresh();
+  else _stopLogsAutoRefresh();
+});
+
+// Search on Enter
+document.getElementById('logSearch')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') loadLogs();
+});
+
+// Start/stop auto-refresh when switching tabs
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    if (tab.dataset.panel === 'logs') {
+      loadLogs();
+      _startLogsAutoRefresh();
+    } else {
+      _stopLogsAutoRefresh();
+    }
+  });
+});

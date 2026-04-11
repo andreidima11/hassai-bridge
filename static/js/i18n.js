@@ -7,6 +7,7 @@ const TRANSLATIONS = {
     'tab.conversations': 'Conversations',
     'tab.settings': 'Settings',
     'tab.users': 'Users',
+    'tab.logs': 'Logs',
 
     // Info panel
     'info.serviceStatus': 'Service Status',
@@ -183,6 +184,17 @@ const TRANSLATIONS = {
     'misc.defaultNoModel': 'default (no model detected)',
     'misc.defaultUnavailable': 'default (LMStudio unavailable)',
     'misc.close': 'Close',
+
+    // Logs
+    'logs.title': 'Server Logs',
+    'logs.searchPlaceholder': 'Search...',
+    'logs.autoRefresh': 'Auto-refresh',
+    'logs.refresh': 'Refresh',
+    'logs.clear': 'Clear',
+    'logs.loading': 'Loading logs...',
+    'logs.noLogs': 'No log entries.',
+    'logs.loadError': 'Error loading logs: {msg}',
+    'logs.cleared': 'View cleared. Click Refresh to reload.',
   },
 
   ro: {
@@ -191,6 +203,7 @@ const TRANSLATIONS = {
     'tab.conversations': 'Conversații',
     'tab.settings': 'Setări',
     'tab.users': 'Utilizatori',
+    'tab.logs': 'Loguri',
 
     // Info panel
     'info.serviceStatus': 'Status Servicii',
@@ -367,6 +380,17 @@ const TRANSLATIONS = {
     'misc.defaultNoModel': 'default (niciun model detectat)',
     'misc.defaultUnavailable': 'default (LMStudio indisponibil)',
     'misc.close': 'Închide',
+
+    // Logs
+    'logs.title': 'Loguri Server',
+    'logs.searchPlaceholder': 'Caută...',
+    'logs.autoRefresh': 'Auto-refresh',
+    'logs.refresh': 'Reîmprospătează',
+    'logs.clear': 'Curăță',
+    'logs.loading': 'Se încarcă logurile...',
+    'logs.noLogs': 'Nicio înregistrare în log.',
+    'logs.loadError': 'Eroare la încărcarea logurilor: {msg}',
+    'logs.cleared': 'Vizualizare curățată. Apasă Refresh pentru reîncărcare.',
   },
 };
 

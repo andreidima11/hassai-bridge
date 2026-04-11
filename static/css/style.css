@@ -235,4 +235,18 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .conv-msg-role{font-weight:600;font-size:.82rem}
 .conv-msg-time{font-size:.75rem;color:var(--muted)}
 .conv-msg-content{font-size:.88rem;line-height:1.55;white-space:pre-wrap;word-break:break-word}
+
+/* ── Logs ── */
+.logs-container{padding:0!important;overflow:hidden}
+.logs-pre{margin:0;padding:14px;font-family:'SF Mono',Menlo,Monaco,Consolas,'Courier New',monospace;font-size:.78rem;line-height:1.65;overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 240px);min-height:300px;background:var(--bg);color:var(--text);white-space:pre-wrap;word-break:break-all}
+.log-line{display:block}
+.log-ts{color:var(--muted)}
+.log-level-DEBUG{color:#8b8b8b}
+.log-level-INFO{color:#3b82f6}
+.log-level-WARNING{color:#f59e0b}
+.log-level-ERROR{color:#ef4444;font-weight:600}
+.log-level-CRITICAL{color:#dc2626;font-weight:700}
+.log-name{color:#a78bfa}
+.log-muted{color:var(--muted)}
+.input-sm{padding:6px 10px;font-size:.82rem;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text)}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}

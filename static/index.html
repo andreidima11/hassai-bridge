@@ -29,6 +29,7 @@
     <div class="tab" data-panel="conversations" data-i18n="tab.conversations">Conversations</div>
     <div class="tab" data-panel="settings" data-i18n="tab.settings">Settings</div>
     <div class="tab" data-panel="users" data-i18n="tab.users">Users</div>
+    <div class="tab" data-panel="logs" data-i18n="tab.logs">Logs</div>
   </div>
 
   <!-- ════════════ INFO ════════════ -->
@@ -300,6 +301,34 @@
     </div>
 
   </div>
+
+  <!-- ════════════ LOGS ════════════ -->
+  <div class="panel" id="logs">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0" data-i18n="logs.title">Server Logs</h2>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="logLevel" class="input-sm" onchange="loadLogs()">
+            <option value="ALL">ALL</option>
+            <option value="DEBUG">DEBUG</option>
+            <option value="INFO">INFO</option>
+            <option value="WARNING">WARNING</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+          <input type="text" id="logSearch" class="input-sm" data-i18n-placeholder="logs.searchPlaceholder" placeholder="Search..." style="width:160px">
+          <label style="margin:0;font-size:.82rem;display:flex;align-items:center;gap:4px;white-space:nowrap">
+            <input type="checkbox" id="logAutoRefresh" checked> <span data-i18n="logs.autoRefresh">Auto-refresh</span>
+          </label>
+          <button class="btn btn-sm btn-primary" onclick="loadLogs()" data-i18n="logs.refresh">Refresh</button>
+          <button class="btn btn-sm" onclick="clearLogsView()" data-i18n="logs.clear">Clear</button>
+        </div>
+      </div>
+    </div>
+    <div class="card logs-container">
+      <pre class="logs-pre" id="logsOutput"><span class="log-muted" data-i18n="logs.loading">Loading logs...</span></pre>
+    </div>
+  </div>
+
 </div>
 
 <!-- ════════════ USER MEMORY MODAL ════════════ -->
