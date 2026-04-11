@@ -84,17 +84,61 @@ def init_db():
             )
         """)
 
+        # ── Knowledge Graph tables ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS kg_entities (
+                id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                entity_type TEXT NOT NULL DEFAULT 'unknown',
+                properties TEXT NOT NULL DEFAULT '{}',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (id, user_id)
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_kg_ent_user ON kg_entities(user_id)")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS kg_relations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                subject_id TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object_id TEXT NOT NULL,
+                valid_from TEXT,
+                valid_to TEXT,
+                confidence REAL NOT NULL DEFAULT 1.0,
+                source TEXT NOT NULL DEFAULT 'auto',
+                created_at REAL NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_kg_rel_user ON kg_relations(user_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_kg_rel_subject ON kg_relations(user_id, subject_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_kg_rel_object ON kg_relations(user_id, object_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_kg_rel_pred ON kg_relations(user_id, predicate)")
+
+        # ── Migrate: add domain/topic columns to memories if missing ──
+        mem_cols = [r[1] for r in conn.execute("PRAGMA table_info(memories)").fetchall()]
+        if "domain" not in mem_cols:
+            conn.execute("ALTER TABLE memories ADD COLUMN domain TEXT NOT NULL DEFAULT 'general'")
+        if "topic" not in mem_cols:
+            conn.execute("ALTER TABLE memories ADD COLUMN topic TEXT NOT NULL DEFAULT ''")
+
 
 # ── Memory operations ──
 
-def add_memory(user_id, content, category="facts", keywords="", importance=3, source="auto"):
+def add_memory(user_id, content, category="facts", keywords="", importance=3,
+               source="auto", domain="general", topic=""):
     now = time.time()
     with get_db() as conn:
         cursor = conn.execute(
             """INSERT INTO memories
-               (user_id, category, content, keywords, importance, created_at, last_accessed, access_count, source, active)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 1)""",
-            (user_id, category, content, keywords.lower(), min(max(importance, 1), 5), now, now, source),
+               (user_id, category, content, keywords, importance, created_at, last_accessed,
+                access_count, source, active, domain, topic)
+               VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, 1, ?, ?)""",
+            (user_id, category, content, keywords.lower(), min(max(importance, 1), 5),
+             now, now, source, domain, topic),
         )
         return cursor.lastrowid
 

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from database import init_db
 from core.config import VERSION, load_config
+from services.knowledge_graph import init_graph_tables
 from routers import chat, memory, settings
 
 # ── In-memory ring buffer for logs ──
@@ -55,6 +56,7 @@ _RATE_WINDOW = 60.0  # seconds
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    init_graph_tables()
     print("╔══════════════════════════════════════════════╗")
     print(f"║       HASSAI Bridge {VERSION} Started        ║")
     print("║  Web UI: http://0.0.0.0:8899                 ║")

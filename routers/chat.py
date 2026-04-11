@@ -399,7 +399,7 @@ async def chat_completions(request: Request):
         asyncio.to_thread(get_conversation_history, user_id, history_limit),
     )
 
-    mem_ctx = build_memory_context(memories)
+    mem_ctx = build_memory_context(memories, user_id=user_id, message=last_user_msg)
     if mem_ctx:
         augmented.append({"role": "system", "content": mem_ctx})
 

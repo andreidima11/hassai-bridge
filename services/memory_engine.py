@@ -1,7 +1,16 @@
 """
-Smart Memory Engine — single-pass LLM-powered memory pipeline with
-signal detection, quality scoring, ADD/UPDATE/DELETE actions, and caching.
-Inspired by hass_memory/brain/cortex.py memory pipeline.
+Smart Memory Engine — tiered retrieval, knowledge graph extraction,
+signal detection, quality scoring, and single-pass LLM pipeline.
+
+Architecture:
+  Tier 0 (Identity): Core facts about the user — always injected (~100-150 tokens)
+  Tier 1 (Relevant): Topic-matched memories for the current message
+  Tier 2 (Graph):    Entity relationships from the knowledge graph
+
+Extraction pipeline:
+  1. Signal detection (zero-cost pre-filter)
+  2. Single LLM call → memory ADD/UPDATE/DELETE + entity/relation extraction
+  3. Background execution (non-blocking)
 """
 
 import hashlib
@@ -18,6 +27,7 @@ from database import (
     log_memory_action, get_memory_stats, deactivate_memory, update_memory,
     delete_memory, CATEGORIES,
 )
+from services.knowledge_graph import KnowledgeGraph
 
 log = logging.getLogger("hassai.memory")
 
@@ -58,10 +68,14 @@ EXTRACT_PIPELINE_PROMPT = """You are a memory management system. Analyze the con
 
 You have access to EXISTING memories (numbered 0, 1, 2...). For each piece of information worth remembering, output ONE action per line:
 
+MEMORY ACTIONS:
 - ADD <category> <importance> <text> — save a NEW fact (not already in existing memories)
-- UPDATE <id> <text> — update an existing memory with new info (use the numbered id)  
+- UPDATE <id> <text> — update an existing memory with new info (use the numbered id)
 - DELETE <id> — remove an outdated/wrong memory (use the numbered id)
-- NONE — if nothing worth remembering
+
+ENTITY/RELATION ACTIONS (extract people, places, devices, and their relationships):
+- ENTITY <type> <name> — register an entity (types: person, device, location, pet, concept)
+- RELATION <subject> | <predicate> | <object> — register a relationship between entities
 
 Rules:
 - Extract ONLY concrete, useful facts about the user (not conversation meta like "user asked about X")
@@ -69,7 +83,9 @@ Rules:
 - Importance: 1-5 (5=critical personal info, 1=minor detail)
 - Prefer UPDATE over ADD when info updates an existing fact
 - Use DELETE for facts that are now contradicted
-- Max 5 actions per conversation
+- Extract entities mentioned (family members, pets, devices, rooms, locations)
+- Extract relationships (e.g., "Ana is wife" → RELATION Ana | is_wife_of | User)
+- Max 5 memory actions + 5 entity actions + 5 relation actions per conversation
 - If nothing worth remembering, output only: NONE
 
 Existing memories:
@@ -268,11 +284,11 @@ def _extract_keywords_local(text: str) -> list[str]:
 
 
 # ══════════════════════════════════════════════════
-# SMART RETRIEVAL — find relevant memories for a query
+# TIERED RETRIEVAL — layered memory context for the LLM
 # ══════════════════════════════════════════════════
 
 async def retrieve_relevant_memories(user_id: str, message: str) -> list[dict]:
-    """Find relevant memories using local keyword extraction (fast, no LLM call)."""
+    """Tier 1: Find topic-relevant memories using local keyword extraction."""
     cfg = load_config()
     if not cfg["memory"].get("enabled"):
         return []
@@ -284,7 +300,7 @@ async def retrieve_relevant_memories(user_id: str, message: str) -> list[dict]:
         log.debug(f"Memory cache hit for user {user_id}")
         return cached
 
-    # Fast local keyword extraction (replaces LLM call — saves 2-5s)
+    # Fast local keyword extraction (no LLM call)
     all_keywords = _extract_keywords_local(message)
 
     # Search memories with these keywords
@@ -295,34 +311,109 @@ async def retrieve_relevant_memories(user_id: str, message: str) -> list[dict]:
     return memories
 
 
-def build_memory_context(memories: list[dict]) -> str:
-    """Format memories into a context string for the LLM."""
-    if not memories:
+def _get_identity_memories(user_id: str) -> list[dict]:
+    """Tier 0: Get core identity facts — highest importance memories that define the user."""
+    memories = get_memories(user_id, limit=200)
+    # Filter to importance >= 4 (critical personal info)
+    identity = [m for m in memories if m.get("importance", 3) >= 4]
+    # Also include all personal_info and instructions regardless of importance
+    for m in memories:
+        if m.get("category") in ("personal_info", "instructions") and m not in identity:
+            identity.append(m)
+    # Cap at 10 entries to keep T0 compact
+    return identity[:10]
+
+
+def _detect_entities_in_message(message: str) -> list[str]:
+    """Detect potential entity names mentioned in a message for graph lookup."""
+    # Look for capitalized words (names), quoted strings
+    entities = []
+    # Proper nouns (capitalized words not at sentence start)
+    words = message.split()
+    for i, word in enumerate(words):
+        clean = re.sub(r"[^\w]", "", word)
+        if (clean and clean[0].isupper() and len(clean) > 1
+                and i > 0 and not words[i - 1].endswith((".", "!", "?"))):
+            entities.append(clean)
+    # Also check for common HA entity patterns (device names)
+    for match in re.finditer(r"(?:becul|lampa|senzorul|camera|usa)\s+(\w+)", message, re.IGNORECASE):
+        entities.append(match.group(1))
+    return list(set(entities))
+
+
+def build_memory_context(memories: list[dict], user_id: str = "",
+                          message: str = "") -> str:
+    """Build tiered memory context for LLM injection.
+
+    Tier 0: Identity (core user facts, always present)
+    Tier 1: Relevant memories (topic-matched from search)
+    Tier 2: Knowledge graph (entity relationships)
+    """
+    if not memories and not user_id:
         return ""
 
-    lines = ["[User Memory — Known facts about this user]:"]
-    by_category = {}
-    for m in memories:
-        cat = m.get("category", "facts")
-        by_category.setdefault(cat, []).append(m)
+    sections = []
 
-    category_labels = {
-        "personal_info": "👤 Personal Info",
-        "preferences": "🎨 Preferences & Style",
-        "home_setup": "🏠 Home & Devices",
-        "facts": "📌 Known Facts",
-        "instructions": "📋 User Instructions",
-        "context": "🔄 Current Context",
-    }
+    # ── Tier 0: Identity core ──
+    if user_id:
+        identity = _get_identity_memories(user_id)
+        if identity:
+            t0_lines = ["[T0 — User Identity]:"]
+            seen_content = set()
+            for m in identity:
+                if m["content"] not in seen_content:
+                    seen_content.add(m["content"])
+                    t0_lines.append(f"  • {m['content']}")
+            sections.append("\n".join(t0_lines))
 
-    for cat in CATEGORIES:
-        if cat in by_category:
-            lines.append(f"\n{category_labels.get(cat, cat)}:")
-            for m in by_category[cat]:
-                imp = "⭐" * min(m.get("importance", 3), 5)
-                lines.append(f"  [{imp}] {m['content']}")
+    # ── Tier 1: Topic-relevant memories ──
+    if memories:
+        # Remove duplicates with T0
+        t0_ids = {m["id"] for m in (_get_identity_memories(user_id) if user_id else [])}
+        filtered = [m for m in memories if m.get("id") not in t0_ids]
 
-    return "\n".join(lines)
+        if filtered:
+            by_category = {}
+            for m in filtered:
+                cat = m.get("category", "facts")
+                by_category.setdefault(cat, []).append(m)
+
+            category_labels = {
+                "personal_info": "👤 Personal",
+                "preferences": "🎨 Preferences",
+                "home_setup": "🏠 Home & Devices",
+                "facts": "📌 Facts",
+                "instructions": "📋 Instructions",
+                "context": "🔄 Context",
+            }
+
+            t1_lines = ["[T1 — Relevant Memories]:"]
+            for cat in CATEGORIES:
+                if cat in by_category:
+                    t1_lines.append(f"\n{category_labels.get(cat, cat)}:")
+                    for m in by_category[cat]:
+                        imp = "⭐" * min(m.get("importance", 3), 5)
+                        t1_lines.append(f"  [{imp}] {m['content']}")
+            sections.append("\n".join(t1_lines))
+
+    # ── Tier 2: Knowledge Graph context ──
+    if user_id and message:
+        try:
+            kg = KnowledgeGraph(user_id)
+            # Find entities mentioned in the message
+            entity_names = _detect_entities_in_message(message)
+            if entity_names:
+                graph_ctx = kg.build_context(entity_names)
+            else:
+                # Fallback: get overall graph context (compact)
+                graph_ctx = kg.build_context(max_facts=10)
+
+            if graph_ctx:
+                sections.append(f"[T2 — Knowledge Graph]:\n{graph_ctx}")
+        except Exception as e:
+            log.debug(f"Knowledge graph context failed: {e}")
+
+    return "\n\n".join(sections) if sections else ""
 
 
 # ══════════════════════════════════════════════════
@@ -348,7 +439,7 @@ def _build_extraction_input(user_text: str, assistant_reply: str = "",
 
 
 def _parse_pipeline_response(raw: str) -> list[dict]:
-    """Parse the single-pass pipeline response into actions."""
+    """Parse the single-pass pipeline response into actions (memories + entities + relations)."""
     actions = []
     raw = raw.strip()
     if not raw or raw.upper() == "NONE":
@@ -391,8 +482,26 @@ def _parse_pipeline_response(raw: str) -> list[dict]:
                 actions.append({"action": "DELETE", "id": mem_id})
             except ValueError:
                 continue
+        elif line.startswith("ENTITY "):
+            # ENTITY <type> <name>
+            parts = line[7:].split(None, 1)
+            if len(parts) >= 2:
+                entity_type = parts[0].strip().lower()
+                name = parts[1].strip()
+                if name:
+                    actions.append({"action": "ENTITY", "entity_type": entity_type, "name": name})
+        elif line.startswith("RELATION "):
+            # RELATION subject | predicate | object
+            parts = line[9:].split("|")
+            if len(parts) >= 3:
+                subject = parts[0].strip()
+                predicate = parts[1].strip()
+                obj = parts[2].strip()
+                if subject and predicate and obj:
+                    actions.append({"action": "RELATION", "subject": subject,
+                                   "predicate": predicate, "object": obj})
 
-    return actions[:5]  # max 5 actions
+    return actions[:15]  # max 15 total actions
 
 
 async def extract_memories_from_conversation(user_id: str, messages: list[dict]):
@@ -457,6 +566,10 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict])
         added = 0
         updated = 0
         deleted = 0
+        entities_added = 0
+        relations_added = 0
+
+        kg = KnowledgeGraph(user_id)
 
         for action in actions:
             event = action["action"]
@@ -512,8 +625,33 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict])
                     log_memory_action(user_id, "deleted", f"ID={real_id}")
                     deleted += 1
 
-        if added or updated or deleted:
-            log.info(f"Memory pipeline for {user_id}: +{added} ~{updated} -{deleted}")
+            elif event == "ENTITY":
+                name = action.get("name", "").strip()
+                entity_type = action.get("entity_type", "unknown")
+                if name:
+                    try:
+                        kg.add_entity(name, entity_type)
+                        entities_added += 1
+                    except Exception as e:
+                        log.debug(f"Entity add failed: {e}")
+
+            elif event == "RELATION":
+                subject = action.get("subject", "").strip()
+                predicate = action.get("predicate", "").strip()
+                obj = action.get("object", "").strip()
+                if subject and predicate and obj:
+                    try:
+                        kg.add_relation(subject, predicate, obj, source="auto")
+                        relations_added += 1
+                    except Exception as e:
+                        log.debug(f"Relation add failed: {e}")
+
+        if added or updated or deleted or entities_added or relations_added:
+            log.info(
+                f"Memory pipeline for {user_id}: "
+                f"+{added} ~{updated} -{deleted} mem, "
+                f"+{entities_added} ent, +{relations_added} rel"
+            )
 
     except Exception as e:
         log.error(f"Memory pipeline failed for {user_id}: {e}")
