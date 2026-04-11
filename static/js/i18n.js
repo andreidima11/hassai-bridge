@@ -4,6 +4,7 @@ const TRANSLATIONS = {
   en: {
     // Tabs
     'tab.info': 'Info',
+    'tab.statistics': 'Statistics',
     'tab.conversations': 'Conversations',
     'tab.settings': 'Settings',
     'tab.users': 'Users',
@@ -98,6 +99,16 @@ const TRANSLATIONS = {
     'settings.historyLimitDesc': '(how many history messages to send to LLM)',
     'settings.parallelFetch': 'Fetch web pages in parallel',
     'settings.systemPrompt': 'System Prompt',
+    'settings.systemPromptGlobal': 'Global System Prompt',
+    'settings.systemPromptGlobalDesc': 'Default system prompt for providers that don\'t have their own.',
+    'settings.personality': 'Personality',
+    'settings.personalityDesc': 'Custom system prompt for this provider. Leave empty to use the global system prompt.',
+    'settings.personalityPlaceholder': 'e.g.: You are a creative writing assistant...',
+    'settings.tabGeneral': 'General',
+    'settings.tabProviders': 'Providers',
+    'settings.tabSearch': 'Search',
+    'settings.tabMemory': 'Memory',
+    'settings.tabBackup': 'Backup',
     'settings.backup': 'Backup / Restore',
     'settings.backupDesc': 'Download a copy of the database or restore from backup. Restoring replaces all existing data!',
     'settings.downloadBackup': 'Download Backup',
@@ -221,11 +232,27 @@ const TRANSLATIONS = {
     'logs.noLogs': 'No log entries.',
     'logs.loadError': 'Error loading logs: {msg}',
     'logs.cleared': 'View cleared. Click Refresh to reload.',
+
+    // Statistics
+    'stats.title': 'Usage Statistics',
+    'stats.overview': 'Overview',
+    'stats.totalRequests': 'Total Requests',
+    'stats.totalTokens': 'Total Tokens',
+    'stats.searchRequests': 'Search Requests',
+    'stats.streamRequests': 'Stream / Non-Stream',
+    'stats.byProvider': 'By Provider',
+    'stats.byModel': 'By Model',
+    'stats.byUser': 'By User',
+    'stats.dailyActivity': 'Daily Activity',
+    'stats.providerDetails': 'Provider Details',
+    'stats.modelDetails': 'Model Details',
+    'stats.noData': 'No data available.',
   },
 
   ro: {
     // Tabs
     'tab.info': 'Info',
+    'tab.statistics': 'Statistici',
     'tab.conversations': 'Conversații',
     'tab.settings': 'Setări',
     'tab.users': 'Utilizatori',
@@ -320,6 +347,16 @@ const TRANSLATIONS = {
     'settings.historyLimitDesc': '(câte mesaje din istoric se trimit la LLM)',
     'settings.parallelFetch': 'Fetch pagini web în paralel',
     'settings.systemPrompt': 'System Prompt',
+    'settings.systemPromptGlobal': 'System Prompt Global',
+    'settings.systemPromptGlobalDesc': 'Promptul de sistem implicit pentru providerii care nu au unul propriu.',
+    'settings.personality': 'Personalitate',
+    'settings.personalityDesc': 'Prompt de sistem personalizat pentru acest provider. Lasă gol pentru a folosi promptul global.',
+    'settings.personalityPlaceholder': 'ex.: Ești un asistent creativ de scriere...',
+    'settings.tabGeneral': 'General',
+    'settings.tabProviders': 'Provideri',
+    'settings.tabSearch': 'Căutare',
+    'settings.tabMemory': 'Memorie',
+    'settings.tabBackup': 'Backup',
     'settings.backup': 'Backup / Restaurare',
     'settings.backupDesc': 'Descarcă o copie a bazei de date sau restaurează din backup. Restaurarea înlocuiește toate datele existente!',
     'settings.downloadBackup': 'Descarcă Backup',
@@ -443,6 +480,21 @@ const TRANSLATIONS = {
     'logs.noLogs': 'Nicio înregistrare în log.',
     'logs.loadError': 'Eroare la încărcarea logurilor: {msg}',
     'logs.cleared': 'Vizualizare curățată. Apasă Refresh pentru reîncărcare.',
+
+    // Statistics
+    'stats.title': 'Statistici Utilizare',
+    'stats.overview': 'Sumar',
+    'stats.totalRequests': 'Total Cereri',
+    'stats.totalTokens': 'Total Tokeni',
+    'stats.searchRequests': 'Cereri Căutare',
+    'stats.streamRequests': 'Stream / Non-Stream',
+    'stats.byProvider': 'Per Provider',
+    'stats.byModel': 'Per Model',
+    'stats.byUser': 'Per Utilizator',
+    'stats.dailyActivity': 'Activitate Zilnică',
+    'stats.providerDetails': 'Detalii Provideri',
+    'stats.modelDetails': 'Detalii Modele',
+    'stats.noData': 'Nu sunt date disponibile.',
   },
 };
 
@@ -471,7 +523,12 @@ function applyTranslations() {
     el.textContent = t(el.dataset.i18n);
   });
   document.querySelectorAll('[data-i18n-html]').forEach(el => {
-    el.innerHTML = t(el.dataset.i18nHtml);
+    // Only use innerHTML for hardcoded translation keys (safe) — never user input
+    const key = el.dataset.i18nHtml;
+    const translated = t(key);
+    if (translated !== key) {
+      el.innerHTML = translated;
+    }
   });
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
     el.placeholder = t(el.dataset.i18nPlaceholder);

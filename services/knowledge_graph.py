@@ -24,6 +24,7 @@ Usage:
 import json
 import logging
 import time
+import threading
 from datetime import date
 from pathlib import Path
 from contextlib import contextmanager
@@ -33,12 +34,23 @@ log = logging.getLogger("hassai.knowledge_graph")
 
 DB_PATH = Path(__file__).parent.parent / "data" / "hassai.db"
 
+# Thread-local connection cache (#26) — avoid opening new connection per call
+_kg_thread_local = threading.local()
+
 
 def _get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = getattr(_kg_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.execute("SELECT 1")
+            return conn
+        except sqlite3.ProgrammingError:
+            pass
     conn = sqlite3.connect(str(DB_PATH), timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    _kg_thread_local.conn = conn
     return conn
 
 
@@ -48,8 +60,9 @@ def _db():
     try:
         yield conn
         conn.commit()
-    finally:
-        conn.close()
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def init_graph_tables():

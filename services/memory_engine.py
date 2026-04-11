@@ -62,6 +62,13 @@ def _memory_cache_set(key: str, value: list[dict]) -> None:
     _MEMORY_CACHE[key] = (value, time.time() + _MEMORY_CACHE_TTL)
 
 
+def _memory_cache_invalidate(user_id: str) -> None:
+    """Invalidate all cache entries for a user after memory writes (#9)."""
+    to_delete = [k for k in _MEMORY_CACHE if k.startswith(f"{user_id}:")]
+    for k in to_delete:
+        del _MEMORY_CACHE[k]
+
+
 # ── Prompts ──
 
 EXTRACT_PIPELINE_PROMPT = """You are a memory management system. Analyze the conversation and decide what to remember.
@@ -130,14 +137,21 @@ Respond with ONLY a JSON object (no markdown):
 
 
 async def _llm_call(messages: list[dict], max_tokens: int = 1000) -> str:
-    """Make a lightweight LLM call for memory operations."""
+    """Make a lightweight LLM call for memory operations, with retry (#20)."""
     from services.providers import chat_completion
-    try:
-        result = await chat_completion(messages, stream=False)
-        return result["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        log.error(f"LLM call failed: {e}")
-        return ""
+    _retries = 2
+    _backoff = [1.0, 3.0]
+    for attempt in range(_retries + 1):
+        try:
+            result = await chat_completion(messages, stream=False)
+            return result["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            if attempt < _retries:
+                log.warning(f"LLM call attempt {attempt + 1} failed: {e}, retrying in {_backoff[attempt]}s")
+                await asyncio.sleep(_backoff[attempt])
+            else:
+                log.error(f"LLM call failed after {_retries + 1} attempts: {e}")
+                return ""
 
 
 def _parse_json(text: str, fallback=None):
@@ -268,19 +282,40 @@ _STOPWORDS = frozenset({
 })
 
 
+# Lightweight Romanian suffix stripping for better keyword matching (#10)
+_RO_SUFFIX_MAP = {
+    "ului": "", "elor": "", "ilor": "", "ația": "ație", "ații": "ație",
+    "area": "a", "ării": "are", "erea": "e", "irea": "i",
+    "ile": "", "ele": "", "ule": "", "uri": "",
+    "esc": "", "ești": "", "ează": "a",
+}
+
+
+def _stem_ro(word: str) -> str:
+    """Basic Romanian suffix stripping for keyword normalization."""
+    for suffix, replacement in _RO_SUFFIX_MAP.items():
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            return word[: -len(suffix)] + replacement
+    return word
+
+
 def _extract_keywords_local(text: str) -> list[str]:
     """Fast local keyword extraction — no LLM call needed."""
     import re as _re
     words = _re.findall(r"[a-zA-ZăîâșțĂÎÂȘȚ]{3,}", text.lower())
     keywords = [w for w in words if w not in _STOPWORDS]
-    # Deduplicate preserving order
+    # Deduplicate preserving order, with Romanian stemming
     seen = set()
     result = []
     for w in keywords:
-        if w not in seen:
+        stemmed = _stem_ro(w)
+        if stemmed not in seen and w not in seen:
             seen.add(w)
+            seen.add(stemmed)
             result.append(w)
-    return result[:15]
+            if stemmed != w:
+                result.append(stemmed)  # Also add stemmed variant for broader matching
+    return result[:20]
 
 
 # ══════════════════════════════════════════════════
@@ -354,22 +389,21 @@ def build_memory_context(memories: list[dict], user_id: str = "",
 
     sections = []
 
-    # ── Tier 0: Identity core ──
-    if user_id:
-        identity = _get_identity_memories(user_id)
-        if identity:
-            t0_lines = ["[T0 — User Identity]:"]
-            seen_content = set()
-            for m in identity:
-                if m["content"] not in seen_content:
-                    seen_content.add(m["content"])
-                    t0_lines.append(f"  • {m['content']}")
-            sections.append("\n".join(t0_lines))
+    # ── Tier 0: Identity core (called once, reused for T1 dedup — #7) ──
+    identity = _get_identity_memories(user_id) if user_id else []
+    if identity:
+        t0_lines = ["[T0 — User Identity]:"]
+        seen_content = set()
+        for m in identity:
+            if m["content"] not in seen_content:
+                seen_content.add(m["content"])
+                t0_lines.append(f"  • {m['content']}")
+        sections.append("\n".join(t0_lines))
 
     # ── Tier 1: Topic-relevant memories ──
     if memories:
-        # Remove duplicates with T0
-        t0_ids = {m["id"] for m in (_get_identity_memories(user_id) if user_id else [])}
+        # Remove duplicates with T0 (reuse identity list — #7)
+        t0_ids = {m["id"] for m in identity}
         filtered = [m for m in memories if m.get("id") not in t0_ids]
 
         if filtered:
@@ -486,7 +520,7 @@ def _parse_pipeline_response(raw: str) -> list[dict]:
             # ENTITY <type> <name>
             parts = line[7:].split(None, 1)
             if len(parts) >= 2:
-                entity_type = parts[0].strip().lower()
+                entity_type = _normalize_entity_type(parts[0].strip().lower())
                 name = parts[1].strip()
                 if name:
                     actions.append({"action": "ENTITY", "entity_type": entity_type, "name": name})
@@ -502,6 +536,29 @@ def _parse_pipeline_response(raw: str) -> list[dict]:
                                    "predicate": predicate, "object": obj})
 
     return actions[:15]  # max 15 total actions
+
+
+# Valid entity types for KG (#19)
+_VALID_ENTITY_TYPES = frozenset({
+    "person", "device", "location", "pet", "concept",
+    "room", "service", "automation", "organization", "unknown",
+})
+
+
+def _normalize_entity_type(raw: str) -> str:
+    """Map LLM-produced entity types to valid ones (#19)."""
+    raw = raw.strip().lower()
+    if raw in _VALID_ENTITY_TYPES:
+        return raw
+    # Common aliases
+    _type_aliases = {
+        "human": "person", "user": "person", "family": "person", "member": "person",
+        "animal": "pet", "cat": "pet", "dog": "pet",
+        "place": "location", "city": "location", "country": "location", "address": "location",
+        "sensor": "device", "light": "device", "switch": "device", "thermostat": "device",
+        "idea": "concept", "topic": "concept", "hobby": "concept",
+    }
+    return _type_aliases.get(raw, "unknown")
 
 
 async def extract_memories_from_conversation(user_id: str, messages: list[dict]):
@@ -652,6 +709,8 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict])
                 f"+{added} ~{updated} -{deleted} mem, "
                 f"+{entities_added} ent, +{relations_added} rel"
             )
+            # Invalidate cache so next retrieval sees fresh data (#9)
+            _memory_cache_invalidate(user_id)
 
     except Exception as e:
         log.error(f"Memory pipeline failed for {user_id}: {e}")

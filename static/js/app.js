@@ -12,6 +12,16 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
+// ── Settings sub-tabs ──
+document.querySelectorAll('.settings-tab').forEach(stab => {
+  stab.addEventListener('click', () => {
+    document.querySelectorAll('.settings-tab').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.settings-subpanel').forEach(p => p.classList.remove('active'));
+    stab.classList.add('active');
+    document.getElementById(stab.dataset.stab).classList.add('active');
+  });
+});
+
 // ── Toast ──
 function toast(msg, isError = false) {
   const el = document.getElementById('toast');
@@ -123,7 +133,6 @@ async function loadSystemInfo() {
     const provName = prov.name || lm.model || 'AI Provider';
     document.getElementById('svcProviderName').textContent = provName;
     document.getElementById('svcLMDetail').textContent = `${prov.url || lm.url} — ${prov.model || lm.model}`;
-    document.getElementById('statusLMLabel').textContent = provName;
 
     // SearXNG
     const sxOnline = sx.status === 'connected';
@@ -150,10 +159,6 @@ async function loadSystemInfo() {
     }
     document.getElementById('svcMemDetail').textContent = t('status.memoriesStored', { count: info.stats.total_memories });
 
-    // Header badges
-    document.getElementById('statusLM').className = 'status ' + (lmOnline ? 'ok' : 'err');
-    document.getElementById('statusSX').className = 'status ' + (sx.enabled && sxOnline ? 'ok' : 'err');
-
     // Stats
     document.getElementById('statUptime').textContent = formatUptime(info.uptime_seconds);
     document.getElementById('statUsers').textContent = info.stats.total_users;
@@ -174,7 +179,7 @@ async function loadSystemInfo() {
     // Update endpoints with real LAN IP
     updateEndpointDisplay(info.local_ip, info.port);
 
-    // Endpoints table
+    // Endpoints table (hidden by default, loaded for toggle)
     const table = document.getElementById('endpointsTable');
     table.innerHTML = info.endpoints.map(ep => `
       <div class="ep-row">
@@ -192,6 +197,230 @@ async function loadSystemInfo() {
 function refreshInfo() {
   loadSystemInfo();
   toast(t('toast.infoRefreshed'));
+}
+
+function toggleEndpoints() {
+  const table = document.getElementById('endpointsTable');
+  const arrow = document.getElementById('epToggleArrow');
+  if (table.style.display === 'none') {
+    table.style.display = '';
+    arrow.classList.add('open');
+  } else {
+    table.style.display = 'none';
+    arrow.classList.remove('open');
+  }
+}
+
+// ══════════════════════════════════════════════════
+// STATISTICS TAB
+// ══════════════════════════════════════════════════
+
+const CHART_COLORS = [
+  '#4f8cff', '#2ecc71', '#e74c3c', '#f1c40f', '#9b59b6',
+  '#1abc9c', '#e67e22', '#3498db', '#e84393', '#00cec9',
+  '#fd79a8', '#6c5ce7', '#00b894', '#fdcb6e',
+];
+
+function _drawPieChart(canvas, data, colors) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const size = Math.min(canvas.parentElement.clientWidth - 40, 280);
+  canvas.width = size * dpr;
+  canvas.height = size * dpr;
+  canvas.style.width = size + 'px';
+  canvas.style.height = size + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) {
+    ctx.fillStyle = '#7a7e92';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(t('stats.noData'), size / 2, size / 2);
+    return;
+  }
+  const cx = size / 2, cy = size / 2, r = (size / 2) - 10;
+  let startAngle = -Math.PI / 2;
+
+  data.forEach((d, i) => {
+    const sliceAngle = (d.value / total) * 2 * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, startAngle, startAngle + sliceAngle);
+    ctx.closePath();
+    ctx.fillStyle = colors[i % colors.length];
+    ctx.fill();
+
+    // Percentage label
+    if (d.value / total > 0.05) {
+      const midAngle = startAngle + sliceAngle / 2;
+      const lx = cx + (r * 0.65) * Math.cos(midAngle);
+      const ly = cy + (r * 0.65) * Math.sin(midAngle);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(Math.round(d.value / total * 100) + '%', lx, ly);
+    }
+    startAngle += sliceAngle;
+  });
+
+  // Donut hole
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.45, 0, Math.PI * 2);
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--card').trim() || '#181b25';
+  ctx.fill();
+}
+
+function _drawBarChart(canvas, labels, values, color) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.parentElement.clientWidth - 44;
+  const h = 180;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  if (!values.length) {
+    ctx.fillStyle = '#7a7e92';
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(t('stats.noData'), w / 2, h / 2);
+    return;
+  }
+
+  const maxVal = Math.max(...values, 1);
+  const barW = Math.max(4, Math.min(30, (w - 40) / values.length - 2));
+  const gap = Math.max(1, ((w - 40) - barW * values.length) / Math.max(values.length - 1, 1));
+  const chartH = h - 34;
+  const startX = 30;
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(122,126,146,.15)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = 4 + (chartH / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(startX, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+    ctx.fillStyle = '#7a7e92';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'right';
+    ctx.fillText(Math.round(maxVal - (maxVal / 4) * i), startX - 4, y + 3);
+  }
+
+  // Bars
+  values.forEach((v, i) => {
+    const barH = (v / maxVal) * chartH;
+    const x = startX + i * (barW + gap);
+    const y = 4 + chartH - barH;
+    ctx.fillStyle = color || '#4f8cff';
+    ctx.beginPath();
+    const radius = Math.min(3, barW / 2);
+    ctx.moveTo(x, y + radius);
+    ctx.arcTo(x, y, x + barW, y, radius);
+    ctx.arcTo(x + barW, y, x + barW, y + barH, radius);
+    ctx.lineTo(x + barW, 4 + chartH);
+    ctx.lineTo(x, 4 + chartH);
+    ctx.closePath();
+    ctx.fill();
+
+    // Label every Nth bar
+    if (labels.length <= 14 || i % Math.ceil(labels.length / 14) === 0) {
+      ctx.save();
+      ctx.translate(x + barW / 2, h - 2);
+      ctx.rotate(-Math.PI / 4);
+      ctx.fillStyle = '#7a7e92';
+      ctx.font = '9px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText(labels[i].slice(5), 0, 0); // show MM-DD
+      ctx.restore();
+    }
+  });
+}
+
+function _buildLegend(container, data, colors) {
+  container.innerHTML = data.map((d, i) =>
+    `<span class="chart-legend-item"><span class="chart-legend-dot" style="background:${colors[i % colors.length]}"></span>${escapeHtml(d.label)} (${d.value})</span>`
+  ).join('');
+}
+
+function _formatNumber(n) {
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return String(n);
+}
+
+function _formatMs(ms) {
+  if (ms >= 60000) return (ms / 60000).toFixed(1) + 'm';
+  if (ms >= 1000) return (ms / 1000).toFixed(1) + 's';
+  return ms + 'ms';
+}
+
+async function loadUsageStats() {
+  const days = parseInt(document.getElementById('statsPeriod').value) || 30;
+  try {
+    const stats = await api('GET', `/api/settings/stats?days=${days}`);
+
+    // Overview
+    document.getElementById('statsRequests').textContent = _formatNumber(stats.total_requests);
+    document.getElementById('statsTokens').textContent = _formatNumber(stats.tokens.total);
+    document.getElementById('statsSearches').textContent = _formatNumber(stats.search_requests);
+    document.getElementById('statsStream').textContent = `${_formatNumber(stats.stream_requests)} / ${_formatNumber(stats.non_stream_requests)}`;
+
+    // Pie chart - by provider
+    const provData = stats.by_provider.map(p => ({ label: p.provider_name || p.provider_id, value: p.requests }));
+    _drawPieChart(document.getElementById('chartProvider'), provData, CHART_COLORS);
+    _buildLegend(document.getElementById('chartProviderLegend'), provData, CHART_COLORS);
+
+    // Pie chart - by model
+    const modelData = stats.by_model.map(m => ({ label: m.model, value: m.requests }));
+    _drawPieChart(document.getElementById('chartModel'), modelData, CHART_COLORS);
+    _buildLegend(document.getElementById('chartModelLegend'), modelData, CHART_COLORS);
+
+    // Daily bar chart
+    const dailyLabels = stats.daily.map(d => d.day);
+    const dailyValues = stats.daily.map(d => d.requests);
+    _drawBarChart(document.getElementById('chartDaily'), dailyLabels, dailyValues, '#4f8cff');
+
+    // Provider detail table
+    document.getElementById('statsProviderTable').innerHTML = stats.by_provider.length
+      ? stats.by_provider.map(p => `
+        <div class="stats-detail-row">
+          <span class="stats-detail-name">${escapeHtml(p.provider_name || p.provider_id)} <span class="stats-detail-badge">${escapeHtml(p.provider_type)}</span></span>
+          <span class="stats-detail-num">${p.requests} req</span>
+          <span class="stats-detail-meta">${_formatNumber(p.tokens)} tok</span>
+          <span class="stats-detail-meta">${_formatMs(p.avg_response_ms)} avg</span>
+        </div>`).join('')
+      : `<p class="card-muted">${t('stats.noData')}</p>`;
+
+    // Model detail table
+    document.getElementById('statsModelTable').innerHTML = stats.by_model.length
+      ? stats.by_model.map(m => `
+        <div class="stats-detail-row">
+          <span class="stats-detail-name">${escapeHtml(m.model)} <span class="stats-detail-badge">${escapeHtml(m.provider_type)}</span></span>
+          <span class="stats-detail-num">${m.requests} req</span>
+          <span class="stats-detail-meta">${_formatNumber(m.tokens)} tok</span>
+          <span class="stats-detail-meta">${_formatMs(m.avg_response_ms)} avg</span>
+        </div>`).join('')
+      : `<p class="card-muted">${t('stats.noData')}</p>`;
+
+    // User detail table
+    document.getElementById('statsUserTable').innerHTML = stats.by_user.length
+      ? stats.by_user.map(u => `
+        <div class="stats-detail-row">
+          <span class="stats-detail-name">${escapeHtml(u.user_id)}</span>
+          <span class="stats-detail-num">${u.requests} req</span>
+          <span class="stats-detail-meta">${_formatNumber(u.tokens)} tok</span>
+        </div>`).join('')
+      : `<p class="card-muted">${t('stats.noData')}</p>`;
+
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
 }
 
 // ══════════════════════════════════════════════════
@@ -274,8 +503,6 @@ async function checkHealth() {
   try {
     const h = await api('GET', '/api/settings/health');
     const provOk = (h.provider || h.lmstudio) === 'connected';
-    document.getElementById('statusLM').className = 'status ' + (provOk ? 'ok' : 'err');
-    document.getElementById('statusSX').className = 'status ' + (h.searxng === 'connected' ? 'ok' : 'err');
     const provLabel = h.provider_name || 'AI';
     toast(`${provLabel}: ${h.provider || h.lmstudio} | SearXNG: ${h.searxng}`);
   } catch (e) {
@@ -354,6 +581,7 @@ function openAddProvider() {
   document.getElementById('provTimeout').value = 120;
   document.getElementById('provMaxTokens').value = 2048;
   document.getElementById('provTemperature').value = 0.7;
+  document.getElementById('provSystemPrompt').value = '';
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   onProvTypeChange();
   document.getElementById('providerModal').classList.add('open');
@@ -373,6 +601,7 @@ function editProvider(id) {
   document.getElementById('provTimeout').value = p.timeout || 120;
   document.getElementById('provMaxTokens').value = p.max_tokens || 2048;
   document.getElementById('provTemperature').value = p.temperature ?? 0.7;
+  document.getElementById('provSystemPrompt').value = p.system_prompt || '';
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   onProvTypeChange();
   document.getElementById('providerModal').classList.add('open');
@@ -413,6 +642,7 @@ async function saveProvider() {
     timeout: parseInt(document.getElementById('provTimeout').value) || 120,
     max_tokens: parseInt(document.getElementById('provMaxTokens').value) || 2048,
     temperature: parseFloat(document.getElementById('provTemperature').value) || 0.7,
+    system_prompt: document.getElementById('provSystemPrompt').value.trim(),
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
   try {
@@ -1077,6 +1307,9 @@ document.querySelectorAll('.tab').forEach(tab => {
       _startLogsAutoRefresh();
     } else {
       _stopLogsAutoRefresh();
+    }
+    if (tab.dataset.panel === 'statistics') {
+      loadUsageStats();
     }
   });
 });

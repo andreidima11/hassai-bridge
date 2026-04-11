@@ -7,26 +7,33 @@ All providers use the OpenAI-compatible /v1/chat/completions format.
 
 import re
 import httpx
+import asyncio
 import logging
 from config import load_config
 
 log = logging.getLogger("hassai.providers")
 
+# Retry config (#20)
+_RETRY_COUNT = 2
+_RETRY_BACKOFF = [1.0, 3.0]
+_RETRYABLE_STATUS = {429, 500, 502, 503}
+
 # ── Persistent connection pool ──
 _client: httpx.AsyncClient | None = None
 
 
-def _get_client(timeout: int = 120) -> httpx.AsyncClient:
+def _get_client() -> httpx.AsyncClient:
+    """Return a shared httpx client. Timeout is set per-request, not per-client."""
     global _client
     if _client is None or _client.is_closed:
         _client = httpx.AsyncClient(
-            timeout=timeout,
+            timeout=300,  # generous default; callers override per-request
             limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
         )
     return _client
 
 
-# ── Provider presets (base_url defaults) ──
+# ── Provider presets (base_url defaults — base URLs only, no endpoint paths #17) ──
 PROVIDER_PRESETS = {
     "local": {
         "name": "Local (LM Studio / Ollama)",
@@ -40,12 +47,12 @@ PROVIDER_PRESETS = {
     },
     "grok": {
         "name": "Grok (xAI)",
-        "base_url": "https://api.x.ai/v1/chat/completions",
+        "base_url": "https://api.x.ai",
         "requires_key": True,
     },
     "deepseek": {
         "name": "DeepSeek",
-        "base_url": "https://api.deepseek.com/chat/completions",
+        "base_url": "https://api.deepseek.com",
         "requires_key": True,
     },
     "glm": {
@@ -166,12 +173,28 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
     if temperature is not None:
         payload["temperature"] = temperature
 
-    client = _get_client(timeout)
-    resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
-    if resp.status_code >= 400:
-        log.error(f"Provider [{provider.get('name', '?')}] returned {resp.status_code}: {resp.text[:500]}")
-    resp.raise_for_status()
-    return resp.json()
+    client = _get_client()
+    # Retry on transient errors (#20)
+    last_exc = None
+    for attempt in range(_RETRY_COUNT + 1):
+        try:
+            resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
+            if resp.status_code in _RETRYABLE_STATUS and attempt < _RETRY_COUNT:
+                log.warning(f"Provider [{provider.get('name', '?')}] returned {resp.status_code}, retrying ({attempt + 1}/{_RETRY_COUNT})")
+                await asyncio.sleep(_RETRY_BACKOFF[attempt])
+                continue
+            if resp.status_code >= 400:
+                log.error(f"Provider [{provider.get('name', '?')}] returned {resp.status_code}: {resp.text[:500]}")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.TimeoutException as e:
+            last_exc = e
+            if attempt < _RETRY_COUNT:
+                log.warning(f"Provider timeout, retrying ({attempt + 1}/{_RETRY_COUNT})")
+                await asyncio.sleep(_RETRY_BACKOFF[attempt])
+            else:
+                raise
+    raise last_exc  # Should not reach here
 
 
 async def chat_completion_stream(messages: list[dict], model: str | None = None,
@@ -204,8 +227,8 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
     if temperature is not None:
         payload["temperature"] = temperature
 
-    client = _get_client(timeout)
-    async with client.stream("POST", url, json=payload, headers=headers) as resp:
+    client = _get_client()
+    async with client.stream("POST", url, json=payload, headers=headers, timeout=timeout) as resp:
         resp.raise_for_status()
         async for line in resp.aiter_lines():
             if line.startswith("data: "):
@@ -223,8 +246,8 @@ async def list_models(provider: dict | None = None) -> list[dict]:
     url = _build_url(provider, "/v1/models")
     headers = _build_headers(provider)
 
-    client = _get_client(15)
-    resp = await client.get(url, headers=headers)
+    client = _get_client()
+    resp = await client.get(url, headers=headers, timeout=15)
     resp.raise_for_status()
     data = resp.json()
     return data.get("data", [])
@@ -237,8 +260,8 @@ async def health_check(provider: dict | None = None) -> bool:
     try:
         url = _build_url(provider, "/v1/models")
         headers = _build_headers(provider)
-        client = _get_client(5)
-        resp = await client.get(url, headers=headers)
+        client = _get_client()
+        resp = await client.get(url, headers=headers, timeout=5)
         return resp.status_code == 200
     except Exception:
         return False

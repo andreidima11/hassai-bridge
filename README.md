@@ -34,24 +34,28 @@ In Home Assistant, add the **HASSAI Bridge** integration with:
 ```
 hassai-bridge/
 ├── main.py              # FastAPI app (port 8899)
-├── config.py            # Configuration (JSON-backed)
-├── database.py          # SQLite — memories & conversations
+├── config.py            # Configuration (JSON-backed, compat shim)
+├── database.py          # SQLite — memories & conversations (compat shim)
 ├── requirements.txt
+├── core/
+│   ├── config.py        # Configuration with caching
+│   └── database.py      # SQLite — memories, conversations, usage stats
 ├── routers/
 │   ├── chat.py          # /v1/chat/completions (OpenAI-compatible)
 │   ├── memory.py        # /api/memory/* (memory CRUD + knowledge graph)
-│   ├── settings.py      # /api/settings/* (configuration)
-│   └── search.py        # /api/search/* (web search)
+│   └── settings.py      # /api/settings/* (configuration)
 ├── services/
-│   ├── lmstudio.py      # LLM inference client
+│   ├── providers.py     # Multi-provider LLM client
 │   ├── memory_engine.py # Tiered memory retrieval & extraction
 │   ├── knowledge_graph.py # Per-user knowledge graph
 │   ├── searxng.py       # Web search client
 │   └── web_scraper.py   # Web page text extraction
 ├── static/
 │   ├── index.html       # Web UI
-│   ├── style.css
-│   └── app.js
+│   ├── css/style.css
+│   └── js/
+│       ├── app.js       # Main frontend logic
+│       └── i18n.js      # Internationalization (EN/RO)
 └── data/                # SQLite DB + config.json (auto-generated)
 ```
 
@@ -63,14 +67,20 @@ hassai-bridge/
 | `/v1/models` | GET | List available models |
 | `/api/settings/` | GET/PUT | Application settings |
 | `/api/settings/health` | GET | Health check |
+| `/api/settings/info` | GET | System info dashboard |
+| `/api/settings/stats` | GET | Usage statistics |
+| `/api/settings/providers` | GET/POST | Provider management |
+| `/api/settings/backup` | GET | Database backup download |
+| `/api/settings/restore/upload` | POST | Database restore (upload) |
 | `/api/memory/users` | GET | List users with memories |
 | `/api/memory/{user_id}` | GET | User memories |
 | `/api/memory/` | POST | Add a memory |
-| `/api/memory/{id}` | DELETE | Delete a memory |
+| `/api/memory/{id}` | PUT/DELETE | Update/delete a memory |
 | `/api/memory/graph/{user_id}/*` | various | Knowledge graph endpoints |
-| `/api/search/` | POST | Web search + content fetch |
-| `/api/search/fetch` | POST | Extract text from a URL |
+| `/api/logs` | GET | Server logs |
 | `/` | GET | Web UI |
+
+> **Note:** All `/api/` endpoints require authentication (API key via Bearer token, X-Assist-Key header, or localhost access).
 
 ## Web Search
 

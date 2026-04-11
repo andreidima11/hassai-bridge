@@ -7,4 +7,5 @@ from core.database import (
     log_memory_action, add_conversation_message, get_conversation_history,
     get_conversation_sessions, get_session_messages,
     delete_conversation_session, clear_conversation, CATEGORIES, DB_PATH,
+    add_usage_stat, get_usage_stats,
 )

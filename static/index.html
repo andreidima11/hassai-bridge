@@ -11,21 +11,17 @@
 <div class="header">
   <div class="header-left">
     <h1>HASSAI Bridge</h1>
-    <span class="badge" id="versionBadge">v0.1.1-beta</span>
+    <span class="badge" id="versionBadge">v0.1.6-beta</span>
   </div>
   <div class="header-right" id="statusBadges">
-    <select id="langSelect" class="lang-select" onchange="setLanguage(this.value)">
-      <option value="en">EN</option>
-      <option value="ro">RO</option>
-    </select>
-    <span class="status err" id="statusLM"><span class="status-dot"></span> <span id="statusLMLabel">AI Provider</span></span>
-    <span class="status err" id="statusSX"><span class="status-dot"></span> SearXNG</span>
+    <select id="langSelect" style="display:none"><option value="en">EN</option><option value="ro">RO</option></select>
   </div>
 </div>
 
 <div class="container">
   <div class="tabs">
     <div class="tab active" data-panel="info" data-i18n="tab.info">Info</div>
+    <div class="tab" data-panel="statistics" data-i18n="tab.statistics">Statistics</div>
     <div class="tab" data-panel="conversations" data-i18n="tab.conversations">Conversations</div>
     <div class="tab" data-panel="settings" data-i18n="tab.settings">Settings</div>
     <div class="tab" data-panel="users" data-i18n="tab.users">Users</div>
@@ -57,6 +53,9 @@
           <div class="svc-status loading" data-i18n="info.checking">Checking...</div>
           <div class="svc-detail" id="svcMemDetail">—</div>
         </div>
+      </div>
+      <div style="text-align:right;margin-top:12px">
+        <button class="btn btn-danger btn-sm" onclick="restartServer()" data-i18n="info.restartServer">Restart Server</button>
       </div>
     </div>
 
@@ -118,15 +117,80 @@
 
     <!-- All endpoints -->
     <div class="card">
-      <h2 data-i18n="info.availableEndpoints">Available Endpoints</h2>
-      <div class="endpoints-table" id="endpointsTable">
+      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleEndpoints()">
+        <h2 style="margin:0" data-i18n="info.availableEndpoints">Available Endpoints</h2>
+        <span class="ep-toggle-arrow" id="epToggleArrow">▶</span>
+      </div>
+      <div class="endpoints-table" id="endpointsTable" style="display:none">
         <p class="card-muted" data-i18n="info.loading">Loading...</p>
       </div>
     </div>
+  </div>
 
-    <div class="btn-row">
-      <button class="btn btn-success" onclick="refreshInfo()" data-i18n="info.refresh">Refresh</button>
-      <button class="btn btn-danger" onclick="restartServer()" data-i18n="info.restartServer">Restart Server</button>
+  <!-- ════════════ STATISTICS ════════════ -->
+  <div class="panel" id="statistics">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0" data-i18n="stats.title">Usage Statistics</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="statsPeriod" class="input-sm" onchange="loadUsageStats()">
+            <option value="7">7 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="90">90 days</option>
+            <option value="365">365 days</option>
+          </select>
+          <button class="btn btn-sm btn-primary" onclick="loadUsageStats()" data-i18n="logs.refresh">Refresh</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overview cards -->
+    <div class="card">
+      <h2 data-i18n="stats.overview">Overview</h2>
+      <div class="stats-overview-grid" id="statsOverviewGrid">
+        <div class="info-stat"><div class="info-stat-num" id="statsRequests">—</div><div class="info-stat-lbl" data-i18n="stats.totalRequests">Total Requests</div></div>
+        <div class="info-stat"><div class="info-stat-num" id="statsTokens">—</div><div class="info-stat-lbl" data-i18n="stats.totalTokens">Total Tokens</div></div>
+        <div class="info-stat"><div class="info-stat-num" id="statsSearches">—</div><div class="info-stat-lbl" data-i18n="stats.searchRequests">Search Requests</div></div>
+        <div class="info-stat"><div class="info-stat-num" id="statsStream">—</div><div class="info-stat-lbl" data-i18n="stats.streamRequests">Stream / Non-Stream</div></div>
+      </div>
+    </div>
+
+    <!-- Pie charts -->
+    <div class="stats-charts-row">
+      <div class="card" style="flex:1;min-width:280px">
+        <h2 data-i18n="stats.byProvider">By Provider</h2>
+        <canvas id="chartProvider" width="300" height="300"></canvas>
+        <div id="chartProviderLegend" class="chart-legend"></div>
+      </div>
+      <div class="card" style="flex:1;min-width:280px">
+        <h2 data-i18n="stats.byModel">By Model</h2>
+        <canvas id="chartModel" width="300" height="300"></canvas>
+        <div id="chartModelLegend" class="chart-legend"></div>
+      </div>
+    </div>
+
+    <!-- Daily activity -->
+    <div class="card">
+      <h2 data-i18n="stats.dailyActivity">Daily Activity</h2>
+      <canvas id="chartDaily" width="800" height="200"></canvas>
+    </div>
+
+    <!-- Details tables -->
+    <div class="stats-charts-row">
+      <div class="card" style="flex:1;min-width:280px">
+        <h2 data-i18n="stats.providerDetails">Provider Details</h2>
+        <div id="statsProviderTable" class="stats-detail-table"></div>
+      </div>
+      <div class="card" style="flex:1;min-width:280px">
+        <h2 data-i18n="stats.modelDetails">Model Details</h2>
+        <div id="statsModelTable" class="stats-detail-table"></div>
+      </div>
+    </div>
+
+    <!-- Per-user -->
+    <div class="card">
+      <h2 data-i18n="stats.byUser">By User</h2>
+      <div id="statsUserTable" class="stats-detail-table"></div>
     </div>
   </div>
 
@@ -176,21 +240,58 @@
   <!-- ════════════ SETTINGS ════════════ -->
   <div class="panel" id="settings">
 
-    <div class="card">
-      <h2 data-i18n="settings.language">Language</h2>
-      <label data-i18n="settings.language">Language</label>
-      <select id="settingsLang" onchange="setLanguage(this.value)">
-        <option value="en">English</option>
-        <option value="ro">Română</option>
-      </select>
+    <!-- Settings sub-tabs -->
+    <div class="settings-tabs">
+      <div class="settings-tab active" data-stab="stab-general" data-i18n="settings.tabGeneral">General</div>
+      <div class="settings-tab" data-stab="stab-providers" data-i18n="settings.tabProviders">Providers</div>
+      <div class="settings-tab" data-stab="stab-search" data-i18n="settings.tabSearch">Search</div>
+      <div class="settings-tab" data-stab="stab-memory" data-i18n="settings.tabMemory">Memory</div>
+      <div class="settings-tab" data-stab="stab-backup" data-i18n="settings.tabBackup">Backup</div>
     </div>
 
-    <div class="card">
-      <h2 data-i18n="settings.providers">AI Providers</h2>
-      <p class="card-muted" data-i18n="settings.providersDesc">Add and manage AI providers. Supports local servers (LM Studio, Ollama) and cloud APIs (OpenAI, Grok, DeepSeek, GLM).</p>
-      <div id="providersList"></div>
-      <div style="margin-top:12px">
-        <button class="btn btn-primary btn-sm" onclick="openAddProvider()" data-i18n="settings.addProvider">+ Add Provider</button>
+    <!-- ── General ── -->
+    <div class="settings-subpanel active" id="stab-general">
+      <div class="card">
+        <h2 data-i18n="settings.language">Language</h2>
+        <label data-i18n="settings.language">Language</label>
+        <select id="settingsLang" onchange="setLanguage(this.value)">
+          <option value="en">English</option>
+          <option value="ro">Română</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <h2 data-i18n="settings.performance">Performance</h2>
+        <p class="card-muted" data-i18n="settings.perfDesc">Optimizations for faster response time.</p>
+        <label><span data-i18n="settings.historyLimit">Conversation history limit</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.historyLimitDesc">(how many history messages to send to LLM)</span></label>
+        <input type="number" id="perfHistoryLimit" value="10" min="2" max="50">
+        <div class="toggle-row">
+          <span data-i18n="settings.parallelFetch">Fetch web pages in parallel</span>
+          <label class="toggle"><input type="checkbox" id="perfParallelFetch" checked><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 data-i18n="settings.systemPromptGlobal">Global System Prompt</h2>
+        <p class="card-muted" data-i18n="settings.systemPromptGlobalDesc">Default system prompt for providers that don't have their own.</p>
+        <textarea id="systemPrompt" rows="4"></textarea>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
+        <button class="btn btn-success" onclick="checkHealth()" data-i18n="settings.checkConnection">Check Connection</button>
+      </div>
+    </div>
+
+    <!-- ── Providers ── -->
+    <div class="settings-subpanel" id="stab-providers">
+      <div class="card">
+        <h2 data-i18n="settings.providers">AI Providers</h2>
+        <p class="card-muted" data-i18n="settings.providersDesc">Add and manage AI providers. Supports local servers (LM Studio, Ollama) and cloud APIs (OpenAI, Grok, DeepSeek, GLM).</p>
+        <div id="providersList"></div>
+        <div style="margin-top:12px">
+          <button class="btn btn-primary btn-sm" onclick="openAddProvider()" data-i18n="settings.addProvider">+ Add Provider</button>
+        </div>
       </div>
     </div>
 
@@ -237,6 +338,11 @@
             </div>
           </div>
           <div class="modal-section">
+            <h3 data-i18n="settings.personality">Personality</h3>
+            <p class="card-muted hint" data-i18n="settings.personalityDesc">Custom system prompt for this provider. Leave empty to use the global system prompt.</p>
+            <textarea id="provSystemPrompt" rows="3" data-i18n-placeholder="settings.personalityPlaceholder" placeholder="e.g.: You are a creative writing assistant..."></textarea>
+          </div>
+          <div class="modal-section">
             <h3 data-i18n="settings.advanced">Advanced</h3>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
               <div>
@@ -262,72 +368,67 @@
       </div>
     </div>
 
-    <div class="card">
-      <h2 data-i18n="settings.searxng">SearXNG — AI Web Search</h2>
-      <p class="card-muted" data-i18n="settings.searxngDesc">When enabled, the AI decides on its own when to search the internet, based on knowledge cutoff date.</p>
-      <div class="toggle-row">
-        <span data-i18n="settings.searxngEnabled">Enabled — AI can search the internet</span>
-        <label class="toggle"><input type="checkbox" id="sxEnabled"><span class="slider"></span></label>
+    <!-- ── Search ── -->
+    <div class="settings-subpanel" id="stab-search">
+      <div class="card">
+        <h2 data-i18n="settings.searxng">SearXNG — AI Web Search</h2>
+        <p class="card-muted" data-i18n="settings.searxngDesc">When enabled, the AI decides on its own when to search the internet, based on knowledge cutoff date.</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.searxngEnabled">Enabled — AI can search the internet</span>
+          <label class="toggle"><input type="checkbox" id="sxEnabled"><span class="slider"></span></label>
+        </div>
+        <label><span data-i18n="settings.knowledgeCutoff">Knowledge Cutoff Date</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.knowledgeCutoffDesc">(month up to which the AI has training data, e.g.: 2024-01)</span></label>
+        <input type="text" id="knowledgeCutoff" placeholder="2024-01">
+        <label data-i18n="settings.searxngUrl">SearXNG Server URL</label>
+        <input type="text" id="sxUrl" placeholder="http://localhost:8080">
+        <label data-i18n="settings.maxResults">Max results per search</label>
+        <input type="number" id="sxMaxResults" value="5" min="1" max="20">
+        <label data-i18n="settings.maxChars">Max characters per page</label>
+        <input type="number" id="sxMaxChars" value="4000" min="500" max="20000">
+        <label><span data-i18n="settings.cacheTtl">Cache TTL (seconds)</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.cacheTtlDesc">(how long results stay cached)</span></label>
+        <input type="number" id="sxCacheTtl" value="300" min="30" max="3600">
       </div>
-      <label><span data-i18n="settings.knowledgeCutoff">Knowledge Cutoff Date</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.knowledgeCutoffDesc">(month up to which the AI has training data, e.g.: 2024-01)</span></label>
-      <input type="text" id="knowledgeCutoff" placeholder="2024-01">
-      <label data-i18n="settings.searxngUrl">SearXNG Server URL</label>
-      <input type="text" id="sxUrl" placeholder="http://localhost:8080">
-      <label data-i18n="settings.maxResults">Max results per search</label>
-      <input type="number" id="sxMaxResults" value="5" min="1" max="20">
-      <label data-i18n="settings.maxChars">Max characters per page</label>
-      <input type="number" id="sxMaxChars" value="4000" min="500" max="20000">
-      <label><span data-i18n="settings.cacheTtl">Cache TTL (seconds)</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.cacheTtlDesc">(how long results stay cached)</span></label>
-      <input type="number" id="sxCacheTtl" value="300" min="30" max="3600">
-    </div>
-
-    <div class="card">
-      <h2 data-i18n="settings.memoryAi">AI Memory</h2>
-      <p class="card-muted" data-i18n="settings.memoryDesc">Automatic fact extraction from conversations, personalized responses per user.</p>
-      <div class="toggle-row">
-        <span data-i18n="settings.memoryEnabled">Memory enabled</span>
-        <label class="toggle"><input type="checkbox" id="memEnabled" checked><span class="slider"></span></label>
-      </div>
-      <div class="toggle-row">
-        <span data-i18n="settings.autoExtract">Auto-extract from conversations</span>
-        <label class="toggle"><input type="checkbox" id="memAutoExtract" checked><span class="slider"></span></label>
-      </div>
-      <label data-i18n="settings.maxMemories">Max memories per user</label>
-      <input type="number" id="memMax" value="500" min="10" max="2000">
-    </div>
-
-    <div class="card">
-      <h2 data-i18n="settings.performance">Performance</h2>
-      <p class="card-muted" data-i18n="settings.perfDesc">Optimizations for faster response time.</p>
-      <label><span data-i18n="settings.historyLimit">Conversation history limit</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.historyLimitDesc">(how many history messages to send to LLM)</span></label>
-      <input type="number" id="perfHistoryLimit" value="10" min="2" max="50">
-      <div class="toggle-row">
-        <span data-i18n="settings.parallelFetch">Fetch web pages in parallel</span>
-        <label class="toggle"><input type="checkbox" id="perfParallelFetch" checked><span class="slider"></span></label>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2 data-i18n="settings.systemPrompt">System Prompt</h2>
-      <textarea id="systemPrompt" rows="4"></textarea>
-    </div>
-
-    <div class="card">
-      <h2 data-i18n="settings.backup">Backup / Restore</h2>
-      <p class="card-muted" data-i18n="settings.backupDesc">Download a copy of the database or restore from backup. Restoring replaces all existing data!</p>
       <div class="btn-row">
-        <button class="btn btn-primary btn-sm" onclick="downloadBackup()" data-i18n="settings.downloadBackup">Download Backup</button>
-        <label class="btn btn-success btn-sm" style="cursor:pointer">
-          <span data-i18n="settings.restore">Restore</span>
-          <input type="file" accept=".db" onchange="uploadRestore(this)" style="display:none">
-        </label>
+        <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
       </div>
     </div>
 
-    <div class="btn-row">
-      <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
-      <button class="btn btn-success" onclick="checkHealth()" data-i18n="settings.checkConnection">Check Connection</button>
+    <!-- ── Memory ── -->
+    <div class="settings-subpanel" id="stab-memory">
+      <div class="card">
+        <h2 data-i18n="settings.memoryAi">AI Memory</h2>
+        <p class="card-muted" data-i18n="settings.memoryDesc">Automatic fact extraction from conversations, personalized responses per user.</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.memoryEnabled">Memory enabled</span>
+          <label class="toggle"><input type="checkbox" id="memEnabled" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span data-i18n="settings.autoExtract">Auto-extract from conversations</span>
+          <label class="toggle"><input type="checkbox" id="memAutoExtract" checked><span class="slider"></span></label>
+        </div>
+        <label data-i18n="settings.maxMemories">Max memories per user</label>
+        <input type="number" id="memMax" value="500" min="10" max="2000">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
+      </div>
     </div>
+
+    <!-- ── Backup ── -->
+    <div class="settings-subpanel" id="stab-backup">
+      <div class="card">
+        <h2 data-i18n="settings.backup">Backup / Restore</h2>
+        <p class="card-muted" data-i18n="settings.backupDesc">Download a copy of the database or restore from backup. Restoring replaces all existing data!</p>
+        <div class="btn-row">
+          <button class="btn btn-primary btn-sm" onclick="downloadBackup()" data-i18n="settings.downloadBackup">Download Backup</button>
+          <label class="btn btn-success btn-sm" style="cursor:pointer">
+            <span data-i18n="settings.restore">Restore</span>
+            <input type="file" accept=".db" onchange="uploadRestore(this)" style="display:none">
+          </label>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- ════════════ USERS ════════════ -->

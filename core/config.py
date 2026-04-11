@@ -4,14 +4,16 @@ import time
 import uuid
 from pathlib import Path
 
-VERSION = "v0.1.5-beta"
+VERSION = "v0.1.6-beta"
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 CONFIG_FILE = DATA_DIR / "config.json"
 
-# ── In-memory config cache ──
+# ── In-memory config cache (debounced mtime check #12) ──
 _config_cache: dict | None = None
 _config_mtime: float = 0.0
+_config_last_check: float = 0.0
+_CONFIG_CHECK_INTERVAL = 1.0  # seconds — don't stat() more often than this
 
 
 def _generate_api_key() -> str:
@@ -63,8 +65,15 @@ DEFAULT_CONFIG = {
 
 
 def load_config() -> dict:
-    global _config_cache, _config_mtime
+    global _config_cache, _config_mtime, _config_last_check
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Debounced: skip stat() if checked recently (#12)
+    now = time.time()
+    if _config_cache is not None and (now - _config_last_check) < _CONFIG_CHECK_INTERVAL:
+        return _config_cache
+
+    _config_last_check = now
 
     # Return cache if file hasn't changed
     if _config_cache is not None and CONFIG_FILE.exists():

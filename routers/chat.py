@@ -25,6 +25,7 @@ from database import (
     add_conversation_message,
     get_conversation_history,
     get_memory_stats,
+    add_usage_stat,
 )
 from services import providers
 from services.providers import get_active_provider
@@ -81,7 +82,8 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
             "• `/info` — System info (version, uptime, stats)\n"
             "• `/memory` — Your memory statistics\n"
             "• `/models` — Available models on the active provider\n"
-            "• `/setmodel <provider_id>` — Switch active AI provider\n"
+            "• `/setmodel [name|#]` — Change model on the active provider\n"
+            "• `/setprovider [name|#]` — Switch active AI provider\n"
             "• `/version` — Current version\n"
             "• `/restart` — Restart HASSAI Bridge server\n"
             "• `/help` — This command list"
@@ -149,9 +151,12 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
             models = await providers.list_models(active)
             if models:
                 lines = [f"🤖 **Available models ({active.get('name', '?')}):**\n"]
-                for m in models:
+                current_model = active.get("model", "")
+                for i, m in enumerate(models, 1):
                     mid = m.get("id", "unknown")
-                    lines.append(f"• `{mid}`")
+                    marker = " ✅" if mid == current_model else ""
+                    lines.append(f"**{i}.** `{mid}`{marker}")
+                lines.append(f"\nUse `/setmodel <name|#>` to switch.")
                 return "\n".join(lines)
             else:
                 return "🤖 No models available on the active provider."
@@ -169,7 +174,7 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
         _trigger.write_text(str(time.time()))
         return "🔄 **Server is restarting...**\n\nWait a few seconds, then refresh the page."
 
-    elif command == "/setmodel":
+    elif command == "/setprovider":
         from config import save_config
         arg = parts[1].strip() if len(parts) > 1 else ""
         all_providers = cfg.get("providers", [])
@@ -179,17 +184,23 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
                 return "❌ No providers configured. Add one from the Web UI > Settings."
             lines = ["🔄 **Available providers:**\n"]
             active_id = cfg.get("active_provider", "")
-            for p in all_providers:
+            for i, p in enumerate(all_providers, 1):
                 marker = " ✅" if p["id"] == active_id else ""
-                lines.append(f"• `{p['id']}` — {p.get('name', '?')} ({p.get('type', '?')}) model: {p.get('model', '?')}{marker}")
-            lines.append(f"\nUse `/setmodel <id>` to switch.")
+                lines.append(f"**{i}.** `{p.get('name', '?')}` — {p.get('type', '?')} model: {p.get('model', '?')}{marker}")
+            lines.append(f"\nUse `/setprovider <name|#>` to switch.")
             return "\n".join(lines)
-        # Find provider by id (or partial match)
+        # Try numeric index first
         match = None
-        for p in all_providers:
-            if p["id"] == arg or p["id"].startswith(arg):
-                match = p
-                break
+        if arg.isdigit():
+            idx = int(arg) - 1
+            if 0 <= idx < len(all_providers):
+                match = all_providers[idx]
+        if not match:
+            # Find provider by id (or partial match)
+            for p in all_providers:
+                if p["id"] == arg or p["id"].startswith(arg):
+                    match = p
+                    break
         if not match:
             # Try matching by name
             for p in all_providers:
@@ -197,10 +208,54 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
                     match = p
                     break
         if not match:
-            return f"❌ Provider `{arg}` not found. Use `/setmodel` to see available providers."
+            return f"❌ Provider `{arg}` not found. Use `/setprovider` to see available providers."
         cfg["active_provider"] = match["id"]
         save_config(cfg)
         return f"✅ Switched to **{match.get('name', match['id'])}** ({match.get('type', '?')}) — model: `{match.get('model', '?')}`"
+
+    elif command == "/setmodel":
+        from config import save_config
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        active = get_active_provider()
+        if not arg:
+            # List models on active provider
+            try:
+                models = await providers.list_models(active)
+            except Exception:
+                return "❌ Could not reach the active provider for model list."
+            if not models:
+                return "🤖 No models available on the active provider."
+            lines = [f"🤖 **Models on {active.get('name', '?')}:**\n"]
+            current_model = active.get("model", "")
+            for i, m in enumerate(models, 1):
+                mid = m.get("id", "unknown")
+                marker = " ✅" if mid == current_model else ""
+                lines.append(f"**{i}.** `{mid}`{marker}")
+            lines.append(f"\nUse `/setmodel <name|#>` to switch.")
+            return "\n".join(lines)
+        # Try numeric index — need to fetch models
+        chosen = None
+        if arg.isdigit():
+            try:
+                models = await providers.list_models(active)
+                idx = int(arg) - 1
+                if 0 <= idx < len(models):
+                    chosen = models[idx].get("id")
+            except Exception:
+                return "❌ Could not reach the active provider for model list."
+            if chosen is None:
+                return f"❌ Model #{arg} not found. Use `/setmodel` to see available models."
+        else:
+            chosen = arg
+        # Update model on the active provider in config
+        all_providers = cfg.get("providers", [])
+        for p in all_providers:
+            if p["id"] == active["id"]:
+                p["model"] = chosen
+                break
+        cfg["providers"] = all_providers
+        save_config(cfg)
+        return f"✅ Model changed to `{chosen}` on **{active.get('name', active['id'])}**"
 
     else:
         return (
@@ -226,8 +281,17 @@ def _command_response_openai(content: str, model: str) -> dict:
 
 
 def _estimate_tokens(text: str) -> int:
-    """Estimate token count: ~1.3 tokens per word (heuristic)."""
-    return max(1, int(len(text.split()) * 1.3))
+    """Estimate token count using word-based heuristic.
+
+    ~1.3 tokens per word for English, ~1.5 for non-Latin (Romanian diacritics, CJK).
+    """
+    words = text.split()
+    if not words:
+        return 1
+    # Non-ASCII heavy text tends to tokenize into more tokens
+    non_ascii_ratio = sum(1 for c in text if ord(c) > 127) / max(len(text), 1)
+    multiplier = 1.5 if non_ascii_ratio > 0.1 else 1.3
+    return max(1, int(len(words) * multiplier))
 
 
 def _sanitize_message_roles(messages: list[dict]) -> list[dict]:
@@ -450,10 +514,23 @@ async def chat_completions(request: Request):
             last_user_msg = msg.get("content", "").strip()
             break
 
+    # ── Message size validation (#16) ──
+    total_size = sum(len(m.get("content", "")) for m in messages)
+    if total_size > 512_000:  # 500KB max
+        return JSONResponse(
+            status_code=413,
+            content={"error": {"message": "Message content too large (max 500KB)", "type": "invalid_request_error"}},
+        )
+    for msg in messages:
+        if len(msg.get("content", "")) > 100_000:  # 100KB per message
+            return JSONResponse(
+                status_code=413,
+                content={"error": {"message": "Single message too large (max 100KB)", "type": "invalid_request_error"}},
+            )
+
     cmd_result = await _handle_command(last_user_msg, user_id)
     if cmd_result is not None:
-        add_conversation_message(user_id, "user", last_user_msg)
-        add_conversation_message(user_id, "assistant", cmd_result)
+        # Slash commands: save only user msg, not polluting history with /health etc. (#18)
         if stream:
             # Stream the command response as a single chunk
             chunk_data = json.dumps({
@@ -472,16 +549,13 @@ async def chat_completions(request: Request):
     # ── Build augmented message list ──
     augmented: list[dict] = []
 
-    # 1) System prompt
-    system_prompt = cfg.get("system_prompt", "")
+    # 1) System prompt (per-provider overrides global)
+    active = get_active_provider()
+    system_prompt = (active.get("system_prompt") or "").strip() or cfg.get("system_prompt", "")
     if system_prompt:
         augmented.append({"role": "system", "content": system_prompt})
 
-    # 2) Search capability instruction (if SearXNG is enabled)
-    if search_enabled:
-        augmented.append({"role": "system", "content": _build_search_instruction(cfg)})
-
-    # 3) Memory + history retrieval (parallel)
+    # 2) Memory + history retrieval (parallel)
     history_limit = cfg.get("performance", {}).get("history_limit", 10)
     memories, history = await asyncio.gather(
         retrieve_relevant_memories(user_id, last_user_msg),
@@ -491,6 +565,10 @@ async def chat_completions(request: Request):
     mem_ctx = build_memory_context(memories, user_id=user_id, message=last_user_msg)
     if mem_ctx:
         augmented.append({"role": "system", "content": mem_ctx})
+
+    # 3) Search instruction AFTER memories (#4) — so LLM sees full context before deciding to search
+    if search_enabled:
+        augmented.append({"role": "system", "content": _build_search_instruction(cfg)})
 
     # 4) Conversation history — only add DB history if incoming messages
     #    don't already contain a conversation (HA sends full history)
@@ -511,12 +589,13 @@ async def chat_completions(request: Request):
 
     # ── Sanitize role order + trim to fit context window ──
     augmented = _sanitize_message_roles(augmented)
-    active = get_active_provider()
     max_ctx = active.get("max_tokens", 2048) * 3  # rough context budget
     augmented = _trim_messages(augmented, max_ctx)
 
     # ── First LLM call ──
     # For non-streaming: check if LLM requests search, then re-prompt with results
+    _req_start = time.time()
+    _search_used = False
     if not stream:
         try:
             result = await providers.chat_completion(augmented, model=model, tools=tools, tool_choice=tool_choice, provider=active)
@@ -537,40 +616,73 @@ async def chat_completions(request: Request):
             result["choices"][0]["message"]["content"] = ""
             return JSONResponse(content=result)
 
-        # Check if AI requested search
-        if search_enabled and assistant_content:
+        # Check if AI requested search — up to 2 rounds (#5)
+        _max_search_rounds = 2
+        for _search_round in range(_max_search_rounds):
+            if not (search_enabled and assistant_content):
+                break
             match = _SEARCH_MARKER.search(assistant_content)
-            if match:
-                query = match.group(1).strip()[:200]
-                log.info(f"AI requested search: {query}")
-                try:
-                    search_ctx = await search_and_fetch(query)
-                except Exception as e:
-                    log.error(f"Search failed: {e}")
-                    search_ctx = ""
+            if not match:
+                break
+            query = match.group(1).strip()[:200]
+            log.info(f"AI requested search (round {_search_round + 1}): {query}")
+            _search_used = True
+            try:
+                search_ctx = await search_and_fetch(query)
+            except Exception as e:
+                log.error(f"Search failed: {e}")
+                search_ctx = ""
 
-                if search_ctx:
-                    # Re-prompt with search results (second call)
-                    augmented.append({
-                        "role": "system",
-                        "content": (
-                            "[Web search results — use this to answer accurately. "
-                            "Cite sources with [N]. Summarize clearly, do not paste raw text. "
-                            "Do NOT use the <<SEARCH>> marker again.]:\n"
-                            f"{search_ctx}"
-                        ),
-                    })
-                    result = await providers.chat_completion(augmented, model=model, provider=active)
-                    try:
-                        assistant_content = result["choices"][0]["message"]["content"]
-                    except (KeyError, IndexError):
-                        pass
+            if search_ctx:
+                # Remove search instruction to avoid re-triggering (#2)
+                augmented = [m for m in augmented if "<<SEARCH" not in m.get("content", "")]
+                augmented.append({
+                    "role": "system",
+                    "content": (
+                        "[Web search results — use this to answer accurately. "
+                        "Cite sources with [N]. Summarize clearly, do not paste raw text. "
+                        "Do NOT use the <<SEARCH>> marker again.]:\n"
+                        f"{search_ctx}"
+                    ),
+                })
+            else:
+                # Search failed — inform LLM (#15)
+                augmented.append({
+                    "role": "system",
+                    "content": (
+                        "Web search is temporarily unavailable. Answer from your training data. "
+                        "Indicate if you cannot verify current information. "
+                        "Do NOT use the <<SEARCH>> marker again."
+                    ),
+                })
+            result = await providers.chat_completion(augmented, model=model, provider=active)
+            try:
+                assistant_content = result["choices"][0]["message"]["content"]
+            except (KeyError, IndexError):
+                assistant_content = ""
+                break
 
         # Save & extract memories
         if assistant_content:
             add_conversation_message(user_id, "assistant", assistant_content)
             all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
             asyncio.create_task(_safe_extract(user_id, all_msgs))
+
+        # Track usage statistics
+        try:
+            usage = result.get("usage", {})
+            add_usage_stat(
+                user_id=user_id, provider_id=active.get("id", ""),
+                provider_name=active.get("name", ""), provider_type=active.get("type", ""),
+                model=result.get("model", model or active.get("model", "")),
+                tokens_prompt=usage.get("prompt_tokens", 0),
+                tokens_completion=usage.get("completion_tokens", 0),
+                tokens_total=usage.get("total_tokens", 0),
+                response_time_ms=int((time.time() - _req_start) * 1000),
+                stream=False, search_used=_search_used,
+            )
+        except Exception:
+            pass
 
         return JSONResponse(content=result)
 
@@ -651,9 +763,25 @@ async def chat_completions(request: Request):
                                 add_conversation_message(user_id, "assistant", full_response)
                                 all_msgs = messages + [{"role": "assistant", "content": full_response}]
                                 asyncio.create_task(_safe_extract(user_id, all_msgs))
+                            try:
+                                add_usage_stat(
+                                    user_id=user_id, provider_id=active.get("id", ""),
+                                    provider_name=active.get("name", ""), provider_type=active.get("type", ""),
+                                    model=model or active.get("model", ""),
+                                    tokens_prompt=0, tokens_completion=_estimate_tokens(full_response),
+                                    tokens_total=_estimate_tokens(full_response),
+                                    response_time_ms=int((time.time() - _req_start) * 1000),
+                                    stream=True, search_used=True,
+                                )
+                            except Exception:
+                                pass
                             return
 
-                        # No search marker — flush buffered chunks
+                        # No search marker — strip any partial markers and flush (#1)
+                        cleaned_buffer = _SEARCH_MARKER.sub("", buffer_text)
+                        if cleaned_buffer != buffer_text:
+                            # Buffer contained partial/stray marker text — rebuild chunks
+                            log.debug("Stripped search marker fragments from stream buffer")
                         for bc in buffered_chunks:
                             yield bc
                         full_response += buffer_text
@@ -686,15 +814,47 @@ async def chat_completions(request: Request):
             all_msgs = messages + [{"role": "assistant", "content": full_response}]
             asyncio.create_task(_safe_extract(user_id, all_msgs))
 
+        try:
+            add_usage_stat(
+                user_id=user_id, provider_id=active.get("id", ""),
+                provider_name=active.get("name", ""), provider_type=active.get("type", ""),
+                model=model or active.get("model", ""),
+                tokens_prompt=0, tokens_completion=_estimate_tokens(full_response),
+                tokens_total=_estimate_tokens(full_response),
+                response_time_ms=int((time.time() - _req_start) * 1000),
+                stream=True, search_used=False,
+            )
+        except Exception:
+            pass
+
     return StreamingResponse(stream_wrapper(), media_type="text/event-stream")
 
 
+# Per-user extraction locks to prevent concurrent duplicate extractions (#6)
+_extraction_locks: dict[str, asyncio.Lock] = {}
+_EXTRACTION_TIMEOUT = 30.0  # seconds (#8)
+
+
 async def _safe_extract(user_id: str, messages: list[dict]):
-    """Safely run memory extraction in background."""
-    try:
-        await extract_memories_from_conversation(user_id, messages)
-    except Exception as e:
-        log.error(f"Background memory extraction failed: {e}")
+    """Safely run memory extraction in background with per-user lock and timeout."""
+    if user_id not in _extraction_locks:
+        _extraction_locks[user_id] = asyncio.Lock()
+
+    # Skip if another extraction is already running for this user
+    if _extraction_locks[user_id].locked():
+        log.debug(f"Skipping extraction for {user_id} — already in progress")
+        return
+
+    async with _extraction_locks[user_id]:
+        try:
+            await asyncio.wait_for(
+                extract_memories_from_conversation(user_id, messages),
+                timeout=_EXTRACTION_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            log.warning(f"Memory extraction timed out for {user_id} (>{_EXTRACTION_TIMEOUT}s)")
+        except Exception as e:
+            log.error(f"Background memory extraction failed: {e}")
 
 
 @router.get("/v1/models")
