@@ -42,7 +42,7 @@ a{color:var(--accent);text-decoration:none}
 /* ── Form elements ── */
 label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:4px;margin-top:14px;font-weight:500}
 label:first-child{margin-top:0}
-input[type=text],input[type=number],textarea,select{
+input[type=text],input[type=number],input[type=password],textarea,select{
   width:100%;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);
   border-radius:8px;color:var(--text);font-size:.88rem;outline:none;transition:all .2s
 }
@@ -99,6 +99,22 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .ha-setup-item label{margin-top:0;margin-bottom:4px}
 .api-key-blur{filter:blur(4px);transition:filter .2s;user-select:none}
 .api-key-blur:hover{filter:blur(2px)}
+
+/* ── Providers ── */
+.provider-item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 18px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:all .2s;background:var(--bg2)}
+.provider-item:hover{border-color:rgba(79,140,255,.25)}
+.provider-item.provider-active{border-color:rgba(46,204,113,.4);background:rgba(46,204,113,.06)}
+.provider-info{flex:1;min-width:0}
+.provider-name{font-weight:600;font-size:.92rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.provider-type-badge{font-size:.68rem;padding:2px 8px;border-radius:10px;font-weight:600;background:rgba(79,140,255,.15);color:var(--accent);letter-spacing:.3px;text-transform:uppercase}
+.provider-detail{font-size:.78rem;color:var(--muted);margin-top:4px;word-break:break-all}
+.provider-actions{display:flex;gap:6px;flex-shrink:0}
+
+/* Provider modal */
+#providerModal .modal-section label{margin-top:12px}
+#providerModal .modal-section label:first-of-type{margin-top:0}
+#providerModal .modal-section h3+label{margin-top:0}
+.hint{font-size:.76rem;color:var(--muted);margin:4px 0 0;line-height:1.4}
 
 /* Info stats */
 .info-stats-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;margin-top:8px}
@@ -212,6 +228,8 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
   .tab{padding:9px 10px;font-size:.82rem}
   .btn-row{flex-direction:column}
   .btn-row .btn{width:100%;justify-content:center}
+  .provider-item{flex-direction:column;align-items:flex-start;gap:10px}
+  .provider-actions{width:100%;justify-content:flex-end}
 }
 
 /* ── Scrollbar ── */

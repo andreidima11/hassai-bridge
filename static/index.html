@@ -18,7 +18,7 @@
       <option value="en">EN</option>
       <option value="ro">RO</option>
     </select>
-    <span class="status err" id="statusLM"><span class="status-dot"></span> LMStudio</span>
+    <span class="status err" id="statusLM"><span class="status-dot"></span> <span id="statusLMLabel">AI Provider</span></span>
     <span class="status err" id="statusSX"><span class="status-dot"></span> SearXNG</span>
   </div>
 </div>
@@ -40,8 +40,8 @@
       <h2 data-i18n="info.serviceStatus">Service Status</h2>
       <div class="services-grid" id="servicesGrid">
         <div class="service-card" id="svcLMStudio">
-          <div class="svc-icon">LM</div>
-          <div class="svc-name">LMStudio</div>
+          <div class="svc-icon">AI</div>
+          <div class="svc-name" id="svcProviderName">AI Provider</div>
           <div class="svc-status loading" data-i18n="info.checking">Checking...</div>
           <div class="svc-detail" id="svcLMDetail">—</div>
         </div>
@@ -186,22 +186,81 @@
     </div>
 
     <div class="card">
-      <h2>LMStudio</h2>
-      <label data-i18n="settings.serverUrl">Server URL</label>
-      <input type="text" id="lmUrl" placeholder="http://localhost:1234">
-      <label data-i18n="settings.model">Model</label>
-      <div style="display:flex;gap:8px;align-items:center">
-        <select id="lmModel" style="flex:1">
-          <option value="default">default</option>
-        </select>
-        <button class="btn btn-sm btn-primary" onclick="refreshModelList()" data-i18n="settings.reload">Reload</button>
+      <h2 data-i18n="settings.providers">AI Providers</h2>
+      <p class="card-muted" data-i18n="settings.providersDesc">Add and manage AI providers. Supports local servers (LM Studio, Ollama) and cloud APIs (OpenAI, Grok, DeepSeek, GLM).</p>
+      <div id="providersList"></div>
+      <div style="margin-top:12px">
+        <button class="btn btn-primary btn-sm" onclick="openAddProvider()" data-i18n="settings.addProvider">+ Add Provider</button>
       </div>
-      <label data-i18n="settings.timeout">Timeout (seconds)</label>
-      <input type="number" id="lmTimeout" value="120" min="10" max="600">
-      <label data-i18n="settings.maxTokens">Max Tokens</label>
-      <input type="number" id="lmMaxTokens" value="2048" min="128" max="32768">
-      <label><span data-i18n="settings.temperature">Temperature</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.tempDesc">(0.0 = deterministic, 1.0 = creative)</span></label>
-      <input type="number" id="lmTemperature" value="0.7" min="0" max="2" step="0.1">
+    </div>
+
+    <!-- Provider Add/Edit Modal -->
+    <div class="modal-overlay" id="providerModal" onclick="if(event.target===this)cancelProviderForm()">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">
+            <div class="modal-avatar">🤖</div>
+            <div>
+              <h2 id="providerFormTitle" data-i18n="settings.addProvider">Add Provider</h2>
+              <span class="modal-subtitle" data-i18n="settings.providerModalDesc">Configure the AI provider connection</span>
+            </div>
+          </div>
+          <button class="modal-close" onclick="cancelProviderForm()" data-i18n-title="misc.close" title="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-section">
+            <label data-i18n="settings.providerType">Type</label>
+            <select id="provType" onchange="onProvTypeChange()">
+              <option value="local">Local (LM Studio / Ollama)</option>
+              <option value="openai">OpenAI</option>
+              <option value="grok">Grok (xAI)</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="glm">GLM (Zhipu AI)</option>
+            </select>
+            <label data-i18n="settings.providerName">Name</label>
+            <input type="text" id="provName" placeholder="e.g.: My LM Studio">
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.connection">Connection</h3>
+            <label data-i18n="settings.serverUrl">Server URL</label>
+            <input type="text" id="provUrl" placeholder="http://localhost:1234">
+            <p class="card-muted hint" id="provUrlHint" data-i18n="settings.providerUrlHint">For local servers, use the full URL (e.g. http://192.168.0.100:1234). For cloud APIs, the default URL is pre-filled.</p>
+            <label id="provApiKeyLabel" data-i18n="settings.providerApiKey">API Key</label>
+            <input type="password" id="provApiKey" placeholder="sk-...">
+            <p class="card-muted hint" id="provApiKeyHint" data-i18n="settings.providerApiKeyHint">Your API key for this provider. Required for cloud providers.</p>
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.model">Model</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="provModel" placeholder="e.g.: gpt-4o-mini" style="flex:1">
+              <button class="btn btn-sm btn-primary" onclick="fetchProviderModels()" id="provFetchModelsBtn" data-i18n="settings.fetchModels">Fetch Models</button>
+            </div>
+            <select id="provModelSelect" style="display:none;margin-top:4px" onchange="document.getElementById('provModel').value=this.value"></select>
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.advanced">Advanced</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+              <div>
+                <label data-i18n="settings.timeout">Timeout (s)</label>
+                <input type="number" id="provTimeout" value="120" min="10" max="600">
+              </div>
+              <div>
+                <label data-i18n="settings.maxTokens">Max Tokens</label>
+                <input type="number" id="provMaxTokens" value="2048" min="128" max="128000">
+              </div>
+              <div>
+                <label data-i18n="settings.temperature">Temperature</label>
+                <input type="number" id="provTemperature" value="0.7" min="0" max="2" step="0.1">
+              </div>
+            </div>
+            <p class="card-muted hint" data-i18n="settings.tempDesc">(0.0 = deterministic, 1.0 = creative)</p>
+          </div>
+        </div>
+        <div class="modal-footer" style="background:transparent;justify-content:flex-end;gap:8px">
+          <button class="btn btn-sm" onclick="cancelProviderForm()" data-i18n="settings.cancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="saveProvider()" id="provSaveBtn" data-i18n="settings.save">Save</button>
+        </div>
+      </div>
     </div>
 
     <div class="card">

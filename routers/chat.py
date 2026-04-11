@@ -26,7 +26,9 @@ from database import (
     get_conversation_history,
     get_memory_stats,
 )
-from services import lmstudio, searxng
+from services import providers
+from services.providers import get_active_provider
+from services import searxng
 from services.memory_engine import (
     retrieve_relevant_memories,
     build_memory_context,
@@ -64,7 +66,7 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
 
     parts = cmd.split(None, 1)
     command = parts[0].lower()
-    # arg = parts[1].strip() if len(parts) > 1 else ""
+    # arg = parts[1].strip() if len(parts) > 1 else ""  # used by /setmodel
 
     cfg = load_config()
     ip = _get_local_ip()
@@ -73,43 +75,45 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
 
     if command == "/help":
         return (
-            "📋 **Comenzi disponibile:**\n\n"
-            "• `/health` — Status servicii (LMStudio, SearXNG, Memorie)\n"
-            "• `/settings` — Link-uri de acces la panoul de control\n"
-            "• `/info` — Informații sistem (versiune, uptime, statistici)\n"
-            "• `/memory` — Statisticile memoriei tale\n"
-            "• `/models` — Modelele disponibile pe LMStudio\n"
-            "• `/version` — Versiunea curentă\n"
-            "• `/restart` — Restart server HASSAI Bridge\n"
-            "• `/help` — Această listă de comenzi"
+            "📋 **Available commands:**\n\n"
+            "• `/health` — Service status (LLM Provider, Web Search, Memory)\n"
+            "• `/settings` — Access links to the control panel\n"
+            "• `/info` — System info (version, uptime, stats)\n"
+            "• `/memory` — Your memory statistics\n"
+            "• `/models` — Available models on the active provider\n"
+            "• `/setmodel <provider_id>` — Switch active AI provider\n"
+            "• `/version` — Current version\n"
+            "• `/restart` — Restart HASSAI Bridge server\n"
+            "• `/help` — This command list"
         )
 
     elif command == "/health":
-        lm_ok = await lmstudio.health_check()
+        active = get_active_provider()
+        lm_ok = await providers.health_check(active)
         sx_ok = await searxng.health_check()
-        lm_status = "✅ Conectat" if lm_ok else "❌ Indisponibil"
+        lm_status = "✅ Connected" if lm_ok else "❌ Unavailable"
         sx_enabled = cfg["searxng"].get("enabled", False)
         if not sx_enabled:
-            sx_status = "⚪ Dezactivat"
+            sx_status = "⚪ Disabled"
         elif sx_ok:
-            sx_status = "✅ Conectat"
+            sx_status = "✅ Connected"
         else:
-            sx_status = "❌ Indisponibil"
+            sx_status = "❌ Unavailable"
         mem_enabled = cfg["memory"].get("enabled", False)
-        mem_status = "✅ Activ" if mem_enabled else "⚪ Dezactivat"
+        mem_status = "✅ Active" if mem_enabled else "⚪ Disabled"
         return (
-            "🏥 **Status Servicii:**\n\n"
-            f"• **LMStudio:** {lm_status} — `{cfg['lmstudio']['base_url']}` (model: {cfg['lmstudio']['model']})\n"
-            f"• **SearXNG:** {sx_status} — `{cfg['searxng']['base_url']}`\n"
-            f"• **Memorie AI:** {mem_status}"
+            "🏥 **Service Status:**\n\n"
+            f"• **AI Provider:** {lm_status} — `{active.get('name', '?')}` ({active.get('type', '?')}) model: {active.get('model', '?')}\n"
+            f"• **Web Search:** {sx_status} — `{cfg['searxng']['base_url']}`\n"
+            f"• **AI Memory:** {mem_status}"
         )
 
     elif command == "/settings":
         return (
-            "⚙️ **Panou de Control:**\n\n"
+            "⚙️ **Control Panel:**\n\n"
             f"• **Web UI:** {base}\n"
             f"• **API (OpenAI):** {base}/v1\n"
-            f"• **Setări API:** {base}/api/settings/\n"
+            f"• **Settings API:** {base}/api/settings/\n"
             f"• **Health Check:** {base}/api/settings/health"
         )
 
@@ -118,20 +122,22 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
         d = int(uptime_sec // 86400)
         h = int((uptime_sec % 86400) // 3600)
         m = int((uptime_sec % 3600) // 60)
-        uptime_str = f"{d}z {h}h {m}m" if d > 0 else f"{h}h {m}m" if h > 0 else f"{m}m"
+        uptime_str = f"{d}d {h}h {m}m" if d > 0 else f"{h}h {m}m" if h > 0 else f"{m}m"
+        active = get_active_provider()
         return (
             f"ℹ️ **HASSAI Bridge {VERSION}**\n\n"
             f"• **Uptime:** {uptime_str}\n"
-            f"• **IP LAN:** {ip}\n"
+            f"• **LAN IP:** {ip}\n"
             f"• **Port:** {port}\n"
-            f"• **Model:** {cfg['lmstudio']['model']}\n"
-            f"• **Max Tokens:** {cfg['lmstudio'].get('max_tokens', 2048)}\n"
-            f"• **Temperatură:** {cfg['lmstudio'].get('temperature', 0.7)}"
+            f"• **Provider:** {active.get('name', '?')} ({active.get('type', '?')})\n"
+            f"• **Model:** {active.get('model', '?')}\n"
+            f"• **Max Tokens:** {active.get('max_tokens', 2048)}\n"
+            f"• **Temperature:** {active.get('temperature', 0.7)}"
         )
 
     elif command == "/memory":
         stats = get_memory_stats(user_id)
-        lines = [f"🧠 **Memorii pentru {user_id}:**\n"]
+        lines = [f"🧠 **Memories for {user_id}:**\n"]
         lines.append(f"• **Total:** {stats['total']}")
         for cat, count in stats.get("by_category", {}).items():
             lines.append(f"• **{cat}:** {count}")
@@ -139,17 +145,18 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
 
     elif command == "/models":
         try:
-            models = await lmstudio.list_models()
+            active = get_active_provider()
+            models = await providers.list_models(active)
             if models:
-                lines = ["🤖 **Modele disponibile:**\n"]
+                lines = [f"🤖 **Available models ({active.get('name', '?')}):**\n"]
                 for m in models:
                     mid = m.get("id", "unknown")
                     lines.append(f"• `{mid}`")
                 return "\n".join(lines)
             else:
-                return "🤖 Niciun model disponibil."
+                return "🤖 No models available on the active provider."
         except Exception:
-            return "❌ Nu s-a putut contacta LMStudio pentru lista de modele."
+            return "❌ Could not reach the active provider for model list."
 
     elif command == "/version":
         return f"🏠 HASSAI Bridge **{VERSION}**"
@@ -160,12 +167,45 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
         # Touch a file to trigger uvicorn reload watcher
         _trigger = Path(__file__).parent.parent / ".restart_trigger"
         _trigger.write_text(str(time.time()))
-        return "🔄 **Server-ul se restartează...**\n\nAșteaptă câteva secunde, apoi reîmprospătează pagina."
+        return "🔄 **Server is restarting...**\n\nWait a few seconds, then refresh the page."
+
+    elif command == "/setmodel":
+        from config import save_config
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        all_providers = cfg.get("providers", [])
+        if not arg:
+            # List available providers
+            if not all_providers:
+                return "❌ No providers configured. Add one from the Web UI > Settings."
+            lines = ["🔄 **Available providers:**\n"]
+            active_id = cfg.get("active_provider", "")
+            for p in all_providers:
+                marker = " ✅" if p["id"] == active_id else ""
+                lines.append(f"• `{p['id']}` — {p.get('name', '?')} ({p.get('type', '?')}) model: {p.get('model', '?')}{marker}")
+            lines.append(f"\nUse `/setmodel <id>` to switch.")
+            return "\n".join(lines)
+        # Find provider by id (or partial match)
+        match = None
+        for p in all_providers:
+            if p["id"] == arg or p["id"].startswith(arg):
+                match = p
+                break
+        if not match:
+            # Try matching by name
+            for p in all_providers:
+                if arg.lower() in p.get("name", "").lower():
+                    match = p
+                    break
+        if not match:
+            return f"❌ Provider `{arg}` not found. Use `/setmodel` to see available providers."
+        cfg["active_provider"] = match["id"]
+        save_config(cfg)
+        return f"✅ Switched to **{match.get('name', match['id'])}** ({match.get('type', '?')}) — model: `{match.get('model', '?')}`"
 
     else:
         return (
-            f"❓ Comandă necunoscută: `{command}`\n\n"
-            "Scrie `/help` pentru lista de comenzi disponibile."
+            f"❓ Unknown command: `{command}`\n\n"
+            "Type `/help` for available commands."
         )
 
 
@@ -471,19 +511,20 @@ async def chat_completions(request: Request):
 
     # ── Sanitize role order + trim to fit context window ──
     augmented = _sanitize_message_roles(augmented)
-    max_ctx = cfg["lmstudio"].get("max_tokens", 2048) * 3  # rough context budget
+    active = get_active_provider()
+    max_ctx = active.get("max_tokens", 2048) * 3  # rough context budget
     augmented = _trim_messages(augmented, max_ctx)
 
     # ── First LLM call ──
     # For non-streaming: check if LLM requests search, then re-prompt with results
     if not stream:
         try:
-            result = await lmstudio.chat_completion(augmented, model=model, tools=tools, tool_choice=tool_choice)
+            result = await providers.chat_completion(augmented, model=model, tools=tools, tool_choice=tool_choice, provider=active)
         except Exception as e:
-            log.error(f"LMStudio request failed: {e}")
+            log.error(f"Provider [{active.get('name', '?')}] request failed: {e}")
             return JSONResponse(
                 status_code=502,
-                content={"error": {"message": f"LMStudio error: {e}", "type": "upstream_error"}},
+                content={"error": {"message": f"Provider error: {e}", "type": "upstream_error"}},
             )
         try:
             assistant_content = result["choices"][0]["message"]["content"]
@@ -519,7 +560,7 @@ async def chat_completions(request: Request):
                             f"{search_ctx}"
                         ),
                     })
-                    result = await lmstudio.chat_completion(augmented, model=model)
+                    result = await providers.chat_completion(augmented, model=model, provider=active)
                     try:
                         assistant_content = result["choices"][0]["message"]["content"]
                     except (KeyError, IndexError):
@@ -536,7 +577,7 @@ async def chat_completions(request: Request):
     # ── Streaming path ──
     # Optimized: buffer only initial tokens to check for search marker,
     # then flush buffer and stream remaining tokens directly
-    gen = lmstudio.chat_completion_stream(augmented, model=model, tools=tools, tool_choice=tool_choice)
+    gen = providers.chat_completion_stream(augmented, model=model, tools=tools, tool_choice=tool_choice, provider=active)
 
     _SEARCH_BUFFER_CHARS = 120  # search markers appear in the first ~100 chars
 
@@ -593,7 +634,7 @@ async def chat_completions(request: Request):
                                 })
 
                             # Re-stream with search results
-                            gen2 = lmstudio.chat_completion_stream(augmented, model=model, tools=tools, tool_choice=tool_choice)
+                            gen2 = providers.chat_completion_stream(augmented, model=model, tools=tools, tool_choice=tool_choice, provider=active)
                             async for chunk2 in gen2:
                                 yield chunk2
                                 if chunk2.startswith("data: ") and chunk2.strip() != "data: [DONE]":
@@ -657,7 +698,7 @@ async def _safe_extract(user_id: str, messages: list[dict]):
 @router.get("/v1/models")
 async def list_models():
     try:
-        models = await lmstudio.list_models()
+        models = await providers.list_models()
         return {"object": "list", "data": models}
     except Exception as e:
         return JSONResponse(

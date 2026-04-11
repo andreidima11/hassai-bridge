@@ -4,7 +4,7 @@ import time
 import uuid
 from pathlib import Path
 
-VERSION = "v0.1.3-beta"
+VERSION = "v0.1.4-beta"
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 CONFIG_FILE = DATA_DIR / "config.json"
@@ -20,6 +20,8 @@ def _generate_api_key() -> str:
 
 DEFAULT_CONFIG = {
     "api_key": "",
+    "active_provider": "",
+    "providers": [],
     "lmstudio": {
         "base_url": "http://localhost:1234",
         "model": "default",
@@ -87,6 +89,24 @@ def load_config() -> dict:
         cfg["api_key"] = _generate_api_key()
         save_config(cfg)
         return cfg  # save_config updates cache
+
+    # Migrate: if old lmstudio config exists but no providers, create one
+    if not cfg.get("providers") and cfg.get("lmstudio", {}).get("base_url"):
+        lm = cfg["lmstudio"]
+        cfg["providers"] = [{
+            "id": "local_default",
+            "name": "LM Studio",
+            "type": "local",
+            "base_url": lm.get("base_url", "http://localhost:1234"),
+            "api_key": "",
+            "model": lm.get("model", "default"),
+            "timeout": lm.get("timeout", 120),
+            "max_tokens": lm.get("max_tokens", 2048),
+            "temperature": lm.get("temperature", 0.7),
+        }]
+        cfg["active_provider"] = "local_default"
+        save_config(cfg)
+        return cfg
 
     _config_cache = cfg
     _config_mtime = mtime

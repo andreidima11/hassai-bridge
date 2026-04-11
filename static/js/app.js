@@ -105,7 +105,9 @@ async function loadSystemInfo() {
   try {
     const info = await api('GET', '/api/settings/info');
 
+    // LMStudio / Provider
     const lm = info.services.lmstudio;
+    const prov = info.services.provider || lm;
     const sx = info.services.searxng;
     const mem = info.services.memory;
 
@@ -113,12 +115,15 @@ async function loadSystemInfo() {
     const sxCard = document.getElementById('svcSearXNG');
     const memCard = document.getElementById('svcMemory');
 
-    // LMStudio
-    const lmOnline = lm.status === 'connected';
+    // Provider
+    const lmOnline = (prov.status || lm.status) === 'connected';
     lmCard.className = 'service-card ' + (lmOnline ? 'online' : 'offline');
     lmCard.querySelector('.svc-status').className = 'svc-status ' + (lmOnline ? 'online' : 'offline');
     lmCard.querySelector('.svc-status').textContent = lmOnline ? t('status.connected') : t('status.unavailable');
-    document.getElementById('svcLMDetail').textContent = `${lm.url} — ${lm.model}`;
+    const provName = prov.name || lm.model || 'AI Provider';
+    document.getElementById('svcProviderName').textContent = provName;
+    document.getElementById('svcLMDetail').textContent = `${prov.url || lm.url} — ${prov.model || lm.model}`;
+    document.getElementById('statusLMLabel').textContent = provName;
 
     // SearXNG
     const sxOnline = sx.status === 'connected';
@@ -193,47 +198,6 @@ function refreshInfo() {
 // SETTINGS
 // ══════════════════════════════════════════════════
 
-async function refreshModelList(selectedModel) {
-  const select = document.getElementById('lmModel');
-  const currentVal = selectedModel || select.value;
-  try {
-    const data = await api('GET', '/v1/models');
-    const models = data.data || [];
-    select.innerHTML = '';
-    if (models.length === 0) {
-      select.innerHTML = `<option value="default">${t('misc.defaultNoModel')}</option>`;
-    } else {
-      models.forEach(m => {
-        const opt = document.createElement('option');
-        opt.value = m.id;
-        opt.textContent = m.id;
-        select.appendChild(opt);
-      });
-    }
-    if (currentVal && currentVal !== 'default') {
-      const exists = Array.from(select.options).some(o => o.value === currentVal);
-      if (!exists) {
-        const opt = document.createElement('option');
-        opt.value = currentVal;
-        opt.textContent = currentVal + ' ' + t('misc.saved');
-        select.appendChild(opt);
-      }
-      select.value = currentVal;
-    }
-    if (!selectedModel) toast(t('toast.modelsReloaded'));
-  } catch (e) {
-    select.innerHTML = `<option value="default">${t('misc.defaultUnavailable')}</option>`;
-    if (currentVal && currentVal !== 'default') {
-      const opt = document.createElement('option');
-      opt.value = currentVal;
-      opt.textContent = currentVal + ' ' + t('misc.saved');
-      select.appendChild(opt);
-      select.value = currentVal;
-    }
-    if (!selectedModel) toast(t('toast.loadModelsFail', { msg: e.message }), true);
-  }
-}
-
 async function loadSettings() {
   try {
     const cfg = await api('GET', '/api/settings/');
@@ -246,23 +210,30 @@ async function loadSettings() {
     document.getElementById('settingsLang').value = savedLang;
     document.getElementById('langSelect').value = savedLang;
 
-    document.getElementById('lmUrl').value = cfg.lmstudio.base_url;
-    await refreshModelList(cfg.lmstudio.model);
-    document.getElementById('lmTimeout').value = cfg.lmstudio.timeout;
-    document.getElementById('lmMaxTokens').value = cfg.lmstudio.max_tokens || 2048;
-    document.getElementById('lmTemperature').value = cfg.lmstudio.temperature ?? 0.7;
+    // Providers
+    _allProviders = cfg.providers || [];
+    _activeProviderId = cfg.active_provider || '';
+    renderProvidersList();
+
+    // SearXNG
     document.getElementById('sxEnabled').checked = cfg.searxng.enabled;
     document.getElementById('knowledgeCutoff').value = cfg.knowledge_cutoff || '';
     document.getElementById('sxUrl').value = cfg.searxng.base_url;
     document.getElementById('sxMaxResults').value = cfg.searxng.max_results;
     document.getElementById('sxMaxChars').value = cfg.searxng.max_page_chars;
     document.getElementById('sxCacheTtl').value = cfg.searxng.cache_ttl || 300;
+
+    // Memory
     document.getElementById('memEnabled').checked = cfg.memory.enabled;
     document.getElementById('memAutoExtract').checked = cfg.memory.auto_extract;
     document.getElementById('memMax').value = cfg.memory.max_memories_per_user;
+
+    // Performance
     const perf = cfg.performance || {};
     document.getElementById('perfHistoryLimit').value = perf.history_limit || 10;
     document.getElementById('perfParallelFetch').checked = perf.parallel_page_fetch !== false;
+
+    // System prompt
     document.getElementById('systemPrompt').value = cfg.system_prompt || '';
   } catch (e) {
     toast(t('toast.settingsError', { msg: e.message }), true);
@@ -272,13 +243,6 @@ async function loadSettings() {
 async function saveSettings() {
   try {
     await api('PUT', '/api/settings/', {
-      lmstudio: {
-        base_url: document.getElementById('lmUrl').value,
-        model: document.getElementById('lmModel').value,
-        timeout: parseInt(document.getElementById('lmTimeout').value),
-        max_tokens: parseInt(document.getElementById('lmMaxTokens').value),
-        temperature: parseFloat(document.getElementById('lmTemperature').value),
-      },
       searxng: {
         enabled: document.getElementById('sxEnabled').checked,
         base_url: document.getElementById('sxUrl').value,
@@ -309,11 +273,243 @@ async function saveSettings() {
 async function checkHealth() {
   try {
     const h = await api('GET', '/api/settings/health');
-    document.getElementById('statusLM').className = 'status ' + (h.lmstudio === 'connected' ? 'ok' : 'err');
+    const provOk = (h.provider || h.lmstudio) === 'connected';
+    document.getElementById('statusLM').className = 'status ' + (provOk ? 'ok' : 'err');
     document.getElementById('statusSX').className = 'status ' + (h.searxng === 'connected' ? 'ok' : 'err');
-    toast(`LMStudio: ${h.lmstudio} | SearXNG: ${h.searxng}`);
+    const provLabel = h.provider_name || 'AI';
+    toast(`${provLabel}: ${h.provider || h.lmstudio} | SearXNG: ${h.searxng}`);
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+// ══════════════════════════════════════════════════
+// PROVIDERS MANAGEMENT
+// ══════════════════════════════════════════════════
+
+let _allProviders = [];
+let _activeProviderId = '';
+let _editingProviderId = null; // null = adding new, string = editing existing
+
+const PROVIDER_TYPE_LABELS = {
+  local: 'Local (LM Studio / Ollama)',
+  openai: 'OpenAI',
+  grok: 'Grok (xAI)',
+  deepseek: 'DeepSeek',
+  glm: 'GLM (Zhipu AI)',
+};
+
+const PROVIDER_TYPE_URLS = {
+  local: 'http://localhost:1234',
+  openai: 'https://api.openai.com',
+  grok: 'https://api.x.ai',
+  deepseek: 'https://api.deepseek.com',
+  glm: 'https://open.bigmodel.cn/api/paas',
+};
+
+function renderProvidersList() {
+  const container = document.getElementById('providersList');
+  if (!_allProviders.length) {
+    container.innerHTML = `<p class="card-muted">${t('settings.noProviders')}</p>`;
+    return;
+  }
+  container.innerHTML = _allProviders.map(p => {
+    const isActive = p.id === _activeProviderId;
+    const typeLabel = PROVIDER_TYPE_LABELS[p.type] || p.type;
+    const activeClass = isActive ? ' provider-active' : '';
+    return `
+      <div class="provider-item${activeClass}">
+        <div class="provider-info">
+          <div class="provider-name">
+            ${isActive ? '✅ ' : ''}${escapeHtml(p.name)}
+            <span class="provider-type-badge">${escapeHtml(typeLabel)}</span>
+          </div>
+          <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
+        </div>
+        <div class="provider-actions">
+          ${!isActive ? `<button class="btn btn-sm btn-success" onclick="activateProvider('${escapeHtml(p.id)}')">${t('settings.activate')}</button>` : ''}
+          <button class="btn btn-sm" onclick="editProvider('${escapeHtml(p.id)}')">${t('settings.edit')}</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteProvider('${escapeHtml(p.id)}')">${t('users.delete')}</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openAddProvider() {
+  _editingProviderId = null;
+  document.getElementById('providerFormTitle').textContent = t('settings.addProvider');
+  document.getElementById('provType').value = 'local';
+  document.getElementById('provName').value = '';
+  document.getElementById('provUrl').value = 'http://localhost:1234';
+  document.getElementById('provApiKey').value = '';
+  document.getElementById('provModel').value = '';
+  document.getElementById('provTimeout').value = 120;
+  document.getElementById('provMaxTokens').value = 2048;
+  document.getElementById('provTemperature').value = 0.7;
+  document.getElementById('provModelSelect').style.display = 'none';
+  onProvTypeChange();
+  document.getElementById('providerModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function editProvider(id) {
+  const p = _allProviders.find(x => x.id === id);
+  if (!p) return;
+  _editingProviderId = id;
+  document.getElementById('providerFormTitle').textContent = t('settings.editProvider');
+  document.getElementById('provType').value = p.type || 'local';
+  document.getElementById('provName').value = p.name || '';
+  document.getElementById('provUrl').value = p.base_url || '';
+  document.getElementById('provApiKey').value = p.api_key || '';
+  document.getElementById('provModel').value = p.model || '';
+  document.getElementById('provTimeout').value = p.timeout || 120;
+  document.getElementById('provMaxTokens').value = p.max_tokens || 2048;
+  document.getElementById('provTemperature').value = p.temperature ?? 0.7;
+  document.getElementById('provModelSelect').style.display = 'none';
+  onProvTypeChange();
+  document.getElementById('providerModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function cancelProviderForm() {
+  document.getElementById('providerModal').classList.remove('open');
+  document.body.style.overflow = '';
+  _editingProviderId = null;
+}
+
+function onProvTypeChange() {
+  const ptype = document.getElementById('provType').value;
+  const needsKey = ptype !== 'local';
+  document.getElementById('provApiKeyLabel').style.display = '';
+  document.getElementById('provApiKey').style.display = '';
+  document.getElementById('provApiKeyHint').style.display = '';
+  // Pre-fill URL if empty or still a default
+  const urlField = document.getElementById('provUrl');
+  const currentUrl = urlField.value.trim();
+  const defaultUrls = Object.values(PROVIDER_TYPE_URLS);
+  if (!currentUrl || defaultUrls.includes(currentUrl)) {
+    urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
+  }
+  // Pre-fill name if empty
+  const nameField = document.getElementById('provName');
+  if (!nameField.value.trim()) {
+    const labels = { local: 'LM Studio', openai: 'OpenAI', grok: 'Grok', deepseek: 'DeepSeek', glm: 'GLM' };
+    nameField.value = labels[ptype] || '';
+  }
+}
+
+async function saveProvider() {
+  const data = {
+    type: document.getElementById('provType').value,
+    name: document.getElementById('provName').value.trim(),
+    base_url: document.getElementById('provUrl').value.trim(),
+    api_key: document.getElementById('provApiKey').value.trim(),
+    model: document.getElementById('provModel').value.trim() || 'default',
+    timeout: parseInt(document.getElementById('provTimeout').value) || 120,
+    max_tokens: parseInt(document.getElementById('provMaxTokens').value) || 2048,
+    temperature: parseFloat(document.getElementById('provTemperature').value) || 0.7,
+  };
+  if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
+  try {
+    if (_editingProviderId) {
+      await api('PUT', `/api/settings/providers/${encodeURIComponent(_editingProviderId)}`, data);
+      toast(t('settings.providerUpdated'));
+    } else {
+      await api('POST', '/api/settings/providers', data);
+      toast(t('settings.providerAdded'));
+    }
+    cancelProviderForm();
+    // Reload providers from server
+    const cfg = await api('GET', '/api/settings/');
+    _allProviders = cfg.providers || [];
+    _activeProviderId = cfg.active_provider || '';
+    renderProvidersList();
+    loadSystemInfo();
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function deleteProvider(id) {
+  const p = _allProviders.find(x => x.id === id);
+  if (!p) return;
+  if (!confirm(t('settings.confirmDeleteProvider', { name: p.name }))) return;
+  try {
+    await api('DELETE', `/api/settings/providers/${encodeURIComponent(id)}`);
+    toast(t('settings.providerDeleted'));
+    const cfg = await api('GET', '/api/settings/');
+    _allProviders = cfg.providers || [];
+    _activeProviderId = cfg.active_provider || '';
+    renderProvidersList();
+    loadSystemInfo();
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function activateProvider(id) {
+  try {
+    await api('PUT', `/api/settings/providers/${encodeURIComponent(id)}/activate`);
+    _activeProviderId = id;
+    renderProvidersList();
+    toast(t('settings.providerActivated'));
+    loadSystemInfo();
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function fetchProviderModels() {
+  // Try to find models from the provider being edited or use the form data
+  const baseUrl = document.getElementById('provUrl').value.trim();
+  const apiKey = document.getElementById('provApiKey').value.trim();
+  const select = document.getElementById('provModelSelect');
+  if (!baseUrl) { toast(t('settings.enterUrl'), true); return; }
+
+  // If editing existing provider, use its endpoint
+  if (_editingProviderId) {
+    try {
+      const data = await api('GET', `/api/settings/providers/${encodeURIComponent(_editingProviderId)}/models`);
+      const models = data.models || [];
+      if (!models.length) { toast(t('settings.noModelsFound'), true); return; }
+      select.innerHTML = models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.id)}</option>`).join('');
+      select.style.display = '';
+      toast(t('toast.modelsReloaded'));
+    } catch (e) {
+      toast(t('toast.error', { msg: e.message }), true);
+    }
+  } else {
+    // For new provider, temporarily save it, fetch models, then delete
+    const tempData = {
+      type: document.getElementById('provType').value,
+      name: '_temp_model_fetch',
+      base_url: baseUrl,
+      api_key: apiKey,
+      model: 'default',
+      timeout: 15,
+      max_tokens: 2048,
+      temperature: 0.7,
+    };
+    try {
+      const result = await api('POST', '/api/settings/providers', tempData);
+      const tempId = result.provider.id;
+      try {
+        const data = await api('GET', `/api/settings/providers/${encodeURIComponent(tempId)}/models`);
+        const models = data.models || [];
+        if (!models.length) { toast(t('settings.noModelsFound'), true); return; }
+        select.innerHTML = models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.id)}</option>`).join('');
+        select.style.display = '';
+        toast(t('toast.modelsReloaded'));
+      } finally {
+        await api('DELETE', `/api/settings/providers/${encodeURIComponent(tempId)}`);
+        // Refresh providers list
+        const cfg = await api('GET', '/api/settings/');
+        _allProviders = cfg.providers || [];
+        _activeProviderId = cfg.active_provider || '';
+      }
+    } catch (e) {
+      toast(t('toast.error', { msg: e.message }), true);
+    }
   }
 }
 
@@ -454,8 +650,12 @@ function closeUserModal() {
 const deselectUser = closeUserModal;
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && document.getElementById('userModal').classList.contains('open')) {
-    closeUserModal();
+  if (e.key === 'Escape') {
+    if (document.getElementById('providerModal').classList.contains('open')) {
+      cancelProviderForm();
+    } else if (document.getElementById('userModal').classList.contains('open')) {
+      closeUserModal();
+    }
   }
 });
 

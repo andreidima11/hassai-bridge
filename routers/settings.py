@@ -6,7 +6,8 @@ from pydantic import BaseModel
 from config import load_config, save_config
 from core.config import VERSION
 from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session
-from services import lmstudio, searxng
+from services import providers, searxng
+from services.providers import get_active_provider, PROVIDER_PRESETS
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -33,6 +34,8 @@ class SettingsUpdate(BaseModel):
     system_prompt: str | None = None
     knowledge_cutoff: str | None = None
     language: str | None = None
+    active_provider: str | None = None
+    providers: list | None = None
 
 
 @router.get("/")
@@ -57,6 +60,10 @@ async def update_settings(data: SettingsUpdate):
         cfg["knowledge_cutoff"] = data.knowledge_cutoff
     if data.language is not None:
         cfg["language"] = data.language
+    if data.active_provider is not None:
+        cfg["active_provider"] = data.active_provider
+    if data.providers is not None:
+        cfg["providers"] = data.providers
     save_config(cfg)
     return {"status": "ok", "config": cfg}
 
@@ -99,12 +106,148 @@ async def delete_user(username: str):
     return {"status": "ok", "removed": len(to_remove)}
 
 
+# ══════════════════════════════════════════════════
+# Provider management endpoints
+# ══════════════════════════════════════════════════
+
+@router.get("/providers/presets")
+async def get_provider_presets():
+    """Return available provider type presets (base URLs, etc.)."""
+    return PROVIDER_PRESETS
+
+
+@router.get("/providers")
+async def list_providers():
+    """List all configured providers."""
+    cfg = load_config()
+    return {
+        "providers": cfg.get("providers", []),
+        "active_provider": cfg.get("active_provider", ""),
+    }
+
+
+@router.post("/providers")
+async def add_provider(data: dict):
+    """Add a new provider."""
+    ptype = data.get("type", "local")
+    name = data.get("name", "").strip()
+    base_url = data.get("base_url", "").strip()
+    api_key = data.get("api_key", "").strip()
+    model = data.get("model", "default").strip()
+    timeout = data.get("timeout", 120)
+    max_tokens = data.get("max_tokens", 2048)
+    temperature = data.get("temperature", 0.7)
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Provider name is required")
+    if not base_url:
+        preset = PROVIDER_PRESETS.get(ptype, {})
+        base_url = preset.get("base_url", "http://localhost:1234")
+
+    # Generate a stable ID from type + name
+    pid = f"{ptype}_{name.lower().replace(' ', '_').replace('-', '_')}"
+    # Ensure unique
+    cfg = load_config()
+    existing_ids = {p["id"] for p in cfg.get("providers", [])}
+    if pid in existing_ids:
+        suffix = 2
+        while f"{pid}_{suffix}" in existing_ids:
+            suffix += 1
+        pid = f"{pid}_{suffix}"
+
+    provider = {
+        "id": pid,
+        "name": name,
+        "type": ptype,
+        "base_url": base_url,
+        "api_key": api_key,
+        "model": model,
+        "timeout": timeout,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    cfg.setdefault("providers", []).append(provider)
+    # Auto-activate if first provider
+    if len(cfg["providers"]) == 1:
+        cfg["active_provider"] = pid
+    save_config(cfg)
+    return {"status": "ok", "provider": provider}
+
+
+@router.put("/providers/{provider_id}")
+async def update_provider(provider_id: str, data: dict):
+    """Update an existing provider."""
+    cfg = load_config()
+    for p in cfg.get("providers", []):
+        if p["id"] == provider_id:
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature"):
+                if key in data:
+                    p[key] = data[key]
+            save_config(cfg)
+            return {"status": "ok", "provider": p}
+    raise HTTPException(status_code=404, detail="Provider not found")
+
+
+@router.delete("/providers/{provider_id}")
+async def delete_provider(provider_id: str):
+    """Delete a provider."""
+    cfg = load_config()
+    plist = cfg.get("providers", [])
+    cfg["providers"] = [p for p in plist if p["id"] != provider_id]
+    if cfg.get("active_provider") == provider_id:
+        cfg["active_provider"] = cfg["providers"][0]["id"] if cfg["providers"] else ""
+    save_config(cfg)
+    return {"status": "ok"}
+
+
+@router.put("/providers/{provider_id}/activate")
+async def activate_provider(provider_id: str):
+    """Set a provider as active."""
+    cfg = load_config()
+    for p in cfg.get("providers", []):
+        if p["id"] == provider_id:
+            cfg["active_provider"] = provider_id
+            save_config(cfg)
+            return {"status": "ok", "active_provider": provider_id}
+    raise HTTPException(status_code=404, detail="Provider not found")
+
+
+@router.get("/providers/{provider_id}/models")
+async def get_provider_models(provider_id: str):
+    """List models available on a specific provider."""
+    cfg = load_config()
+    for p in cfg.get("providers", []):
+        if p["id"] == provider_id:
+            try:
+                models = await providers.list_models(p)
+                return {"models": models}
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"Could not reach provider: {e}")
+    raise HTTPException(status_code=404, detail="Provider not found")
+
+
+@router.get("/providers/{provider_id}/health")
+async def check_provider_health(provider_id: str):
+    """Health check for a specific provider."""
+    cfg = load_config()
+    for p in cfg.get("providers", []):
+        if p["id"] == provider_id:
+            ok = await providers.health_check(p)
+            return {"status": "connected" if ok else "unreachable", "provider": p["name"]}
+    raise HTTPException(status_code=404, detail="Provider not found")
+
+
 @router.get("/health")
 async def health():
-    lm_ok = await lmstudio.health_check()
+    active = get_active_provider()
+    provider_ok = await providers.health_check(active)
     sx_ok = await searxng.health_check()
     return {
-        "lmstudio": "connected" if lm_ok else "unreachable",
+        "provider": "connected" if provider_ok else "unreachable",
+        "provider_name": active.get("name", "?"),
+        "provider_type": active.get("type", "?"),
+        # Keep lmstudio key for backward compatibility
+        "lmstudio": "connected" if provider_ok else "unreachable",
         "searxng": "connected" if sx_ok else "unreachable",
     }
 
@@ -129,8 +272,9 @@ async def system_info():
             (time.time() - 86400,),
         ).fetchone()["c"]
 
-    lm_ok = await lmstudio.health_check()
+    lm_ok = await providers.health_check()
     sx_ok = await searxng.health_check()
+    active = get_active_provider()
 
     return {
         "version": VERSION,
@@ -138,11 +282,21 @@ async def system_info():
         "api_key": cfg.get("api_key", ""),
         "local_ip": _get_local_ip(),
         "port": 8899,
+        "active_provider": cfg.get("active_provider", ""),
+        "providers": cfg.get("providers", []),
         "services": {
             "lmstudio": {
                 "status": "connected" if lm_ok else "unreachable",
-                "url": cfg["lmstudio"]["base_url"],
-                "model": cfg["lmstudio"]["model"],
+                "url": active.get("base_url", ""),
+                "model": active.get("model", "default"),
+            },
+            "provider": {
+                "status": "connected" if lm_ok else "unreachable",
+                "id": active.get("id", ""),
+                "name": active.get("name", "?"),
+                "type": active.get("type", "local"),
+                "url": active.get("base_url", ""),
+                "model": active.get("model", "default"),
             },
             "searxng": {
                 "status": "connected" if sx_ok else "unreachable",

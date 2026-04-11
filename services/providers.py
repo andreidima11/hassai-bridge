@@ -1,0 +1,226 @@
+"""
+Multi-provider LLM service.
+
+Supports: Local (LM Studio, Ollama, etc.), OpenAI, Grok (xAI), DeepSeek, GLM (Zhipu).
+All providers use the OpenAI-compatible /v1/chat/completions format.
+"""
+
+import httpx
+import logging
+from config import load_config
+
+log = logging.getLogger("hassai.providers")
+
+# ── Persistent connection pool ──
+_client: httpx.AsyncClient | None = None
+
+
+def _get_client(timeout: int = 120) -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(
+            timeout=timeout,
+            limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+        )
+    return _client
+
+
+# ── Provider presets (base_url defaults) ──
+PROVIDER_PRESETS = {
+    "local": {
+        "name": "Local (LM Studio / Ollama)",
+        "base_url": "http://localhost:1234",
+        "requires_key": False,
+    },
+    "openai": {
+        "name": "OpenAI",
+        "base_url": "https://api.openai.com",
+        "requires_key": True,
+    },
+    "grok": {
+        "name": "Grok (xAI)",
+        "base_url": "https://api.x.ai",
+        "requires_key": True,
+    },
+    "deepseek": {
+        "name": "DeepSeek",
+        "base_url": "https://api.deepseek.com",
+        "requires_key": True,
+    },
+    "glm": {
+        "name": "GLM (Zhipu AI)",
+        "base_url": "https://open.bigmodel.cn/api/paas",
+        "requires_key": True,
+    },
+}
+
+
+def get_active_provider() -> dict:
+    """Get the currently active provider config."""
+    cfg = load_config()
+    providers = cfg.get("providers", [])
+    active_id = cfg.get("active_provider", "")
+
+    # Find active provider
+    for p in providers:
+        if p.get("id") == active_id:
+            return p
+
+    # Fallback: migrate from old lmstudio config
+    if not providers:
+        lm = cfg.get("lmstudio", {})
+        return {
+            "id": "local_default",
+            "name": "LM Studio",
+            "type": "local",
+            "base_url": lm.get("base_url", "http://localhost:1234"),
+            "api_key": "",
+            "model": lm.get("model", "default"),
+            "timeout": lm.get("timeout", 120),
+            "max_tokens": lm.get("max_tokens", 2048),
+            "temperature": lm.get("temperature", 0.7),
+        }
+
+    # Return first provider if active_id not found
+    return providers[0] if providers else {}
+
+
+def get_provider_by_id(provider_id: str) -> dict | None:
+    """Get a specific provider by ID."""
+    cfg = load_config()
+    for p in cfg.get("providers", []):
+        if p.get("id") == provider_id:
+            return p
+    return None
+
+
+def _build_headers(provider: dict) -> dict:
+    """Build request headers including auth if needed."""
+    headers = {"Content-Type": "application/json"}
+    api_key = provider.get("api_key", "")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    return headers
+
+
+def _build_url(provider: dict, path: str) -> str:
+    """Build the full API URL for a provider."""
+    base = provider.get("base_url", "").rstrip("/")
+    # Most providers use /v1/chat/completions
+    # Some (like local) may already have /v1 in base_url, normalize
+    if "/v1" in base and path.startswith("/v1"):
+        path = path[3:]  # strip /v1 prefix since base already has it
+    elif "/v1" not in base and path.startswith("/v1"):
+        pass  # keep /v1 prefix
+    elif "/v1" not in base and not path.startswith("/v1"):
+        path = "/v1" + path
+    return base + path
+
+
+async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,
+                          tools: list | None = None, tool_choice: str | dict | None = None,
+                          provider: dict | None = None) -> dict:
+    """Send a chat completion request to the active (or specified) provider."""
+    if provider is None:
+        provider = get_active_provider()
+
+    url = _build_url(provider, "/v1/chat/completions")
+    headers = _build_headers(provider)
+    timeout = provider.get("timeout", 120)
+
+    # Model priority: provider config > request param > default
+    cfg_model = provider.get("model", "default")
+    used_model = cfg_model if cfg_model and cfg_model != "default" else (model or "default")
+
+    payload = {
+        "model": used_model,
+        "messages": messages,
+        "stream": stream,
+    }
+    if tools:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
+    max_tokens = provider.get("max_tokens")
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+    temperature = provider.get("temperature")
+    if temperature is not None:
+        payload["temperature"] = temperature
+
+    client = _get_client(timeout)
+    resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
+    if resp.status_code >= 400:
+        log.error(f"Provider [{provider.get('name', '?')}] returned {resp.status_code}: {resp.text[:500]}")
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def chat_completion_stream(messages: list[dict], model: str | None = None,
+                                 tools: list | None = None, tool_choice: str | dict | None = None,
+                                 provider: dict | None = None):
+    """Stream chat completion, yielding SSE chunks."""
+    if provider is None:
+        provider = get_active_provider()
+
+    url = _build_url(provider, "/v1/chat/completions")
+    headers = _build_headers(provider)
+    timeout = provider.get("timeout", 120)
+
+    cfg_model = provider.get("model", "default")
+    used_model = cfg_model if cfg_model and cfg_model != "default" else (model or "default")
+
+    payload = {
+        "model": used_model,
+        "messages": messages,
+        "stream": True,
+    }
+    if tools:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
+    max_tokens = provider.get("max_tokens")
+    if max_tokens:
+        payload["max_tokens"] = max_tokens
+    temperature = provider.get("temperature")
+    if temperature is not None:
+        payload["temperature"] = temperature
+
+    client = _get_client(timeout)
+    async with client.stream("POST", url, json=payload, headers=headers) as resp:
+        resp.raise_for_status()
+        async for line in resp.aiter_lines():
+            if line.startswith("data: "):
+                yield line + "\n\n"
+            elif line == "data: [DONE]":
+                yield "data: [DONE]\n\n"
+                break
+
+
+async def list_models(provider: dict | None = None) -> list[dict]:
+    """List available models from a provider."""
+    if provider is None:
+        provider = get_active_provider()
+
+    url = _build_url(provider, "/v1/models")
+    headers = _build_headers(provider)
+
+    client = _get_client(15)
+    resp = await client.get(url, headers=headers)
+    resp.raise_for_status()
+    data = resp.json()
+    return data.get("data", [])
+
+
+async def health_check(provider: dict | None = None) -> bool:
+    """Check if a provider is reachable."""
+    if provider is None:
+        provider = get_active_provider()
+    try:
+        url = _build_url(provider, "/v1/models")
+        headers = _build_headers(provider)
+        client = _get_client(5)
+        resp = await client.get(url, headers=headers)
+        return resp.status_code == 200
+    except Exception:
+        return False

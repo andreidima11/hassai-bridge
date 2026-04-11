@@ -131,7 +131,7 @@ Respond with ONLY a JSON object (no markdown):
 
 async def _llm_call(messages: list[dict], max_tokens: int = 1000) -> str:
     """Make a lightweight LLM call for memory operations."""
-    from services.lmstudio import chat_completion
+    from services.providers import chat_completion
     try:
         result = await chat_completion(messages, stream=False)
         return result["choices"][0]["message"]["content"].strip()
