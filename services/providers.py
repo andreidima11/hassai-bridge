@@ -5,6 +5,7 @@ Supports: Local (LM Studio, Ollama, etc.), OpenAI, Grok (xAI), DeepSeek, GLM (Zh
 All providers use the OpenAI-compatible /v1/chat/completions format.
 """
 
+import re
 import httpx
 import logging
 from config import load_config
@@ -39,17 +40,17 @@ PROVIDER_PRESETS = {
     },
     "grok": {
         "name": "Grok (xAI)",
-        "base_url": "https://api.x.ai",
+        "base_url": "https://api.x.ai/v1/chat/completions",
         "requires_key": True,
     },
     "deepseek": {
         "name": "DeepSeek",
-        "base_url": "https://api.deepseek.com",
+        "base_url": "https://api.deepseek.com/chat/completions",
         "requires_key": True,
     },
     "glm": {
         "name": "GLM (Zhipu AI)",
-        "base_url": "https://open.bigmodel.cn/api/paas",
+        "base_url": "https://api.z.ai/api/paas/v4",
         "requires_key": True,
     },
 }
@@ -104,30 +105,34 @@ def _build_headers(provider: dict) -> dict:
 
 
 def _normalize_base_url(raw: str) -> str:
-    """Strip accidental endpoint paths from base_url.
+    """Strip endpoint paths from base_url to get the API base.
 
-    Users sometimes paste the full endpoint (e.g. https://api.x.ai/v1/chat/completions)
-    instead of just the base (https://api.x.ai).  Normalise that.
+    Users may paste the full endpoint (e.g. https://api.x.ai/v1/chat/completions).
+    Strip known suffixes so we get the versioned base (e.g. https://api.x.ai/v1).
     """
-    import re
     url = raw.rstrip("/")
-    # Remove known API endpoint suffixes users might paste by mistake
-    url = re.sub(r"/v1/(chat/completions|completions|responses|models|embeddings)$", "", url)
+    url = re.sub(r"/(chat/completions|completions|responses|models|embeddings)$", "", url)
     return url
 
 
 def _build_url(provider: dict, path: str) -> str:
-    """Build the full API URL for a provider."""
+    """Build the full API URL for a provider.
+
+    Handles various base_url formats:
+      - Plain origin:  https://api.openai.com        → /v1/chat/completions
+      - With version:  https://api.x.ai/v1           → /chat/completions
+      - Full endpoint: https://api.deepseek.com/chat/ → stripped, then rebuilt
+      - Custom base:   https://api.z.ai/api/paas/v4  → /chat/completions
+    """
     base = _normalize_base_url(provider.get("base_url", ""))
-    # Most providers use /v1/chat/completions
-    # Some (like local) may already have /v1 in base_url, normalize
-    if "/v1" in base and path.startswith("/v1"):
-        path = path[3:]  # strip /v1 prefix since base already has it
-    elif "/v1" not in base and path.startswith("/v1"):
-        pass  # keep /v1 prefix
-    elif "/v1" not in base and not path.startswith("/v1"):
-        path = "/v1" + path
-    return base + path
+    # Strip /v1 prefix from the requested path — we decide whether to add it
+    clean_path = re.sub(r"^/v1", "", path)  # e.g. "/chat/completions", "/models"
+
+    # If base already contains a version segment (/v1, /v2, /v4 …), keep it
+    if re.search(r"/v\d+(/|$)", base):
+        return base + clean_path
+    # Otherwise prepend /v1
+    return base + "/v1" + clean_path
 
 
 async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,

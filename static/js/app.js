@@ -302,9 +302,17 @@ const PROVIDER_TYPE_LABELS = {
 const PROVIDER_TYPE_URLS = {
   local: 'http://localhost:1234',
   openai: 'https://api.openai.com',
-  grok: 'https://api.x.ai',
-  deepseek: 'https://api.deepseek.com',
-  glm: 'https://open.bigmodel.cn/api/paas',
+  grok: 'https://api.x.ai/v1/chat/completions',
+  deepseek: 'https://api.deepseek.com/chat/completions',
+  glm: 'https://api.z.ai/api/paas/v4',
+};
+
+const PROVIDER_TYPE_NAMES = {
+  local: 'LM Studio',
+  openai: 'OpenAI',
+  grok: 'Grok',
+  deepseek: 'DeepSeek',
+  glm: 'GLM',
 };
 
 function renderProvidersList() {
@@ -346,7 +354,7 @@ function openAddProvider() {
   document.getElementById('provTimeout').value = 120;
   document.getElementById('provMaxTokens').value = 2048;
   document.getElementById('provTemperature').value = 0.7;
-  document.getElementById('provModelSelect').style.display = 'none';
+  const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   onProvTypeChange();
   document.getElementById('providerModal').classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -365,7 +373,7 @@ function editProvider(id) {
   document.getElementById('provTimeout').value = p.timeout || 120;
   document.getElementById('provMaxTokens').value = p.max_tokens || 2048;
   document.getElementById('provTemperature').value = p.temperature ?? 0.7;
-  document.getElementById('provModelSelect').style.display = 'none';
+  const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   onProvTypeChange();
   document.getElementById('providerModal').classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -379,22 +387,19 @@ function cancelProviderForm() {
 
 function onProvTypeChange() {
   const ptype = document.getElementById('provType').value;
-  const needsKey = ptype !== 'local';
-  document.getElementById('provApiKeyLabel').style.display = '';
-  document.getElementById('provApiKey').style.display = '';
-  document.getElementById('provApiKeyHint').style.display = '';
-  // Pre-fill URL if empty or still a default
+  // Pre-fill URL if empty or still a known default
   const urlField = document.getElementById('provUrl');
   const currentUrl = urlField.value.trim();
   const defaultUrls = Object.values(PROVIDER_TYPE_URLS);
   if (!currentUrl || defaultUrls.includes(currentUrl)) {
     urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
   }
-  // Pre-fill name if empty
+  // Pre-fill name if empty or still a known default
   const nameField = document.getElementById('provName');
-  if (!nameField.value.trim()) {
-    const labels = { local: 'LM Studio', openai: 'OpenAI', grok: 'Grok', deepseek: 'DeepSeek', glm: 'GLM' };
-    nameField.value = labels[ptype] || '';
+  const currentName = nameField.value.trim();
+  const defaultNames = Object.values(PROVIDER_TYPE_NAMES);
+  if (!currentName || defaultNames.includes(currentName)) {
+    nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
   }
 }
 
@@ -460,26 +465,37 @@ async function activateProvider(id) {
 }
 
 async function fetchProviderModels() {
-  // Try to find models from the provider being edited or use the form data
   const baseUrl = document.getElementById('provUrl').value.trim();
   const apiKey = document.getElementById('provApiKey').value.trim();
-  const select = document.getElementById('provModelSelect');
+  const modelInput = document.getElementById('provModel');
+  const listId = 'provModelList';
   if (!baseUrl) { toast(t('settings.enterUrl'), true); return; }
 
-  // If editing existing provider, use its endpoint
+  async function _populateDatalist(models) {
+    let dl = document.getElementById(listId);
+    if (!dl) {
+      dl = document.createElement('datalist');
+      dl.id = listId;
+      modelInput.parentElement.appendChild(dl);
+    }
+    modelInput.setAttribute('list', listId);
+    dl.innerHTML = models.map(m => `<option value="${escapeHtml(m.id)}">`).join('');
+    if (models.length) {
+      if (!modelInput.value || modelInput.value === 'default') modelInput.value = models[0].id;
+      toast(t('toast.modelsReloaded'));
+    } else {
+      toast(t('settings.noModelsFound'), true);
+    }
+  }
+
   if (_editingProviderId) {
     try {
       const data = await api('GET', `/api/settings/providers/${encodeURIComponent(_editingProviderId)}/models`);
-      const models = data.models || [];
-      if (!models.length) { toast(t('settings.noModelsFound'), true); return; }
-      select.innerHTML = models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.id)}</option>`).join('');
-      select.style.display = '';
-      toast(t('toast.modelsReloaded'));
+      _populateDatalist(data.models || []);
     } catch (e) {
       toast(t('toast.error', { msg: e.message }), true);
     }
   } else {
-    // For new provider, temporarily save it, fetch models, then delete
     const tempData = {
       type: document.getElementById('provType').value,
       name: '_temp_model_fetch',
@@ -495,14 +511,9 @@ async function fetchProviderModels() {
       const tempId = result.provider.id;
       try {
         const data = await api('GET', `/api/settings/providers/${encodeURIComponent(tempId)}/models`);
-        const models = data.models || [];
-        if (!models.length) { toast(t('settings.noModelsFound'), true); return; }
-        select.innerHTML = models.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.id)}</option>`).join('');
-        select.style.display = '';
-        toast(t('toast.modelsReloaded'));
+        _populateDatalist(data.models || []);
       } finally {
         await api('DELETE', `/api/settings/providers/${encodeURIComponent(tempId)}`);
-        // Refresh providers list
         const cfg = await api('GET', '/api/settings/');
         _allProviders = cfg.providers || [];
         _activeProviderId = cfg.active_provider || '';
