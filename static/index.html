@@ -20,17 +20,17 @@
 
 <div class="container">
   <div class="tabs">
-    <div class="tab active" data-panel="info" data-i18n="tab.info">Info</div>
+    <div class="tab active" data-panel="dashboard" data-i18n="tab.dashboard">Dashboard</div>
     <div class="tab" data-panel="statistics" data-i18n="tab.statistics">Statistics</div>
     <div class="tab" data-panel="conversations" data-i18n="tab.conversations">Conversations</div>
-    <div class="tab" data-panel="settings" data-i18n="tab.settings">Settings</div>
     <div class="tab" data-panel="users" data-i18n="tab.users">Users</div>
-    <div class="tab" data-panel="logs" data-i18n="tab.logs">Logs</div>
     <div class="tab" data-panel="skills" data-i18n="tab.skills">Skills</div>
+    <div class="tab" data-panel="settings" data-i18n="tab.settings">Settings</div>
+    <div class="tab" data-panel="logs" data-i18n="tab.logs">Logs</div>
   </div>
 
-  <!-- ════════════ INFO ════════════ -->
-  <div class="panel active" id="info">
+  <!-- ════════════ DASHBOARD ════════════ -->
+  <div class="panel active" id="dashboard">
 
     <!-- Status services -->
     <div class="card">
@@ -60,9 +60,12 @@
       </div>
     </div>
 
-    <!-- System stats -->
+    <!-- Quick stats with "More >" -->
     <div class="card">
-      <h2 data-i18n="info.statistics">Statistics</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 data-i18n="info.statistics">Statistics</h2>
+        <button class="btn btn-sm btn-link" onclick="switchToTab('statistics')" data-i18n="info.moreStats">More &rsaquo;</button>
+      </div>
       <div class="info-stats-grid" id="infoStatsGrid">
         <div class="info-stat">
           <div class="info-stat-num" id="statUptime">—</div>
@@ -87,32 +90,63 @@
       </div>
     </div>
 
-    <!-- Endpoint API -->
-    <div class="card endpoint-card">
-      <h2 data-i18n="info.haConnect">Home Assistant Connection</h2>
-      <p class="card-muted" data-i18n-html="info.haConnectDesc">Use the <strong>HASSAI Bridge</strong> integration from Home Assistant. Enter the URL and API Key below.</p>
-      <div class="ha-setup-grid">
-        <div class="ha-setup-item">
-          <label data-i18n="info.baseUrl">Base URL (for integration)</label>
-          <div class="endpoint-box">
-            <code id="apiEndpoint">http://localhost:8899</code>
-            <button class="btn btn-sm btn-primary" onclick="copyText('apiEndpoint')" data-i18n="info.copy">Copy</button>
+    <!-- How to Connect — wizard slides -->
+    <div class="card htc-card">
+      <h2 data-i18n="htc.title">How to Connect</h2>
+      <div class="htc-slider">
+        <div class="htc-slides" id="htcSlides">
+          <!-- Slide 1 -->
+          <div class="htc-slide active" data-step="1">
+            <div class="htc-step-badge">1</div>
+            <h3 data-i18n="htc.step1Title">Install the Integration</h3>
+            <p data-i18n-html="htc.step1Desc">Install the <strong>HASSAI Bridge</strong> custom integration in Home Assistant from the official repository.</p>
+            <div class="htc-code-box">
+              <code>https://github.com/andreidima11/hassai-bridge-ha</code>
+              <button class="btn btn-sm btn-primary" onclick="copyHtcText(this)" data-i18n="info.copy">Copy</button>
+            </div>
+            <p class="htc-hint" data-i18n-html="htc.step1Hint">Go to <strong>HACS → Integrations → Custom repositories</strong>, paste the URL above and install.</p>
+          </div>
+          <!-- Slide 2 -->
+          <div class="htc-slide" data-step="2">
+            <div class="htc-step-badge">2</div>
+            <h3 data-i18n="htc.step2Title">Enter the API URL</h3>
+            <p data-i18n="htc.step2Desc">When configuring the integration, enter the HASSAI Bridge server URL.</p>
+            <div class="htc-code-box">
+              <code id="htcApiUrl">http://localhost:8899</code>
+              <button class="btn btn-sm btn-primary" onclick="copyHtcText(this)" data-i18n="info.copy">Copy</button>
+            </div>
+            <p class="htc-hint" data-i18n="htc.step2Hint">Use the local IP of the machine running HASSAI Bridge, not localhost, so Home Assistant can reach it.</p>
+          </div>
+          <!-- Slide 3 -->
+          <div class="htc-slide" data-step="3">
+            <div class="htc-step-badge">3</div>
+            <h3 data-i18n="htc.step3Title">Create a User &amp; API Key</h3>
+            <p data-i18n-html="htc.step3Desc">Go to the <strong>Users</strong> tab above and create a user. Each user gets a unique API key — this allows the AI to remember things per person and track usage individually.</p>
+            <div class="htc-code-box">
+              <code id="htcApiKey" class="api-key-blur">••••••••</code>
+              <button class="btn btn-sm" onclick="toggleHtcKey()" id="btnToggleHtcKey" data-i18n="info.show">Show</button>
+              <button class="btn btn-sm btn-primary" onclick="copyHtcText(this)" data-i18n="info.copy">Copy</button>
+            </div>
+            <p class="htc-hint" data-i18n="htc.step3Hint">Copy the API key and paste it in the integration configuration in Home Assistant.</p>
+          </div>
+          <!-- Slide 4 -->
+          <div class="htc-slide" data-step="4">
+            <div class="htc-step-badge">4</div>
+            <h3 data-i18n="htc.step4Title">Set as Assistant</h3>
+            <p data-i18n-html="htc.step4Desc">In Home Assistant, go to <strong>Settings → Voice assistants</strong> and select <strong>HASSAI Bridge</strong> as your conversation agent. That's it!</p>
+            <p class="htc-hint" data-i18n="htc.step4Hint">You can now talk to the AI from any dashboard, Assist pipeline, or automation.</p>
           </div>
         </div>
-        <div class="ha-setup-item">
-          <label data-i18n="info.apiKey">API Key</label>
-          <div class="endpoint-box">
-            <code id="apiKeyDisplay" class="api-key-blur">••••••••</code>
-            <button class="btn btn-sm" onclick="toggleApiKey()" id="btnToggleKey" data-i18n="info.show">Show</button>
-            <button class="btn btn-sm btn-primary" onclick="copyText('apiKeyDisplay')" data-i18n="info.copy">Copy</button>
+        <div class="htc-nav">
+          <button class="btn btn-sm htc-prev" onclick="htcPrev()" disabled data-i18n="htc.prev">&lsaquo; Back</button>
+          <div class="htc-dots" id="htcDots">
+            <span class="htc-dot active" onclick="htcGo(0)"></span>
+            <span class="htc-dot" onclick="htcGo(1)"></span>
+            <span class="htc-dot" onclick="htcGo(2)"></span>
+            <span class="htc-dot" onclick="htcGo(3)"></span>
           </div>
+          <button class="btn btn-sm btn-primary htc-next" onclick="htcNext()" data-i18n="htc.next">Next &rsaquo;</button>
         </div>
-      </div>
-      <div class="endpoint-detail" style="margin-top:12px">
-        <span>Chat Completions:</span> <code id="apiEndpointChat">http://localhost:8899/v1/chat/completions</code>
-      </div>
-      <div class="endpoint-detail">
-        <span>Models:</span> <code id="apiEndpointModels">http://localhost:8899/v1/models</code>
       </div>
     </div>
 
@@ -145,53 +179,122 @@
       </div>
     </div>
 
-    <!-- Overview cards -->
-    <div class="card">
-      <h2 data-i18n="stats.overview">Overview</h2>
-      <div class="stats-overview-grid" id="statsOverviewGrid">
-        <div class="info-stat"><div class="info-stat-num" id="statsRequests">—</div><div class="info-stat-lbl" data-i18n="stats.totalRequests">Total Requests</div></div>
-        <div class="info-stat"><div class="info-stat-num" id="statsTokens">—</div><div class="info-stat-lbl" data-i18n="stats.totalTokens">Total Tokens</div></div>
-        <div class="info-stat"><div class="info-stat-num" id="statsSearches">—</div><div class="info-stat-lbl" data-i18n="stats.searchRequests">Search Requests</div></div>
-        <div class="info-stat"><div class="info-stat-num" id="statsSkills">—</div><div class="info-stat-lbl" data-i18n="stats.skills">Skills</div></div>
+    <!-- Statistics sub-tabs -->
+    <div class="settings-tabs">
+      <div class="settings-tab active" data-stab="stab-stats-model" data-i18n="stats.tabModel">Model</div>
+      <div class="settings-tab" data-stab="stab-stats-memory" data-i18n="stats.tabMemory">Memory</div>
+      <div class="settings-tab" data-stab="stab-stats-skills" data-i18n="stats.tabSkills">Skills</div>
+      <div class="settings-tab" data-stab="stab-stats-server" data-i18n="stats.tabServer">Server</div>
+    </div>
+
+    <!-- ── Model sub-tab ── -->
+    <div class="settings-subpanel active" id="stab-stats-model">
+      <!-- Overview cards -->
+      <div class="card">
+        <h2 data-i18n="stats.overview">Overview</h2>
+        <div class="stats-overview-grid" id="statsOverviewGrid">
+          <div class="info-stat"><div class="info-stat-num" id="statsRequests">—</div><div class="info-stat-lbl" data-i18n="stats.totalRequests">Total Requests</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsTokens">—</div><div class="info-stat-lbl" data-i18n="stats.totalTokens">Total Tokens</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSearches">—</div><div class="info-stat-lbl" data-i18n="stats.searchRequests">Search Requests</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSkills">—</div><div class="info-stat-lbl" data-i18n="stats.skills">Skills</div></div>
+        </div>
+      </div>
+
+      <!-- Pie charts -->
+      <div class="stats-charts-row">
+        <div class="card" style="flex:1;min-width:280px">
+          <h2 data-i18n="stats.byProvider">By Provider</h2>
+          <canvas id="chartProvider" width="300" height="300"></canvas>
+          <div id="chartProviderLegend" class="chart-legend"></div>
+        </div>
+        <div class="card" style="flex:1;min-width:280px">
+          <h2 data-i18n="stats.byModel">By Model</h2>
+          <canvas id="chartModel" width="300" height="300"></canvas>
+          <div id="chartModelLegend" class="chart-legend"></div>
+        </div>
+      </div>
+
+      <!-- Daily activity -->
+      <div class="card">
+        <h2 data-i18n="stats.dailyActivity">Daily Activity</h2>
+        <canvas id="chartDaily" width="800" height="200"></canvas>
+      </div>
+
+      <!-- Details tables -->
+      <div class="stats-charts-row">
+        <div class="card" style="flex:1;min-width:280px">
+          <h2 data-i18n="stats.providerDetails">Provider Details</h2>
+          <div id="statsProviderTable" class="stats-detail-table"></div>
+        </div>
+        <div class="card" style="flex:1;min-width:280px">
+          <h2 data-i18n="stats.modelDetails">Model Details</h2>
+          <div id="statsModelTable" class="stats-detail-table"></div>
+        </div>
+      </div>
+
+      <!-- Per-user -->
+      <div class="card">
+        <h2 data-i18n="stats.byUser">By User</h2>
+        <div id="statsUserTable" class="stats-detail-table"></div>
       </div>
     </div>
 
-    <!-- Pie charts -->
-    <div class="stats-charts-row">
-      <div class="card" style="flex:1;min-width:280px">
-        <h2 data-i18n="stats.byProvider">By Provider</h2>
-        <canvas id="chartProvider" width="300" height="300"></canvas>
-        <div id="chartProviderLegend" class="chart-legend"></div>
+    <!-- ── Memory sub-tab ── -->
+    <div class="settings-subpanel" id="stab-stats-memory">
+      <div class="card">
+        <h2 data-i18n="stats.memoryOverview">Memory Overview</h2>
+        <div class="stats-overview-grid" id="statsMemoryGrid">
+          <div class="info-stat"><div class="info-stat-num" id="statsMemTotal">—</div><div class="info-stat-lbl" data-i18n="stats.totalMemories">Total Memories</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsMemUsers">—</div><div class="info-stat-lbl" data-i18n="stats.usersWithMemory">Users with Memory</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsMemAutoExtract">—</div><div class="info-stat-lbl" data-i18n="stats.autoExtract">Auto-Extract</div></div>
+        </div>
       </div>
-      <div class="card" style="flex:1;min-width:280px">
-        <h2 data-i18n="stats.byModel">By Model</h2>
-        <canvas id="chartModel" width="300" height="300"></canvas>
-        <div id="chartModelLegend" class="chart-legend"></div>
+      <div class="card">
+        <h2 data-i18n="stats.memoryByUser">Memory by User</h2>
+        <div id="statsMemoryUserTable" class="stats-detail-table"></div>
       </div>
-    </div>
-
-    <!-- Daily activity -->
-    <div class="card">
-      <h2 data-i18n="stats.dailyActivity">Daily Activity</h2>
-      <canvas id="chartDaily" width="800" height="200"></canvas>
-    </div>
-
-    <!-- Details tables -->
-    <div class="stats-charts-row">
-      <div class="card" style="flex:1;min-width:280px">
-        <h2 data-i18n="stats.providerDetails">Provider Details</h2>
-        <div id="statsProviderTable" class="stats-detail-table"></div>
-      </div>
-      <div class="card" style="flex:1;min-width:280px">
-        <h2 data-i18n="stats.modelDetails">Model Details</h2>
-        <div id="statsModelTable" class="stats-detail-table"></div>
+      <div class="card">
+        <h2 data-i18n="stats.memoryByCategory">Memory by Category</h2>
+        <div id="statsMemoryCatTable" class="stats-detail-table"></div>
       </div>
     </div>
 
-    <!-- Per-user -->
-    <div class="card">
-      <h2 data-i18n="stats.byUser">By User</h2>
-      <div id="statsUserTable" class="stats-detail-table"></div>
+    <!-- ── Skills sub-tab ── -->
+    <div class="settings-subpanel" id="stab-stats-skills">
+      <div class="card">
+        <h2 data-i18n="stats.skillsOverview">Skills Overview</h2>
+        <div class="stats-overview-grid" id="statsSkillsGrid">
+          <div class="info-stat"><div class="info-stat-num" id="statsSkillsTotal">—</div><div class="info-stat-lbl" data-i18n="stats.totalSkills">Total Skills</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSkillsEnabled">—</div><div class="info-stat-lbl" data-i18n="stats.enabledSkills">Enabled</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSkillsBuiltin">—</div><div class="info-stat-lbl" data-i18n="stats.builtinSkills">Built-in</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSkillsGenerated">—</div><div class="info-stat-lbl" data-i18n="stats.generatedSkills">User-Created</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="stats.skillsList">Skills Details</h2>
+        <div id="statsSkillsTable" class="stats-detail-table"></div>
+      </div>
+    </div>
+
+    <!-- ── Server sub-tab ── -->
+    <div class="settings-subpanel" id="stab-stats-server">
+      <div class="card">
+        <h2 data-i18n="stats.serverOverview">Server Overview</h2>
+        <div class="stats-overview-grid" id="statsServerGrid">
+          <div class="info-stat"><div class="info-stat-num" id="statsServerUptime">—</div><div class="info-stat-lbl" data-i18n="info.uptime">Uptime</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsServerVersion">—</div><div class="info-stat-lbl" data-i18n="stats.version">Version</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsServerEndpoints">—</div><div class="info-stat-lbl" data-i18n="stats.endpoints">Endpoints</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsServerProviders">—</div><div class="info-stat-lbl" data-i18n="stats.providers">Providers</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="stats.serverDetails">Server Details</h2>
+        <div id="statsServerDetails" class="stats-detail-table"></div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="stats.serviceDetails">Service Status</h2>
+        <div id="statsServiceDetails" class="stats-detail-table"></div>
+      </div>
     </div>
   </div>
 
@@ -199,14 +302,12 @@
   <div class="panel" id="conversations">
     <div class="card">
       <h2 data-i18n="conv.selectUser">Select User</h2>
-      <div style="display:flex;gap:8px;align-items:end">
-        <div style="flex:1">
-          <label data-i18n="conv.user">User</label>
-          <select id="convUserSelect" onchange="loadConversations()">
-            <option value="" data-i18n="conv.choose">— Choose —</option>
-          </select>
-        </div>
-        <button class="btn btn-primary btn-sm" onclick="refreshConvUsers()" data-i18n="conv.reload">Reload</button>
+      <p class="card-muted" data-i18n="conv.selectUserDesc">Choose a user from the dropdown to browse their conversation history. Sessions load automatically.</p>
+      <div style="flex:1;margin-top:8px">
+        <label data-i18n="conv.user">User</label>
+        <select id="convUserSelect" onchange="loadConversations()">
+          <option value="" data-i18n="conv.choose">— Choose —</option>
+        </select>
       </div>
     </div>
 

@@ -6,17 +6,31 @@ const API = '';
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.container > .panel').forEach(p => p.classList.remove('active'));
     tab.classList.add('active');
     document.getElementById(tab.dataset.panel).classList.add('active');
   });
 });
 
-// ── Settings sub-tabs ──
+function switchToTab(panelId) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.container > .panel').forEach(p => p.classList.remove('active'));
+  const tab = document.querySelector(`.tab[data-panel="${panelId}"]`);
+  if (tab) tab.classList.add('active');
+  const panel = document.getElementById(panelId);
+  if (panel) panel.classList.add('active');
+  if (panelId === 'statistics') loadUsageStats();
+  if (panelId === 'logs') { loadLogs(); _startLogsAutoRefresh(); }
+  if (panelId === 'skills') loadSkills();
+  if (panelId === 'conversations') refreshConvUsers();
+}
+
+// ── Settings sub-tabs (used in both Settings and Statistics) ──
 document.querySelectorAll('.settings-tab').forEach(stab => {
   stab.addEventListener('click', () => {
-    document.querySelectorAll('.settings-tab').forEach(s => s.classList.remove('active'));
-    document.querySelectorAll('.settings-subpanel').forEach(p => p.classList.remove('active'));
+    const parent = stab.closest('.panel') || stab.parentElement.parentElement;
+    parent.querySelectorAll('.settings-tab').forEach(s => s.classList.remove('active'));
+    parent.querySelectorAll('.settings-subpanel').forEach(p => p.classList.remove('active'));
     stab.classList.add('active');
     document.getElementById(stab.dataset.stab).classList.add('active');
   });
@@ -60,17 +74,16 @@ function formatUptime(seconds) {
 
 function updateEndpointDisplay(ip, port) {
   const base = ip && port ? `http://${ip}:${port}` : `${window.location.protocol}//${window.location.host}`;
-  document.getElementById('apiEndpoint').textContent = base;
-  document.getElementById('apiEndpointChat').textContent = `${base}/v1/chat/completions`;
-  document.getElementById('apiEndpointModels').textContent = `${base}/v1/models`;
+  const htcUrl = document.getElementById('htcApiUrl');
+  if (htcUrl) htcUrl.textContent = base;
 }
 
 let _apiKeyVisible = false;
 let _apiKeyValue = '';
 
-function toggleApiKey() {
+function toggleHtcKey() {
   _apiKeyVisible = !_apiKeyVisible;
-  const el = document.getElementById('apiKeyDisplay');
+  const el = document.getElementById('htcApiKey');
   if (_apiKeyVisible && _apiKeyValue) {
     el.textContent = _apiKeyValue;
     el.classList.remove('api-key-blur');
@@ -80,12 +93,22 @@ function toggleApiKey() {
   }
 }
 
+function copyHtcText(btn) {
+  const codeEl = btn.closest('.htc-code-box').querySelector('code');
+  let text = codeEl.textContent;
+  if (codeEl.id === 'htcApiKey' && !_apiKeyVisible && _apiKeyValue) {
+    text = _apiKeyValue;
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(() => toast(t('toast.copied'))).catch(() => _copyFallback(text));
+  } else {
+    _copyFallback(text);
+  }
+}
+
 function copyText(elementId) {
   const el = document.getElementById(elementId);
   let text = el.textContent;
-  if (elementId === 'apiKeyDisplay' && !_apiKeyVisible && _apiKeyValue) {
-    text = _apiKeyValue;
-  }
   if (navigator.clipboard && window.isSecureContext) {
     navigator.clipboard.writeText(text).then(() => toast(t('toast.copied'))).catch(() => _copyFallback(text));
   } else {
@@ -429,6 +452,10 @@ async function loadUsageStats() {
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
+  // Load sub-tab data
+  loadStatsMemory();
+  loadStatsSkills();
+  loadStatsServer();
 }
 
 // ══════════════════════════════════════════════════
@@ -1322,6 +1349,9 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (tab.dataset.panel === 'skills') {
       loadSkills();
     }
+    if (tab.dataset.panel === 'conversations') {
+      refreshConvUsers();
+    }
   });
 });
 
@@ -1475,5 +1505,157 @@ async function testSkill() {
   } catch (e) {
     outputEl.textContent = 'Error: ' + e.message;
     outputEl.style.color = 'var(--danger)';
+  }
+}
+
+// ══════════════════════════════════════════════════
+// HOW TO CONNECT — SLIDER
+// ══════════════════════════════════════════════════
+
+let _htcIndex = 0;
+const _htcTotal = 4;
+
+function _htcUpdate() {
+  document.querySelectorAll('.htc-slide').forEach((s, i) => s.classList.toggle('active', i === _htcIndex));
+  document.querySelectorAll('.htc-dot').forEach((d, i) => d.classList.toggle('active', i === _htcIndex));
+  document.querySelector('.htc-prev').disabled = _htcIndex === 0;
+  const nextBtn = document.querySelector('.htc-next');
+  nextBtn.textContent = _htcIndex === _htcTotal - 1 ? '✓' : t('htc.next');
+  nextBtn.disabled = _htcIndex === _htcTotal - 1;
+}
+
+function htcNext() { if (_htcIndex < _htcTotal - 1) { _htcIndex++; _htcUpdate(); } }
+function htcPrev() { if (_htcIndex > 0) { _htcIndex--; _htcUpdate(); } }
+function htcGo(i) { _htcIndex = i; _htcUpdate(); }
+
+// ══════════════════════════════════════════════════
+// STATISTICS SUB-TABS DATA
+// ══════════════════════════════════════════════════
+
+let _cachedInfo = null;
+
+async function loadStatsMemory() {
+  try {
+    const memUsers = await api('GET', '/api/memory/users');
+    const users = memUsers.users || [];
+    document.getElementById('statsMemUsers').textContent = users.length;
+
+    // Load per-user stats
+    let totalMem = 0;
+    const userStats = [];
+    const catAgg = {};
+    for (const u of users) {
+      try {
+        const s = await api('GET', `/api/memory/stats/${encodeURIComponent(u)}`);
+        userStats.push({ name: u, total: s.total, categories: s.by_category || {} });
+        totalMem += s.total;
+        for (const [cat, count] of Object.entries(s.by_category || {})) {
+          catAgg[cat] = (catAgg[cat] || 0) + count;
+        }
+      } catch { /* skip */ }
+    }
+
+    document.getElementById('statsMemTotal').textContent = totalMem;
+    // Auto-extract status
+    try {
+      const cfg = await api('GET', '/api/settings/');
+      document.getElementById('statsMemAutoExtract').textContent = cfg.memory.auto_extract ? t('status.active') : t('status.disabled');
+    } catch {
+      document.getElementById('statsMemAutoExtract').textContent = '—';
+    }
+
+    // User table
+    document.getElementById('statsMemoryUserTable').innerHTML = userStats.length
+      ? userStats.map(u => `
+        <div class="stats-detail-row">
+          <span class="stats-detail-name">${escapeHtml(u.name)}</span>
+          <span class="stats-detail-num">${u.total} memories</span>
+        </div>`).join('')
+      : `<p class="card-muted">${t('stats.noData')}</p>`;
+
+    // Category table
+    const catEntries = Object.entries(catAgg).sort((a, b) => b[1] - a[1]);
+    document.getElementById('statsMemoryCatTable').innerHTML = catEntries.length
+      ? catEntries.map(([cat, count]) => `
+        <div class="stats-detail-row">
+          <span class="stats-detail-name">${t('cat.' + cat) || cat}</span>
+          <span class="stats-detail-num">${count}</span>
+        </div>`).join('')
+      : `<p class="card-muted">${t('stats.noData')}</p>`;
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function loadStatsSkills() {
+  try {
+    const list = await api('GET', '/api/skills/');
+    const total = list.length;
+    const enabled = list.filter(s => !s.disabled).length;
+    const builtin = list.filter(s => !s.generated).length;
+    const generated = list.filter(s => s.generated).length;
+
+    document.getElementById('statsSkillsTotal').textContent = total;
+    document.getElementById('statsSkillsEnabled').textContent = enabled;
+    document.getElementById('statsSkillsBuiltin').textContent = builtin;
+    document.getElementById('statsSkillsGenerated').textContent = generated;
+
+    document.getElementById('statsSkillsTable').innerHTML = list.length
+      ? list.map(s => `
+        <div class="stats-detail-row">
+          <span class="stats-detail-name">${escapeHtml(s.name)} ${s.generated ? '<span class="stats-detail-badge">user</span>' : '<span class="stats-detail-badge">built-in</span>'}</span>
+          <span class="stats-detail-meta">${s.disabled ? '⏸ disabled' : '✅ active'}</span>
+        </div>`).join('')
+      : `<p class="card-muted">${t('stats.noData')}</p>`;
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function loadStatsServer() {
+  try {
+    const info = await api('GET', '/api/settings/info');
+    _cachedInfo = info;
+
+    document.getElementById('statsServerUptime').textContent = formatUptime(info.uptime_seconds);
+    document.getElementById('statsServerVersion').textContent = info.version;
+    document.getElementById('statsServerEndpoints').textContent = info.endpoints.length;
+    document.getElementById('statsServerProviders').textContent = (info.providers || []).length;
+
+    // Server details
+    const details = [
+      { label: t('stats.localIp'), value: info.local_ip || '—' },
+      { label: t('stats.port'), value: info.port || '8899' },
+      { label: t('stats.activeProvider'), value: info.active_provider || '—' },
+      { label: t('info.uptime'), value: formatUptime(info.uptime_seconds) },
+      { label: t('stats.totalUsers'), value: info.stats.total_users },
+      { label: t('info.totalMemories'), value: info.stats.total_memories },
+      { label: t('info.messages'), value: info.stats.total_conversations },
+      { label: t('info.actions24h'), value: info.stats.actions_last_24h },
+    ];
+    document.getElementById('statsServerDetails').innerHTML = details.map(d => `
+      <div class="stats-detail-row">
+        <span class="stats-detail-name">${escapeHtml(d.label)}</span>
+        <span class="stats-detail-num">${escapeHtml(String(d.value))}</span>
+      </div>`).join('');
+
+    // Service status
+    const lm = info.services.lmstudio;
+    const prov = info.services.provider || lm;
+    const sx = info.services.searxng;
+    const mem = info.services.memory;
+    const services = [
+      { name: prov.name || 'AI Provider', status: (prov.status || lm.status) === 'connected' ? '✅ ' + t('status.connected') : '❌ ' + t('status.unavailable'), detail: `${prov.url || lm.url} — ${prov.model || lm.model}` },
+      { name: 'SearXNG', status: !sx.enabled ? '⏸ ' + t('status.disabled') : (sx.status === 'connected' ? '✅ ' + t('status.connected') : '❌ ' + t('status.unavailable')), detail: sx.url },
+      { name: t('info.memoryAi'), status: mem.enabled ? '✅ ' + (mem.auto_extract ? t('status.activeAutoExtract') : t('status.active')) : '⏸ ' + t('status.disabled'), detail: t('status.memoriesStored', { count: info.stats.total_memories }) },
+    ];
+    document.getElementById('statsServiceDetails').innerHTML = services.map(s => `
+      <div class="stats-detail-row">
+        <span class="stats-detail-name">${escapeHtml(s.name)}</span>
+        <span class="stats-detail-num" style="white-space:nowrap">${s.status}</span>
+        <span class="stats-detail-meta">${escapeHtml(s.detail)}</span>
+      </div>`).join('');
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }

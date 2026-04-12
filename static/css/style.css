@@ -247,7 +247,7 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
   .ep-desc{display:none}
   .stat-grid{grid-template-columns:repeat(2,1fr)}
   .tabs{flex-wrap:wrap;gap:2px;padding:4px}
-  .tab{padding:8px 6px;font-size:.75rem;min-width:0;flex:1 1 auto}
+  .tab{padding:8px 6px;font-size:.7rem;min-width:0;flex:1 1 auto}
   .btn-row{flex-direction:column}
   .btn-row .btn{width:100%;justify-content:center}
   .provider-item{flex-direction:column;align-items:flex-start;gap:10px}
@@ -257,7 +257,7 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
   .card{padding:16px 14px;margin-bottom:12px}
   .card h2{font-size:.95rem}
   .settings-tabs{flex-wrap:wrap;gap:2px;padding:3px}
-  .settings-tab{padding:7px 8px;font-size:.75rem;flex:1 1 auto;min-width:0}
+  .settings-tab{padding:7px 8px;font-size:.72rem;flex:1 1 auto;min-width:0}
   .skill-card{flex-direction:column!important;align-items:flex-start!important;gap:10px}
   .skill-card>div:last-child{width:100%;justify-content:flex-end}
   .stats-detail-row{flex-wrap:wrap;gap:4px}
@@ -270,6 +270,10 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
   .conv-session-meta{flex-wrap:wrap;gap:8px}
   .info-stat-num{font-size:1.3rem}
   .badge-sm{font-size:.63rem;padding:2px 5px}
+  .htc-code-box{flex-wrap:wrap}
+  .htc-code-box code{font-size:.78rem}
+  .htc-nav{gap:6px}
+  .htc-prev,.htc-next{min-width:60px;font-size:.75rem;padding:6px 8px}
 }
 
 /* ── Scrollbar ── */
@@ -319,4 +323,32 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 /* ── Skills ── */
 .badge-sm{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.7rem;font-weight:600;vertical-align:middle}
 .skill-card{margin-bottom:8px}
+
+/* ── How to Connect Slider ── */
+.htc-card{border-color:var(--accent);border-width:1px}
+.htc-slider{position:relative}
+.htc-slides{position:relative;min-height:180px}
+.htc-slide{display:none;animation:htcFadeIn .3s ease}
+.htc-slide.active{display:block}
+@keyframes htcFadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.htc-step-badge{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;font-size:1rem;margin-bottom:10px}
+.htc-slide h3{font-size:1rem;margin-bottom:8px;color:var(--text)}
+.htc-slide p{font-size:.88rem;color:var(--muted);line-height:1.55;margin-bottom:10px}
+.htc-code-box{display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin:10px 0}
+.htc-code-box code{flex:1;font-size:.9rem;font-weight:600;color:var(--accent);word-break:break-all;font-family:'SF Mono',Monaco,Consolas,monospace}
+.htc-hint{font-size:.8rem;color:var(--muted);line-height:1.5;margin-top:6px}
+.htc-nav{display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)}
+.htc-dots{display:flex;gap:8px}
+.htc-dot{width:10px;height:10px;border-radius:50%;background:var(--border);cursor:pointer;transition:.2s}
+.htc-dot.active{background:var(--accent)}
+.htc-dot:hover{background:var(--accent-hover,var(--accent))}
+.htc-prev,.htc-next{min-width:80px}
+.htc-prev:disabled,.htc-next:disabled{opacity:.4;cursor:default}
+
+/* ── Link button ── */
+.btn-link{background:none;color:var(--accent);padding:6px 10px;font-weight:600;font-size:.85rem}
+.btn-link:hover{text-decoration:underline}
+
+/* ── API key blur ── */
+.api-key-blur{filter:blur(4px);user-select:none;transition:filter .2s}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
