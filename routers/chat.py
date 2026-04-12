@@ -698,6 +698,7 @@ async def chat_completions(request: Request):
         buffered_chunks = []
         buffer_text = ""
         search_checked = False
+        content_chunks = 0  # only count chunks that have actual content (not reasoning_content)
 
         async for chunk in _stream_with_keepalive_sse(gen):
             if chunk.startswith("data: ") and chunk.strip() != "data: [DONE]":
@@ -709,13 +710,27 @@ async def chat_completions(request: Request):
                     token = ""
 
                 if not search_checked and search_enabled:
-                    # Buffer phase: accumulate tokens to check for search marker
-                    buffered_chunks.append(chunk)
-                    buffer_text += token
+                    # Buffer phase: accumulate content tokens to check for search marker.
+                    # For reasoning models (e.g. Qwen): reasoning_content chunks arrive
+                    # before content chunks. Stream reasoning through immediately so the
+                    # user sees "thinking", but only buffer actual content tokens.
+                    has_reasoning = delta.get("reasoning_content") if delta else None
+                    if token:
+                        # This chunk has actual content — buffer it for search marker check
+                        buffered_chunks.append(chunk)
+                        buffer_text += token
+                        content_chunks += 1
+                    elif has_reasoning:
+                        # Reasoning-only chunk — stream through immediately (user sees "thinking")
+                        yield chunk
+                    else:
+                        # Other chunk (e.g. role-only delta) — buffer it
+                        buffered_chunks.append(chunk)
 
-                    # Count all chunks (including reasoning-only) toward buffer limit
-                    # so reasoning models don't stall the buffer phase forever
-                    if len(buffer_text) >= _SEARCH_BUFFER_CHARS or len(buffered_chunks) > 60 or _SEARCH_MARKER.search(buffer_text):
+                    # Only count actual content chunks toward buffer limit;
+                    # reasoning_content chunks (from reasoning models like Qwen)
+                    # don't contain the search marker so they shouldn't end the buffer phase
+                    if len(buffer_text) >= _SEARCH_BUFFER_CHARS or content_chunks > 60 or _SEARCH_MARKER.search(buffer_text):
                         search_checked = True
                         match = _SEARCH_MARKER.search(buffer_text)
                         if match:
