@@ -766,6 +766,7 @@ async def chat_completions(request: Request):
                 content = delta.get("content", "")
                 reasoning = delta.get("reasoning_content")
                 tool_calls_delta = delta.get("tool_calls")
+                finish_reason = data.get("choices", [{}])[0].get("finish_reason")
 
                 # Tool call delta — accumulate silently (don't yield to client yet)
                 if tool_calls_delta:
@@ -784,6 +785,11 @@ async def chat_completions(request: Request):
                             tc_accum[idx]["arguments"] += fn["arguments"]
                     continue
 
+                # Suppress finish chunk when we have accumulated tool_calls
+                # (we'll handle search and re-stream on [DONE])
+                if has_tool_calls and finish_reason:
+                    continue
+
                 # Reasoning content — yield immediately (user sees "thinking")
                 if reasoning:
                     yield chunk
@@ -793,8 +799,9 @@ async def chat_completions(request: Request):
                 if content:
                     full_response += content
                 yield chunk
-            else:
-                # [DONE] or finish — handle accumulated tool_calls before ending
+
+            elif chunk.strip() == "data: [DONE]":
+                # Stream finished — handle accumulated tool_calls
                 if has_tool_calls and tc_accum:
                     search_call = next(
                         (tc for tc in tc_accum.values() if tc["name"] == "search_web"),
@@ -876,7 +883,14 @@ async def chat_completions(request: Request):
                     # Not search_web — forward buffered tool_call chunks to client (HA)
                     for tc_chunk in tc_chunks:
                         yield tc_chunk
+                    yield chunk  # forward the [DONE]
 
+                else:
+                    # No tool_calls — just forward [DONE]
+                    yield chunk
+
+            else:
+                # Keepalive comments or other non-data lines — pass through
                 yield chunk
 
         if full_response:
