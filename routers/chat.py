@@ -85,7 +85,6 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
             "• `/setmodel [name|#]` — Change model on the active provider\n"
             "• `/setprovider [name|#]` — Switch active AI provider\n"
             "• `/version` — Current version\n"
-            "• `/restart` — Restart HASSAI Bridge server\n"
             "• `/help` — This command list"
         )
 
@@ -165,14 +164,6 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
 
     elif command == "/version":
         return f"🏠 HASSAI Bridge **{VERSION}**"
-
-    elif command == "/restart":
-        import subprocess
-        import os
-        # Touch a file to trigger uvicorn reload watcher
-        _trigger = Path(__file__).parent.parent / ".restart_trigger"
-        _trigger.write_text(str(time.time()))
-        return "🔄 **Server is restarting...**\n\nWait a few seconds, then refresh the page."
 
     elif command == "/setprovider":
         from config import save_config
@@ -346,7 +337,9 @@ def _sanitize_message_roles(messages: list[dict]) -> list[dict]:
 def _trim_messages(messages: list[dict], max_tokens: int) -> list[dict]:
     """Trim conversation to fit within token budget.
 
-    Keeps system messages and trims oldest non-system messages first.
+    Strategy: keep system msgs + compress oldest conversation turns into a
+    single summary line, then keep the most recent turns verbatim.
+    This preserves context while drastically reducing token count.
     """
     system_msgs = [m for m in messages if m.get("role") == "system"]
     other_msgs = [m for m in messages if m.get("role") != "system"]
@@ -354,20 +347,42 @@ def _trim_messages(messages: list[dict], max_tokens: int) -> list[dict]:
     system_tokens = sum(_estimate_tokens(m.get("content", "")) for m in system_msgs)
     budget = max_tokens - system_tokens
     if budget <= 0:
-        return system_msgs  # system messages alone exceed budget
+        return system_msgs
 
-    # Keep as many recent messages as fit
-    kept = []
+    # First pass: total cost of all non-system messages
+    total_others = sum(_estimate_tokens(m.get("content", "")) for m in other_msgs)
+    if total_others <= budget:
+        return system_msgs + other_msgs  # everything fits
+
+    # Keep recent messages verbatim, compress older ones into a summary
+    kept_recent = []
     used = 0
     for msg in reversed(other_msgs):
         cost = _estimate_tokens(msg.get("content", ""))
-        if used + cost > budget:
+        if used + cost > budget * 0.7:  # reserve 70% budget for recent messages
             break
-        kept.append(msg)
+        kept_recent.append(msg)
         used += cost
+    kept_recent.reverse()
 
-    kept.reverse()
-    return system_msgs + kept
+    # Compress dropped older messages into a single summary
+    dropped = other_msgs[:len(other_msgs) - len(kept_recent)]
+    if dropped:
+        summary_parts = []
+        for m in dropped:
+            role = m.get("role", "user")
+            content = (m.get("content") or "")[:80].replace("\n", " ").strip()
+            if content and role in ("user", "assistant"):
+                prefix = "U" if role == "user" else "A"
+                summary_parts.append(f"{prefix}: {content}")
+        if summary_parts:
+            # Cap summary to use at most 15% of budget
+            summary_text = "[Earlier conversation summary]\n" + "\n".join(summary_parts[-8:])
+            summary_tokens = _estimate_tokens(summary_text)
+            if summary_tokens < budget * 0.15:
+                kept_recent.insert(0, {"role": "user", "content": summary_text})
+
+    return system_msgs + kept_recent
 
 # ══════════════════════════════════════════════════
 # AI-driven search via function-calling (tool_calls)
@@ -379,19 +394,16 @@ _SEARCH_WEB_TOOL = {
     "function": {
         "name": "search_web",
         "description": (
-            "Search the web for current/time-sensitive information: today's news, "
-            "live weather, current prices, recent events, things after your knowledge cutoff. "
-            "Do NOT search for facts you already know from training data (definitions, history, "
-            "science, geography, famous people, how things work, programming, math). "
-            "Reformulate into a short keyword-focused query (3-7 words). "
-            "One search should usually be enough."
+            "Search the web for current/time-sensitive info (news, weather, prices, events, scores). "
+            "Do NOT search for facts already in your training data. "
+            "Use short keyword queries (3-7 words)."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Optimized search query: short, keyword-focused, English preferred for technical topics.",
+                    "description": "Short keyword-focused search query.",
                 }
             },
             "required": ["query"],
@@ -416,26 +428,21 @@ def _build_skill_tools() -> list[dict]:
     enabled = [s for s in registry if s["name"] not in disabled]
     if not enabled:
         return []
-    skill_list = ", ".join(f'"{s["name"]}" ({s["description"]})' for s in enabled)
+    skill_list = ", ".join(s["name"] for s in enabled)
     return [{
         "type": "function",
         "function": {
             "name": "run_skill",
-            "description": (
-                f"Execute one of the available skills. Skills: {skill_list}. "
-                "Call this when the user asks for something a skill can handle."
-            ),
+            "description": f"Execute a skill: {skill_list}.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "skill_name": {
                         "type": "string",
-                        "description": "Name of the skill to execute.",
                         "enum": [s["name"] for s in enabled],
                     },
                     "input_data": {
                         "type": "object",
-                        "description": "Input parameters for the skill as key-value pairs.",
                     },
                 },
                 "required": ["skill_name", "input_data"],
@@ -445,17 +452,13 @@ def _build_skill_tools() -> list[dict]:
 
 
 def _build_search_instruction(cfg: dict) -> str:
-    """Short context hint about the knowledge cutoff and search availability."""
+    """Compact search context hint."""
     cutoff = cfg.get("knowledge_cutoff", "2024-01")
     today = date.today().strftime("%Y-%m-%d")
     return (
-        f"Today's date: {today}. "
-        f"Your training data has a knowledge cutoff of {cutoff}. "
-        "You have a search_web tool available for current information. "
-        "Use it when the user asks about anything that may have changed after your cutoff "
-        "(news, prices, weather, events, current leaders, scores, etc.). "
-        "Do NOT say 'I don't have access to search' or 'I cannot browse the internet'. "
-        "If you can answer confidently from your training data, answer normally."
+        f"Date: {today}. Knowledge cutoff: {cutoff}. "
+        "Use search_web for anything after your cutoff. "
+        "Never say you can't search."
     )
 
 
@@ -623,8 +626,6 @@ async def chat_completions(request: Request):
     # 1) System prompt (per-provider overrides global)
     active = get_active_provider()
     system_prompt = (active.get("system_prompt") or "").strip() or cfg.get("system_prompt", "")
-    if system_prompt:
-        augmented.append({"role": "system", "content": system_prompt})
 
     # 2) Memory + history retrieval (parallel)
     history_limit = cfg.get("performance", {}).get("history_limit", 10)
@@ -634,12 +635,17 @@ async def chat_completions(request: Request):
     )
 
     mem_ctx = build_memory_context(memories, user_id=user_id, message=last_user_msg)
-    if mem_ctx:
-        augmented.append({"role": "system", "content": mem_ctx})
 
-    # 3) Search instruction AFTER memories (#4) — so LLM sees full context before deciding to search
+    # 3) Merge all system content into ONE system message (saves per-message overhead on local LLMs)
+    system_parts = []
+    if system_prompt:
+        system_parts.append(system_prompt)
+    if mem_ctx:
+        system_parts.append(mem_ctx)
     if search_enabled:
-        augmented.append({"role": "system", "content": _build_search_instruction(cfg)})
+        system_parts.append(_build_search_instruction(cfg))
+    if system_parts:
+        augmented.append({"role": "system", "content": "\n\n".join(system_parts)})
 
     # 4) Conversation history — only add DB history if incoming messages
     #    don't already contain a conversation (HA sends full history)
@@ -670,6 +676,10 @@ async def chat_completions(request: Request):
     max_ctx = active.get("max_tokens", 2048) * 3  # rough context budget
     augmented = _trim_messages(augmented, max_ctx)
 
+    # Log prompt size for optimization tracking
+    _prompt_tokens = sum(_estimate_tokens(m.get("content", "")) for m in augmented)
+    log.info(f"Prompt: {len(augmented)} msgs, ~{_prompt_tokens} tokens (budget {max_ctx})")
+
     # ── First LLM call ──
     _req_start = time.time()
     _search_used = False
@@ -680,7 +690,7 @@ async def chat_completions(request: Request):
             log.error(f"Provider [{active.get('name', '?')}] request failed: {e}")
             return JSONResponse(
                 status_code=502,
-                content={"error": {"message": f"Provider error: {e}", "type": "upstream_error"}},
+                content={"error": {"message": "Provider request failed. Check server logs for details.", "type": "upstream_error"}},
             )
 
         # ── Handle tool_calls (search_web, run_skill, or forward to client) ──
@@ -947,8 +957,8 @@ async def chat_completions(request: Request):
                                 user_id=user_id, provider_id=active.get("id", ""),
                                 provider_name=active.get("name", ""), provider_type=active.get("type", ""),
                                 model=model or active.get("model", ""),
-                                tokens_prompt=0, tokens_completion=_estimate_tokens(full_response),
-                                tokens_total=_estimate_tokens(full_response),
+                                tokens_prompt=_prompt_tokens, tokens_completion=_estimate_tokens(full_response),
+                                tokens_total=_prompt_tokens + _estimate_tokens(full_response),
                                 response_time_ms=int((time.time() - _req_start) * 1000),
                                 stream=True, search_used=bool(used_tool_names),
                             )
@@ -980,8 +990,8 @@ async def chat_completions(request: Request):
                 user_id=user_id, provider_id=active.get("id", ""),
                 provider_name=active.get("name", ""), provider_type=active.get("type", ""),
                 model=model or active.get("model", ""),
-                tokens_prompt=0, tokens_completion=_estimate_tokens(full_response),
-                tokens_total=_estimate_tokens(full_response),
+                tokens_prompt=_prompt_tokens, tokens_completion=_estimate_tokens(full_response),
+                tokens_total=_prompt_tokens + _estimate_tokens(full_response),
                 response_time_ms=int((time.time() - _req_start) * 1000),
                 stream=True, search_used=False,
             )

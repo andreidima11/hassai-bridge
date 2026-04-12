@@ -392,12 +392,12 @@ def build_memory_context(memories: list[dict], user_id: str = "",
     # ── Tier 0: Identity core (called once, reused for T1 dedup — #7) ──
     identity = _get_identity_memories(user_id) if user_id else []
     if identity:
-        t0_lines = ["[T0 — User Identity]:"]
+        t0_lines = ["[Identity]:"]
         seen_content = set()
         for m in identity:
             if m["content"] not in seen_content:
                 seen_content.add(m["content"])
-                t0_lines.append(f"  • {m['content']}")
+                t0_lines.append(f"• {m['content']}")
         sections.append("\n".join(t0_lines))
 
     # ── Tier 1: Topic-relevant memories ──
@@ -412,22 +412,11 @@ def build_memory_context(memories: list[dict], user_id: str = "",
                 cat = m.get("category", "facts")
                 by_category.setdefault(cat, []).append(m)
 
-            category_labels = {
-                "personal_info": "👤 Personal",
-                "preferences": "🎨 Preferences",
-                "home_setup": "🏠 Home & Devices",
-                "facts": "📌 Facts",
-                "instructions": "📋 Instructions",
-                "context": "🔄 Context",
-            }
-
-            t1_lines = ["[T1 — Relevant Memories]:"]
+            t1_lines = ["[Memories]:"]
             for cat in CATEGORIES:
                 if cat in by_category:
-                    t1_lines.append(f"\n{category_labels.get(cat, cat)}:")
                     for m in by_category[cat]:
-                        imp = "⭐" * min(m.get("importance", 3), 5)
-                        t1_lines.append(f"  [{imp}] {m['content']}")
+                        t1_lines.append(f"• {m['content']}")
             sections.append("\n".join(t1_lines))
 
     # ── Tier 2: Knowledge Graph context ──
@@ -443,7 +432,7 @@ def build_memory_context(memories: list[dict], user_id: str = "",
                 graph_ctx = kg.build_context(max_facts=10)
 
             if graph_ctx:
-                sections.append(f"[T2 — Knowledge Graph]:\n{graph_ctx}")
+                sections.append(f"[Graph]:\n{graph_ctx}")
         except Exception as e:
             log.debug(f"Knowledge graph context failed: {e}")
 

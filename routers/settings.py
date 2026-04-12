@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from config import load_config, save_config
 from core.config import VERSION
-from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session, get_usage_stats
+from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session, get_usage_stats, delete_user_data
 from services import providers, searxng
 from services.providers import get_active_provider, PROVIDER_PRESETS
 
@@ -106,7 +106,7 @@ async def add_user(data: dict):
 
 
 @router.delete("/users/{username}")
-async def delete_user(username: str):
+async def delete_user(username: str, purge: bool = False):
     cfg = load_config()
     api_keys = cfg.get("users", {}).get("api_keys", {})
     to_remove = [k for k, v in api_keys.items() if v == username]
@@ -114,7 +114,11 @@ async def delete_user(username: str):
         del api_keys[k]
     if to_remove:
         save_config(cfg)
-    return {"status": "ok", "removed": len(to_remove)}
+    # Cascade-delete all user data if purge requested
+    data_deleted = {}
+    if purge:
+        data_deleted = delete_user_data(username)
+    return {"status": "ok", "removed": len(to_remove), "data_deleted": data_deleted}
 
 
 # ══════════════════════════════════════════════════
@@ -485,6 +489,23 @@ async def restore_database_upload(file: UploadFile = FastAPIFile(...)):
     # Validate it's a valid SQLite file
     if not contents[:16].startswith(b"SQLite format 3"):
         raise HTTPException(status_code=400, detail="Invalid SQLite database file")
+
+    # Validate required tables exist in the uploaded DB
+    import sqlite3 as _sqlite3
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=True) as tmp:
+        tmp.write(contents)
+        tmp.flush()
+        try:
+            _conn = _sqlite3.connect(tmp.name)
+            tables = {r[0] for r in _conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+            _conn.close()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Cannot read uploaded database")
+    required_tables = {"memories", "conversations"}
+    missing = required_tables - tables
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Invalid HASSAI backup: missing tables {missing}")
 
     # Backup current DB before replacing
     backup_path = DB_PATH.with_suffix(".db.bak")

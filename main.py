@@ -5,11 +5,14 @@ Port 8899 | Per-user memory & knowledge graph | Web search
 """
 
 import logging
+import signal
 import time
+import uuid
 import uvicorn
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
+from urllib.parse import urlparse
 from fastapi import FastAPI, Request, Query, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -88,11 +91,11 @@ app.include_router(memory.router)
 app.include_router(settings.router)
 app.include_router(skills.router)
 
-# ── CORS middleware — allow same-origin + local network access ──
+# ── CORS middleware — allow cross-origin API access (API-key auth, no cookies) ──
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -122,27 +125,24 @@ def _require_admin_key(request: Request):
     if assist_key and assist_key in valid_keys:
         return
 
-    # Try query param (for browser-based access from the same UI)
-    q_key = request.query_params.get("api_key", "").strip()
-    if q_key and q_key in valid_keys:
-        return
-
-    # Allow requests from localhost without key
-    client_ip = request.client.host if request.client else ""
-    if client_ip in ("127.0.0.1", "::1", "localhost"):
-        return
-
-    # Allow same-origin requests (WebUI served by this server)
+    # Allow same-origin requests (WebUI served by this server) — strict match
     server_host = request.headers.get("host", "")
-    referer = request.headers.get("referer", "")
-    origin = request.headers.get("origin", "")
-    if server_host and (
-        (referer and server_host in referer)
-        or (origin and server_host in origin)
-    ):
-        return
+    if server_host:
+        expected_origins = {
+            f"http://{server_host}",
+            f"https://{server_host}",
+        }
+        origin = request.headers.get("origin", "")
+        if origin and origin in expected_origins:
+            return
+        referer = request.headers.get("referer", "")
+        if referer:
+            ref_parsed = urlparse(referer)
+            ref_origin = f"{ref_parsed.scheme}://{ref_parsed.netloc}"
+            if ref_origin in expected_origins:
+                return
 
-    raise HTTPException(status_code=401, detail="Admin API key required")
+    raise HTTPException(status_code=401, detail="API key required")
 
 
 @app.middleware("http")
@@ -151,8 +151,8 @@ async def rate_limit_and_timing(request: Request, call_next):
     start = time.time()
     path = request.url.path
 
-    # Rate limit only chat/API endpoints
-    if path.startswith("/v1/"):
+    # Rate limit chat and API endpoints
+    if path.startswith(("/v1/", "/api/")):
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
         bucket = _rate_buckets[client_ip]
@@ -173,10 +173,14 @@ async def rate_limit_and_timing(request: Request, call_next):
 
     response = await call_next(request)
 
+    # Add request ID header for tracing
+    request_id = uuid.uuid4().hex[:12]
+    response.headers["X-Request-ID"] = request_id
+
     # Log timing for API requests
     duration = time.time() - start
     if path.startswith(("/v1/", "/api/")):
-        log.info(f"{request.method} {path} — {response.status_code} — {duration:.2f}s")
+        log.info(f"{request.method} {path} — {response.status_code} — {duration:.2f}s [{request_id}]")
 
     return response
 
@@ -208,6 +212,15 @@ async def root():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     html = html.replace("__CACHE_BUSTER__", VERSION)
     return HTMLResponse(content=html)
+
+
+# ── Graceful shutdown ──
+def _handle_sigterm(*_):
+    """Handle SIGTERM for clean shutdown (systemd, Docker, etc.)."""
+    log.info("Received SIGTERM — shutting down gracefully")
+    raise SystemExit(0)
+
+signal.signal(signal.SIGTERM, _handle_sigterm)
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ data/hassai.db
 data/hassai.db-wal
 data/hassai.db-shm
 data/hassai.log
+data/skill_usage.json
 data/skills/generated/*.py
 !data/skills/generated/__init__.py
 .restart_trigger

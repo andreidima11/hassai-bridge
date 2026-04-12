@@ -176,6 +176,28 @@ def init_db():
             import logging
             logging.getLogger("hassai.db").warning(log_msg)
 
+        # ── Schema version tracking ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS schema_version (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                version INTEGER NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        from core.config import DB_SCHEMA_VERSION
+        row = conn.execute("SELECT version FROM schema_version WHERE id = 1").fetchone()
+        if row is None:
+            conn.execute(
+                "INSERT INTO schema_version (id, version, updated_at) VALUES (1, ?, ?)",
+                (DB_SCHEMA_VERSION, time.time()),
+            )
+        elif row["version"] < DB_SCHEMA_VERSION:
+            # Future migrations go here (e.g. if row["version"] < 3: ...)
+            conn.execute(
+                "UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1",
+                (DB_SCHEMA_VERSION, time.time()),
+            )
+
 
 # ── FTS5 sync helpers (#2) ──
 
@@ -375,6 +397,25 @@ def clear_memories(user_id):
         conn.execute("DELETE FROM memories WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM conversations WHERE user_id = ?", (user_id,))
         conn.execute("DELETE FROM memory_log WHERE user_id = ?", (user_id,))
+
+
+def delete_user_data(user_id: str) -> dict:
+    """Cascade-delete all data for a user across all tables. Returns counts."""
+    counts = {}
+    with get_db() as conn:
+        for table in ("memories", "conversations", "memory_log", "kg_entities", "kg_relations", "usage_stats"):
+            cursor = conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (user_id,))
+            counts[table] = cursor.rowcount
+        # Rebuild FTS index after bulk memory deletion
+        try:
+            conn.execute("DELETE FROM memories_fts")
+            conn.execute(
+                "INSERT INTO memories_fts(rowid, content, keywords) "
+                "SELECT id, content, keywords FROM memories WHERE active = 1"
+            )
+        except sqlite3.OperationalError:
+            pass
+    return counts
 
 
 def get_memory_stats(user_id):

@@ -4,7 +4,8 @@ import time
 import uuid
 from pathlib import Path
 
-VERSION = "v0.1.7-beta"
+VERSION = "v0.1.7.0-beta"
+DB_SCHEMA_VERSION = 2
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 CONFIG_FILE = DATA_DIR / "config.json"
@@ -170,6 +171,11 @@ def save_config(config: dict):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
+    # Restrict file permissions (owner-only read/write)
+    try:
+        os.chmod(CONFIG_FILE, 0o600)
+    except OSError:
+        pass  # Windows or permission issue
     _config_cache = config
     _config_mtime = CONFIG_FILE.stat().st_mtime
 

@@ -110,7 +110,7 @@ if [[ ! -f "data/config.json" ]]; then
     "providers": [],
     "searxng": {
         "enabled": false,
-        "url": ""
+        "base_url": ""
     },
     "knowledge_cutoff": "2024-01",
     "users": {
