@@ -102,6 +102,20 @@ def get_provider_by_id(provider_id: str) -> dict | None:
     return None
 
 
+def get_secondary_provider(primary: dict | None = None) -> dict | None:
+    """Get the secondary provider for the given (or active) primary provider.
+
+    Returns None if no secondary is configured or the referenced provider
+    doesn't exist.
+    """
+    if primary is None:
+        primary = get_active_provider()
+    sec_id = primary.get("secondary_provider", "")
+    if not sec_id:
+        return None
+    return get_provider_by_id(sec_id)
+
+
 def _build_headers(provider: dict) -> dict:
     """Build request headers including auth if needed."""
     headers = {"Content-Type": "application/json"}

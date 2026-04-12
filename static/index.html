@@ -24,6 +24,7 @@
     <div class="tab" data-panel="statistics" data-i18n="tab.statistics">Statistics</div>
     <div class="tab" data-panel="conversations" data-i18n="tab.conversations">Conversations</div>
     <div class="tab" data-panel="users" data-i18n="tab.users">Users</div>
+    <div class="tab" data-panel="memories" data-i18n="tab.memories">Memories</div>
     <div class="tab" data-panel="skills" data-i18n="tab.skills">Skills</div>
     <div class="tab" data-panel="settings" data-i18n="tab.settings">Settings</div>
     <div class="tab" data-panel="help" data-i18n="tab.help">Help</div>
@@ -383,6 +384,13 @@
             <textarea id="provSystemPrompt" rows="3" data-i18n-placeholder="settings.personalityPlaceholder" placeholder="e.g.: You are a creative writing assistant..."></textarea>
           </div>
           <div class="modal-section">
+            <h3 data-i18n="settings.secondaryProvider">Secondary Provider</h3>
+            <p class="card-muted hint" data-i18n="settings.secondaryProviderDesc">Optional. After tool calls (HA commands, web search, skills), the secondary provider generates the final response — useful for cost reduction or faster processing.</p>
+            <select id="provSecondary">
+              <option value="" data-i18n="settings.noSecondary">— None —</option>
+            </select>
+          </div>
+          <div class="modal-section">
             <h3 data-i18n="settings.advanced">Advanced</h3>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
               <div>
@@ -602,6 +610,80 @@
     </div>
   </div>
 
+  <!-- ════════════ MEMORIES ════════════ -->
+  <div class="panel" id="memories">
+    <div class="card">
+      <h2 data-i18n="mem.title">Memories</h2>
+      <p class="card-muted" data-i18n="mem.desc">View, add and manage memories for each user. The AI uses memories to personalize responses.</p>
+      <div style="display:flex;gap:8px;align-items:end;margin-top:8px">
+        <div style="flex:1">
+          <label data-i18n="mem.user">User</label>
+          <select id="memTabUserSelect" onchange="loadMemoriesTab()">
+            <option value="" data-i18n="conv.choose">— Choose —</option>
+          </select>
+        </div>
+        <button class="btn btn-sm btn-primary" onclick="refreshMemTabUsers()" data-i18n="conv.reload">Reload</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="card" id="memTabStatsCard" style="display:none">
+      <div class="stat-grid" id="memTabStatsGrid"></div>
+    </div>
+
+    <!-- Add memory -->
+    <div class="card" id="memTabAddCard" style="display:none">
+      <h3 data-i18n="modal.addMemory">Add Memory</h3>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div>
+          <label data-i18n="modal.category">Category</label>
+          <select id="memTabNewCat">
+            <option value="personal_info" data-i18n="cat.personal_info">Personal Info</option>
+            <option value="preferences" data-i18n="cat.preferences">Preferences</option>
+            <option value="home_setup" data-i18n="cat.home_setup">Home Setup</option>
+            <option value="facts" selected data-i18n="cat.facts">Facts</option>
+            <option value="instructions" data-i18n="cat.instructions">Instructions</option>
+            <option value="context" data-i18n="cat.context">Context</option>
+          </select>
+        </div>
+        <div>
+          <label data-i18n="modal.importance">Importance (1-5)</label>
+          <input type="number" id="memTabNewImp" value="3" min="1" max="5">
+        </div>
+      </div>
+      <label data-i18n="modal.content">Content</label>
+      <textarea id="memTabNewContent" rows="2" data-i18n-placeholder="modal.contentPlaceholder" placeholder="E.g.: Prefers answers in Romanian..."></textarea>
+      <label data-i18n="modal.keywords">Keywords (comma)</label>
+      <input type="text" id="memTabNewKeywords" data-i18n-placeholder="modal.keywordsPlaceholder" placeholder="language, romanian, preference">
+      <div class="btn-row">
+        <button class="btn btn-primary btn-sm" onclick="addMemoryTab()" data-i18n="modal.add">Add</button>
+      </div>
+    </div>
+
+    <!-- Memory list -->
+    <div class="card" id="memTabListCard" style="display:none">
+      <h3 data-i18n="modal.memoryList">Memory List</h3>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <button class="btn btn-sm btn-primary mem-tab-filter active" onclick="filterMemoriesTab('all',this)" data-i18n="modal.filterAll">All</button>
+        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('personal_info',this)" data-i18n="modal.filterPersonal">Personal</button>
+        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('preferences',this)" data-i18n="modal.filterPreferences">Preferences</button>
+        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('home_setup',this)" data-i18n="modal.filterHome">Home</button>
+        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('facts',this)" data-i18n="modal.filterFacts">Facts</button>
+        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('instructions',this)" data-i18n="modal.filterInstructions">Instructions</button>
+        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('context',this)" data-i18n="modal.filterContext">Context</button>
+      </div>
+      <div class="mem-list" id="memTabList"></div>
+      <div class="btn-row" style="flex-wrap:wrap;gap:8px;align-items:center">
+        <button class="btn btn-primary btn-sm" onclick="consolidateMemoriesTab()" data-i18n="modal.consolidate">AI Consolidation</button>
+        <button class="btn btn-danger btn-sm" id="memTabBulkDeleteBtn" style="display:none" onclick="bulkDeleteMemoriesTab()" data-i18n="modal.deleteSelected">Delete Selected</button>
+        <button class="btn btn-sm" id="memTabSelectAllBtn" style="display:none" onclick="toggleMemTabSelectAll()" data-i18n="modal.selectAll">Select All</button>
+        <span id="memTabSelectedCount" style="font-size:.85rem;color:var(--muted);display:none"></span>
+        <span style="flex:1"></span>
+        <button class="btn btn-danger btn-sm" onclick="clearMemoriesTab()" data-i18n="modal.deleteAll">Delete All</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ════════════ SKILLS ════════════ -->
   <div class="panel" id="skills">
     <div class="card">
@@ -664,7 +746,7 @@
         <div class="modal-avatar"></div>
         <div>
           <h2 id="selectedUserName">—</h2>
-          <span class="modal-subtitle" data-i18n="modal.memoriesConfig">Memories and user configuration</span>
+          <span class="modal-subtitle" data-i18n="modal.userConfig">User configuration</span>
         </div>
       </div>
       <button class="modal-close" onclick="closeUserModal()" data-i18n-title="misc.close" title="Close">✕</button>
@@ -683,58 +765,6 @@
           <code id="userModalApiKey" class="api-key-blur">••••••••</code>
           <button class="btn btn-sm" onclick="toggleUserModalKey()" id="btnToggleUserKey" data-i18n="info.show">Show</button>
           <button class="btn btn-sm btn-primary" onclick="copyUserModalKey()" data-i18n="info.copy">Copy</button>
-        </div>
-      </div>
-
-      <!-- Add memory -->
-      <div class="modal-section">
-        <h3 data-i18n="modal.addMemory">Add Memory</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-          <div>
-            <label data-i18n="modal.category">Category</label>
-            <select id="newMemCat">
-              <option value="personal_info" data-i18n="cat.personal_info">Personal Info</option>
-              <option value="preferences" data-i18n="cat.preferences">Preferences</option>
-              <option value="home_setup" data-i18n="cat.home_setup">Home Setup</option>
-              <option value="facts" selected data-i18n="cat.facts">Facts</option>
-              <option value="instructions" data-i18n="cat.instructions">Instructions</option>
-              <option value="context" data-i18n="cat.context">Context</option>
-            </select>
-          </div>
-          <div>
-            <label data-i18n="modal.importance">Importance (1-5)</label>
-            <input type="number" id="newMemImp" value="3" min="1" max="5">
-          </div>
-        </div>
-        <label data-i18n="modal.content">Content</label>
-        <textarea id="newMemContent" rows="2" data-i18n-placeholder="modal.contentPlaceholder" placeholder="E.g.: Prefers answers in Romanian..."></textarea>
-        <label data-i18n="modal.keywords">Keywords (comma)</label>
-        <input type="text" id="newMemKeywords" data-i18n-placeholder="modal.keywordsPlaceholder" placeholder="language, romanian, preference">
-        <div class="btn-row">
-          <button class="btn btn-primary btn-sm" onclick="addMemory()" data-i18n="modal.add">Add</button>
-        </div>
-      </div>
-
-      <!-- Memories list -->
-      <div class="modal-section">
-        <h3 data-i18n="modal.memoryList">Memory List</h3>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-          <button class="btn btn-sm btn-primary filter-btn active" onclick="filterMemories('all',this)" data-i18n="modal.filterAll">All</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('personal_info',this)" data-i18n="modal.filterPersonal">Personal</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('preferences',this)" data-i18n="modal.filterPreferences">Preferences</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('home_setup',this)" data-i18n="modal.filterHome">Home</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('facts',this)" data-i18n="modal.filterFacts">Facts</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('instructions',this)" data-i18n="modal.filterInstructions">Instructions</button>
-          <button class="btn btn-sm filter-btn" onclick="filterMemories('context',this)" data-i18n="modal.filterContext">Context</button>
-        </div>
-        <div class="mem-list" id="memList"></div>
-        <div class="btn-row" style="flex-wrap:wrap;gap:8px;align-items:center">
-          <button class="btn btn-primary btn-sm" onclick="consolidateMemories()" data-i18n="modal.consolidate">AI Consolidation</button>
-          <button class="btn btn-danger btn-sm" id="memBulkDeleteBtn" style="display:none" onclick="bulkDeleteMemories()" data-i18n="modal.deleteSelected">Delete Selected</button>
-          <button class="btn btn-sm" id="memSelectAllBtn" style="display:none" onclick="toggleMemSelectAll()" data-i18n="modal.selectAll">Select All</button>
-          <span id="memSelectedCount" style="font-size:.85rem;color:var(--muted);display:none"></span>
-          <span style="flex:1"></span>
-          <button class="btn btn-danger btn-sm" onclick="clearUserMemories()" data-i18n="modal.deleteAll">Delete All</button>
         </div>
       </div>
     </div>

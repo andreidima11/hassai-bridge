@@ -8,6 +8,7 @@ const TRANSLATIONS = {
     'tab.conversations': 'Conversations',
     'tab.settings': 'Settings',
     'tab.users': 'Users',
+    'tab.memories': 'Memories',
     'tab.help': 'Help',
     'tab.logs': 'Logs',
 
@@ -87,6 +88,10 @@ const TRANSLATIONS = {
     'settings.providerUrlHint': 'For local servers, use the full URL (e.g. http://192.168.0.100:1234). For cloud APIs, the default URL is pre-filled.',
     'settings.providerApiKeyHint': 'Your API key for this provider. Required for cloud providers.',
     'settings.fetchModels': 'Fetch Models',
+    'settings.secondaryProvider': 'Secondary Provider',
+    'settings.secondaryProviderDesc': 'Optional. After tool calls (HA commands, web search, skills), the secondary provider generates the final response — useful for cost reduction or faster processing.',
+    'settings.secondaryShort': 'Secondary',
+    'settings.noSecondary': '— None —',
     'settings.activate': 'Activate',
     'settings.edit': 'Edit',
     'settings.cancel': 'Cancel',
@@ -152,7 +157,13 @@ const TRANSLATIONS = {
     'users.delete': 'Delete',
     'users.noKey': 'no API key',
 
+    // Memories tab
+    'mem.title': 'Memories',
+    'mem.desc': 'View, add and manage memories for each user. The AI uses memories to personalize responses.',
+    'mem.user': 'User',
+
     // User modal
+    'modal.userConfig': 'User configuration',
     'modal.memoriesConfig': 'Memories and user configuration',
     'modal.apiKey': 'API Key',
     'modal.addMemory': 'Add Memory',
@@ -335,6 +346,7 @@ const TRANSLATIONS = {
     'tab.conversations': 'Conversații',
     'tab.settings': 'Setări',
     'tab.users': 'Utilizatori',
+    'tab.memories': 'Memorii',
     'tab.help': 'Ajutor',
     'tab.logs': 'Loguri',
 
@@ -414,6 +426,10 @@ const TRANSLATIONS = {
     'settings.providerUrlHint': 'Pentru servere locale, folosește URL-ul complet (ex: http://192.168.0.100:1234). Pentru API-uri cloud, URL-ul implicit este pre-completat.',
     'settings.providerApiKeyHint': 'Cheia API pentru acest provider. Obligatorie pentru provideri cloud.',
     'settings.fetchModels': 'Încarcă Modele',
+    'settings.secondaryProvider': 'Provider Secundar',
+    'settings.secondaryProviderDesc': 'Opțional. După apelurile de tool (comenzi HA, căutare web, skilluri), providerul secundar generează răspunsul final — util pentru reducerea costurilor sau procesare mai rapidă.',
+    'settings.secondaryShort': 'Secundar',
+    'settings.noSecondary': '— Niciunul —',
     'settings.activate': 'Activează',
     'settings.edit': 'Editează',
     'settings.cancel': 'Anulează',
@@ -479,7 +495,13 @@ const TRANSLATIONS = {
     'users.delete': 'Șterge',
     'users.noKey': 'fără API key',
 
+    // Memories tab
+    'mem.title': 'Memorii',
+    'mem.desc': 'Vizualizează, adaugă și gestionează memoriile pentru fiecare utilizator. AI-ul folosește memoriile pentru personalizarea răspunsurilor.',
+    'mem.user': 'Utilizator',
+
     // User modal
+    'modal.userConfig': 'Configurare utilizator',
     'modal.memoriesConfig': 'Memorii și configurare utilizator',
     'modal.apiKey': 'Cheie API',
     'modal.addMemory': 'Adaugă Memorie',

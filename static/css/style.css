@@ -118,6 +118,7 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .provider-info{flex:1;min-width:0}
 .provider-name{font-weight:600;font-size:.92rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .provider-type-badge{font-size:.68rem;padding:2px 8px;border-radius:10px;font-weight:600;background:rgba(79,140,255,.15);color:var(--accent);letter-spacing:.3px;text-transform:uppercase}
+.provider-secondary-badge{font-size:.68rem;padding:2px 8px;border-radius:10px;font-weight:600;background:rgba(46,204,113,.15);color:#2ecc71;letter-spacing:.3px}
 .provider-detail{font-size:.78rem;color:var(--muted);margin-top:4px;word-break:break-all}
 .provider-actions{display:flex;gap:6px;flex-shrink:0}
 

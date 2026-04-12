@@ -625,6 +625,7 @@ async def chat_completions(request: Request):
 
     # 1) System prompt (per-provider overrides global)
     active = get_active_provider()
+    secondary = providers.get_secondary_provider(active)
     system_prompt = (active.get("system_prompt") or "").strip() or cfg.get("system_prompt", "")
 
     # 2) Memory + history retrieval (parallel)
@@ -760,10 +761,12 @@ async def chat_completions(request: Request):
                     used_tool_names.add("run_skill")
 
             # Re-call without used tools to avoid loops
+            # Use secondary provider if configured (cost reduction / faster processing)
+            re_provider = secondary or active
             re_tools = [t for t in all_tools if t.get("function", {}).get("name") not in used_tool_names]
             result = await providers.chat_completion(
                 augmented, model=model, tools=re_tools or None,
-                tool_choice=tool_choice, provider=active,
+                tool_choice=tool_choice, provider=re_provider,
             )
 
         # If final result still has non-internal tool_calls, forward to client
@@ -931,10 +934,12 @@ async def chat_completions(request: Request):
                                 used_tool_names.add("run_skill")
 
                         # Re-stream without used tools
+                        # Use secondary provider if configured (cost reduction / faster processing)
+                        re_provider = secondary or active
                         re_tools = [t for t in all_tools if t.get("function", {}).get("name") not in used_tool_names]
                         gen2 = providers.chat_completion_stream(
                             augmented, model=model, tools=re_tools or None,
-                            tool_choice=tool_choice, provider=active,
+                            tool_choice=tool_choice, provider=re_provider,
                         )
                         async for chunk2 in gen2:
                             if chunk2.startswith("data: ") and chunk2.strip() != "data: [DONE]":

@@ -23,6 +23,7 @@ function switchToTab(panelId) {
   if (panelId === 'logs') { loadLogs(); _startLogsAutoRefresh(); }
   if (panelId === 'skills') loadSkills();
   if (panelId === 'conversations') refreshConvUsers();
+  if (panelId === 'memories') refreshMemTabUsers();
 }
 
 // ── Settings sub-tabs (used in both Settings and Statistics) ──
@@ -608,12 +609,15 @@ function renderProvidersList() {
     const isActive = p.id === _activeProviderId;
     const typeLabel = PROVIDER_TYPE_LABELS[p.type] || p.type;
     const activeClass = isActive ? ' provider-active' : '';
+    const secProv = p.secondary_provider ? _allProviders.find(x => x.id === p.secondary_provider) : null;
+    const secLabel = secProv ? `<span class="provider-secondary-badge">${t('settings.secondaryShort')}: ${escapeHtml(secProv.name)}</span>` : '';
     return `
       <div class="provider-item${activeClass}">
         <div class="provider-info">
           <div class="provider-name">
             ${isActive ? '✅ ' : ''}${escapeHtml(p.name)}
             <span class="provider-type-badge">${escapeHtml(typeLabel)}</span>
+            ${secLabel}
           </div>
           <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
         </div>
@@ -624,6 +628,15 @@ function renderProvidersList() {
         </div>
       </div>`;
   }).join('');
+}
+
+function _populateSecondarySelect(excludeId) {
+  const sel = document.getElementById('provSecondary');
+  sel.innerHTML = `<option value="">${t('settings.noSecondary')}</option>`;
+  for (const p of _allProviders) {
+    if (p.id === excludeId) continue;
+    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
+  }
 }
 
 function openAddProvider() {
@@ -638,6 +651,8 @@ function openAddProvider() {
   document.getElementById('provMaxTokens').value = 2048;
   document.getElementById('provTemperature').value = 0.7;
   document.getElementById('provSystemPrompt').value = '';
+  _populateSecondarySelect(null);
+  document.getElementById('provSecondary').value = '';
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   onProvTypeChange();
   document.getElementById('providerModal').classList.add('open');
@@ -658,6 +673,8 @@ function editProvider(id) {
   document.getElementById('provMaxTokens').value = p.max_tokens || 2048;
   document.getElementById('provTemperature').value = p.temperature ?? 0.7;
   document.getElementById('provSystemPrompt').value = p.system_prompt || '';
+  _populateSecondarySelect(id);
+  document.getElementById('provSecondary').value = p.secondary_provider || '';
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   onProvTypeChange();
   document.getElementById('providerModal').classList.add('open');
@@ -699,6 +716,7 @@ async function saveProvider() {
     max_tokens: parseInt(document.getElementById('provMaxTokens').value) || 2048,
     temperature: parseFloat(document.getElementById('provTemperature').value) || 0.7,
     system_prompt: document.getElementById('provSystemPrompt').value.trim(),
+    secondary_provider: document.getElementById('provSecondary').value || '',
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
   try {
@@ -948,7 +966,7 @@ async function selectUser(username) {
   document.querySelectorAll('.user-card').forEach(c => {
     c.classList.toggle('selected', c.querySelector('.user-name')?.textContent === username);
   });
-  await Promise.all([loadStats(username), loadMemories(username)]);
+  await loadStats(username);
 }
 
 function toggleUserModalKey() {
@@ -1152,6 +1170,218 @@ async function consolidateMemories() {
     await api('POST', `/api/memory/consolidate/${encodeURIComponent(_selectedUser)}`);
     toast(t('toast.consolidateComplete'));
     await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+// ══════════════════════════════════════════════════
+// MEMORIES TAB
+// ══════════════════════════════════════════════════
+
+let _memTabUser = '';
+let _memTabAll = [];
+
+async function refreshMemTabUsers() {
+  const select = document.getElementById('memTabUserSelect');
+  const prev = select.value;
+  try {
+    const [cfg, memData] = await Promise.all([
+      api('GET', '/api/settings/'),
+      api('GET', '/api/memory/users'),
+    ]);
+    const userSet = new Set();
+    const apiKeys = (cfg.users || {}).api_keys || {};
+    for (const name of Object.values(apiKeys)) userSet.add(name);
+    for (const u of (memData.users || [])) userSet.add(u);
+
+    select.innerHTML = `<option value="">${t('conv.choose')}</option>`;
+    for (const name of [...userSet].sort()) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      select.appendChild(opt);
+    }
+    if (prev && userSet.has(prev)) select.value = prev;
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function loadMemoriesTab() {
+  _memTabUser = document.getElementById('memTabUserSelect').value;
+  const statsCard = document.getElementById('memTabStatsCard');
+  const addCard = document.getElementById('memTabAddCard');
+  const listCard = document.getElementById('memTabListCard');
+  if (!_memTabUser) {
+    statsCard.style.display = 'none';
+    addCard.style.display = 'none';
+    listCard.style.display = 'none';
+    return;
+  }
+  statsCard.style.display = '';
+  addCard.style.display = '';
+  listCard.style.display = '';
+  await Promise.all([loadMemTabStats(), loadMemTabItems()]);
+}
+
+async function loadMemTabStats() {
+  if (!_memTabUser) return;
+  try {
+    const stats = await api('GET', `/api/memory/stats/${encodeURIComponent(_memTabUser)}`);
+    const grid = document.getElementById('memTabStatsGrid');
+    let html = `<div class="stat-card"><div class="num">${stats.total}</div><div class="lbl">${t('modal.total')}</div></div>`;
+    for (const [cat, count] of Object.entries(stats.by_category || {})) {
+      html += `<div class="stat-card"><div class="num">${count}</div><div class="lbl">${catLabel(cat)}</div></div>`;
+    }
+    grid.innerHTML = html;
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function loadMemTabItems() {
+  if (!_memTabUser) return;
+  try {
+    const data = await api('GET', `/api/memory/${encodeURIComponent(_memTabUser)}?limit=200`);
+    _memTabAll = data.memories || [];
+    renderMemTabItems(_memTabAll);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+function renderMemTabItems(memories) {
+  const list = document.getElementById('memTabList');
+  if (!memories.length) {
+    list.innerHTML = `<p style="color:var(--muted);font-size:.9rem">${t('status.noMemory')}</p>`;
+    updateMemTabBulkBar();
+    return;
+  }
+  list.innerHTML = memories.map(m => {
+    const stars = '★'.repeat(m.importance) + '☆'.repeat(5 - m.importance);
+    const date = new Date(m.created_at * 1000).toLocaleDateString(currentLang === 'ro' ? 'ro-RO' : 'en-US');
+    const accessed = m.access_count > 0 ? t('status.accessed', { count: m.access_count }) : t('status.notAccessed');
+    return `
+      <div class="mem-item" data-cat="${m.category}">
+        <input type="checkbox" class="mem-tab-cb" value="${m.id}" onclick="updateMemTabBulkBar()" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;margin-top:2px">
+        <div class="mem-content">
+          <span class="mem-badge cat-${m.category}">${catLabel(m.category)}</span>
+          <span class="importance-stars" title="${m.importance}/5">${stars}</span>
+          <div style="margin-top:6px">${escapeHtml(m.content)}</div>
+          <div class="mem-meta">
+            <span>${date}</span>
+            <span>${accessed}</span>
+            <span>${escapeHtml(m.keywords || '-')}</span>
+            <span>${m.source}</span>
+          </div>
+        </div>
+        <button class="btn btn-danger btn-sm" onclick="deleteMemoryTab(${m.id})">${t('users.delete')}</button>
+      </div>`;
+  }).join('');
+  updateMemTabBulkBar();
+}
+
+function updateMemTabBulkBar() {
+  const checked = document.querySelectorAll('.mem-tab-cb:checked');
+  const delBtn = document.getElementById('memTabBulkDeleteBtn');
+  const selBtn = document.getElementById('memTabSelectAllBtn');
+  const countEl = document.getElementById('memTabSelectedCount');
+  const hasMemories = document.querySelectorAll('.mem-tab-cb').length > 0;
+  if (hasMemories) {
+    selBtn.style.display = '';
+    if (checked.length > 0) {
+      delBtn.style.display = '';
+      countEl.style.display = '';
+      countEl.textContent = `${checked.length} ${t('modal.selected')}`;
+    } else {
+      delBtn.style.display = 'none';
+      countEl.style.display = 'none';
+    }
+  } else {
+    delBtn.style.display = 'none';
+    selBtn.style.display = 'none';
+    countEl.style.display = 'none';
+  }
+}
+
+function toggleMemTabSelectAll() {
+  const cbs = document.querySelectorAll('.mem-tab-cb');
+  const allChecked = [...cbs].every(cb => cb.checked);
+  cbs.forEach(cb => cb.checked = !allChecked);
+  updateMemTabBulkBar();
+}
+
+async function bulkDeleteMemoriesTab() {
+  const checked = document.querySelectorAll('.mem-tab-cb:checked');
+  if (!checked.length) return;
+  if (!confirm(t('confirm.bulkDeleteMemories', { count: checked.length }))) return;
+  const ids = [...checked].map(cb => parseInt(cb.value));
+  try {
+    await api('POST', '/api/memory/bulk-delete', { ids });
+    toast(t('toast.memoriesBulkDeleted', { count: ids.length }));
+    await Promise.all([loadMemTabStats(), loadMemTabItems()]);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+function filterMemoriesTab(cat, btn) {
+  document.querySelectorAll('.mem-tab-filter').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderMemTabItems(cat === 'all' ? _memTabAll : _memTabAll.filter(m => m.category === cat));
+}
+
+async function addMemoryTab() {
+  if (!_memTabUser) { toast(t('toast.selectUser'), true); return; }
+  const content = document.getElementById('memTabNewContent').value;
+  if (!content) { toast(t('toast.writeContent'), true); return; }
+  try {
+    await api('POST', '/api/memory/', {
+      user_id: _memTabUser,
+      content,
+      category: document.getElementById('memTabNewCat').value,
+      keywords: document.getElementById('memTabNewKeywords').value,
+      importance: parseInt(document.getElementById('memTabNewImp').value),
+    });
+    document.getElementById('memTabNewContent').value = '';
+    document.getElementById('memTabNewKeywords').value = '';
+    toast(t('toast.memoryAdded'));
+    await Promise.all([loadMemTabStats(), loadMemTabItems()]);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function deleteMemoryTab(id) {
+  try {
+    await api('DELETE', `/api/memory/${id}`);
+    toast(t('toast.memoryDeleted'));
+    await Promise.all([loadMemTabStats(), loadMemTabItems()]);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function clearMemoriesTab() {
+  if (!_memTabUser) return;
+  if (!confirm(t('confirm.deleteAllMemories', { name: _memTabUser }))) return;
+  try {
+    await api('DELETE', `/api/memory/user/${encodeURIComponent(_memTabUser)}`);
+    toast(t('toast.memoriesDeleted'));
+    await Promise.all([loadMemTabStats(), loadMemTabItems()]);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function consolidateMemoriesTab() {
+  if (!_memTabUser) { toast(t('toast.selectUser'), true); return; }
+  toast(t('toast.consolidating'));
+  try {
+    await api('POST', `/api/memory/consolidate/${encodeURIComponent(_memTabUser)}`);
+    toast(t('toast.consolidateComplete'));
+    await Promise.all([loadMemTabStats(), loadMemTabItems()]);
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
@@ -1492,6 +1722,9 @@ document.querySelectorAll('.tab').forEach(tab => {
     }
     if (tab.dataset.panel === 'conversations') {
       refreshConvUsers();
+    }
+    if (tab.dataset.panel === 'memories') {
+      refreshMemTabUsers();
     }
   });
 });
