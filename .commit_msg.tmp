@@ -1,22 +1,9 @@
-v0.1.9.0-beta — Eco Mode + Usage Statistics for Secondary Provider & Eco Mode
+v0.1.9.2-beta: Chat commands /set2nd and /seteco + secondary stats fix
 
-Eco Mode:
-- Per-provider Eco Mode toggle to reduce output tokens
-- Appends conciseness instruction to system prompt when enabled
-- Removes filler words, pleasantries, and unnecessary explanations
-- Recommended for cloud API providers to save costs
+New chat commands:
+- /set2nd [name|#|off] — set or disable secondary provider for active provider
+- /seteco [1|0] — toggle Eco Mode on the active provider
 
-Usage Statistics — Eco Mode & Secondary Provider Tracking:
-- New eco_mode and secondary_used columns in usage_stats (schema v3)
-- Auto-migration from schema v2 to v3 (safe ALTER TABLE)
-- Track eco_mode flag on every chat completion
-- Track secondary provider LLM calls from memory engine
-- Stats API returns eco savings (avg eco vs normal output, tokens saved)
-- Stats API returns secondary provider usage (calls, tokens)
-
-Dashboard — New Statistics Cards:
-- Eco Mode card: Eco Requests, Tokens Saved, Avg Output (eco vs normal)
-- Secondary Provider card: Secondary Calls, Secondary Tokens
-
-i18n:
-- All new stats and eco mode keys in EN and RO
+Bug fix:
+- Secondary provider usage now correctly tracked in statistics when used for search/skill re-calls
+- Stats record secondary provider name/model instead of primary when secondary handles re-call

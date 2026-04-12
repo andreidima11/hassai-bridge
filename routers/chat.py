@@ -84,6 +84,8 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
             "• `/models` — Available models on the active provider\n"
             "• `/setmodel [name|#]` — Change model on the active provider\n"
             "• `/setprovider [name|#]` — Switch active AI provider\n"
+            "• `/set2nd [name|#|off]` — Set or disable secondary provider\n"
+            "• `/seteco [1|0]` — Toggle Eco Mode on the active provider\n"
             "• `/version` — Current version\n"
             "• `/help` — This command list"
         )
@@ -247,6 +249,86 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
         cfg["providers"] = all_providers
         save_config(cfg)
         return f"✅ Model changed to `{chosen}` on **{active.get('name', active['id'])}**"
+
+    elif command == "/set2nd":
+        from config import save_config
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        active = get_active_provider()
+        all_secondary = cfg.get("secondary_providers", [])
+
+        if not arg:
+            # List secondary providers
+            if not all_secondary:
+                return "❌ No secondary providers configured. Add one from the Web UI > Settings."
+            lines = ["🔄 **Available secondary providers:**\n"]
+            current_sec_id = active.get("secondary_provider", "")
+            for i, sp in enumerate(all_secondary, 1):
+                marker = " ✅" if sp["id"] == current_sec_id else ""
+                lines.append(f"**{i}.** `{sp.get('name', '?')}` — {sp.get('type', '?')} model: {sp.get('model', '?')}{marker}")
+            lines.append(f"\nUse `/set2nd <name|#>` to assign, `/set2nd off` to disable.")
+            return "\n".join(lines)
+
+        # Disable secondary
+        if arg.lower() in ("off", "disable", "none", "0"):
+            all_providers = cfg.get("providers", [])
+            for p in all_providers:
+                if p["id"] == active["id"]:
+                    p["secondary_provider"] = ""
+                    break
+            cfg["providers"] = all_providers
+            save_config(cfg)
+            return f"✅ Secondary provider **disabled** for **{active.get('name', active['id'])}**"
+
+        # Try numeric index
+        match = None
+        if arg.isdigit():
+            idx = int(arg) - 1
+            if 0 <= idx < len(all_secondary):
+                match = all_secondary[idx]
+        if not match:
+            for sp in all_secondary:
+                if sp["id"] == arg or sp["id"].startswith(arg):
+                    match = sp
+                    break
+        if not match:
+            for sp in all_secondary:
+                if arg.lower() in sp.get("name", "").lower():
+                    match = sp
+                    break
+        if not match:
+            return f"❌ Secondary provider `{arg}` not found. Use `/set2nd` to see available."
+
+        all_providers = cfg.get("providers", [])
+        for p in all_providers:
+            if p["id"] == active["id"]:
+                p["secondary_provider"] = match["id"]
+                break
+        cfg["providers"] = all_providers
+        save_config(cfg)
+        return f"✅ Secondary provider set to **{match.get('name', match['id'])}** ({match.get('type', '?')}) for **{active.get('name', active['id'])}**"
+
+    elif command == "/seteco":
+        from config import save_config
+        arg = parts[1].strip() if len(parts) > 1 else ""
+        active = get_active_provider()
+
+        if not arg:
+            current = "ON ✅" if active.get("eco_mode") else "OFF ⚪"
+            return (
+                f"🌿 **Eco Mode** on **{active.get('name', active['id'])}**: {current}\n\n"
+                "Use `/seteco 1` to enable, `/seteco 0` to disable."
+            )
+
+        enable = arg.lower() in ("1", "on", "true", "yes")
+        all_providers = cfg.get("providers", [])
+        for p in all_providers:
+            if p["id"] == active["id"]:
+                p["eco_mode"] = enable
+                break
+        cfg["providers"] = all_providers
+        save_config(cfg)
+        status = "ON ✅" if enable else "OFF ⚪"
+        return f"🌿 Eco Mode **{status}** for **{active.get('name', active['id'])}**"
 
     else:
         return (
@@ -694,6 +776,7 @@ async def chat_completions(request: Request):
     # ── First LLM call ──
     _req_start = time.time()
     _search_used = False
+    _secondary_used_for_recall = False  # tracks if secondary handled a re-call (search/skill)
     if not stream:
         try:
             result = await providers.chat_completion(augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active)
@@ -778,6 +861,9 @@ async def chat_completions(request: Request):
                 augmented, model=model, tools=re_tools or None,
                 tool_choice=tool_choice, provider=re_provider,
             )
+            # Track secondary provider re-call
+            if secondary and re_provider is secondary:
+                _secondary_used_for_recall = True
 
         # If final result still has non-internal tool_calls, forward to client
         final_msg = result.get("choices", [{}])[0].get("message", {})
@@ -806,16 +892,18 @@ async def chat_completions(request: Request):
         # Track usage statistics
         try:
             usage = result.get("usage", {})
+            stat_prov = secondary if _secondary_used_for_recall and secondary else active
             add_usage_stat(
-                user_id=user_id, provider_id=active.get("id", ""),
-                provider_name=active.get("name", ""), provider_type=active.get("type", ""),
-                model=result.get("model", model or active.get("model", "")),
+                user_id=user_id, provider_id=stat_prov.get("id", ""),
+                provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
+                model=result.get("model", model or stat_prov.get("model", "")),
                 tokens_prompt=usage.get("prompt_tokens", 0),
                 tokens_completion=usage.get("completion_tokens", 0),
                 tokens_total=usage.get("total_tokens", 0),
                 response_time_ms=int((time.time() - _req_start) * 1000),
                 stream=False, search_used=_search_used,
                 eco_mode=bool(active.get("eco_mode")),
+                secondary_used=_secondary_used_for_recall,
             )
         except Exception:
             pass
@@ -947,6 +1035,8 @@ async def chat_completions(request: Request):
                         # Re-stream without used tools
                         # Use secondary provider if configured (cost reduction / faster processing)
                         re_provider = secondary or active
+                        if secondary and re_provider is secondary:
+                            _secondary_used_for_recall = True
                         re_tools = [t for t in all_tools if t.get("function", {}).get("name") not in used_tool_names]
                         gen2 = providers.chat_completion_stream(
                             augmented, model=model, tools=re_tools or None,
@@ -969,15 +1059,17 @@ async def chat_completions(request: Request):
                             all_msgs = messages + [{"role": "assistant", "content": full_response}]
                             asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
                         try:
+                            stat_prov = secondary if _secondary_used_for_recall and secondary else active
                             add_usage_stat(
-                                user_id=user_id, provider_id=active.get("id", ""),
-                                provider_name=active.get("name", ""), provider_type=active.get("type", ""),
-                                model=model or active.get("model", ""),
+                                user_id=user_id, provider_id=stat_prov.get("id", ""),
+                                provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
+                                model=model or stat_prov.get("model", ""),
                                 tokens_prompt=_prompt_tokens, tokens_completion=_estimate_tokens(full_response),
                                 tokens_total=_prompt_tokens + _estimate_tokens(full_response),
                                 response_time_ms=int((time.time() - _req_start) * 1000),
                                 stream=True, search_used=bool(used_tool_names),
                                 eco_mode=bool(active.get("eco_mode")),
+                                secondary_used=_secondary_used_for_recall,
                             )
                         except Exception:
                             pass
@@ -1012,6 +1104,7 @@ async def chat_completions(request: Request):
                 response_time_ms=int((time.time() - _req_start) * 1000),
                 stream=True, search_used=False,
                 eco_mode=bool(active.get("eco_mode")),
+                secondary_used=False,
             )
         except Exception:
             pass
