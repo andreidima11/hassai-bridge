@@ -370,28 +370,56 @@ def _trim_messages(messages: list[dict], max_tokens: int) -> list[dict]:
     return system_msgs + kept
 
 # ══════════════════════════════════════════════════
-# AI-driven search: the LLM decides when to search
+# AI-driven search via function-calling (tool_calls)
+# Like hass_memory/brain/toolbox.py — reliable, no marker parsing.
 # ══════════════════════════════════════════════════
 
-_SEARCH_MARKER = re.compile(r"<<SEARCH:\s*(.+?)>>")
+_SEARCH_WEB_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "search_web",
+        "description": (
+            "Search the web for current/time-sensitive information: today's news, "
+            "live weather, current prices, recent events, things after your knowledge cutoff. "
+            "Do NOT search for facts you already know from training data (definitions, history, "
+            "science, geography, famous people, how things work, programming, math). "
+            "Reformulate into a short keyword-focused query (3-7 words). "
+            "One search should usually be enough."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Optimized search query: short, keyword-focused, English preferred for technical topics.",
+                }
+            },
+            "required": ["query"],
+        },
+    },
+}
+
+# For stripping old <<SEARCH:...>> markers from conversation history (legacy cleanup)
+_SEARCH_MARKER_STRIP = re.compile(r"<<SEARCH:[^>\n]*(?:>>)?")
+
+
+def _strip_search_markers(text: str) -> str:
+    """Remove any <<SEARCH:...>> markers from text (legacy cleanup)."""
+    return _SEARCH_MARKER_STRIP.sub("", text).strip()
 
 
 def _build_search_instruction(cfg: dict) -> str:
-    """Build a system instruction telling the LLM about search capability."""
+    """Short context hint about the knowledge cutoff and search availability."""
     cutoff = cfg.get("knowledge_cutoff", "2024-01")
     today = date.today().strftime("%Y-%m-%d")
-
     return (
         f"Today's date: {today}. "
         f"Your training data has a knowledge cutoff of {cutoff}. "
-        "You have access to a live web search engine. "
-        "If you believe the user's question requires information that may have "
-        "changed after your cutoff, or if you are unsure about current facts "
-        "(e.g., current leaders, live scores, today's weather, recent events, "
-        "prices, new releases), respond with ONLY the marker <<SEARCH: your search query>> "
-        "and nothing else. The system will fetch results and ask you again. "
-        "If you can answer confidently from your training data, answer normally — "
-        "do NOT use the search marker."
+        "You have a search_web tool available for current information. "
+        "Use it when the user asks about anything that may have changed after your cutoff "
+        "(news, prices, weather, events, current leaders, scores, etc.). "
+        "Do NOT say 'I don't have access to search' or 'I cannot browse the internet'. "
+        "If you can answer confidently from your training data, answer normally."
     )
 
 
@@ -507,6 +535,12 @@ async def chat_completions(request: Request):
     cfg = load_config()
     search_enabled = cfg["searxng"].get("enabled", False)
 
+    # Build effective tools list: client tools + search_web if enabled
+    all_tools = list(tools or []) if tools else []
+    if search_enabled:
+        all_tools.append(_SEARCH_WEB_TOOL)
+    effective_tools = all_tools if all_tools else None
+
     # ── Slash command check ──
     last_user_msg = ""
     for msg in reversed(messages):
@@ -587,45 +621,58 @@ async def chat_completions(request: Request):
         if content and role in ("user", "assistant"):
             add_conversation_message(user_id, role, content)
 
+    # ── Strip any <<SEARCH markers that leaked into stored assistant messages ──
+    for m in augmented:
+        c = m.get("content", "")
+        if c and m.get("role") == "assistant" and "<<SEARCH" in c:
+            cleaned = _strip_search_markers(c).strip()
+            m["content"] = cleaned if cleaned else "(search attempted)"
+
     # ── Sanitize role order + trim to fit context window ──
     augmented = _sanitize_message_roles(augmented)
     max_ctx = active.get("max_tokens", 2048) * 3  # rough context budget
     augmented = _trim_messages(augmented, max_ctx)
 
     # ── First LLM call ──
-    # For non-streaming: check if LLM requests search, then re-prompt with results
     _req_start = time.time()
     _search_used = False
     if not stream:
         try:
-            result = await providers.chat_completion(augmented, model=model, tools=tools, tool_choice=tool_choice, provider=active)
+            result = await providers.chat_completion(augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active)
         except Exception as e:
             log.error(f"Provider [{active.get('name', '?')}] request failed: {e}")
             return JSONResponse(
                 status_code=502,
                 content={"error": {"message": f"Provider error: {e}", "type": "upstream_error"}},
             )
-        try:
-            assistant_content = result["choices"][0]["message"]["content"]
-        except (KeyError, IndexError):
-            assistant_content = ""
 
-        # If LLM returned tool_calls, forward immediately (no search/memory processing)
-        if result.get("choices", [{}])[0].get("message", {}).get("tool_calls"):
-            # Clear content when tool_calls present (avoid leaking reasoning text)
-            result["choices"][0]["message"]["content"] = ""
-            return JSONResponse(content=result)
+        # ── Handle tool_calls (search_web + forwarding) ──
+        # Up to 2 search rounds; non-search tool_calls are forwarded to client.
+        for _round in range(2):
+            msg = result.get("choices", [{}])[0].get("message", {})
+            tool_calls = msg.get("tool_calls") or []
+            if not tool_calls:
+                break
 
-        # Check if AI requested search — up to 2 rounds (#5)
-        _max_search_rounds = 2
-        for _search_round in range(_max_search_rounds):
-            if not (search_enabled and assistant_content):
+            search_call = next(
+                (tc for tc in tool_calls if tc.get("function", {}).get("name") == "search_web"),
+                None,
+            )
+            if not (search_enabled and search_call):
+                # No search_web call — forward tool_calls to client (HA)
+                msg["content"] = ""
+                return JSONResponse(content=result)
+
+            # Execute search_web tool
+            try:
+                args = json.loads(search_call["function"]["arguments"])
+                query = (args.get("query") or "").strip()[:200]
+            except (json.JSONDecodeError, KeyError):
+                query = ""
+            if not query:
                 break
-            match = _SEARCH_MARKER.search(assistant_content)
-            if not match:
-                break
-            query = match.group(1).strip()[:200]
-            log.info(f"AI requested search (round {_search_round + 1}): {query}")
+
+            log.info(f"AI requested search (tool, round {_round + 1}): {query}")
             _search_used = True
             try:
                 search_ctx = await search_and_fetch(query)
@@ -633,34 +680,42 @@ async def chat_completions(request: Request):
                 log.error(f"Search failed: {e}")
                 search_ctx = ""
 
-            if search_ctx:
-                # Remove search instruction to avoid re-triggering (#2)
-                augmented = [m for m in augmented if "<<SEARCH" not in m.get("content", "")]
-                augmented.append({
-                    "role": "system",
-                    "content": (
-                        "[Web search results — use this to answer accurately. "
-                        "Cite sources with [N]. Summarize clearly, do not paste raw text. "
-                        "Do NOT use the <<SEARCH>> marker again.]:\n"
-                        f"{search_ctx}"
-                    ),
-                })
+            # Add the tool exchange to conversation
+            augmented.append(msg)  # assistant message with tool_calls
+            augmented.append({
+                "role": "tool",
+                "tool_call_id": search_call.get("id", "call_search"),
+                "content": (
+                    f"[Web search results for '{query}' — use this to answer accurately. "
+                    "Cite sources with [N]. Summarize clearly, do not paste raw text.]\n"
+                    + (search_ctx or "No results found.")
+                ),
+            })
+
+            # Re-call without search_web tool to avoid loops
+            re_tools = [t for t in all_tools if t.get("function", {}).get("name") != "search_web"]
+            result = await providers.chat_completion(
+                augmented, model=model, tools=re_tools or None,
+                tool_choice=tool_choice, provider=active,
+            )
+
+        # If final result still has non-search tool_calls, forward to client
+        final_msg = result.get("choices", [{}])[0].get("message", {})
+        if final_msg.get("tool_calls"):
+            remaining = [tc for tc in final_msg["tool_calls"] if tc.get("function", {}).get("name") != "search_web"]
+            if remaining:
+                final_msg["tool_calls"] = remaining
+                final_msg["content"] = ""
+                return JSONResponse(content=result)
             else:
-                # Search failed — inform LLM (#15)
-                augmented.append({
-                    "role": "system",
-                    "content": (
-                        "Web search is temporarily unavailable. Answer from your training data. "
-                        "Indicate if you cannot verify current information. "
-                        "Do NOT use the <<SEARCH>> marker again."
-                    ),
-                })
-            result = await providers.chat_completion(augmented, model=model, provider=active)
-            try:
-                assistant_content = result["choices"][0]["message"]["content"]
-            except (KeyError, IndexError):
-                assistant_content = ""
-                break
+                del final_msg["tool_calls"]
+
+        assistant_content = final_msg.get("content", "") or ""
+
+        # Strip any legacy <<SEARCH>> markers from content
+        if assistant_content and _SEARCH_MARKER_STRIP.search(assistant_content):
+            assistant_content = _strip_search_markers(assistant_content)
+            result["choices"][0]["message"]["content"] = assistant_content
 
         # Save & extract memories
         if assistant_content:
@@ -687,92 +742,118 @@ async def chat_completions(request: Request):
         return JSONResponse(content=result)
 
     # ── Streaming path ──
-    # Optimized: buffer only initial tokens to check for search marker,
-    # then flush buffer and stream remaining tokens directly
-    gen = providers.chat_completion_stream(augmented, model=model, tools=tools, tool_choice=tool_choice, provider=active)
-
-    _SEARCH_BUFFER_CHARS = 120  # search markers appear in the first ~100 chars
+    # Uses tool_calls for search (like hass_memory). No marker parsing needed.
+    # Tool call chunks are accumulated silently; content/reasoning chunks pass through.
+    gen = providers.chat_completion_stream(augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active)
 
     async def stream_wrapper():
+        nonlocal augmented
         full_response = ""
-        buffered_chunks = []
-        buffer_text = ""
-        search_checked = False
-        content_chunks = 0  # only count chunks that have actual content (not reasoning_content)
+        # Accumulate streaming tool_call deltas
+        tc_accum: dict[int, dict] = {}  # index -> {id, name, arguments}
+        tc_chunks: list[str] = []  # raw chunks for forwarding if not search
+        has_tool_calls = False
 
         async for chunk in _stream_with_keepalive_sse(gen):
             if chunk.startswith("data: ") and chunk.strip() != "data: [DONE]":
                 try:
                     data = json.loads(chunk[6:])
                     delta = data.get("choices", [{}])[0].get("delta", {})
-                    token = delta.get("content", "")
                 except (json.JSONDecodeError, IndexError, KeyError):
-                    token = ""
+                    yield chunk
+                    continue
 
-                if not search_checked and search_enabled:
-                    # Buffer phase: accumulate content tokens to check for search marker.
-                    # For reasoning models (e.g. Qwen): reasoning_content chunks arrive
-                    # before content chunks. Stream reasoning through immediately so the
-                    # user sees "thinking", but only buffer actual content tokens.
-                    has_reasoning = delta.get("reasoning_content") if delta else None
-                    if token:
-                        # This chunk has actual content — buffer it for search marker check
-                        buffered_chunks.append(chunk)
-                        buffer_text += token
-                        content_chunks += 1
-                    elif has_reasoning:
-                        # Reasoning-only chunk — stream through immediately (user sees "thinking")
-                        yield chunk
-                    else:
-                        # Other chunk (e.g. role-only delta) — buffer it
-                        buffered_chunks.append(chunk)
+                content = delta.get("content", "")
+                reasoning = delta.get("reasoning_content")
+                tool_calls_delta = delta.get("tool_calls")
 
-                    # Only count actual content chunks toward buffer limit;
-                    # reasoning_content chunks (from reasoning models like Qwen)
-                    # don't contain the search marker so they shouldn't end the buffer phase
-                    if len(buffer_text) >= _SEARCH_BUFFER_CHARS or content_chunks > 60 or _SEARCH_MARKER.search(buffer_text):
-                        search_checked = True
-                        match = _SEARCH_MARKER.search(buffer_text)
-                        if match:
-                            # Search marker found — do search and re-stream
-                            query = match.group(1).strip()[:200]
-                            log.info(f"AI requested search (stream): {query}")
+                # Tool call delta — accumulate silently (don't yield to client yet)
+                if tool_calls_delta:
+                    has_tool_calls = True
+                    tc_chunks.append(chunk)
+                    for tc in tool_calls_delta:
+                        idx = tc.get("index", 0)
+                        if idx not in tc_accum:
+                            tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                        if tc.get("id"):
+                            tc_accum[idx]["id"] = tc["id"]
+                        fn = tc.get("function") or {}
+                        if fn.get("name"):
+                            tc_accum[idx]["name"] = fn["name"]
+                        if fn.get("arguments"):
+                            tc_accum[idx]["arguments"] += fn["arguments"]
+                    continue
+
+                # Reasoning content — yield immediately (user sees "thinking")
+                if reasoning:
+                    yield chunk
+                    continue
+
+                # Regular content — yield directly (no buffering!)
+                if content:
+                    full_response += content
+                yield chunk
+            else:
+                # [DONE] or finish — handle accumulated tool_calls before ending
+                if has_tool_calls and tc_accum:
+                    search_call = next(
+                        (tc for tc in tc_accum.values() if tc["name"] == "search_web"),
+                        None,
+                    )
+
+                    if search_call and search_enabled:
+                        # Execute search_web tool call
+                        try:
+                            args = json.loads(search_call["arguments"])
+                            query = (args.get("query") or "").strip()[:200]
+                        except (json.JSONDecodeError, KeyError):
+                            query = ""
+
+                        if query:
+                            log.info(f"AI requested search (stream/tool): {query}")
                             search_ctx = ""
                             try:
-                                # Drain remaining tokens (LLM may still be generating)
-                                async for _ in gen:
-                                    pass
                                 search_ctx = await search_and_fetch(query)
                             except Exception as e:
                                 log.error(f"Search failed: {e}")
 
-                            if search_ctx:
-                                augmented.append({
-                                    "role": "system",
-                                    "content": (
-                                        "[Web search results — use this to answer accurately. "
-                                        "Cite sources with [N]. Summarize clearly, do not paste raw text. "
-                                        "Do NOT use the <<SEARCH>> marker again.]:\n"
-                                        f"{search_ctx}"
-                                    ),
-                                })
-                            else:
-                                augmented.append({
-                                    "role": "system",
-                                    "content": "Search is temporarily unavailable. Answer from your training data. Do NOT use <<SEARCH>> marker.",
-                                })
+                            # Build tool exchange messages
+                            all_tcs = [
+                                {
+                                    "id": td["id"] or f"call_{idx}",
+                                    "type": "function",
+                                    "function": {"name": td["name"], "arguments": td["arguments"]},
+                                }
+                                for idx, td in tc_accum.items()
+                            ]
+                            augmented.append({"role": "assistant", "content": None, "tool_calls": all_tcs})
+                            augmented.append({
+                                "role": "tool",
+                                "tool_call_id": search_call["id"] or "call_search",
+                                "content": (
+                                    f"[Web search results for '{query}' — use this to answer accurately. "
+                                    "Cite sources with [N]. Summarize clearly, do not paste raw text.]\n"
+                                    + (search_ctx or "No results found.")
+                                ),
+                            })
 
-                            # Re-stream with search results
-                            gen2 = providers.chat_completion_stream(augmented, model=model, tools=tools, tool_choice=tool_choice, provider=active)
+                            # Re-stream without search_web tool
+                            re_tools = [t for t in all_tools if t.get("function", {}).get("name") != "search_web"]
+                            gen2 = providers.chat_completion_stream(
+                                augmented, model=model, tools=re_tools or None,
+                                tool_choice=tool_choice, provider=active,
+                            )
                             async for chunk2 in gen2:
-                                yield chunk2
                                 if chunk2.startswith("data: ") and chunk2.strip() != "data: [DONE]":
                                     try:
                                         d2 = json.loads(chunk2[6:])
                                         t2 = d2.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                                        full_response += t2
+                                        if t2:
+                                            full_response += t2
                                     except (json.JSONDecodeError, IndexError, KeyError):
                                         pass
+                                yield chunk2
+
                             # Save & extract
                             if full_response:
                                 add_conversation_message(user_id, "assistant", full_response)
@@ -792,41 +873,16 @@ async def chat_completions(request: Request):
                                 pass
                             return
 
-                        # No search marker — strip any partial markers and flush (#1)
-                        cleaned_buffer = _SEARCH_MARKER.sub("", buffer_text)
-                        if cleaned_buffer != buffer_text:
-                            # Buffer contained partial/stray marker text — rebuild chunks
-                            log.debug("Stripped search marker fragments from stream buffer")
-                        for bc in buffered_chunks:
-                            yield bc
-                        full_response += buffer_text
-                        buffered_chunks = []
-                        buffer_text = ""
-                else:
-                    # Not in buffer phase or search disabled — stream directly
-                    if not search_checked and not search_enabled:
-                        search_checked = True
-                    yield chunk
-                    full_response += token
-            else:
-                # Non-data chunks (e.g. [DONE])
-                if not search_checked:
-                    search_checked = True
-                    # Flush any remaining buffer
-                    for bc in buffered_chunks:
-                        yield bc
-                    full_response += buffer_text
+                    # Not search_web — forward buffered tool_call chunks to client (HA)
+                    for tc_chunk in tc_chunks:
+                        yield tc_chunk
+
                 yield chunk
 
-        # If we never reached buffer limit (very short response), flush buffer
-        if buffered_chunks:
-            for bc in buffered_chunks:
-                yield bc
-            full_response += buffer_text
-
         if full_response:
-            add_conversation_message(user_id, "assistant", full_response)
-            all_msgs = messages + [{"role": "assistant", "content": full_response}]
+            clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
+            add_conversation_message(user_id, "assistant", clean_response)
+            all_msgs = messages + [{"role": "assistant", "content": clean_response}]
             asyncio.create_task(_safe_extract(user_id, all_msgs))
 
         try:
