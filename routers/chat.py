@@ -25,6 +25,8 @@ from database import (
     add_conversation_message,
     get_conversation_history,
     get_memory_stats,
+    get_all_users,
+    get_usage_stats,
     add_usage_stat,
 )
 from services import providers
@@ -48,6 +50,236 @@ _cmd_start_time = time.time()
 # Slash commands — intercepted before LLM processing
 # ══════════════════════════════════════════════════
 
+# ── Command i18n ──
+_CMD_I18N = {
+    "en": {
+        "help.title": "📋 **Available commands:**",
+        "help.health": "• `/health` — Service status (LLM Provider, Web Search, Memory)",
+        "help.settings": "• `/settings` — Access links to the control panel",
+        "help.info": "• `/info` — System info (version, uptime, stats)",
+        "help.memory": "• `/memory` — Your memory statistics",
+        "help.models": "• `/models` — Available models on the active provider",
+        "help.setmodel": "• `/setmodel [name|#]` — Change model on the active provider",
+        "help.setprovider": "• `/setprovider [name|#]` — Switch active AI provider",
+        "help.set2nd": "• `/set2nd [name|#|off]` — Set or disable secondary provider",
+        "help.seteco": "• `/seteco [on|off]` — Toggle Eco Mode on the active provider",
+        "help.stats": "• `/stats [overview|users|memory|providers]` — Usage statistics",
+        "help.lang": "• `/lang [en|ro]` — Change language",
+        "help.version": "• `/version` — Current version",
+        "help.help": "• `/help` — This command list",
+
+        "health.title": "🏥 **Service Status:**",
+        "health.connected": "✅ Connected",
+        "health.unavailable": "❌ Unavailable",
+        "health.disabled": "⚪ Disabled",
+        "health.active": "✅ Active",
+        "health.provider": "AI Provider",
+        "health.search": "Web Search",
+        "health.memoryAi": "AI Memory",
+
+        "settings.title": "⚙️ **Control Panel:**",
+
+        "info.title": "ℹ️ **HASSAI Bridge {version}**",
+        "info.uptime": "Uptime",
+        "info.lanIp": "LAN IP",
+        "info.port": "Port",
+        "info.provider": "Provider",
+        "info.model": "Model",
+        "info.maxTokens": "Max Tokens",
+        "info.temperature": "Temperature",
+
+        "memory.title": "🧠 **Memories for {user}:**",
+        "memory.total": "Total",
+
+        "models.title": "🤖 **Available models ({provider}):**",
+        "models.none": "🤖 No models available on the active provider.",
+        "models.error": "❌ Could not reach the active provider for model list.",
+        "models.switch": "Use `/setmodel <name|#>` to switch.",
+
+        "version.text": "🏠 HASSAI Bridge **{version}**",
+
+        "setprovider.title": "🔄 **Available providers:**",
+        "setprovider.none": "❌ No providers configured. Add one from the Web UI > Settings.",
+        "setprovider.switch": "Use `/setprovider <name|#>` to switch.",
+        "setprovider.notfound": "❌ Provider `{arg}` not found. Use `/setprovider` to see available providers.",
+        "setprovider.ok": "✅ Switched to **{name}** ({type}) — model: `{model}`",
+
+        "setmodel.title": "🤖 **Models on {provider}:**",
+        "setmodel.none": "🤖 No models available on the active provider.",
+        "setmodel.error": "❌ Could not reach the active provider for model list.",
+        "setmodel.switch": "Use `/setmodel <name|#>` to switch.",
+        "setmodel.notfound": "❌ Model #{arg} not found. Use `/setmodel` to see available models.",
+        "setmodel.ok": "✅ Model changed to `{model}` on **{provider}**",
+
+        "set2nd.title": "🔄 **Available secondary providers:**",
+        "set2nd.none": "❌ No secondary providers configured. Add one from the Web UI > Settings.",
+        "set2nd.hint": "Use `/set2nd <name|#>` to assign, `/set2nd off` to disable.",
+        "set2nd.disabled": "✅ Secondary provider **disabled** for **{provider}**",
+        "set2nd.notfound": "❌ Secondary provider `{arg}` not found. Use `/set2nd` to see available.",
+        "set2nd.ok": "✅ Secondary provider set to **{name}** ({type}) for **{provider}**",
+
+        "seteco.status": "🌿 **Eco Mode** on **{provider}**: {status}\n\nUse `/seteco on` to enable, `/seteco off` to disable.",
+        "seteco.ok": "🌿 Eco Mode **{status}** for **{provider}**",
+
+        "lang.current": "🌐 **Language:** {lang}\n\nUse `/lang en` or `/lang ro` to change.",
+        "lang.ok": "🌐 Language changed to **{lang}**",
+        "lang.invalid": "❌ Unsupported language `{arg}`. Available: `en`, `ro`.",
+
+        "stats.title_overview": "📊 **Usage Statistics (last {days} days):**",
+        "stats.totalRequests": "Total Requests",
+        "stats.totalTokens": "Total Tokens",
+        "stats.promptTokens": "Prompt",
+        "stats.completionTokens": "Completion",
+        "stats.searchRequests": "Search Requests",
+        "stats.streamRequests": "Stream / Non-stream",
+        "stats.ecoMode": "Eco Mode",
+        "stats.ecoRequests": "Eco Requests",
+        "stats.ecoSaved": "Tokens Saved (est.)",
+        "stats.secondary": "Secondary Provider",
+        "stats.secondaryCalls": "Secondary Calls",
+        "stats.secondaryTokens": "Secondary Tokens",
+
+        "stats.title_users": "👥 **User Statistics (last {days} days):**",
+        "stats.userRequests": "requests",
+        "stats.userTokens": "tokens",
+        "stats.noUsers": "No user data available.",
+
+        "stats.title_memory": "🧠 **Memory Statistics:**",
+        "stats.memTotalUsers": "Users with memories",
+        "stats.memTotalMem": "Total memories",
+        "stats.memPerUser": "Per user:",
+
+        "stats.title_providers": "🔌 **Provider Statistics (last {days} days):**",
+        "stats.provRequests": "requests",
+        "stats.provTokens": "tokens",
+        "stats.provAvgMs": "avg {ms}ms",
+        "stats.noProviders": "No provider data available.",
+
+        "stats.hint": "Subcategories: `/stats overview`, `/stats users`, `/stats memory`, `/stats providers`",
+
+        "unknown": "❓ Unknown command: `{command}`\n\nType `/help` for available commands.",
+        "on": "ON ✅",
+        "off": "OFF ⚪",
+    },
+    "ro": {
+        "help.title": "📋 **Comenzi disponibile:**",
+        "help.health": "• `/health` — Stare servicii (Provider LLM, Căutare Web, Memorie)",
+        "help.settings": "• `/settings` — Linkuri către panoul de control",
+        "help.info": "• `/info` — Info sistem (versiune, uptime, statistici)",
+        "help.memory": "• `/memory` — Statistici memorii tale",
+        "help.models": "• `/models` — Modele disponibile pe providerul activ",
+        "help.setmodel": "• `/setmodel [nume|#]` — Schimbă modelul pe providerul activ",
+        "help.setprovider": "• `/setprovider [nume|#]` — Schimbă providerul AI activ",
+        "help.set2nd": "• `/set2nd [nume|#|off]` — Setează sau dezactivează providerul secundar",
+        "help.seteco": "• `/seteco [on|off]` — Comută Eco Mode pe providerul activ",
+        "help.stats": "• `/stats [overview|users|memory|providers]` — Statistici utilizare",
+        "help.lang": "• `/lang [en|ro]` — Schimbă limba",
+        "help.version": "• `/version` — Versiunea curentă",
+        "help.help": "• `/help` — Lista de comenzi",
+
+        "health.title": "🏥 **Stare Servicii:**",
+        "health.connected": "✅ Conectat",
+        "health.unavailable": "❌ Indisponibil",
+        "health.disabled": "⚪ Dezactivat",
+        "health.active": "✅ Activ",
+        "health.provider": "Provider AI",
+        "health.search": "Căutare Web",
+        "health.memoryAi": "Memorie AI",
+
+        "settings.title": "⚙️ **Panou de Control:**",
+
+        "info.title": "ℹ️ **HASSAI Bridge {version}**",
+        "info.uptime": "Timp funcționare",
+        "info.lanIp": "IP Local",
+        "info.port": "Port",
+        "info.provider": "Provider",
+        "info.model": "Model",
+        "info.maxTokens": "Tokeni maximi",
+        "info.temperature": "Temperatură",
+
+        "memory.title": "🧠 **Memorii pentru {user}:**",
+        "memory.total": "Total",
+
+        "models.title": "🤖 **Modele disponibile ({provider}):**",
+        "models.none": "🤖 Niciun model disponibil pe providerul activ.",
+        "models.error": "❌ Nu s-a putut contacta providerul activ pentru lista de modele.",
+        "models.switch": "Folosește `/setmodel <nume|#>` pentru a schimba.",
+
+        "version.text": "🏠 HASSAI Bridge **{version}**",
+
+        "setprovider.title": "🔄 **Provideri disponibili:**",
+        "setprovider.none": "❌ Niciun provider configurat. Adaugă unul din Web UI > Setări.",
+        "setprovider.switch": "Folosește `/setprovider <nume|#>` pentru a schimba.",
+        "setprovider.notfound": "❌ Providerul `{arg}` nu a fost găsit. Folosește `/setprovider` pentru a vedea lista.",
+        "setprovider.ok": "✅ Schimbat la **{name}** ({type}) — model: `{model}`",
+
+        "setmodel.title": "🤖 **Modele pe {provider}:**",
+        "setmodel.none": "🤖 Niciun model disponibil pe providerul activ.",
+        "setmodel.error": "❌ Nu s-a putut contacta providerul activ pentru lista de modele.",
+        "setmodel.switch": "Folosește `/setmodel <nume|#>` pentru a schimba.",
+        "setmodel.notfound": "❌ Modelul #{arg} nu a fost găsit. Folosește `/setmodel` pentru a vedea lista.",
+        "setmodel.ok": "✅ Model schimbat la `{model}` pe **{provider}**",
+
+        "set2nd.title": "🔄 **Provideri secundari disponibili:**",
+        "set2nd.none": "❌ Niciun provider secundar configurat. Adaugă unul din Web UI > Setări.",
+        "set2nd.hint": "Folosește `/set2nd <nume|#>` pentru a asigna, `/set2nd off` pentru a dezactiva.",
+        "set2nd.disabled": "✅ Provider secundar **dezactivat** pentru **{provider}**",
+        "set2nd.notfound": "❌ Providerul secundar `{arg}` nu a fost găsit. Folosește `/set2nd` pentru a vedea lista.",
+        "set2nd.ok": "✅ Provider secundar setat la **{name}** ({type}) pentru **{provider}**",
+
+        "seteco.status": "🌿 **Eco Mode** pe **{provider}**: {status}\n\nFolosește `/seteco on` pentru a activa, `/seteco off` pentru a dezactiva.",
+        "seteco.ok": "🌿 Eco Mode **{status}** pentru **{provider}**",
+
+        "lang.current": "🌐 **Limbă:** {lang}\n\nFolosește `/lang en` sau `/lang ro` pentru a schimba.",
+        "lang.ok": "🌐 Limba schimbată la **{lang}**",
+        "lang.invalid": "❌ Limbă nesuportată `{arg}`. Disponibile: `en`, `ro`.",
+
+        "stats.title_overview": "📊 **Statistici utilizare (ultimele {days} zile):**",
+        "stats.totalRequests": "Total cereri",
+        "stats.totalTokens": "Total tokeni",
+        "stats.promptTokens": "Prompt",
+        "stats.completionTokens": "Completare",
+        "stats.searchRequests": "Cereri cu căutare",
+        "stats.streamRequests": "Stream / Non-stream",
+        "stats.ecoMode": "Eco Mode",
+        "stats.ecoRequests": "Cereri Eco",
+        "stats.ecoSaved": "Tokeni economisiți (est.)",
+        "stats.secondary": "Provider Secundar",
+        "stats.secondaryCalls": "Apeluri secundare",
+        "stats.secondaryTokens": "Tokeni secundari",
+
+        "stats.title_users": "👥 **Statistici utilizatori (ultimele {days} zile):**",
+        "stats.userRequests": "cereri",
+        "stats.userTokens": "tokeni",
+        "stats.noUsers": "Nu există date despre utilizatori.",
+
+        "stats.title_memory": "🧠 **Statistici memorie:**",
+        "stats.memTotalUsers": "Utilizatori cu memorii",
+        "stats.memTotalMem": "Total memorii",
+        "stats.memPerUser": "Per utilizator:",
+
+        "stats.title_providers": "🔌 **Statistici provideri (ultimele {days} zile):**",
+        "stats.provRequests": "cereri",
+        "stats.provTokens": "tokeni",
+        "stats.provAvgMs": "medie {ms}ms",
+        "stats.noProviders": "Nu există date despre provideri.",
+
+        "stats.hint": "Subcategorii: `/stats overview`, `/stats users`, `/stats memory`, `/stats providers`",
+
+        "unknown": "❓ Comandă necunoscută: `{command}`\n\nScrie `/help` pentru comenzile disponibile.",
+        "on": "ON ✅",
+        "off": "OFF ⚪",
+    },
+}
+
+
+def _ct(key: str, cfg: dict, **kwargs) -> str:
+    """Get translated command string."""
+    lang = cfg.get("language", "en")
+    strings = _CMD_I18N.get(lang, _CMD_I18N["en"])
+    template = strings.get(key, _CMD_I18N["en"].get(key, key))
+    return template.format(**kwargs) if kwargs else template
+
 def _get_local_ip() -> str:
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -67,53 +299,46 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
 
     parts = cmd.split(None, 1)
     command = parts[0].lower()
-    # arg = parts[1].strip() if len(parts) > 1 else ""  # used by /setmodel
+    arg = parts[1].strip() if len(parts) > 1 else ""
 
     cfg = load_config()
     ip = _get_local_ip()
     port = 8899
     base = f"http://{ip}:{port}"
+    T = lambda key, **kw: _ct(key, cfg, **kw)
 
     if command == "/help":
-        return (
-            "📋 **Available commands:**\n\n"
-            "• `/health` — Service status (LLM Provider, Web Search, Memory)\n"
-            "• `/settings` — Access links to the control panel\n"
-            "• `/info` — System info (version, uptime, stats)\n"
-            "• `/memory` — Your memory statistics\n"
-            "• `/models` — Available models on the active provider\n"
-            "• `/setmodel [name|#]` — Change model on the active provider\n"
-            "• `/setprovider [name|#]` — Switch active AI provider\n"
-            "• `/set2nd [name|#|off]` — Set or disable secondary provider\n"
-            "• `/seteco [1|0]` — Toggle Eco Mode on the active provider\n"
-            "• `/version` — Current version\n"
-            "• `/help` — This command list"
-        )
+        lines = [T("help.title"), ""]
+        for k in ("health", "settings", "info", "memory", "models",
+                   "setmodel", "setprovider", "set2nd", "seteco",
+                   "stats", "lang", "version", "help"):
+            lines.append(T(f"help.{k}"))
+        return "\n".join(lines)
 
     elif command == "/health":
         active = get_active_provider()
         lm_ok = await providers.health_check(active)
         sx_ok = await searxng.health_check()
-        lm_status = "✅ Connected" if lm_ok else "❌ Unavailable"
+        lm_status = T("health.connected") if lm_ok else T("health.unavailable")
         sx_enabled = cfg["searxng"].get("enabled", False)
         if not sx_enabled:
-            sx_status = "⚪ Disabled"
+            sx_status = T("health.disabled")
         elif sx_ok:
-            sx_status = "✅ Connected"
+            sx_status = T("health.connected")
         else:
-            sx_status = "❌ Unavailable"
+            sx_status = T("health.unavailable")
         mem_enabled = cfg["memory"].get("enabled", False)
-        mem_status = "✅ Active" if mem_enabled else "⚪ Disabled"
+        mem_status = T("health.active") if mem_enabled else T("health.disabled")
         return (
-            "🏥 **Service Status:**\n\n"
-            f"• **AI Provider:** {lm_status} — `{active.get('name', '?')}` ({active.get('type', '?')}) model: {active.get('model', '?')}\n"
-            f"• **Web Search:** {sx_status} — `{cfg['searxng']['base_url']}`\n"
-            f"• **AI Memory:** {mem_status}"
+            f"{T('health.title')}\n\n"
+            f"• **{T('health.provider')}:** {lm_status} — `{active.get('name', '?')}` ({active.get('type', '?')}) model: {active.get('model', '?')}\n"
+            f"• **{T('health.search')}:** {sx_status} — `{cfg['searxng']['base_url']}`\n"
+            f"• **{T('health.memoryAi')}:** {mem_status}"
         )
 
     elif command == "/settings":
         return (
-            "⚙️ **Control Panel:**\n\n"
+            f"{T('settings.title')}\n\n"
             f"• **Web UI:** {base}\n"
             f"• **API (OpenAI):** {base}/v1\n"
             f"• **Settings API:** {base}/api/settings/\n"
@@ -128,20 +353,20 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
         uptime_str = f"{d}d {h}h {m}m" if d > 0 else f"{h}h {m}m" if h > 0 else f"{m}m"
         active = get_active_provider()
         return (
-            f"ℹ️ **HASSAI Bridge {VERSION}**\n\n"
-            f"• **Uptime:** {uptime_str}\n"
-            f"• **LAN IP:** {ip}\n"
-            f"• **Port:** {port}\n"
-            f"• **Provider:** {active.get('name', '?')} ({active.get('type', '?')})\n"
-            f"• **Model:** {active.get('model', '?')}\n"
-            f"• **Max Tokens:** {active.get('max_tokens', 2048)}\n"
-            f"• **Temperature:** {active.get('temperature', 0.7)}"
+            f"{T('info.title', version=VERSION)}\n\n"
+            f"• **{T('info.uptime')}:** {uptime_str}\n"
+            f"• **{T('info.lanIp')}:** {ip}\n"
+            f"• **{T('info.port')}:** {port}\n"
+            f"• **{T('info.provider')}:** {active.get('name', '?')} ({active.get('type', '?')})\n"
+            f"• **{T('info.model')}:** {active.get('model', '?')}\n"
+            f"• **{T('info.maxTokens')}:** {active.get('max_tokens', 2048)}\n"
+            f"• **{T('info.temperature')}:** {active.get('temperature', 0.7)}"
         )
 
     elif command == "/memory":
         stats = get_memory_stats(user_id)
-        lines = [f"🧠 **Memories for {user_id}:**\n"]
-        lines.append(f"• **Total:** {stats['total']}")
+        lines = [T("memory.title", user=user_id), ""]
+        lines.append(f"• **{T('memory.total')}:** {stats['total']}")
         for cat, count in stats.get("by_category", {}).items():
             lines.append(f"• **{cat}:** {count}")
         return "\n".join(lines)
@@ -151,82 +376,75 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
             active = get_active_provider()
             models = await providers.list_models(active)
             if models:
-                lines = [f"🤖 **Available models ({active.get('name', '?')}):**\n"]
+                lines = [T("models.title", provider=active.get("name", "?")), ""]
                 current_model = active.get("model", "")
                 for i, m in enumerate(models, 1):
                     mid = m.get("id", "unknown")
                     marker = " ✅" if mid == current_model else ""
                     lines.append(f"**{i}.** `{mid}`{marker}")
-                lines.append(f"\nUse `/setmodel <name|#>` to switch.")
+                lines.append(f"\n{T('models.switch')}")
                 return "\n".join(lines)
             else:
-                return "🤖 No models available on the active provider."
+                return T("models.none")
         except Exception:
-            return "❌ Could not reach the active provider for model list."
+            return T("models.error")
 
     elif command == "/version":
-        return f"🏠 HASSAI Bridge **{VERSION}**"
+        return T("version.text", version=VERSION)
 
     elif command == "/setprovider":
         from config import save_config
-        arg = parts[1].strip() if len(parts) > 1 else ""
         all_providers = cfg.get("providers", [])
         if not arg:
-            # List available providers
             if not all_providers:
-                return "❌ No providers configured. Add one from the Web UI > Settings."
-            lines = ["🔄 **Available providers:**\n"]
+                return T("setprovider.none")
+            lines = [T("setprovider.title"), ""]
             active_id = cfg.get("active_provider", "")
             for i, p in enumerate(all_providers, 1):
                 marker = " ✅" if p["id"] == active_id else ""
                 lines.append(f"**{i}.** `{p.get('name', '?')}` — {p.get('type', '?')} model: {p.get('model', '?')}{marker}")
-            lines.append(f"\nUse `/setprovider <name|#>` to switch.")
+            lines.append(f"\n{T('setprovider.switch')}")
             return "\n".join(lines)
-        # Try numeric index first
         match = None
         if arg.isdigit():
             idx = int(arg) - 1
             if 0 <= idx < len(all_providers):
                 match = all_providers[idx]
         if not match:
-            # Find provider by id (or partial match)
             for p in all_providers:
                 if p["id"] == arg or p["id"].startswith(arg):
                     match = p
                     break
         if not match:
-            # Try matching by name
             for p in all_providers:
                 if arg.lower() in p.get("name", "").lower():
                     match = p
                     break
         if not match:
-            return f"❌ Provider `{arg}` not found. Use `/setprovider` to see available providers."
+            return T("setprovider.notfound", arg=arg)
         cfg["active_provider"] = match["id"]
         save_config(cfg)
-        return f"✅ Switched to **{match.get('name', match['id'])}** ({match.get('type', '?')}) — model: `{match.get('model', '?')}`"
+        return T("setprovider.ok", name=match.get("name", match["id"]),
+                  type=match.get("type", "?"), model=match.get("model", "?"))
 
     elif command == "/setmodel":
         from config import save_config
-        arg = parts[1].strip() if len(parts) > 1 else ""
         active = get_active_provider()
         if not arg:
-            # List models on active provider
             try:
                 models = await providers.list_models(active)
             except Exception:
-                return "❌ Could not reach the active provider for model list."
+                return T("setmodel.error")
             if not models:
-                return "🤖 No models available on the active provider."
-            lines = [f"🤖 **Models on {active.get('name', '?')}:**\n"]
+                return T("setmodel.none")
+            lines = [T("setmodel.title", provider=active.get("name", "?")), ""]
             current_model = active.get("model", "")
             for i, m in enumerate(models, 1):
                 mid = m.get("id", "unknown")
                 marker = " ✅" if mid == current_model else ""
                 lines.append(f"**{i}.** `{mid}`{marker}")
-            lines.append(f"\nUse `/setmodel <name|#>` to switch.")
+            lines.append(f"\n{T('setmodel.switch')}")
             return "\n".join(lines)
-        # Try numeric index — need to fetch models
         chosen = None
         if arg.isdigit():
             try:
@@ -235,12 +453,11 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
                 if 0 <= idx < len(models):
                     chosen = models[idx].get("id")
             except Exception:
-                return "❌ Could not reach the active provider for model list."
+                return T("setmodel.error")
             if chosen is None:
-                return f"❌ Model #{arg} not found. Use `/setmodel` to see available models."
+                return T("setmodel.notfound", arg=arg)
         else:
             chosen = arg
-        # Update model on the active provider in config
         all_providers = cfg.get("providers", [])
         for p in all_providers:
             if p["id"] == active["id"]:
@@ -248,27 +465,24 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
                 break
         cfg["providers"] = all_providers
         save_config(cfg)
-        return f"✅ Model changed to `{chosen}` on **{active.get('name', active['id'])}**"
+        return T("setmodel.ok", model=chosen, provider=active.get("name", active["id"]))
 
     elif command == "/set2nd":
         from config import save_config
-        arg = parts[1].strip() if len(parts) > 1 else ""
         active = get_active_provider()
         all_secondary = cfg.get("secondary_providers", [])
 
         if not arg:
-            # List secondary providers
             if not all_secondary:
-                return "❌ No secondary providers configured. Add one from the Web UI > Settings."
-            lines = ["🔄 **Available secondary providers:**\n"]
+                return T("set2nd.none")
+            lines = [T("set2nd.title"), ""]
             current_sec_id = active.get("secondary_provider", "")
             for i, sp in enumerate(all_secondary, 1):
                 marker = " ✅" if sp["id"] == current_sec_id else ""
                 lines.append(f"**{i}.** `{sp.get('name', '?')}` — {sp.get('type', '?')} model: {sp.get('model', '?')}{marker}")
-            lines.append(f"\nUse `/set2nd <name|#>` to assign, `/set2nd off` to disable.")
+            lines.append(f"\n{T('set2nd.hint')}")
             return "\n".join(lines)
 
-        # Disable secondary
         if arg.lower() in ("off", "disable", "none", "0"):
             all_providers = cfg.get("providers", [])
             for p in all_providers:
@@ -277,9 +491,8 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
                     break
             cfg["providers"] = all_providers
             save_config(cfg)
-            return f"✅ Secondary provider **disabled** for **{active.get('name', active['id'])}**"
+            return T("set2nd.disabled", provider=active.get("name", active["id"]))
 
-        # Try numeric index
         match = None
         if arg.isdigit():
             idx = int(arg) - 1
@@ -296,7 +509,7 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
                     match = sp
                     break
         if not match:
-            return f"❌ Secondary provider `{arg}` not found. Use `/set2nd` to see available."
+            return T("set2nd.notfound", arg=arg)
 
         all_providers = cfg.get("providers", [])
         for p in all_providers:
@@ -305,19 +518,16 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
                 break
         cfg["providers"] = all_providers
         save_config(cfg)
-        return f"✅ Secondary provider set to **{match.get('name', match['id'])}** ({match.get('type', '?')}) for **{active.get('name', active['id'])}**"
+        return T("set2nd.ok", name=match.get("name", match["id"]),
+                  type=match.get("type", "?"), provider=active.get("name", active["id"]))
 
     elif command == "/seteco":
         from config import save_config
-        arg = parts[1].strip() if len(parts) > 1 else ""
         active = get_active_provider()
 
         if not arg:
-            current = "ON ✅" if active.get("eco_mode") else "OFF ⚪"
-            return (
-                f"🌿 **Eco Mode** on **{active.get('name', active['id'])}**: {current}\n\n"
-                "Use `/seteco 1` to enable, `/seteco 0` to disable."
-            )
+            status = T("on") if active.get("eco_mode") else T("off")
+            return T("seteco.status", provider=active.get("name", active["id"]), status=status)
 
         enable = arg.lower() in ("1", "on", "true", "yes")
         all_providers = cfg.get("providers", [])
@@ -327,14 +537,107 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
                 break
         cfg["providers"] = all_providers
         save_config(cfg)
-        status = "ON ✅" if enable else "OFF ⚪"
-        return f"🌿 Eco Mode **{status}** for **{active.get('name', active['id'])}**"
+        status = T("on") if enable else T("off")
+        return T("seteco.ok", provider=active.get("name", active["id"]), status=status)
+
+    elif command == "/lang":
+        from config import save_config
+        supported = ("en", "ro")
+        if not arg:
+            current = cfg.get("language", "en")
+            lang_names = {"en": "English", "ro": "Română"}
+            return T("lang.current", lang=lang_names.get(current, current))
+        lang_choice = arg.lower().strip()
+        if lang_choice not in supported:
+            return T("lang.invalid", arg=arg)
+        cfg["language"] = lang_choice
+        save_config(cfg)
+        # Re-read T with new language
+        T2 = lambda key, **kw: _ct(key, cfg, **kw)
+        lang_names = {"en": "English", "ro": "Română"}
+        return T2("lang.ok", lang=lang_names.get(lang_choice, lang_choice))
+
+    elif command == "/stats":
+        return _handle_stats_command(arg, user_id, cfg)
 
     else:
-        return (
-            f"❓ Unknown command: `{command}`\n\n"
-            "Type `/help` for available commands."
-        )
+        return T("unknown", command=command)
+
+
+def _handle_stats_command(arg: str, user_id: str, cfg: dict) -> str:
+    """Handle /stats command with subcategories."""
+    T = lambda key, **kw: _ct(key, cfg, **kw)
+    sub = arg.lower().strip() if arg else ""
+
+    if sub in ("", "overview"):
+        s = get_usage_stats(30)
+        tok = s["tokens"]
+        eco = s["eco_mode"]
+        sec = s["secondary"]
+        lines = [T("stats.title_overview", days=30), ""]
+        lines.append(f"• **{T('stats.totalRequests')}:** {s['total_requests']:,}")
+        lines.append(f"• **{T('stats.totalTokens')}:** {tok['total']:,} ({T('stats.promptTokens')}: {tok['prompt']:,} / {T('stats.completionTokens')}: {tok['completion']:,})")
+        lines.append(f"• **{T('stats.searchRequests')}:** {s['search_requests']:,}")
+        lines.append(f"• **{T('stats.streamRequests')}:** {s['stream_requests']:,} / {s['non_stream_requests']:,}")
+        lines.append("")
+        lines.append(f"🌿 **{T('stats.ecoMode')}:**")
+        lines.append(f"• **{T('stats.ecoRequests')}:** {eco['requests']:,}")
+        lines.append(f"• **{T('stats.ecoSaved')}:** {eco['saved_tokens']:,}")
+        lines.append("")
+        lines.append(f"🔗 **{T('stats.secondary')}:**")
+        lines.append(f"• **{T('stats.secondaryCalls')}:** {sec['requests']:,}")
+        lines.append(f"• **{T('stats.secondaryTokens')}:** {sec['tokens']:,}")
+        lines.append(f"\n{T('stats.hint')}")
+        return "\n".join(lines)
+
+    elif sub == "users":
+        s = get_usage_stats(30)
+        by_user = s.get("by_user", [])
+        if not by_user:
+            return T("stats.noUsers")
+        lines = [T("stats.title_users", days=30), ""]
+        for i, u in enumerate(by_user, 1):
+            lines.append(f"**{i}.** `{u['user_id']}` — {u['requests']:,} {T('stats.userRequests')}, {u['tokens']:,} {T('stats.userTokens')}")
+        lines.append(f"\n{T('stats.hint')}")
+        return "\n".join(lines)
+
+    elif sub == "memory":
+        all_users = get_all_users()
+        total_mem = 0
+        user_lines = []
+        for uid in all_users:
+            ms = get_memory_stats(uid)
+            if ms["total"] > 0:
+                total_mem += ms["total"]
+                cats = ", ".join(f"{c}: {n}" for c, n in ms["by_category"].items())
+                user_lines.append(f"• `{uid}` — {ms['total']} ({cats})")
+        lines = [T("stats.title_memory"), ""]
+        lines.append(f"• **{T('stats.memTotalUsers')}:** {len(user_lines)}")
+        lines.append(f"• **{T('stats.memTotalMem')}:** {total_mem}")
+        if user_lines:
+            lines.append(f"\n**{T('stats.memPerUser')}**")
+            lines.extend(user_lines)
+        lines.append(f"\n{T('stats.hint')}")
+        return "\n".join(lines)
+
+    elif sub in ("providers", "provider"):
+        s = get_usage_stats(30)
+        by_prov = s.get("by_provider", [])
+        if not by_prov:
+            return T("stats.noProviders")
+        lines = [T("stats.title_providers", days=30), ""]
+        for i, p in enumerate(by_prov, 1):
+            lines.append(
+                f"**{i}.** **{p['provider_name'] or p['provider_id']}** ({p['provider_type']}) — "
+                f"{p['requests']:,} {T('stats.provRequests')}, "
+                f"{p['tokens']:,} {T('stats.provTokens')}, "
+                f"{T('stats.provAvgMs', ms=p['avg_response_ms'])}"
+            )
+        lines.append(f"\n{T('stats.hint')}")
+        return "\n".join(lines)
+
+    else:
+        return T("stats.hint")
 
 
 def _command_response_openai(content: str, model: str) -> dict:
