@@ -687,7 +687,7 @@ async def chat_completions(request: Request):
                 "tool_call_id": search_call.get("id", "call_search"),
                 "content": (
                     f"[Web search results for '{query}' — use this to answer accurately. "
-                    "Cite sources with [N]. Summarize clearly, do not paste raw text.]\n"
+                    "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
                     + (search_ctx or "No results found.")
                 ),
             })
@@ -832,7 +832,7 @@ async def chat_completions(request: Request):
                                 "tool_call_id": search_call["id"] or "call_search",
                                 "content": (
                                     f"[Web search results for '{query}' — use this to answer accurately. "
-                                    "Cite sources with [N]. Summarize clearly, do not paste raw text.]\n"
+                                    "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
                                     + (search_ctx or "No results found.")
                                 ),
                             })

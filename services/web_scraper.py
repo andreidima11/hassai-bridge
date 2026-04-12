@@ -187,7 +187,7 @@ async def search_and_fetch(query: str) -> str:
         confidence = r.get("confidence", 0.5)
         authority = r.get("authority", 0.5)
 
-        line = f"[{i}] {title}"
+        line = f"- {title}"
         if snippet:
             line += f" — {snippet}"
         if confidence >= 0.7:
@@ -246,12 +246,5 @@ async def search_and_fetch(query: str) -> str:
                     log.debug(f"Could not fetch {url[:50]}: {e}")
         if fetched:
             log.info(f"Fetched {fetched} pages for query: '{query[:40]}'")
-
-    # Sources footer for citation
-    parts.append("\n---\nSOURCES (cite using [N]):")
-    for i, r in enumerate(results, 1):
-        title = (r.get("title") or "").strip()[:80]
-        url = (r.get("url") or "").strip()
-        parts.append(f"[{i}] {title} — {url}")
 
     return "\n".join(parts)
