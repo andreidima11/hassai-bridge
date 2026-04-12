@@ -4,6 +4,7 @@ HASSAI Bridge — AI Bridge for Home Assistant
 Port 8899 | Per-user memory & knowledge graph | Web search
 """
 
+import asyncio
 import logging
 import signal
 import time
@@ -19,9 +20,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from pathlib import Path
 
-from database import init_db, cleanup_old_conversations
+from database import init_db, cleanup_old_conversations, get_all_users
 from core.config import VERSION, load_config
 from services.knowledge_graph import init_graph_tables
+from services.memory_engine import consolidate_memories
+from services.providers import get_active_provider, get_secondary_provider
 from routers import chat, memory, settings, skills
 
 # ── In-memory ring buffer for logs ──
@@ -69,6 +72,10 @@ async def lifespan(app: FastAPI):
             log.info(f"Startup cleanup: removed {deleted} conversation messages older than 90 days")
     except Exception as e:
         log.warning(f"Conversation cleanup failed: {e}")
+
+    # Start auto-consolidation scheduler
+    consolidation_task = asyncio.create_task(_auto_consolidation_loop())
+
     print("╔══════════════════════════════════════════════╗")
     print(f"║       HASSAI Bridge {VERSION} Started        ║")
     print("║  Web UI: http://0.0.0.0:8899                 ║")
@@ -77,6 +84,54 @@ async def lifespan(app: FastAPI):
     print("║  Search: AI-driven web search                 ║")
     print("╚══════════════════════════════════════════════╝")
     yield
+    consolidation_task.cancel()
+
+
+async def _auto_consolidation_loop():
+    """Background loop that runs memory consolidation on schedule."""
+    last_run_date = None
+    while True:
+        try:
+            await asyncio.sleep(60)  # check every minute
+            cfg = load_config()
+            ac = cfg.get("memory", {}).get("auto_consolidation", {})
+            if not ac.get("enabled", False):
+                continue
+
+            now = datetime.now()
+            schedule = ac.get("schedule", "daily")
+            target_hour = ac.get("hour", 3)
+
+            if now.hour != target_hour:
+                continue
+
+            # Determine if we should run based on schedule
+            run_key = now.strftime("%Y-%m-%d")
+            if schedule == "weekly" and now.weekday() != 0:  # Monday
+                continue
+            if run_key == last_run_date:
+                continue
+
+            last_run_date = run_key
+            log.info(f"Auto-consolidation triggered ({schedule}, hour={target_hour})")
+
+            # Get secondary provider for memory operations
+            active = get_active_provider()
+            secondary = get_secondary_provider(active)
+
+            users = get_all_users()
+            for user_id in users:
+                try:
+                    await consolidate_memories(user_id, provider=secondary)
+                    log.info(f"Auto-consolidation complete for user: {user_id}")
+                except Exception as e:
+                    log.error(f"Auto-consolidation failed for {user_id}: {e}")
+
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.error(f"Auto-consolidation loop error: {e}")
+            await asyncio.sleep(300)
 
 
 app = FastAPI(

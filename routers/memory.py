@@ -6,6 +6,7 @@ from database import (
     get_all_users, get_memory_stats, CATEGORIES,
 )
 from services.memory_engine import consolidate_memories
+from services.providers import get_active_provider, get_secondary_provider
 from services.knowledge_graph import KnowledgeGraph
 
 
@@ -99,7 +100,9 @@ async def clear_user_memories(user_id: str):
 
 @router.post("/consolidate/{user_id}")
 async def run_consolidation(user_id: str):
-    await consolidate_memories(user_id)
+    active = get_active_provider()
+    secondary = get_secondary_provider(active)
+    await consolidate_memories(user_id, provider=secondary)
     return {"status": "ok", "message": "Consolidation complete"}
 
 

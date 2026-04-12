@@ -499,7 +499,9 @@ async function loadSettings() {
     // Providers
     _allProviders = cfg.providers || [];
     _activeProviderId = cfg.active_provider || '';
+    _allSecondaryProviders = cfg.secondary_providers || [];
     renderProvidersList();
+    renderSecondaryProvidersList();
 
     // SearXNG
     document.getElementById('sxEnabled').checked = cfg.searxng.enabled;
@@ -511,6 +513,12 @@ async function loadSettings() {
 
     // Memory
     document.getElementById('memEnabled').checked = cfg.memory.enabled;
+
+    // Auto-consolidation
+    const ac = cfg.memory.auto_consolidation || {};
+    document.getElementById('acEnabled').checked = ac.enabled || false;
+    document.getElementById('acSchedule').value = ac.schedule || 'daily';
+    document.getElementById('acHour').value = ac.hour ?? 3;
     document.getElementById('memAutoExtract').checked = cfg.memory.auto_extract;
     document.getElementById('memMax').value = cfg.memory.max_memories_per_user;
 
@@ -534,6 +542,11 @@ async function saveSettings() {
         base_url: document.getElementById('sxUrl').value,
         max_results: parseInt(document.getElementById('sxMaxResults').value),
         max_page_chars: parseInt(document.getElementById('sxMaxChars').value),
+        auto_consolidation: {
+          enabled: document.getElementById('acEnabled').checked,
+          schedule: document.getElementById('acSchedule').value,
+          hour: parseInt(document.getElementById('acHour').value) || 3,
+        },
         cache_ttl: parseInt(document.getElementById('sxCacheTtl').value),
       },
       memory: {
@@ -572,8 +585,10 @@ async function checkHealth() {
 // ══════════════════════════════════════════════════
 
 let _allProviders = [];
+let _allSecondaryProviders = [];
 let _activeProviderId = '';
 let _editingProviderId = null; // null = adding new, string = editing existing
+let _editingSecProviderId = null; // null = adding new, string = editing existing
 
 const PROVIDER_TYPE_LABELS = {
   local: 'Local (LM Studio / Ollama)',
@@ -609,7 +624,7 @@ function renderProvidersList() {
     const isActive = p.id === _activeProviderId;
     const typeLabel = PROVIDER_TYPE_LABELS[p.type] || p.type;
     const activeClass = isActive ? ' provider-active' : '';
-    const secProv = p.secondary_provider ? _allProviders.find(x => x.id === p.secondary_provider) : null;
+    const secProv = p.secondary_provider ? _allSecondaryProviders.find(x => x.id === p.secondary_provider) : null;
     const secLabel = secProv ? `<span class="provider-secondary-badge">${t('settings.secondaryShort')}: ${escapeHtml(secProv.name)}</span>` : '';
     return `
       <div class="provider-item${activeClass}">
@@ -633,8 +648,7 @@ function renderProvidersList() {
 function _populateSecondarySelect(excludeId) {
   const sel = document.getElementById('provSecondary');
   sel.innerHTML = `<option value="">${t('settings.noSecondary')}</option>`;
-  for (const p of _allProviders) {
-    if (p.id === excludeId) continue;
+  for (const p of _allSecondaryProviders) {
     sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
   }
 }
@@ -732,7 +746,9 @@ async function saveProvider() {
     const cfg = await api('GET', '/api/settings/');
     _allProviders = cfg.providers || [];
     _activeProviderId = cfg.active_provider || '';
+    _allSecondaryProviders = cfg.secondary_providers || [];
     renderProvidersList();
+    renderSecondaryProvidersList();
     loadSystemInfo();
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
@@ -749,7 +765,9 @@ async function deleteProvider(id) {
     const cfg = await api('GET', '/api/settings/');
     _allProviders = cfg.providers || [];
     _activeProviderId = cfg.active_provider || '';
+    _allSecondaryProviders = cfg.secondary_providers || [];
     renderProvidersList();
+    renderSecondaryProvidersList();
     loadSystemInfo();
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
@@ -821,6 +839,201 @@ async function fetchProviderModels() {
         const cfg = await api('GET', '/api/settings/');
         _allProviders = cfg.providers || [];
         _activeProviderId = cfg.active_provider || '';
+      }
+    } catch (e) {
+      toast(t('toast.error', { msg: e.message }), true);
+    }
+  }
+}
+
+// ══════════════════════════════════════════════════
+// SECONDARY PROVIDERS MANAGEMENT
+// ══════════════════════════════════════════════════
+
+function renderSecondaryProvidersList() {
+  const container = document.getElementById('secondaryProvidersList');
+  if (!_allSecondaryProviders.length) {
+    container.innerHTML = `<p class="card-muted">${t('settings.noSecondaryProviders')}</p>`;
+    return;
+  }
+  container.innerHTML = _allSecondaryProviders.map(p => {
+    const typeLabel = PROVIDER_TYPE_LABELS[p.type] || p.type;
+    return `
+      <div class="provider-item">
+        <div class="provider-info">
+          <div class="provider-name">
+            🔗 ${escapeHtml(p.name)}
+            <span class="provider-type-badge">${escapeHtml(typeLabel)}</span>
+          </div>
+          <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
+        </div>
+        <div class="provider-actions">
+          <button class="btn btn-sm" onclick="editSecondaryProvider('${escapeHtml(p.id)}')">${t('settings.edit')}</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteSecondaryProvider('${escapeHtml(p.id)}')">${t('users.delete')}</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openAddSecondaryProvider() {
+  _editingSecProviderId = null;
+  document.getElementById('secProviderFormTitle').textContent = t('settings.addSecondaryProvider');
+  document.getElementById('secProvType').value = 'local';
+  document.getElementById('secProvName').value = '';
+  document.getElementById('secProvUrl').value = 'http://localhost:1234';
+  document.getElementById('secProvApiKey').value = '';
+  document.getElementById('secProvModel').value = '';
+  document.getElementById('secProvTimeout').value = 120;
+  document.getElementById('secProvMaxTokens').value = 2048;
+  document.getElementById('secProvTemperature').value = 0.7;
+  onSecProvTypeChange();
+  document.getElementById('secProviderModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function editSecondaryProvider(id) {
+  const p = _allSecondaryProviders.find(x => x.id === id);
+  if (!p) return;
+  _editingSecProviderId = id;
+  document.getElementById('secProviderFormTitle').textContent = t('settings.editSecondaryProvider');
+  document.getElementById('secProvType').value = p.type || 'local';
+  document.getElementById('secProvName').value = p.name || '';
+  document.getElementById('secProvUrl').value = p.base_url || '';
+  document.getElementById('secProvApiKey').value = p.api_key || '';
+  document.getElementById('secProvModel').value = p.model || '';
+  document.getElementById('secProvTimeout').value = p.timeout || 120;
+  document.getElementById('secProvMaxTokens').value = p.max_tokens || 2048;
+  document.getElementById('secProvTemperature').value = p.temperature ?? 0.7;
+  onSecProvTypeChange();
+  document.getElementById('secProviderModal').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function cancelSecProviderForm() {
+  document.getElementById('secProviderModal').classList.remove('open');
+  document.body.style.overflow = '';
+  _editingSecProviderId = null;
+}
+
+function onSecProvTypeChange() {
+  const ptype = document.getElementById('secProvType').value;
+  const urlField = document.getElementById('secProvUrl');
+  const currentUrl = urlField.value.trim();
+  const defaultUrls = Object.values(PROVIDER_TYPE_URLS);
+  if (!currentUrl || defaultUrls.includes(currentUrl)) {
+    urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
+  }
+  const nameField = document.getElementById('secProvName');
+  const currentName = nameField.value.trim();
+  const defaultNames = Object.values(PROVIDER_TYPE_NAMES);
+  if (!currentName || defaultNames.includes(currentName)) {
+    nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
+  }
+}
+
+async function saveSecondaryProvider() {
+  const data = {
+    type: document.getElementById('secProvType').value,
+    name: document.getElementById('secProvName').value.trim(),
+    base_url: document.getElementById('secProvUrl').value.trim(),
+    api_key: document.getElementById('secProvApiKey').value.trim(),
+    model: document.getElementById('secProvModel').value.trim() || 'default',
+    timeout: parseInt(document.getElementById('secProvTimeout').value) || 120,
+    max_tokens: parseInt(document.getElementById('secProvMaxTokens').value) || 2048,
+    temperature: parseFloat(document.getElementById('secProvTemperature').value) || 0.7,
+  };
+  if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
+  try {
+    if (_editingSecProviderId) {
+      await api('PUT', `/api/settings/secondary-providers/${encodeURIComponent(_editingSecProviderId)}`, data);
+      toast(t('settings.secProviderUpdated'));
+    } else {
+      await api('POST', '/api/settings/secondary-providers', data);
+      toast(t('settings.secProviderAdded'));
+    }
+    cancelSecProviderForm();
+    const secData = await api('GET', '/api/settings/secondary-providers');
+    _allSecondaryProviders = secData.secondary_providers || [];
+    renderSecondaryProvidersList();
+    loadSystemInfo();
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function deleteSecondaryProvider(id) {
+  const p = _allSecondaryProviders.find(x => x.id === id);
+  if (!p) return;
+  if (!confirm(t('settings.confirmDeleteSecProvider', { name: p.name }))) return;
+  try {
+    await api('DELETE', `/api/settings/secondary-providers/${encodeURIComponent(id)}`);
+    toast(t('settings.secProviderDeleted'));
+    const secData = await api('GET', '/api/settings/secondary-providers');
+    _allSecondaryProviders = secData.secondary_providers || [];
+    renderSecondaryProvidersList();
+    // Reload primary providers too (cleared references)
+    const cfg = await api('GET', '/api/settings/');
+    _allProviders = cfg.providers || [];
+    renderProvidersList();
+    loadSystemInfo();
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function fetchSecProviderModels() {
+  const baseUrl = document.getElementById('secProvUrl').value.trim();
+  const apiKey = document.getElementById('secProvApiKey').value.trim();
+  const modelInput = document.getElementById('secProvModel');
+  const listId = 'secProvModelList';
+  if (!baseUrl) { toast(t('settings.enterUrl'), true); return; }
+
+  async function _populateDatalist(models) {
+    let dl = document.getElementById(listId);
+    if (!dl) {
+      dl = document.createElement('datalist');
+      dl.id = listId;
+      modelInput.parentElement.appendChild(dl);
+    }
+    modelInput.setAttribute('list', listId);
+    dl.innerHTML = models.map(m => `<option value="${escapeHtml(m.id)}">`).join('');
+    if (models.length) {
+      if (!modelInput.value || modelInput.value === 'default') modelInput.value = models[0].id;
+      toast(t('toast.modelsReloaded'));
+    } else {
+      toast(t('settings.noModelsFound'), true);
+    }
+  }
+
+  if (_editingSecProviderId) {
+    try {
+      const data = await api('GET', `/api/settings/secondary-providers/${encodeURIComponent(_editingSecProviderId)}/models`);
+      _populateDatalist(data.models || []);
+    } catch (e) {
+      toast(t('toast.error', { msg: e.message }), true);
+    }
+  } else {
+    // Create temp secondary provider, fetch models, delete it
+    const tempData = {
+      type: document.getElementById('secProvType').value,
+      name: '_temp_sec_model_fetch',
+      base_url: baseUrl,
+      api_key: apiKey,
+      model: 'default',
+      timeout: 15,
+      max_tokens: 2048,
+      temperature: 0.7,
+    };
+    try {
+      const result = await api('POST', '/api/settings/secondary-providers', tempData);
+      const tempId = result.provider.id;
+      try {
+        const data = await api('GET', `/api/settings/secondary-providers/${encodeURIComponent(tempId)}/models`);
+        _populateDatalist(data.models || []);
+      } finally {
+        await api('DELETE', `/api/settings/secondary-providers/${encodeURIComponent(tempId)}`);
+        const secData = await api('GET', '/api/settings/secondary-providers');
+        _allSecondaryProviders = secData.secondary_providers || [];
       }
     } catch (e) {
       toast(t('toast.error', { msg: e.message }), true);

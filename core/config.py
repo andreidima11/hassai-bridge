@@ -4,7 +4,7 @@ import time
 import uuid
 from pathlib import Path
 
-VERSION = "v0.1.8"
+VERSION = "v0.1.8.2-beta"
 DB_SCHEMA_VERSION = 2
 
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -25,6 +25,7 @@ DEFAULT_CONFIG = {
     "api_key": "",
     "active_provider": "",
     "providers": [],
+    "secondary_providers": [],
     "lmstudio": {
         "base_url": "http://localhost:1234",
         "model": "default",
@@ -46,6 +47,11 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "auto_extract": True,
         "max_memories_per_user": 500,
+        "auto_consolidation": {
+            "enabled": False,
+            "schedule": "daily",
+            "hour": 3,
+        },
     },
     "performance": {
         "history_limit": 10,

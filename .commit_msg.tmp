@@ -1,25 +1,22 @@
-v0.1.8 — Secondary LLM Provider + Memories Tab
+v0.1.8.2-beta — Independent Secondary Providers + Auto-Consolidation + Bug Fixes
 
-Features:
-- Secondary LLM provider per provider: after tool calls (HA commands,
-  web search, skills), the secondary provider generates the final
-  response — useful for cost reduction or faster processing with
-  large local models
-- Provider modal: new "Secondary Provider" dropdown to select a
-  secondary provider for each configured provider
-- Provider cards show secondary provider badge when configured
-- New top-level "Memories" tab: view, add, filter, bulk-delete and
-  manage memories grouped by user — no longer inside the user modal
-- User modal simplified: shows stats and API key only
+Secondary Providers:
+- Secondary providers now have their own dedicated configuration section
+- Full CRUD: add, edit, delete secondary providers independently
+- Each secondary provider has its own type, URL, API key, model, and settings
+- Primary providers select which secondary provider to use via dropdown
 
-Changes:
-- services/providers.py: added get_secondary_provider() function
-- routers/chat.py: tool re-call uses secondary provider (both
-  streaming and non-streaming paths)
-- static/index.html: new Memories panel, secondary provider dropdown
-  in provider modal, removed memory sections from user modal
-- static/js/app.js: memories tab functions, secondary provider
-  populate/save/edit/render, switchToTab updated
-- static/js/i18n.js: EN/RO translations for all new elements
-- static/css/style.css: secondary provider badge styling
-- core/config.py: version bump to v0.1.8
+Auto-Consolidation:
+- New auto-consolidation scheduler for automated memory maintenance
+- Configurable schedule: daily or weekly
+- Configurable hour (0-23) for when consolidation runs
+- Background task checks config every minute and runs at scheduled time
+
+Bug Fixes:
+- Fix HTTP 500 on tool calls (e.g. HA commands) with Grok and other providers
+  that return content:null on assistant messages with tool_calls
+- Changed all .get("content", "") to .get("content") or "" across chat.py
+  and memory_engine.py to handle None values safely
+
+i18n:
+- All new UI strings translated in both EN and RO

@@ -136,14 +136,14 @@ Respond with ONLY a JSON object (no markdown):
 }}"""
 
 
-async def _llm_call(messages: list[dict], max_tokens: int = 1000) -> str:
+async def _llm_call(messages: list[dict], max_tokens: int = 1000, provider: dict | None = None) -> str:
     """Make a lightweight LLM call for memory operations, with retry (#20)."""
     from services.providers import chat_completion
     _retries = 2
     _backoff = [1.0, 3.0]
     for attempt in range(_retries + 1):
         try:
-            result = await chat_completion(messages, stream=False)
+            result = await chat_completion(messages, stream=False, provider=provider)
             return result["choices"][0]["message"]["content"].strip()
         except Exception as e:
             if attempt < _retries:
@@ -450,7 +450,7 @@ def _build_extraction_input(user_text: str, assistant_reply: str = "",
     if recent_messages:
         for msg in recent_messages[-6:]:
             role = msg.get("role", "user")
-            content = msg.get("content", "")
+            content = msg.get("content") or ""
             if role in ("user", "assistant") and content:
                 lines.append(f"{role.upper()}: {content}")
     else:
@@ -550,7 +550,7 @@ def _normalize_entity_type(raw: str) -> str:
     return _type_aliases.get(raw, "unknown")
 
 
-async def extract_memories_from_conversation(user_id: str, messages: list[dict]):
+async def extract_memories_from_conversation(user_id: str, messages: list[dict], provider: dict | None = None):
     """Single-pass memory pipeline: signal detect → retrieve existing → LLM extract+resolve → execute."""
     cfg = load_config()
     if not cfg["memory"].get("enabled") or not cfg["memory"].get("auto_extract"):
@@ -561,9 +561,9 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict])
     assistant_text = ""
     for msg in reversed(messages):
         if msg.get("role") == "user" and not user_text:
-            user_text = msg.get("content", "")
+            user_text = msg.get("content") or ""
         elif msg.get("role") == "assistant" and not assistant_text:
-            assistant_text = msg.get("content", "")
+            assistant_text = msg.get("content") or ""
         if user_text and assistant_text:
             break
 
@@ -602,7 +602,7 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict])
                 existing_memories=existing_str,
                 conversation=input_text[:1500],
             )},
-        ], max_tokens=500)
+        ], max_tokens=500, provider=provider)
 
         actions = _parse_pipeline_response(response)
         if not actions:
@@ -709,7 +709,7 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict])
 # CONSOLIDATION — merge and clean up memories
 # ══════════════════════════════════════════════════
 
-async def consolidate_memories(user_id: str):
+async def consolidate_memories(user_id: str, provider: dict | None = None):
     """Periodically consolidate memories: merge duplicates, remove outdated."""
     memories = get_memories(user_id, limit=100)
     if len(memories) < 10:
@@ -724,7 +724,7 @@ async def consolidate_memories(user_id: str):
         response = await _llm_call([
             {"role": "system", "content": "You consolidate memories. Respond with ONLY valid JSON."},
             {"role": "user", "content": CONSOLIDATE_PROMPT.format(memories=mem_text)},
-        ], max_tokens=2000)
+        ], max_tokens=2000, provider=provider)
 
         plan = _parse_json(response, fallback={})
         if not isinstance(plan, dict):
@@ -738,7 +738,7 @@ async def consolidate_memories(user_id: str):
 
         # Merge memories
         for merge in plan.get("merge", []):
-            content = merge.get("content", "").strip()
+            content = (merge.get("content") or "").strip()
             if not content:
                 continue
             for sid in merge.get("source_ids", []):

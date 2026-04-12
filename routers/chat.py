@@ -344,13 +344,13 @@ def _trim_messages(messages: list[dict], max_tokens: int) -> list[dict]:
     system_msgs = [m for m in messages if m.get("role") == "system"]
     other_msgs = [m for m in messages if m.get("role") != "system"]
 
-    system_tokens = sum(_estimate_tokens(m.get("content", "")) for m in system_msgs)
+    system_tokens = sum(_estimate_tokens(m.get("content") or "") for m in system_msgs)
     budget = max_tokens - system_tokens
     if budget <= 0:
         return system_msgs
 
     # First pass: total cost of all non-system messages
-    total_others = sum(_estimate_tokens(m.get("content", "")) for m in other_msgs)
+    total_others = sum(_estimate_tokens(m.get("content") or "") for m in other_msgs)
     if total_others <= budget:
         return system_msgs + other_msgs  # everything fits
 
@@ -358,7 +358,7 @@ def _trim_messages(messages: list[dict], max_tokens: int) -> list[dict]:
     kept_recent = []
     used = 0
     for msg in reversed(other_msgs):
-        cost = _estimate_tokens(msg.get("content", ""))
+        cost = _estimate_tokens(msg.get("content") or "")
         if used + cost > budget * 0.7:  # reserve 70% budget for recent messages
             break
         kept_recent.append(msg)
@@ -585,18 +585,18 @@ async def chat_completions(request: Request):
     last_user_msg = ""
     for msg in reversed(messages):
         if msg.get("role") == "user":
-            last_user_msg = msg.get("content", "").strip()
+            last_user_msg = (msg.get("content") or "").strip()
             break
 
     # ── Message size validation (#16) ──
-    total_size = sum(len(m.get("content", "")) for m in messages)
+    total_size = sum(len(m.get("content") or "") for m in messages)
     if total_size > 512_000:  # 500KB max
         return JSONResponse(
             status_code=413,
             content={"error": {"message": "Message content too large (max 500KB)", "type": "invalid_request_error"}},
         )
     for msg in messages:
-        if len(msg.get("content", "")) > 100_000:  # 100KB per message
+        if len(msg.get("content") or "") > 100_000:  # 100KB per message
             return JSONResponse(
                 status_code=413,
                 content={"error": {"message": "Single message too large (max 100KB)", "type": "invalid_request_error"}},
@@ -661,13 +661,13 @@ async def chat_completions(request: Request):
     # ── Save user messages to history ──
     for msg in messages:
         role = msg.get("role", "user")
-        content = msg.get("content", "")
+        content = msg.get("content") or ""
         if content and role in ("user", "assistant"):
             add_conversation_message(user_id, role, content)
 
     # ── Strip any <<SEARCH markers that leaked into stored assistant messages ──
     for m in augmented:
-        c = m.get("content", "")
+        c = m.get("content") or ""
         if c and m.get("role") == "assistant" and "<<SEARCH" in c:
             cleaned = _strip_search_markers(c).strip()
             m["content"] = cleaned if cleaned else "(search attempted)"
@@ -678,7 +678,7 @@ async def chat_completions(request: Request):
     augmented = _trim_messages(augmented, max_ctx)
 
     # Log prompt size for optimization tracking
-    _prompt_tokens = sum(_estimate_tokens(m.get("content", "")) for m in augmented)
+    _prompt_tokens = sum(_estimate_tokens(m.get("content") or "") for m in augmented)
     log.info(f"Prompt: {len(augmented)} msgs, ~{_prompt_tokens} tokens (budget {max_ctx})")
 
     # ── First LLM call ──
@@ -791,7 +791,7 @@ async def chat_completions(request: Request):
         if assistant_content:
             add_conversation_message(user_id, "assistant", assistant_content)
             all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
-            asyncio.create_task(_safe_extract(user_id, all_msgs))
+            asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
 
         # Track usage statistics
         try:
@@ -833,7 +833,7 @@ async def chat_completions(request: Request):
                     yield chunk
                     continue
 
-                content = delta.get("content", "")
+                content = delta.get("content") or ""
                 reasoning = delta.get("reasoning_content")
                 tool_calls_delta = delta.get("tool_calls")
                 finish_reason = data.get("choices", [{}])[0].get("finish_reason")
@@ -945,7 +945,7 @@ async def chat_completions(request: Request):
                             if chunk2.startswith("data: ") and chunk2.strip() != "data: [DONE]":
                                 try:
                                     d2 = json.loads(chunk2[6:])
-                                    t2 = d2.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    t2 = d2.get("choices", [{}])[0].get("delta", {}).get("content") or ""
                                     if t2:
                                         full_response += t2
                                 except (json.JSONDecodeError, IndexError, KeyError):
@@ -956,7 +956,7 @@ async def chat_completions(request: Request):
                         if full_response:
                             add_conversation_message(user_id, "assistant", full_response)
                             all_msgs = messages + [{"role": "assistant", "content": full_response}]
-                            asyncio.create_task(_safe_extract(user_id, all_msgs))
+                            asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
                         try:
                             add_usage_stat(
                                 user_id=user_id, provider_id=active.get("id", ""),
@@ -988,7 +988,7 @@ async def chat_completions(request: Request):
             clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
             add_conversation_message(user_id, "assistant", clean_response)
             all_msgs = messages + [{"role": "assistant", "content": clean_response}]
-            asyncio.create_task(_safe_extract(user_id, all_msgs))
+            asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
 
         try:
             add_usage_stat(
@@ -1011,7 +1011,7 @@ _extraction_locks: dict[str, asyncio.Lock] = {}
 _EXTRACTION_TIMEOUT = 30.0  # seconds (#8)
 
 
-async def _safe_extract(user_id: str, messages: list[dict]):
+async def _safe_extract(user_id: str, messages: list[dict], provider: dict | None = None):
     """Safely run memory extraction in background with per-user lock and timeout."""
     if user_id not in _extraction_locks:
         _extraction_locks[user_id] = asyncio.Lock()
@@ -1024,7 +1024,7 @@ async def _safe_extract(user_id: str, messages: list[dict]):
     async with _extraction_locks[user_id]:
         try:
             await asyncio.wait_for(
-                extract_memories_from_conversation(user_id, messages),
+                extract_memories_from_conversation(user_id, messages, provider=provider),
                 timeout=_EXTRACTION_TIMEOUT,
             )
         except asyncio.TimeoutError:

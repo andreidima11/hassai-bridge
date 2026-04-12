@@ -197,7 +197,7 @@ async def update_provider(provider_id: str, data: dict):
     cfg = load_config()
     for p in cfg.get("providers", []):
         if p["id"] == provider_id:
-            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt"):
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider"):
                 if key in data:
                     p[key] = data[key]
             save_config(cfg)
@@ -254,6 +254,113 @@ async def check_provider_health(provider_id: str):
     raise HTTPException(status_code=404, detail="Provider not found")
 
 
+# ══════════════════════════════════════════════════
+# Secondary provider management endpoints
+# ══════════════════════════════════════════════════
+
+@router.get("/secondary-providers")
+async def list_secondary_providers():
+    """List all configured secondary providers."""
+    cfg = load_config()
+    return {"secondary_providers": cfg.get("secondary_providers", [])}
+
+
+@router.post("/secondary-providers")
+async def add_secondary_provider(data: dict):
+    """Add a new secondary provider."""
+    ptype = data.get("type", "local")
+    name = data.get("name", "").strip()
+    base_url = data.get("base_url", "").strip()
+    api_key = data.get("api_key", "").strip()
+    model = data.get("model", "default").strip()
+    timeout = data.get("timeout", 120)
+    max_tokens = data.get("max_tokens", 2048)
+    temperature = data.get("temperature", 0.7)
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Provider name is required")
+    if not base_url:
+        preset = PROVIDER_PRESETS.get(ptype, {})
+        base_url = preset.get("base_url", "http://localhost:1234")
+
+    pid = f"sec_{ptype}_{name.lower().replace(' ', '_').replace('-', '_')}"
+    cfg = load_config()
+    existing_ids = {p["id"] for p in cfg.get("secondary_providers", [])}
+    if pid in existing_ids:
+        suffix = 2
+        while f"{pid}_{suffix}" in existing_ids:
+            suffix += 1
+        pid = f"{pid}_{suffix}"
+
+    provider = {
+        "id": pid,
+        "name": name,
+        "type": ptype,
+        "base_url": base_url,
+        "api_key": api_key,
+        "model": model,
+        "timeout": timeout,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    cfg.setdefault("secondary_providers", []).append(provider)
+    save_config(cfg)
+    return {"status": "ok", "provider": provider}
+
+
+@router.put("/secondary-providers/{provider_id}")
+async def update_secondary_provider(provider_id: str, data: dict):
+    """Update an existing secondary provider."""
+    cfg = load_config()
+    for p in cfg.get("secondary_providers", []):
+        if p["id"] == provider_id:
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature"):
+                if key in data:
+                    p[key] = data[key]
+            save_config(cfg)
+            return {"status": "ok", "provider": p}
+    raise HTTPException(status_code=404, detail="Secondary provider not found")
+
+
+@router.delete("/secondary-providers/{provider_id}")
+async def delete_secondary_provider(provider_id: str):
+    """Delete a secondary provider. Also clears references from primary providers."""
+    cfg = load_config()
+    plist = cfg.get("secondary_providers", [])
+    cfg["secondary_providers"] = [p for p in plist if p["id"] != provider_id]
+    # Clear references from primary providers
+    for p in cfg.get("providers", []):
+        if p.get("secondary_provider") == provider_id:
+            p["secondary_provider"] = ""
+    save_config(cfg)
+    return {"status": "ok"}
+
+
+@router.get("/secondary-providers/{provider_id}/models")
+async def get_secondary_provider_models(provider_id: str):
+    """List models available on a specific secondary provider."""
+    cfg = load_config()
+    for p in cfg.get("secondary_providers", []):
+        if p["id"] == provider_id:
+            try:
+                models = await providers.list_models(p)
+                return {"models": models}
+            except Exception as e:
+                raise HTTPException(status_code=502, detail=f"Could not reach provider: {e}")
+    raise HTTPException(status_code=404, detail="Secondary provider not found")
+
+
+@router.get("/secondary-providers/{provider_id}/health")
+async def check_secondary_provider_health(provider_id: str):
+    """Health check for a specific secondary provider."""
+    cfg = load_config()
+    for p in cfg.get("secondary_providers", []):
+        if p["id"] == provider_id:
+            ok = await providers.health_check(p)
+            return {"status": "connected" if ok else "unreachable", "provider": p["name"]}
+    raise HTTPException(status_code=404, detail="Secondary provider not found")
+
+
 @router.get("/health")
 async def health():
     active = get_active_provider()
@@ -308,6 +415,13 @@ async def system_info():
             sp["api_key"] = _mask_key(sp["api_key"])
         safe_providers.append(sp)
 
+    safe_secondary = []
+    for p in cfg.get("secondary_providers", []):
+        sp = dict(p)
+        if sp.get("api_key"):
+            sp["api_key"] = _mask_key(sp["api_key"])
+        safe_secondary.append(sp)
+
     return {
         "version": VERSION,
         "uptime_seconds": round(uptime),
@@ -316,6 +430,7 @@ async def system_info():
         "port": 8899,
         "active_provider": cfg.get("active_provider", ""),
         "providers": safe_providers,
+        "secondary_providers": safe_secondary,
         "services": {
             "lmstudio": {
                 "status": "connected" if lm_ok else "unreachable",

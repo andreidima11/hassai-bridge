@@ -105,6 +105,7 @@ def get_provider_by_id(provider_id: str) -> dict | None:
 def get_secondary_provider(primary: dict | None = None) -> dict | None:
     """Get the secondary provider for the given (or active) primary provider.
 
+    Looks up the secondary_provider ID in the secondary_providers list.
     Returns None if no secondary is configured or the referenced provider
     doesn't exist.
     """
@@ -113,7 +114,16 @@ def get_secondary_provider(primary: dict | None = None) -> dict | None:
     sec_id = primary.get("secondary_provider", "")
     if not sec_id:
         return None
-    return get_provider_by_id(sec_id)
+    return get_secondary_provider_by_id(sec_id)
+
+
+def get_secondary_provider_by_id(provider_id: str) -> dict | None:
+    """Get a specific secondary provider by ID."""
+    cfg = load_config()
+    for p in cfg.get("secondary_providers", []):
+        if p.get("id") == provider_id:
+            return p
+    return None
 
 
 def _build_headers(provider: dict) -> dict:

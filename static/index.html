@@ -334,6 +334,14 @@
           <button class="btn btn-primary btn-sm" onclick="openAddProvider()" data-i18n="settings.addProvider">+ Add Provider</button>
         </div>
       </div>
+      <div class="card" style="margin-top:16px">
+        <h2 data-i18n="settings.secondaryProviders">Secondary Providers</h2>
+        <p class="card-muted" data-i18n="settings.secondaryProvidersDesc">Secondary providers handle memory operations (extraction, consolidation) and can be assigned to primary providers for tool call re-processing.</p>
+        <div id="secondaryProvidersList"></div>
+        <div style="margin-top:12px">
+          <button class="btn btn-primary btn-sm" onclick="openAddSecondaryProvider()" data-i18n="settings.addSecondaryProvider">+ Add Secondary Provider</button>
+        </div>
+      </div>
     </div>
 
     <!-- Provider Add/Edit Modal -->
@@ -385,7 +393,7 @@
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.secondaryProvider">Secondary Provider</h3>
-            <p class="card-muted hint" data-i18n="settings.secondaryProviderDesc">Optional. After tool calls (HA commands, web search, skills), the secondary provider generates the final response — useful for cost reduction or faster processing.</p>
+            <p class="card-muted hint" data-i18n="settings.secondaryProviderDesc">Optional. Select a secondary provider to handle tool call re-processing (cost reduction / faster processing) and memory operations for this provider.</p>
             <select id="provSecondary">
               <option value="" data-i18n="settings.noSecondary">— None —</option>
             </select>
@@ -412,6 +420,73 @@
         <div class="modal-footer" style="background:transparent;justify-content:flex-end;gap:8px">
           <button class="btn btn-sm" onclick="cancelProviderForm()" data-i18n="settings.cancel">Cancel</button>
           <button class="btn btn-primary btn-sm" onclick="saveProvider()" id="provSaveBtn" data-i18n="settings.save">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Secondary Provider Add/Edit Modal -->
+    <div class="modal-overlay" id="secProviderModal" onclick="if(event.target===this)cancelSecProviderForm()">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">
+            <div class="modal-avatar">🔗</div>
+            <div>
+              <h2 id="secProviderFormTitle" data-i18n="settings.addSecondaryProvider">Add Secondary Provider</h2>
+              <span class="modal-subtitle" data-i18n="settings.secProviderModalDesc">Configure a secondary AI provider for memory operations</span>
+            </div>
+          </div>
+          <button class="modal-close" onclick="cancelSecProviderForm()" data-i18n-title="misc.close" title="Close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="modal-section">
+            <label data-i18n="settings.providerType">Type</label>
+            <select id="secProvType" onchange="onSecProvTypeChange()">
+              <option value="local">Local (LM Studio / Ollama)</option>
+              <option value="openai">OpenAI</option>
+              <option value="grok">Grok (xAI)</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="glm">GLM (Zhipu AI)</option>
+            </select>
+            <label data-i18n="settings.providerName">Name</label>
+            <input type="text" id="secProvName" placeholder="e.g.: Memory LLM">
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.connection">Connection</h3>
+            <label data-i18n="settings.serverUrl">Server URL</label>
+            <input type="text" id="secProvUrl" placeholder="http://localhost:1234">
+            <p class="card-muted hint" id="secProvUrlHint" data-i18n="settings.providerUrlHint">For local servers, use the full URL (e.g. http://192.168.0.100:1234). For cloud APIs, the default URL is pre-filled.</p>
+            <label id="secProvApiKeyLabel" data-i18n="settings.providerApiKey">API Key</label>
+            <input type="password" id="secProvApiKey" data-i18n-placeholder="settings.apiKeyPlaceholder" placeholder="Insert API key">
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.model">Model</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="secProvModel" placeholder="e.g.: gpt-4o-mini" style="flex:1">
+              <button class="btn btn-sm btn-primary" onclick="fetchSecProviderModels()" data-i18n="settings.fetchModels">Fetch Models</button>
+            </div>
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.advanced">Advanced</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+              <div>
+                <label data-i18n="settings.timeout">Timeout (s)</label>
+                <input type="number" id="secProvTimeout" value="120" min="10" max="600">
+              </div>
+              <div>
+                <label data-i18n="settings.maxTokens">Max Tokens</label>
+                <input type="number" id="secProvMaxTokens" value="2048" min="128" max="128000">
+              </div>
+              <div>
+                <label data-i18n="settings.temperature">Temperature</label>
+                <input type="number" id="secProvTemperature" value="0.7" min="0" max="2" step="0.1">
+              </div>
+            </div>
+            <p class="card-muted hint" data-i18n="settings.tempDesc">(0.0 = deterministic, 1.0 = creative)</p>
+          </div>
+        </div>
+        <div class="modal-footer" style="background:transparent;justify-content:flex-end;gap:8px">
+          <button class="btn btn-sm" onclick="cancelSecProviderForm()" data-i18n="settings.cancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="saveSecondaryProvider()" data-i18n="settings.save">Save</button>
         </div>
       </div>
     </div>
@@ -456,6 +531,22 @@
         </div>
         <label data-i18n="settings.maxMemories">Max memories per user</label>
         <input type="number" id="memMax" value="500" min="10" max="2000">
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h2 data-i18n="settings.autoConsolidation">Auto Consolidation</h2>
+        <p class="card-muted" data-i18n="settings.autoConsolidationDesc">Automatically consolidates memories on a schedule — merges duplicates, removes outdated facts, and keeps memory organized. Uses the secondary provider assigned to the active primary provider.</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.autoConsolidationEnabled">Auto consolidation enabled</span>
+          <label class="toggle"><input type="checkbox" id="acEnabled"><span class="slider"></span></label>
+        </div>
+        <label data-i18n="settings.acSchedule">Schedule</label>
+        <select id="acSchedule">
+          <option value="daily" data-i18n="settings.acDaily">Daily</option>
+          <option value="weekly" data-i18n="settings.acWeekly">Weekly (Monday)</option>
+        </select>
+        <label data-i18n="settings.acHour">Hour (0-23)</label>
+        <input type="number" id="acHour" value="3" min="0" max="23">
+        <p class="card-muted hint" data-i18n="settings.acHourDesc">The hour of the day when consolidation runs (server time, 24h format).</p>
       </div>
       <div class="btn-row">
         <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
