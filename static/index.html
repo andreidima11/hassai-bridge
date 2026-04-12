@@ -4,14 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HASSAI Bridge</title>
-  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=__CACHE_BUSTER__">
 </head>
 <body>
 
 <div class="header">
   <div class="header-left">
-    <h1>HASSAI Bridge</h1>
-    <span class="badge" id="versionBadge">v0.1.6-beta</span>
+    <h1 class="brand-logo">HASSAI Bridge</h1>
+    <span class="badge" id="versionBadge">v0.1.7-beta</span>
   </div>
   <div class="header-right" id="statusBadges">
     <select id="langSelect" style="display:none"><option value="en">EN</option><option value="ro">RO</option></select>
@@ -26,6 +26,7 @@
     <div class="tab" data-panel="users" data-i18n="tab.users">Users</div>
     <div class="tab" data-panel="skills" data-i18n="tab.skills">Skills</div>
     <div class="tab" data-panel="settings" data-i18n="tab.settings">Settings</div>
+    <div class="tab" data-panel="help" data-i18n="tab.help">Help</div>
     <div class="tab" data-panel="logs" data-i18n="tab.logs">Logs</div>
   </div>
 
@@ -87,77 +88,6 @@
           <div class="info-stat-num" id="statActions24h">—</div>
           <div class="info-stat-lbl" data-i18n="info.actions24h">Actions (24h)</div>
         </div>
-      </div>
-    </div>
-
-    <!-- How to Connect — wizard slides -->
-    <div class="card htc-card">
-      <h2 data-i18n="htc.title">How to Connect</h2>
-      <div class="htc-slider">
-        <div class="htc-slides" id="htcSlides">
-          <!-- Slide 1 -->
-          <div class="htc-slide active" data-step="1">
-            <div class="htc-step-badge">1</div>
-            <h3 data-i18n="htc.step1Title">Install the Integration</h3>
-            <p data-i18n-html="htc.step1Desc">Install the <strong>HASSAI Bridge</strong> custom integration in Home Assistant from the official repository.</p>
-            <div class="htc-code-box">
-              <code>https://github.com/andreidima11/hassai-bridge-ha</code>
-              <button class="btn btn-sm btn-primary" onclick="copyHtcText(this)" data-i18n="info.copy">Copy</button>
-            </div>
-            <p class="htc-hint" data-i18n-html="htc.step1Hint">Go to <strong>HACS → Integrations → Custom repositories</strong>, paste the URL above and install.</p>
-          </div>
-          <!-- Slide 2 -->
-          <div class="htc-slide" data-step="2">
-            <div class="htc-step-badge">2</div>
-            <h3 data-i18n="htc.step2Title">Enter the API URL</h3>
-            <p data-i18n="htc.step2Desc">When configuring the integration, enter the HASSAI Bridge server URL.</p>
-            <div class="htc-code-box">
-              <code id="htcApiUrl">http://localhost:8899</code>
-              <button class="btn btn-sm btn-primary" onclick="copyHtcText(this)" data-i18n="info.copy">Copy</button>
-            </div>
-            <p class="htc-hint" data-i18n="htc.step2Hint">Use the local IP of the machine running HASSAI Bridge, not localhost, so Home Assistant can reach it.</p>
-          </div>
-          <!-- Slide 3 -->
-          <div class="htc-slide" data-step="3">
-            <div class="htc-step-badge">3</div>
-            <h3 data-i18n="htc.step3Title">Create a User &amp; API Key</h3>
-            <p data-i18n-html="htc.step3Desc">Go to the <strong>Users</strong> tab above and create a user. Each user gets a unique API key — this allows the AI to remember things per person and track usage individually.</p>
-            <div class="htc-code-box">
-              <code id="htcApiKey" class="api-key-blur">••••••••</code>
-              <button class="btn btn-sm" onclick="toggleHtcKey()" id="btnToggleHtcKey" data-i18n="info.show">Show</button>
-              <button class="btn btn-sm btn-primary" onclick="copyHtcText(this)" data-i18n="info.copy">Copy</button>
-            </div>
-            <p class="htc-hint" data-i18n="htc.step3Hint">Copy the API key and paste it in the integration configuration in Home Assistant.</p>
-          </div>
-          <!-- Slide 4 -->
-          <div class="htc-slide" data-step="4">
-            <div class="htc-step-badge">4</div>
-            <h3 data-i18n="htc.step4Title">Set as Assistant</h3>
-            <p data-i18n-html="htc.step4Desc">In Home Assistant, go to <strong>Settings → Voice assistants</strong> and select <strong>HASSAI Bridge</strong> as your conversation agent. That's it!</p>
-            <p class="htc-hint" data-i18n="htc.step4Hint">You can now talk to the AI from any dashboard, Assist pipeline, or automation.</p>
-          </div>
-        </div>
-        <div class="htc-nav">
-          <button class="btn btn-sm htc-prev" onclick="htcPrev()" disabled data-i18n="htc.prev">&lsaquo; Back</button>
-          <div class="htc-dots" id="htcDots">
-            <span class="htc-dot active" onclick="htcGo(0)"></span>
-            <span class="htc-dot" onclick="htcGo(1)"></span>
-            <span class="htc-dot" onclick="htcGo(2)"></span>
-            <span class="htc-dot" onclick="htcGo(3)"></span>
-          </div>
-          <button class="btn btn-sm btn-primary htc-next" onclick="htcNext()" data-i18n="htc.next">Next &rsaquo;</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- All endpoints -->
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleEndpoints()">
-        <h2 style="margin:0" data-i18n="info.availableEndpoints">Available Endpoints</h2>
-        <span class="ep-toggle-arrow" id="epToggleArrow">▶</span>
-      </div>
-      <div class="endpoints-table" id="endpointsTable" style="display:none">
-        <p class="card-muted" data-i18n="info.loading">Loading...</p>
       </div>
     </div>
   </div>
@@ -268,6 +198,7 @@
           <div class="info-stat"><div class="info-stat-num" id="statsSkillsEnabled">—</div><div class="info-stat-lbl" data-i18n="stats.enabledSkills">Enabled</div></div>
           <div class="info-stat"><div class="info-stat-num" id="statsSkillsBuiltin">—</div><div class="info-stat-lbl" data-i18n="stats.builtinSkills">Built-in</div></div>
           <div class="info-stat"><div class="info-stat-num" id="statsSkillsGenerated">—</div><div class="info-stat-lbl" data-i18n="stats.generatedSkills">User-Created</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSkillsTotalUsage">—</div><div class="info-stat-lbl" data-i18n="stats.totalUsage">Total Uses</div></div>
         </div>
       </div>
       <div class="card">
@@ -563,6 +494,80 @@
 
   </div>
 
+  <!-- ════════════ HELP ════════════ -->
+  <div class="panel" id="help">
+
+    <!-- How to Connect — wizard slides -->
+    <div class="card htc-card">
+      <h2 data-i18n="htc.title">How to Connect</h2>
+      <div class="htc-slider">
+        <div class="htc-slides" id="htcSlides">
+          <!-- Slide 1 -->
+          <div class="htc-slide active" data-step="1">
+            <div class="htc-step-badge">1</div>
+            <h3 data-i18n="htc.step1Title">Install the Integration</h3>
+            <p data-i18n-html="htc.step1Desc">Install the <strong>HASSAI Bridge</strong> custom integration in Home Assistant from the official repository.</p>
+            <div class="htc-code-box">
+              <code>https://github.com/andreidima11/hassai-bridge-ha</code>
+              <button class="btn btn-sm btn-primary" onclick="copyHtcText(this)" data-i18n="info.copy">Copy</button>
+            </div>
+            <p class="htc-hint" data-i18n-html="htc.step1Hint">Go to <strong>HACS → Integrations → Custom repositories</strong>, paste the URL above and install.</p>
+          </div>
+          <!-- Slide 2 -->
+          <div class="htc-slide" data-step="2">
+            <div class="htc-step-badge">2</div>
+            <h3 data-i18n="htc.step2Title">Enter the API URL</h3>
+            <p data-i18n="htc.step2Desc">When configuring the integration, enter the HASSAI Bridge server URL.</p>
+            <div class="htc-code-box">
+              <code id="htcApiUrl">http://localhost:8899</code>
+              <button class="btn btn-sm btn-primary" onclick="copyHtcText(this)" data-i18n="info.copy">Copy</button>
+            </div>
+            <p class="htc-hint" data-i18n="htc.step2Hint">Use the local IP of the machine running HASSAI Bridge, not localhost, so Home Assistant can reach it.</p>
+          </div>
+          <!-- Slide 3 -->
+          <div class="htc-slide" data-step="3">
+            <div class="htc-step-badge">3</div>
+            <h3 data-i18n="htc.step3Title">Create a User &amp; API Key</h3>
+            <p data-i18n-html="htc.step3Desc">Go to the <strong>Users</strong> tab above and create a user. Each user gets a unique API key — this allows the AI to remember things per person and track usage individually.</p>
+            <p class="htc-hint" data-i18n="htc.step3Hint">Copy the API key and paste it in the integration configuration in Home Assistant.</p>
+            <div style="margin-top:12px">
+              <button class="btn btn-sm btn-primary" onclick="switchToTab('users')" data-i18n="htc.goToUsers">Go to Users &rsaquo;</button>
+            </div>
+          </div>
+          <!-- Slide 4 -->
+          <div class="htc-slide" data-step="4">
+            <div class="htc-step-badge">4</div>
+            <h3 data-i18n="htc.step4Title">Set as Assistant</h3>
+            <p data-i18n-html="htc.step4Desc">In Home Assistant, go to <strong>Settings → Voice assistants</strong> and select <strong>HASSAI Bridge</strong> as your conversation agent. That's it!</p>
+            <p class="htc-hint" data-i18n="htc.step4Hint">You can now talk to the AI from any dashboard, Assist pipeline, or automation.</p>
+          </div>
+        </div>
+        <div class="htc-nav">
+          <button class="btn btn-sm htc-prev" onclick="htcPrev()" disabled data-i18n="htc.prev">&lsaquo; Back</button>
+          <div class="htc-dots" id="htcDots">
+            <span class="htc-dot active" onclick="htcGo(0)"></span>
+            <span class="htc-dot" onclick="htcGo(1)"></span>
+            <span class="htc-dot" onclick="htcGo(2)"></span>
+            <span class="htc-dot" onclick="htcGo(3)"></span>
+          </div>
+          <button class="btn btn-sm btn-primary htc-next" onclick="htcNext()" data-i18n="htc.next">Next &rsaquo;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- All endpoints -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleEndpoints()">
+        <h2 style="margin:0" data-i18n="info.availableEndpoints">Available Endpoints</h2>
+        <span class="ep-toggle-arrow" id="epToggleArrow">▶</span>
+      </div>
+      <div class="endpoints-table" id="endpointsTable" style="display:none">
+        <p class="card-muted" data-i18n="info.loading">Loading...</p>
+      </div>
+    </div>
+
+  </div>
+
   <!-- ════════════ LOGS ════════════ -->
   <div class="panel" id="logs">
     <div class="card">
@@ -664,6 +669,16 @@
         <div class="stat-grid" id="statsGrid"></div>
       </div>
 
+      <!-- API Key -->
+      <div class="modal-section" id="userModalKeySection" style="display:none">
+        <h3 data-i18n="modal.apiKey">API Key</h3>
+        <div class="htc-code-box">
+          <code id="userModalApiKey" class="api-key-blur">••••••••</code>
+          <button class="btn btn-sm" onclick="toggleUserModalKey()" id="btnToggleUserKey" data-i18n="info.show">Show</button>
+          <button class="btn btn-sm btn-primary" onclick="copyUserModalKey()" data-i18n="info.copy">Copy</button>
+        </div>
+      </div>
+
       <!-- Add memory -->
       <div class="modal-section">
         <h3 data-i18n="modal.addMemory">Add Memory</h3>
@@ -720,7 +735,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<script src="/static/js/i18n.js"></script>
-<script src="/static/js/app.js"></script>
+<script src="/static/js/i18n.js?v=__CACHE_BUSTER__"></script>
+<script src="/static/js/app.js?v=__CACHE_BUSTER__"></script>
 </body>
 </html>

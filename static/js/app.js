@@ -33,6 +33,9 @@ document.querySelectorAll('.settings-tab').forEach(stab => {
     parent.querySelectorAll('.settings-subpanel').forEach(p => p.classList.remove('active'));
     stab.classList.add('active');
     document.getElementById(stab.dataset.stab).classList.add('active');
+    if (stab.dataset.stab === 'stab-stats-server') {
+      requestAnimationFrame(fitServerOverviewValues);
+    }
   });
 });
 
@@ -70,6 +73,24 @@ function formatUptime(seconds) {
   if (d > 0) return `${d}d ${h}h ${m}m`;
   if (h > 0) return `${h}h ${m}m`;
   return `${m}m`;
+}
+
+function fitTextToOneLine(el, maxPx = 32, minPx = 12) {
+  if (!el || el.clientWidth === 0) return;
+  el.style.whiteSpace = 'nowrap';
+  let size = maxPx;
+  el.style.fontSize = `${size}px`;
+  while (size > minPx && el.scrollWidth > el.clientWidth) {
+    size -= 1;
+    el.style.fontSize = `${size}px`;
+  }
+}
+
+function fitServerOverviewValues() {
+  fitTextToOneLine(document.getElementById('statsServerUptime'), 34, 12);
+  fitTextToOneLine(document.getElementById('statsServerVersion'), 34, 11);
+  fitTextToOneLine(document.getElementById('statsServerEndpoints'), 34, 12);
+  fitTextToOneLine(document.getElementById('statsServerProviders'), 34, 12);
 }
 
 function updateEndpointDisplay(ip, port) {
@@ -795,6 +816,8 @@ async function fetchProviderModels() {
 
 let _selectedUser = null;
 let allMemories = [];
+let _userKeysMap = {};  // username -> api key
+let _userModalKeyVisible = false;
 
 function catLabel(cat) {
   return t('cat.' + cat) || cat;
@@ -811,9 +834,11 @@ async function loadUsersTab() {
     document.getElementById('defaultUserInput').value = users.default_user || '';
 
     const userMap = {};
+    _userKeysMap = {};
     for (const [key, name] of Object.entries(apiKeys)) {
       if (!userMap[name]) userMap[name] = { keys: [], hasMemories: false };
       userMap[name].keys.push(key);
+      _userKeysMap[name] = key;
     }
     for (const u of (memUsers.users || [])) {
       if (!userMap[u]) userMap[u] = { keys: [], hasMemories: true };
@@ -830,12 +855,8 @@ async function loadUsersTab() {
     container.innerHTML = names.map(name => {
       const info = userMap[name];
       const isSelected = _selectedUser === name;
-      const keyHtml = info.keys.length
-        ? '<code>' + escapeHtml(info.keys[0]) + '</code>'
-        : `<span class="no-key">${t('users.noKey')}</span>`;
       const actionsHtml = info.keys.length
-        ? `<button class="btn btn-sm" onclick="event.stopPropagation();copyUserKey('${escapeHtml(info.keys[0])}')">${t('users.copy')}</button>
-           <button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteUser('${escapeHtml(name)}')">${t('users.delete')}</button>`
+        ? `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteUser('${escapeHtml(name)}')">${t('users.delete')}</button>`
         : '';
       return `
         <div class="user-card ${isSelected ? 'selected' : ''}" onclick="selectUser('${escapeHtml(name)}')">
@@ -843,7 +864,6 @@ async function loadUsersTab() {
             <div class="user-avatar">${escapeHtml(name.substring(0,2).toUpperCase())}</div>
             <div class="user-info">
               <div class="user-name">${escapeHtml(name)}</div>
-              <div class="user-key">${keyHtml}</div>
             </div>
           </div>
           <div class="user-actions">${actionsHtml}</div>
@@ -906,7 +926,22 @@ function copyUserKey(key) {
 
 async function selectUser(username) {
   _selectedUser = username;
+  _userModalKeyVisible = false;
   document.getElementById('selectedUserName').textContent = username;
+
+  // API key section in modal
+  const keySection = document.getElementById('userModalKeySection');
+  const keyEl = document.getElementById('userModalApiKey');
+  const keyToggle = document.getElementById('btnToggleUserKey');
+  if (_userKeysMap[username]) {
+    keySection.style.display = '';
+    keyEl.textContent = '••••••••';
+    keyEl.classList.add('api-key-blur');
+    keyToggle.textContent = t('info.show');
+  } else {
+    keySection.style.display = 'none';
+  }
+
   const overlay = document.getElementById('userModal');
   overlay.classList.add('open');
   document.body.style.overflow = 'hidden';
@@ -914,6 +949,28 @@ async function selectUser(username) {
     c.classList.toggle('selected', c.querySelector('.user-name')?.textContent === username);
   });
   await Promise.all([loadStats(username), loadMemories(username)]);
+}
+
+function toggleUserModalKey() {
+  _userModalKeyVisible = !_userModalKeyVisible;
+  const el = document.getElementById('userModalApiKey');
+  const btn = document.getElementById('btnToggleUserKey');
+  const key = _userKeysMap[_selectedUser] || '';
+  if (_userModalKeyVisible && key) {
+    el.textContent = key;
+    el.classList.remove('api-key-blur');
+    btn.textContent = t('info.hide') || 'Hide';
+  } else {
+    el.textContent = '••••••••';
+    el.classList.add('api-key-blur');
+    btn.textContent = t('info.show');
+  }
+}
+
+function copyUserModalKey() {
+  const key = _userKeysMap[_selectedUser] || '';
+  if (!key) return;
+  navigator.clipboard.writeText(key).then(() => toast(t('toast.apiKeyCopied'))).catch(() => toast(t('toast.copyFail'), true));
 }
 
 function closeUserModal() {
@@ -1594,17 +1651,19 @@ async function loadStatsSkills() {
     const enabled = list.filter(s => !s.disabled).length;
     const builtin = list.filter(s => !s.generated).length;
     const generated = list.filter(s => s.generated).length;
+    const totalUsage = list.reduce((sum, s) => sum + (s.usage_count || 0), 0);
 
     document.getElementById('statsSkillsTotal').textContent = total;
     document.getElementById('statsSkillsEnabled').textContent = enabled;
     document.getElementById('statsSkillsBuiltin').textContent = builtin;
     document.getElementById('statsSkillsGenerated').textContent = generated;
+    document.getElementById('statsSkillsTotalUsage').textContent = totalUsage;
 
     document.getElementById('statsSkillsTable').innerHTML = list.length
       ? list.map(s => `
         <div class="stats-detail-row">
           <span class="stats-detail-name">${escapeHtml(s.name)} ${s.generated ? '<span class="stats-detail-badge">user</span>' : '<span class="stats-detail-badge">built-in</span>'}</span>
-          <span class="stats-detail-meta">${s.disabled ? '⏸ disabled' : '✅ active'}</span>
+          <span class="stats-detail-meta">${s.disabled ? '⏸ disabled' : '✅ active'} · ${t('stats.used')} ${s.usage_count || 0}x</span>
         </div>`).join('')
       : `<p class="card-muted">${t('stats.noData')}</p>`;
   } catch (e) {
@@ -1655,7 +1714,12 @@ async function loadStatsServer() {
         <span class="stats-detail-num" style="white-space:nowrap">${s.status}</span>
         <span class="stats-detail-meta">${escapeHtml(s.detail)}</span>
       </div>`).join('');
+    requestAnimationFrame(fitServerOverviewValues);
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
 }
+
+window.addEventListener('resize', () => {
+  requestAnimationFrame(fitServerOverviewValues);
+});

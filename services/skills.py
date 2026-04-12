@@ -7,6 +7,7 @@ Generated skills live in data/skills/generated/*.py
 """
 
 import importlib.util
+import json
 import logging
 import os
 import re
@@ -18,10 +19,51 @@ log = logging.getLogger("hassai.skills")
 
 SKILLS_DIR = Path(__file__).parent.parent / "data" / "skills"
 GENERATED_DIR = SKILLS_DIR / "generated"
+USAGE_FILE = Path(__file__).parent.parent / "data" / "skill_usage.json"
 
 # ── In-memory registry (lazy-loaded, thread-safe) ──
 _registry: Optional[List[Dict[str, Any]]] = None
 _registry_lock = threading.Lock()
+
+# ── Skill usage counters (persisted to JSON) ──
+_usage: Dict[str, int] = {}
+_usage_lock = threading.Lock()
+
+
+def _load_usage():
+    """Load skill usage counters from disk."""
+    global _usage
+    try:
+        if USAGE_FILE.exists():
+            _usage = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        _usage = {}
+
+
+def _save_usage():
+    """Persist skill usage counters to disk."""
+    try:
+        USAGE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        USAGE_FILE.write_text(json.dumps(_usage, indent=2), encoding="utf-8")
+    except Exception as e:
+        log.warning(f"Failed to save skill usage: {e}")
+
+
+def _increment_usage(skill_name: str):
+    """Increment the usage counter for a skill."""
+    with _usage_lock:
+        if not _usage:
+            _load_usage()
+        _usage[skill_name] = _usage.get(skill_name, 0) + 1
+        _save_usage()
+
+
+def get_skill_usage() -> Dict[str, int]:
+    """Return all skill usage counters."""
+    with _usage_lock:
+        if not _usage:
+            _load_usage()
+        return dict(_usage)
 
 
 def _load_skill_module(path: str):
@@ -119,6 +161,7 @@ def run_skill(skill_name: str, input_data: Dict[str, Any], timeout: int = 30) ->
                 result = cls.execute(input_data)
                 if not isinstance(result, dict):
                     return {"success": False, "message": f"Skill returned non-dict: {type(result).__name__}"}
+                _increment_usage(skill_name)
                 return result
             except Exception as e:
                 log.error(f"Skill '{skill_name}' execution error: {e}")

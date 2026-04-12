@@ -13,7 +13,7 @@ from datetime import datetime
 from fastapi import FastAPI, Request, Query, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pathlib import Path
 
 from database import init_db, cleanup_old_conversations
@@ -205,7 +205,9 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 @app.get("/")
 async def root():
-    return FileResponse(str(STATIC_DIR / "index.html"))
+    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    html = html.replace("__CACHE_BUSTER__", VERSION)
+    return HTMLResponse(content=html)
 
 
 if __name__ == "__main__":

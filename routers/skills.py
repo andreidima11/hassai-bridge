@@ -34,16 +34,18 @@ class SkillUpdateBody(BaseModel):
 
 @router.get("/")
 async def list_skills():
-    """List all skills with enabled/disabled status."""
+    """List all skills with enabled/disabled status and usage counts."""
     registry = skills.get_skill_registry()
     cfg = load_config()
     disabled = set(cfg.get("skills_disabled", []))
+    usage = skills.get_skill_usage()
     return [
         {
             "name": s["name"],
             "description": s["description"],
             "generated": s["generated"],
             "disabled": s["name"] in disabled,
+            "usage_count": usage.get(s["name"], 0),
         }
         for s in registry
     ]

@@ -8,6 +8,7 @@ const TRANSLATIONS = {
     'tab.conversations': 'Conversations',
     'tab.settings': 'Settings',
     'tab.users': 'Users',
+    'tab.help': 'Help',
     'tab.logs': 'Logs',
 
     // Info / Dashboard panel
@@ -23,6 +24,7 @@ const TRANSLATIONS = {
     'info.actions24h': 'Actions (24h)',
     'info.copy': 'Copy',
     'info.show': 'Show',
+    'info.hide': 'Hide',
     'info.availableEndpoints': 'Available Endpoints',
     'info.loading': 'Loading...',
     'info.refresh': 'Refresh',
@@ -41,6 +43,7 @@ const TRANSLATIONS = {
     'htc.step3Title': 'Create a User & API Key',
     'htc.step3Desc': 'Go to the <strong>Users</strong> tab above and create a user. Each user gets a unique API key — this allows the AI to remember things per person and track usage individually.',
     'htc.step3Hint': 'Copy the API key and paste it in the integration configuration in Home Assistant.',
+    'htc.goToUsers': 'Go to Users ›',
     'htc.step4Title': 'Set as Assistant',
     'htc.step4Desc': 'In Home Assistant, go to <strong>Settings → Voice assistants</strong> and select <strong>HASSAI Bridge</strong> as your conversation agent. That\'s it!',
     'htc.step4Hint': 'You can now talk to the AI from any dashboard, Assist pipeline, or automation.',
@@ -148,6 +151,7 @@ const TRANSLATIONS = {
 
     // User modal
     'modal.memoriesConfig': 'Memories and user configuration',
+    'modal.apiKey': 'API Key',
     'modal.addMemory': 'Add Memory',
     'modal.category': 'Category',
     'modal.importance': 'Importance (1-5)',
@@ -279,6 +283,8 @@ const TRANSLATIONS = {
     'stats.builtinSkills': 'Built-in',
     'stats.generatedSkills': 'User-Created',
     'stats.skillsList': 'Skills Details',
+    'stats.totalUsage': 'Total Uses',
+    'stats.used': 'used',
     'stats.serverOverview': 'Server Overview',
     'stats.version': 'Version',
     'stats.endpoints': 'Endpoints',
@@ -319,6 +325,7 @@ const TRANSLATIONS = {
     'tab.conversations': 'Conversații',
     'tab.settings': 'Setări',
     'tab.users': 'Utilizatori',
+    'tab.help': 'Ajutor',
     'tab.logs': 'Loguri',
 
     // Info / Dashboard panel
@@ -334,6 +341,7 @@ const TRANSLATIONS = {
     'info.actions24h': 'Acțiuni (24h)',
     'info.copy': 'Copiază',
     'info.show': 'Arată',
+    'info.hide': 'Ascunde',
     'info.availableEndpoints': 'Endpointuri Disponibile',
     'info.loading': 'Se încarcă...',
     'info.refresh': 'Reîmprospătează',
@@ -352,6 +360,7 @@ const TRANSLATIONS = {
     'htc.step3Title': 'Creează un utilizator și API Key',
     'htc.step3Desc': 'Mergi la tab-ul <strong>Utilizatori</strong> de mai sus și creează un utilizator. Fiecare utilizator primește un API key unic — asta permite AI-ului să rețină lucruri per persoană și să urmărească utilizarea individual.',
     'htc.step3Hint': 'Copiază API key-ul și lipește-l în configurarea integrării din Home Assistant.',
+    'htc.goToUsers': 'Mergi la Utilizatori ›',
     'htc.step4Title': 'Setează ca Asistent',
     'htc.step4Desc': 'În Home Assistant, mergi la <strong>Setări → Asistenți vocali</strong> și selectează <strong>HASSAI Bridge</strong> ca agent de conversație. Asta e tot!',
     'htc.step4Hint': 'Acum poți vorbi cu AI-ul din orice dashboard, pipeline Assist sau automatizare.',
@@ -459,6 +468,7 @@ const TRANSLATIONS = {
 
     // User modal
     'modal.memoriesConfig': 'Memorii și configurare utilizator',
+    'modal.apiKey': 'Cheie API',
     'modal.addMemory': 'Adaugă Memorie',
     'modal.category': 'Categorie',
     'modal.importance': 'Importanță (1-5)',
@@ -590,6 +600,8 @@ const TRANSLATIONS = {
     'stats.builtinSkills': 'Built-in',
     'stats.generatedSkills': 'Create de utilizator',
     'stats.skillsList': 'Detalii Skilluri',
+    'stats.totalUsage': 'Total Utilizări',
+    'stats.used': 'folosit',
     'stats.serverOverview': 'Prezentare Server',
     'stats.version': 'Versiune',
     'stats.endpoints': 'Endpointuri',
