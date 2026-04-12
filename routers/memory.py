@@ -2,8 +2,8 @@ from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel
 from database import (
     get_memories, get_memories_by_category, add_memory, update_memory,
-    delete_memory, deactivate_memory, clear_memories, get_all_users,
-    get_memory_stats, CATEGORIES,
+    delete_memory, bulk_delete_memories, deactivate_memory, clear_memories,
+    get_all_users, get_memory_stats, CATEGORIES,
 )
 from services.memory_engine import consolidate_memories
 from services.knowledge_graph import KnowledgeGraph
@@ -79,6 +79,16 @@ async def edit_memory(memory_id: int, data: MemoryUpdate):
 async def remove_memory(memory_id: int):
     delete_memory(memory_id)
     return {"status": "ok"}
+
+
+class BulkDeleteMemories(BaseModel):
+    ids: list[int]
+
+
+@router.post("/bulk-delete")
+async def bulk_remove_memories(data: BulkDeleteMemories):
+    deleted = bulk_delete_memories(data.ids)
+    return {"status": "ok", "deleted": deleted}
 
 
 @router.delete("/user/{user_id}")

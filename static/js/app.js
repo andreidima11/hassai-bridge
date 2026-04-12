@@ -1024,6 +1024,7 @@ function renderMemories(memories) {
   const list = document.getElementById('memList');
   if (!memories.length) {
     list.innerHTML = `<p style="color:var(--muted);font-size:.9rem">${t('status.noMemory')}</p>`;
+    updateMemBulkBar();
     return;
   }
   list.innerHTML = memories.map(m => {
@@ -1032,6 +1033,7 @@ function renderMemories(memories) {
     const accessed = m.access_count > 0 ? t('status.accessed', { count: m.access_count }) : t('status.notAccessed');
     return `
       <div class="mem-item" data-cat="${m.category}">
+        <input type="checkbox" class="mem-cb" value="${m.id}" onclick="updateMemBulkBar()" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;margin-top:2px">
         <div class="mem-content">
           <span class="mem-badge cat-${m.category}">${catLabel(m.category)}</span>
           <span class="importance-stars" title="${m.importance}/5">${stars}</span>
@@ -1046,6 +1048,51 @@ function renderMemories(memories) {
         <button class="btn btn-danger btn-sm" onclick="deleteMemory(${m.id})">${t('users.delete')}</button>
       </div>`;
   }).join('');
+  updateMemBulkBar();
+}
+
+function updateMemBulkBar() {
+  const checked = document.querySelectorAll('.mem-cb:checked');
+  const delBtn = document.getElementById('memBulkDeleteBtn');
+  const selBtn = document.getElementById('memSelectAllBtn');
+  const countEl = document.getElementById('memSelectedCount');
+  const hasMemories = document.querySelectorAll('.mem-cb').length > 0;
+  if (hasMemories) {
+    selBtn.style.display = '';
+    if (checked.length > 0) {
+      delBtn.style.display = '';
+      countEl.style.display = '';
+      countEl.textContent = `${checked.length} ${t('modal.selected')}`;
+    } else {
+      delBtn.style.display = 'none';
+      countEl.style.display = 'none';
+    }
+  } else {
+    delBtn.style.display = 'none';
+    selBtn.style.display = 'none';
+    countEl.style.display = 'none';
+  }
+}
+
+function toggleMemSelectAll() {
+  const cbs = document.querySelectorAll('.mem-cb');
+  const allChecked = [...cbs].every(cb => cb.checked);
+  cbs.forEach(cb => cb.checked = !allChecked);
+  updateMemBulkBar();
+}
+
+async function bulkDeleteMemories() {
+  const checked = document.querySelectorAll('.mem-cb:checked');
+  if (!checked.length) return;
+  if (!confirm(t('confirm.bulkDeleteMemories', { count: checked.length }))) return;
+  const ids = [...checked].map(cb => parseInt(cb.value));
+  try {
+    await api('POST', '/api/memory/bulk-delete', { ids });
+    toast(t('toast.memoriesBulkDeleted', { count: ids.length }));
+    if (_selectedUser) await Promise.all([loadStats(_selectedUser), loadMemories(_selectedUser)]);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
 }
 
 function filterMemories(cat, btn) {
@@ -1233,17 +1280,19 @@ async function loadConversations() {
       const duration = Math.round((s.last_at - s.started_at) / 60);
       const durationStr = duration < 1 ? '<1 min' : duration < 60 ? `${duration} min` : `${Math.floor(duration/60)}h ${duration%60}m`;
       return `
-        <div class="conv-session-item" onclick="openConvSession('${escapeHtml(userId)}','${escapeHtml(s.session_id)}')">
-          <div class="conv-session-info">
+        <div class="conv-session-item" style="display:flex;align-items:center;gap:10px">
+          <input type="checkbox" class="conv-session-cb" value="${escapeHtml(s.session_id)}" onclick="event.stopPropagation();updateConvBulkBar()" style="width:18px;height:18px;cursor:pointer;flex-shrink:0">
+          <div style="flex:1;cursor:pointer" onclick="openConvSession('${escapeHtml(userId)}','${escapeHtml(s.session_id)}')">
             <div class="conv-session-date">${dateStr} &nbsp; ${timeStr} — ${lastTimeStr}</div>
             <div class="conv-session-meta">
               <span>${s.message_count} ${t('conv.messages')}</span>
               <span>${durationStr}</span>
             </div>
           </div>
-          <div class="conv-session-arrow">›</div>
+          <div class="conv-session-arrow" onclick="openConvSession('${escapeHtml(userId)}','${escapeHtml(s.session_id)}')" style="cursor:pointer">›</div>
         </div>`;
     }).join('');
+    updateConvBulkBar();
   } catch (e) {
     toast(t('toast.convsError', { msg: e.message }), true);
   }
@@ -1297,6 +1346,41 @@ async function openConvSession(userId, sessionId) {
     }).join('');
   } catch (e) {
     body.innerHTML = `<p class="card-muted" style="text-align:center;padding:40px 0;color:var(--danger)">${t('toast.error', { msg: escapeHtml(e.message) })}</p>`;
+  }
+}
+
+function updateConvBulkBar() {
+  const checked = document.querySelectorAll('.conv-session-cb:checked');
+  const bar = document.getElementById('convBulkBar');
+  const count = document.getElementById('convSelectedCount');
+  if (checked.length > 0) {
+    bar.style.display = 'flex';
+    count.textContent = `${checked.length} ${t('conv.selected')}`;
+  } else {
+    bar.style.display = 'none';
+  }
+}
+
+function toggleConvSelectAll() {
+  const cbs = document.querySelectorAll('.conv-session-cb');
+  const allChecked = [...cbs].every(cb => cb.checked);
+  cbs.forEach(cb => cb.checked = !allChecked);
+  updateConvBulkBar();
+}
+
+async function bulkDeleteSessions() {
+  const checked = document.querySelectorAll('.conv-session-cb:checked');
+  if (!checked.length) return;
+  const userId = document.getElementById('convUserSelect').value;
+  if (!userId) return;
+  if (!confirm(t('confirm.bulkDeleteSessions', { count: checked.length }))) return;
+  const sessionIds = [...checked].map(cb => cb.value);
+  try {
+    await api('POST', `/api/settings/conversations/${encodeURIComponent(userId)}/bulk-delete`, { session_ids: sessionIds });
+    toast(t('toast.sessionsDeleted', { count: sessionIds.length }));
+    loadConversations();
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 

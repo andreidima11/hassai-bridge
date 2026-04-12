@@ -219,8 +219,8 @@ def _fts_delete(conn, memory_id: int):
     try:
         conn.execute("INSERT INTO memories_fts(memories_fts, rowid, content, keywords) VALUES('delete', ?, '', '')",
                      (memory_id,))
-    except sqlite3.OperationalError:
-        pass  # FTS not available
+    except (sqlite3.OperationalError, sqlite3.DatabaseError):
+        pass  # FTS not available or row not in index
 
 
 def _escape_like(s: str) -> str:
@@ -392,6 +392,18 @@ def delete_memory(memory_id):
         conn.execute("DELETE FROM memories WHERE id = ?", (memory_id,))
 
 
+def bulk_delete_memories(memory_ids: list[int]):
+    """Delete multiple memories by ID list."""
+    if not memory_ids:
+        return 0
+    with get_db() as conn:
+        for mid in memory_ids:
+            _fts_delete(conn, mid)
+        placeholders = ",".join("?" * len(memory_ids))
+        cur = conn.execute(f"DELETE FROM memories WHERE id IN ({placeholders})", memory_ids)
+        return cur.rowcount
+
+
 def clear_memories(user_id):
     with get_db() as conn:
         conn.execute("DELETE FROM memories WHERE user_id = ?", (user_id,))
@@ -542,6 +554,19 @@ def delete_conversation_session(user_id, session_id):
             "DELETE FROM conversations WHERE user_id = ? AND session_id = ?",
             (user_id, session_id),
         )
+
+
+def bulk_delete_conversation_sessions(user_id: str, session_ids: list[str]):
+    """Delete multiple conversation sessions by session_id list."""
+    if not session_ids:
+        return 0
+    with get_db() as conn:
+        placeholders = ",".join("?" * len(session_ids))
+        cur = conn.execute(
+            f"DELETE FROM conversations WHERE user_id = ? AND session_id IN ({placeholders})",
+            [user_id] + session_ids,
+        )
+        return cur.rowcount
 
 
 def clear_conversation(user_id):

@@ -61,6 +61,9 @@ const TRANSLATIONS = {
     'conv.noMessages': 'No messages in this session.',
     'conv.messages': 'messages',
     'conv.loadingMessages': 'Loading...',
+    'conv.deleteSelected': 'Delete Selected',
+    'conv.selectAll': 'Select All',
+    'conv.selected': 'selected',
 
     // Settings
     'settings.serverUrl': 'Server URL',
@@ -169,6 +172,9 @@ const TRANSLATIONS = {
     'modal.filterInstructions': 'Instructions',
     'modal.filterContext': 'Context',
     'modal.consolidate': 'AI Consolidation',
+    'modal.deleteSelected': 'Delete Selected',
+    'modal.selectAll': 'Select All',
+    'modal.selected': 'selected',
     'modal.deleteAll': 'Delete All',
     'modal.deleteUser': 'Delete User',
     'modal.total': 'Total',
@@ -226,6 +232,8 @@ const TRANSLATIONS = {
     'toast.dbRestored': 'Database restored! Reloading...',
     'toast.convsError': 'Error loading conversations: {msg}',
     'toast.sessionDeleted': 'Conversation deleted!',
+    'toast.sessionsDeleted': '{count} conversations deleted!',
+    'toast.memoriesBulkDeleted': '{count} memories deleted!',
     'toast.langSaved': 'Language changed!',
 
     // Confirm dialogs
@@ -234,6 +242,8 @@ const TRANSLATIONS = {
     'confirm.restore': 'Restoring replaces ALL existing data!\n\nAre you sure?',
     'confirm.deleteSession': 'Are you sure you want to delete this conversation?\n\nThis action is irreversible!',
     'confirm.deleteAllMemories': 'Delete ALL memories for "{name}"?',
+    'confirm.bulkDeleteSessions': 'Delete {count} selected conversations?\n\nThis action is irreversible!',
+    'confirm.bulkDeleteMemories': 'Delete {count} selected memories?\n\nThis action is irreversible!',
 
     // Misc
     'misc.saved': '(saved)',
@@ -378,6 +388,9 @@ const TRANSLATIONS = {
     'conv.noMessages': 'Niciun mesaj în această sesiune.',
     'conv.messages': 'mesaje',
     'conv.loadingMessages': 'Se încarcă...',
+    'conv.deleteSelected': 'Șterge Selectate',
+    'conv.selectAll': 'Selectează Tot',
+    'conv.selected': 'selectate',
 
     // Settings
     'settings.serverUrl': 'URL Server',
@@ -486,6 +499,9 @@ const TRANSLATIONS = {
     'modal.filterInstructions': 'Instrucțiuni',
     'modal.filterContext': 'Context',
     'modal.consolidate': 'Consolidare AI',
+    'modal.deleteSelected': 'Șterge Selectate',
+    'modal.selectAll': 'Selectează Tot',
+    'modal.selected': 'selectate',
     'modal.deleteAll': 'Șterge Tot',
     'modal.deleteUser': 'Șterge Utilizator',
     'modal.total': 'Total',
@@ -543,6 +559,8 @@ const TRANSLATIONS = {
     'toast.dbRestored': 'Baza de date restaurată! Se reîncarcă...',
     'toast.convsError': 'Eroare la încărcarea conversațiilor: {msg}',
     'toast.sessionDeleted': 'Conversație ștearsă!',
+    'toast.sessionsDeleted': '{count} conversații șterse!',
+    'toast.memoriesBulkDeleted': '{count} memorii șterse!',
     'toast.langSaved': 'Limbă schimbată!',
 
     // Confirm dialogs
@@ -551,6 +569,8 @@ const TRANSLATIONS = {
     'confirm.restore': 'Restaurarea înlocuiește TOATE datele existente!\n\nEști sigur?',
     'confirm.deleteSession': 'Ești sigur că vrei să ștergi această conversație?\n\nAceastă acțiune este ireversibilă!',
     'confirm.deleteAllMemories': 'Ștergi TOATE memoriile pentru "{name}"?',
+    'confirm.bulkDeleteSessions': 'Ștergi {count} conversații selectate?\n\nAceastă acțiune este ireversibilă!',
+    'confirm.bulkDeleteMemories': 'Ștergi {count} memorii selectate?\n\nAceastă acțiune este ireversibilă!',
 
     // Misc
     'misc.saved': '(salvat)',

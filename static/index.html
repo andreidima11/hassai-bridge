@@ -243,7 +243,14 @@
     </div>
 
     <div class="card" id="convSessionsCard" style="display:none">
-      <h2 data-i18n="conv.sessions">Conversation Sessions</h2>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 data-i18n="conv.sessions">Conversation Sessions</h2>
+        <div id="convBulkBar" style="display:none;gap:8px;align-items:center">
+          <span id="convSelectedCount" style="font-size:.85rem;color:var(--muted)"></span>
+          <button class="btn btn-danger btn-sm" onclick="bulkDeleteSessions()" data-i18n="conv.deleteSelected">Delete Selected</button>
+          <button class="btn btn-sm" onclick="toggleConvSelectAll()" data-i18n="conv.selectAll">Select All</button>
+        </div>
+      </div>
       <div id="convSessionsList" class="conv-sessions-list"></div>
     </div>
   </div>
@@ -721,8 +728,12 @@
           <button class="btn btn-sm filter-btn" onclick="filterMemories('context',this)" data-i18n="modal.filterContext">Context</button>
         </div>
         <div class="mem-list" id="memList"></div>
-        <div class="btn-row">
+        <div class="btn-row" style="flex-wrap:wrap;gap:8px;align-items:center">
           <button class="btn btn-primary btn-sm" onclick="consolidateMemories()" data-i18n="modal.consolidate">AI Consolidation</button>
+          <button class="btn btn-danger btn-sm" id="memBulkDeleteBtn" style="display:none" onclick="bulkDeleteMemories()" data-i18n="modal.deleteSelected">Delete Selected</button>
+          <button class="btn btn-sm" id="memSelectAllBtn" style="display:none" onclick="toggleMemSelectAll()" data-i18n="modal.selectAll">Select All</button>
+          <span id="memSelectedCount" style="font-size:.85rem;color:var(--muted);display:none"></span>
+          <span style="flex:1"></span>
           <button class="btn btn-danger btn-sm" onclick="clearUserMemories()" data-i18n="modal.deleteAll">Delete All</button>
         </div>
       </div>

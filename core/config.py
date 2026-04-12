@@ -4,7 +4,7 @@ import time
 import uuid
 from pathlib import Path
 
-VERSION = "v0.1.7.0-beta"
+VERSION = "v0.1.7.1-beta"
 DB_SCHEMA_VERSION = 2
 
 DATA_DIR = Path(__file__).parent.parent / "data"

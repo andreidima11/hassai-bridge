@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from config import load_config, save_config
 from core.config import VERSION
-from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session, get_usage_stats, delete_user_data
+from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session, bulk_delete_conversation_sessions, get_usage_stats, delete_user_data
 from services import providers, searxng
 from services.providers import get_active_provider, PROVIDER_PRESETS
 
@@ -443,6 +443,16 @@ async def delete_session(user_id: str, session_id: str):
     """Delete a conversation session."""
     delete_conversation_session(user_id, session_id)
     return {"status": "ok"}
+
+
+@router.post("/conversations/{user_id}/bulk-delete")
+async def bulk_delete_sessions(user_id: str, data: dict):
+    """Delete multiple conversation sessions."""
+    session_ids = data.get("session_ids", [])
+    if not session_ids or not isinstance(session_ids, list):
+        raise HTTPException(status_code=400, detail="session_ids list required")
+    deleted = bulk_delete_conversation_sessions(user_id, session_ids)
+    return {"status": "ok", "deleted": deleted}
 
 
 # ══════════════════════════════════════════════════
