@@ -369,7 +369,15 @@ async function loadUsageStats() {
     document.getElementById('statsRequests').textContent = _formatNumber(stats.total_requests);
     document.getElementById('statsTokens').textContent = _formatNumber(stats.tokens.total);
     document.getElementById('statsSearches').textContent = _formatNumber(stats.search_requests);
-    document.getElementById('statsStream').textContent = `${_formatNumber(stats.stream_requests)} / ${_formatNumber(stats.non_stream_requests)}`;
+
+    // Skills count
+    try {
+      const skillsList = await api('GET', '/api/skills/');
+      const enabledSkills = skillsList.filter(s => !s.disabled).length;
+      document.getElementById('statsSkills').textContent = `${enabledSkills} / ${skillsList.length}`;
+    } catch {
+      document.getElementById('statsSkills').textContent = '—';
+    }
 
     // Pie chart - by provider
     const provData = stats.by_provider.map(p => ({ label: p.provider_name || p.provider_id, value: p.requests }));

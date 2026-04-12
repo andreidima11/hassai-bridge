@@ -235,25 +235,41 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
   .header{padding:12px 16px;flex-wrap:wrap;gap:8px}
   .header-left h1{font-size:1.05rem}
   .header-right{flex-wrap:wrap;gap:6px}
-  .container{padding:0 12px}
+  .container{padding:0 10px;margin:12px auto}
   .services-grid{grid-template-columns:1fr}
   .info-stats-grid{grid-template-columns:repeat(2,1fr)}
   .ha-setup-grid{grid-template-columns:1fr}
   .endpoint-box{flex-wrap:wrap}
-  .endpoint-box code{font-size:.82rem;min-width:0}
+  .endpoint-box code{font-size:.78rem;min-width:0}
   .endpoint-detail{flex-direction:column;align-items:flex-start;gap:4px}
   .endpoint-detail span{min-width:unset}
   .endpoint-detail code{word-break:break-all;max-width:100%}
   .ep-desc{display:none}
   .stat-grid{grid-template-columns:repeat(2,1fr)}
-  .tabs{flex-wrap:wrap}
-  .tab{padding:9px 10px;font-size:.82rem}
+  .tabs{flex-wrap:wrap;gap:2px;padding:4px}
+  .tab{padding:8px 6px;font-size:.75rem;min-width:0;flex:1 1 auto}
   .btn-row{flex-direction:column}
   .btn-row .btn{width:100%;justify-content:center}
   .provider-item{flex-direction:column;align-items:flex-start;gap:10px}
   .provider-actions{width:100%;justify-content:flex-end}
   .stats-charts-row{flex-direction:column}
   .stats-overview-grid{grid-template-columns:repeat(2,1fr)}
+  .card{padding:16px 14px;margin-bottom:12px}
+  .card h2{font-size:.95rem}
+  .settings-tabs{flex-wrap:wrap;gap:2px;padding:3px}
+  .settings-tab{padding:7px 8px;font-size:.75rem;flex:1 1 auto;min-width:0}
+  .skill-card{flex-direction:column!important;align-items:flex-start!important;gap:10px}
+  .skill-card>div:last-child{width:100%;justify-content:flex-end}
+  .stats-detail-row{flex-wrap:wrap;gap:4px}
+  .stats-detail-meta{min-width:auto;text-align:left;font-size:.72rem}
+  .stats-detail-num{min-width:auto}
+  .modal-header{padding:14px 16px}
+  .modal-body{padding:14px 16px}
+  .modal-avatar{width:38px;height:38px;font-size:1.2rem}
+  .modal-title h2{font-size:1rem}
+  .conv-session-meta{flex-wrap:wrap;gap:8px}
+  .info-stat-num{font-size:1.3rem}
+  .badge-sm{font-size:.63rem;padding:2px 5px}
 }
 
 /* ── Scrollbar ── */
