@@ -4,7 +4,7 @@ import time
 import uuid
 from pathlib import Path
 
-VERSION = "v0.1.6.1-beta"
+VERSION = "v0.1.6.2-beta"
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 CONFIG_FILE = DATA_DIR / "config.json"
