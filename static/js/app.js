@@ -1311,5 +1311,161 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (tab.dataset.panel === 'statistics') {
       loadUsageStats();
     }
+    if (tab.dataset.panel === 'skills') {
+      loadSkills();
+    }
   });
 });
+
+
+// ══════════════════════════════════════════════════
+// SKILLS TAB
+// ══════════════════════════════════════════════════
+
+let _skillEditing = null; // null = creating, string = skill name being edited
+
+async function loadSkills() {
+  const el = document.getElementById('skillsList');
+  if (!el) return;
+  try {
+    const list = await api('GET', '/api/skills/');
+    if (!list.length) {
+      el.innerHTML = '<div class="card"><p class="card-muted" data-i18n="skills.noSkills">No skills installed. Click "+ New Skill" to create one.</p></div>';
+      applyTranslations();
+      return;
+    }
+    el.innerHTML = list.map(s => `
+      <div class="card skill-card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;padding:14px 18px">
+        <div style="flex:1;min-width:200px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <strong>${escapeHtml(s.name)}</strong>
+            ${s.generated ? '<span class="badge badge-sm" style="background:#00b894;color:#fff">generated</span>' : '<span class="badge badge-sm" style="background:#6c5ce7;color:#fff">built-in</span>'}
+            ${s.disabled ? '<span class="badge badge-sm" style="background:#d63031;color:#fff">disabled</span>' : ''}
+          </div>
+          <div style="font-size:.82rem;color:var(--muted);margin-top:2px">${escapeHtml(s.description)}</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0">
+          <button class="btn btn-sm btn-primary" onclick="editSkill('${escapeHtml(s.name)}')" data-i18n="skills.edit">Edit</button>
+          <button class="btn btn-sm" onclick="toggleSkill('${escapeHtml(s.name)}')">${s.disabled ? '▶ Enable' : '⏸ Disable'}</button>
+          ${s.generated ? `<button class="btn btn-sm btn-danger" onclick="deleteSkill('${escapeHtml(s.name)}')" data-i18n="skills.delete">Delete</button>` : ''}
+        </div>
+      </div>
+    `).join('');
+    applyTranslations();
+  } catch (e) {
+    el.innerHTML = `<div class="card"><p style="color:var(--danger)">Error loading skills: ${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+async function openCreateSkill() {
+  _skillEditing = null;
+  document.getElementById('skillModalTitle').textContent = t('skills.createSkill') || 'Create Skill';
+  document.getElementById('skillModalSubtitle').textContent = t('skills.createDesc') || 'Create a new custom skill';
+  document.getElementById('skillNameSection').style.display = '';
+  document.getElementById('skillEditName').value = '';
+  document.getElementById('skillTestOutput').style.display = 'none';
+
+  // Load template
+  try {
+    const tpl = await api('GET', '/api/skills/template');
+    document.getElementById('skillEditSource').value = tpl.source || '';
+  } catch {
+    document.getElementById('skillEditSource').value = '';
+  }
+  document.getElementById('skillModal').classList.add('open');
+}
+
+async function editSkill(name) {
+  _skillEditing = name;
+  document.getElementById('skillModalTitle').textContent = t('skills.editSkill') || 'Edit Skill';
+  document.getElementById('skillModalSubtitle').textContent = name;
+  document.getElementById('skillNameSection').style.display = 'none';
+  document.getElementById('skillTestOutput').style.display = 'none';
+
+  try {
+    const data = await api('GET', `/api/skills/${encodeURIComponent(name)}`);
+    document.getElementById('skillEditSource').value = data.source || '';
+  } catch (e) {
+    toast('Error: ' + e.message, true);
+    return;
+  }
+  document.getElementById('skillModal').classList.add('open');
+}
+
+function closeSkillModal() {
+  document.getElementById('skillModal').classList.remove('open');
+  _skillEditing = null;
+}
+
+async function saveSkillEdit() {
+  const source = document.getElementById('skillEditSource').value;
+  try {
+    if (_skillEditing) {
+      await api('PATCH', `/api/skills/${encodeURIComponent(_skillEditing)}`, { source });
+      toast(t('skills.updated') || 'Skill updated');
+    } else {
+      const name = document.getElementById('skillEditName').value.trim();
+      if (!name) { toast('Enter a skill name', true); return; }
+      await api('POST', '/api/skills/', { name, source });
+      toast(t('skills.created') || 'Skill created');
+    }
+    closeSkillModal();
+    loadSkills();
+  } catch (e) {
+    toast('Error: ' + e.message, true);
+  }
+}
+
+async function toggleSkill(name) {
+  try {
+    await api('POST', `/api/skills/${encodeURIComponent(name)}/toggle`);
+    loadSkills();
+  } catch (e) {
+    toast('Error: ' + e.message, true);
+  }
+}
+
+async function deleteSkill(name) {
+  if (!confirm(`Delete skill "${name}"?`)) return;
+  try {
+    await api('DELETE', `/api/skills/${encodeURIComponent(name)}`);
+    toast(t('skills.deleted') || 'Skill deleted');
+    loadSkills();
+  } catch (e) {
+    toast('Error: ' + e.message, true);
+  }
+}
+
+async function reloadSkills() {
+  try {
+    const res = await api('POST', '/api/skills/reload');
+    toast(`${res.count} skills loaded`);
+    loadSkills();
+  } catch (e) {
+    toast('Error: ' + e.message, true);
+  }
+}
+
+async function testSkill() {
+  const name = _skillEditing;
+  if (!name) { toast('Save the skill first before testing', true); return; }
+  const outputEl = document.getElementById('skillTestOutput');
+  let inputData = {};
+  try {
+    const raw = document.getElementById('skillTestInput').value.trim();
+    if (raw) inputData = JSON.parse(raw);
+  } catch {
+    toast('Invalid JSON in test input', true);
+    return;
+  }
+  outputEl.style.display = 'block';
+  outputEl.textContent = 'Running...';
+  try {
+    const result = await api('POST', `/api/skills/${encodeURIComponent(name)}/test`, { input_data: inputData });
+    outputEl.textContent = JSON.stringify(result, null, 2);
+    outputEl.style.color = result.success ? 'var(--success)' : 'var(--danger)';
+  } catch (e) {
+    outputEl.textContent = 'Error: ' + e.message;
+    outputEl.style.color = 'var(--danger)';
+  }
+}

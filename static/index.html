@@ -26,6 +26,7 @@
     <div class="tab" data-panel="settings" data-i18n="tab.settings">Settings</div>
     <div class="tab" data-panel="users" data-i18n="tab.users">Users</div>
     <div class="tab" data-panel="logs" data-i18n="tab.logs">Logs</div>
+    <div class="tab" data-panel="skills" data-i18n="tab.skills">Skills</div>
   </div>
 
   <!-- ════════════ INFO ════════════ -->
@@ -485,6 +486,58 @@
     </div>
     <div class="card logs-container">
       <pre class="logs-pre" id="logsOutput"><span class="log-muted" data-i18n="logs.loading">Loading logs...</span></pre>
+    </div>
+  </div>
+
+  <!-- ════════════ SKILLS ════════════ -->
+  <div class="panel" id="skills">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0" data-i18n="skills.title">Skills</h2>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm btn-primary" onclick="openCreateSkill()" data-i18n="skills.create">+ New Skill</button>
+          <button class="btn btn-sm" onclick="reloadSkills()" data-i18n="skills.reload">Reload</button>
+        </div>
+      </div>
+      <p class="card-muted" data-i18n="skills.desc">Skills extend the AI with custom abilities. The AI calls skills automatically when relevant.</p>
+    </div>
+    <div id="skillsList"></div>
+  </div>
+
+  <!-- ════════════ SKILL EDITOR MODAL ════════════ -->
+  <div class="modal-overlay" id="skillModal" onclick="if(event.target===this)closeSkillModal()">
+    <div class="modal" style="max-width:860px">
+      <div class="modal-header">
+        <div class="modal-title">
+          <div class="modal-avatar" style="background:linear-gradient(135deg,#00b894,#00cec9)">⚡</div>
+          <div>
+            <h2 id="skillModalTitle" data-i18n="skills.editSkill">Edit Skill</h2>
+            <span class="modal-subtitle" id="skillModalSubtitle">—</span>
+          </div>
+        </div>
+        <button class="modal-close" onclick="closeSkillModal()" title="Close">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-section" id="skillNameSection">
+          <label data-i18n="skills.skillName">Skill Name</label>
+          <input type="text" id="skillEditName" placeholder="e.g.: weather_check">
+          <p class="card-muted hint" data-i18n="skills.nameHint">Lowercase, underscores only. This becomes the filename.</p>
+        </div>
+        <div class="modal-section">
+          <label data-i18n="skills.sourceCode">Source Code</label>
+          <textarea id="skillEditSource" rows="22" style="font-family:monospace;font-size:.85rem;tab-size:4;white-space:pre;overflow-x:auto"></textarea>
+        </div>
+        <div class="modal-section" id="skillTestSection">
+          <label data-i18n="skills.testInput">Test Input (JSON)</label>
+          <textarea id="skillTestInput" rows="2" style="font-family:monospace;font-size:.85rem" placeholder='{"symbol": "AAPL"}'></textarea>
+          <button class="btn btn-sm btn-success" onclick="testSkill()" data-i18n="skills.test">Test Skill</button>
+          <pre id="skillTestOutput" class="logs-pre" style="margin-top:8px;max-height:150px;display:none"></pre>
+        </div>
+      </div>
+      <div class="modal-footer" style="background:transparent;justify-content:flex-end;gap:8px">
+        <button class="btn btn-sm" onclick="closeSkillModal()" data-i18n="settings.cancel">Cancel</button>
+        <button class="btn btn-primary btn-sm" onclick="saveSkillEdit()" id="skillSaveBtn" data-i18n="settings.save">Save</button>
+      </div>
     </div>
   </div>
 

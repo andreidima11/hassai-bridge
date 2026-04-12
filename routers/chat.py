@@ -29,7 +29,7 @@ from database import (
 )
 from services import providers
 from services.providers import get_active_provider
-from services import searxng
+from services import searxng, skills
 from services.memory_engine import (
     retrieve_relevant_memories,
     build_memory_context,
@@ -408,6 +408,42 @@ def _strip_search_markers(text: str) -> str:
     return _SEARCH_MARKER_STRIP.sub("", text).strip()
 
 
+def _build_skill_tools() -> list[dict]:
+    """Build the run_skill tool definition with current skill descriptions."""
+    cfg = load_config()
+    disabled = set(cfg.get("skills_disabled", []))
+    registry = skills.get_skill_registry()
+    enabled = [s for s in registry if s["name"] not in disabled]
+    if not enabled:
+        return []
+    skill_list = ", ".join(f'"{s["name"]}" ({s["description"]})' for s in enabled)
+    return [{
+        "type": "function",
+        "function": {
+            "name": "run_skill",
+            "description": (
+                f"Execute one of the available skills. Skills: {skill_list}. "
+                "Call this when the user asks for something a skill can handle."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Name of the skill to execute.",
+                        "enum": [s["name"] for s in enabled],
+                    },
+                    "input_data": {
+                        "type": "object",
+                        "description": "Input parameters for the skill as key-value pairs.",
+                    },
+                },
+                "required": ["skill_name", "input_data"],
+            },
+        },
+    }]
+
+
 def _build_search_instruction(cfg: dict) -> str:
     """Short context hint about the knowledge cutoff and search availability."""
     cutoff = cfg.get("knowledge_cutoff", "2024-01")
@@ -535,10 +571,11 @@ async def chat_completions(request: Request):
     cfg = load_config()
     search_enabled = cfg["searxng"].get("enabled", False)
 
-    # Build effective tools list: client tools + search_web if enabled
+    # Build effective tools list: client tools + search_web + skills
     all_tools = list(tools or []) if tools else []
     if search_enabled:
         all_tools.append(_SEARCH_WEB_TOOL)
+    all_tools.extend(_build_skill_tools())
     effective_tools = all_tools if all_tools else None
 
     # ── Slash command check ──
@@ -646,63 +683,83 @@ async def chat_completions(request: Request):
                 content={"error": {"message": f"Provider error: {e}", "type": "upstream_error"}},
             )
 
-        # ── Handle tool_calls (search_web + forwarding) ──
-        # Up to 2 search rounds; non-search tool_calls are forwarded to client.
-        for _round in range(2):
+        # ── Handle tool_calls (search_web, run_skill, or forward to client) ──
+        _INTERNAL_TOOLS = {"search_web", "run_skill"}
+        for _round in range(3):
             msg = result.get("choices", [{}])[0].get("message", {})
             tool_calls = msg.get("tool_calls") or []
             if not tool_calls:
                 break
 
-            search_call = next(
-                (tc for tc in tool_calls if tc.get("function", {}).get("name") == "search_web"),
-                None,
-            )
-            if not (search_enabled and search_call):
-                # No search_web call — forward tool_calls to client (HA)
+            # Separate internal (bridge-handled) vs external (client-handled) tool calls
+            internal_calls = [tc for tc in tool_calls if tc.get("function", {}).get("name") in _INTERNAL_TOOLS]
+            external_calls = [tc for tc in tool_calls if tc.get("function", {}).get("name") not in _INTERNAL_TOOLS]
+
+            if not internal_calls:
+                # Only external tool_calls — forward to client (HA)
                 msg["content"] = ""
                 return JSONResponse(content=result)
 
-            # Execute search_web tool
-            try:
-                args = json.loads(search_call["function"]["arguments"])
-                query = (args.get("query") or "").strip()[:200]
-            except (json.JSONDecodeError, KeyError):
-                query = ""
-            if not query:
-                break
-
-            log.info(f"AI requested search (tool, round {_round + 1}): {query}")
-            _search_used = True
-            try:
-                search_ctx = await search_and_fetch(query)
-            except Exception as e:
-                log.error(f"Search failed: {e}")
-                search_ctx = ""
-
-            # Add the tool exchange to conversation
+            # Process all internal tool calls
             augmented.append(msg)  # assistant message with tool_calls
-            augmented.append({
-                "role": "tool",
-                "tool_call_id": search_call.get("id", "call_search"),
-                "content": (
-                    f"[Web search results for '{query}' — use this to answer accurately. "
-                    "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
-                    + (search_ctx or "No results found.")
-                ),
-            })
+            used_tool_names = set()
 
-            # Re-call without search_web tool to avoid loops
-            re_tools = [t for t in all_tools if t.get("function", {}).get("name") != "search_web"]
+            for tc in internal_calls:
+                fn_name = tc.get("function", {}).get("name", "")
+                tc_id = tc.get("id", f"call_{fn_name}")
+                try:
+                    args = json.loads(tc["function"]["arguments"])
+                except (json.JSONDecodeError, KeyError):
+                    args = {}
+
+                if fn_name == "search_web" and search_enabled:
+                    query = (args.get("query") or "").strip()[:200]
+                    if query:
+                        log.info(f"AI requested search (tool, round {_round + 1}): {query}")
+                        _search_used = True
+                        try:
+                            search_ctx = await search_and_fetch(query)
+                        except Exception as e:
+                            log.error(f"Search failed: {e}")
+                            search_ctx = ""
+                        augmented.append({
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "content": (
+                                f"[Web search results for '{query}' — use this to answer accurately. "
+                                "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
+                                + (search_ctx or "No results found.")
+                            ),
+                        })
+                        used_tool_names.add("search_web")
+
+                elif fn_name == "run_skill":
+                    skill_name = (args.get("skill_name") or "").strip()
+                    input_data = args.get("input_data") or {}
+                    log.info(f"AI requested skill '{skill_name}' (round {_round + 1}): {input_data}")
+                    skill_result = skills.run_skill(skill_name, input_data)
+                    augmented.append({
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": (
+                            f"[Skill '{skill_name}' result]\n"
+                            + (skill_result.get("message", "") if skill_result.get("success")
+                               else f"Error: {skill_result.get('message', 'unknown error')}")
+                        ),
+                    })
+                    used_tool_names.add("run_skill")
+
+            # Re-call without used tools to avoid loops
+            re_tools = [t for t in all_tools if t.get("function", {}).get("name") not in used_tool_names]
             result = await providers.chat_completion(
                 augmented, model=model, tools=re_tools or None,
                 tool_choice=tool_choice, provider=active,
             )
 
-        # If final result still has non-search tool_calls, forward to client
+        # If final result still has non-internal tool_calls, forward to client
         final_msg = result.get("choices", [{}])[0].get("message", {})
         if final_msg.get("tool_calls"):
-            remaining = [tc for tc in final_msg["tool_calls"] if tc.get("function", {}).get("name") != "search_web"]
+            remaining = [tc for tc in final_msg["tool_calls"] if tc.get("function", {}).get("name") not in _INTERNAL_TOOLS]
             if remaining:
                 final_msg["tool_calls"] = remaining
                 final_msg["content"] = ""
@@ -803,84 +860,103 @@ async def chat_completions(request: Request):
             elif chunk.strip() == "data: [DONE]":
                 # Stream finished — handle accumulated tool_calls
                 if has_tool_calls and tc_accum:
-                    search_call = next(
-                        (tc for tc in tc_accum.values() if tc["name"] == "search_web"),
-                        None,
-                    )
+                    # Identify internal tool calls we handle (search_web, run_skill)
+                    internal_calls = {idx: td for idx, td in tc_accum.items() if td["name"] in ("search_web", "run_skill")}
 
-                    if search_call and search_enabled:
-                        # Execute search_web tool call
-                        try:
-                            args = json.loads(search_call["arguments"])
-                            query = (args.get("query") or "").strip()[:200]
-                        except (json.JSONDecodeError, KeyError):
-                            query = ""
+                    if internal_calls:
+                        # Build all tool_calls for the assistant message
+                        all_tcs = [
+                            {
+                                "id": td["id"] or f"call_{idx}",
+                                "type": "function",
+                                "function": {"name": td["name"], "arguments": td["arguments"]},
+                            }
+                            for idx, td in tc_accum.items()
+                        ]
+                        augmented.append({"role": "assistant", "content": None, "tool_calls": all_tcs})
 
-                        if query:
-                            log.info(f"AI requested search (stream/tool): {query}")
-                            search_ctx = ""
+                        # Process each internal tool call
+                        used_tool_names = set()
+                        for idx, td in internal_calls.items():
+                            tc_id = td["id"] or f"call_{idx}"
                             try:
-                                search_ctx = await search_and_fetch(query)
-                            except Exception as e:
-                                log.error(f"Search failed: {e}")
+                                args = json.loads(td["arguments"])
+                            except (json.JSONDecodeError, KeyError):
+                                args = {}
 
-                            # Build tool exchange messages
-                            all_tcs = [
-                                {
-                                    "id": td["id"] or f"call_{idx}",
-                                    "type": "function",
-                                    "function": {"name": td["name"], "arguments": td["arguments"]},
-                                }
-                                for idx, td in tc_accum.items()
-                            ]
-                            augmented.append({"role": "assistant", "content": None, "tool_calls": all_tcs})
-                            augmented.append({
-                                "role": "tool",
-                                "tool_call_id": search_call["id"] or "call_search",
-                                "content": (
-                                    f"[Web search results for '{query}' — use this to answer accurately. "
-                                    "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
-                                    + (search_ctx or "No results found.")
-                                ),
-                            })
-
-                            # Re-stream without search_web tool
-                            re_tools = [t for t in all_tools if t.get("function", {}).get("name") != "search_web"]
-                            gen2 = providers.chat_completion_stream(
-                                augmented, model=model, tools=re_tools or None,
-                                tool_choice=tool_choice, provider=active,
-                            )
-                            async for chunk2 in gen2:
-                                if chunk2.startswith("data: ") and chunk2.strip() != "data: [DONE]":
+                            if td["name"] == "search_web" and search_enabled:
+                                query = (args.get("query") or "").strip()[:200]
+                                if query:
+                                    log.info(f"AI requested search (stream/tool): {query}")
+                                    search_ctx = ""
                                     try:
-                                        d2 = json.loads(chunk2[6:])
-                                        t2 = d2.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                                        if t2:
-                                            full_response += t2
-                                    except (json.JSONDecodeError, IndexError, KeyError):
-                                        pass
-                                yield chunk2
+                                        search_ctx = await search_and_fetch(query)
+                                    except Exception as e:
+                                        log.error(f"Search failed: {e}")
+                                    augmented.append({
+                                        "role": "tool",
+                                        "tool_call_id": tc_id,
+                                        "content": (
+                                            f"[Web search results for '{query}' — use this to answer accurately. "
+                                            "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
+                                            + (search_ctx or "No results found.")
+                                        ),
+                                    })
+                                    used_tool_names.add("search_web")
 
-                            # Save & extract
-                            if full_response:
-                                add_conversation_message(user_id, "assistant", full_response)
-                                all_msgs = messages + [{"role": "assistant", "content": full_response}]
-                                asyncio.create_task(_safe_extract(user_id, all_msgs))
-                            try:
-                                add_usage_stat(
-                                    user_id=user_id, provider_id=active.get("id", ""),
-                                    provider_name=active.get("name", ""), provider_type=active.get("type", ""),
-                                    model=model or active.get("model", ""),
-                                    tokens_prompt=0, tokens_completion=_estimate_tokens(full_response),
-                                    tokens_total=_estimate_tokens(full_response),
-                                    response_time_ms=int((time.time() - _req_start) * 1000),
-                                    stream=True, search_used=True,
-                                )
-                            except Exception:
-                                pass
-                            return
+                            elif td["name"] == "run_skill":
+                                skill_name = (args.get("skill_name") or "").strip()
+                                input_data = args.get("input_data") or {}
+                                log.info(f"AI requested skill '{skill_name}' (stream): {input_data}")
+                                skill_result = skills.run_skill(skill_name, input_data)
+                                augmented.append({
+                                    "role": "tool",
+                                    "tool_call_id": tc_id,
+                                    "content": (
+                                        f"[Skill '{skill_name}' result]\n"
+                                        + (skill_result.get("message", "") if skill_result.get("success")
+                                           else f"Error: {skill_result.get('message', 'unknown error')}")
+                                    ),
+                                })
+                                used_tool_names.add("run_skill")
 
-                    # Not search_web — forward buffered tool_call chunks to client (HA)
+                        # Re-stream without used tools
+                        re_tools = [t for t in all_tools if t.get("function", {}).get("name") not in used_tool_names]
+                        gen2 = providers.chat_completion_stream(
+                            augmented, model=model, tools=re_tools or None,
+                            tool_choice=tool_choice, provider=active,
+                        )
+                        async for chunk2 in gen2:
+                            if chunk2.startswith("data: ") and chunk2.strip() != "data: [DONE]":
+                                try:
+                                    d2 = json.loads(chunk2[6:])
+                                    t2 = d2.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    if t2:
+                                        full_response += t2
+                                except (json.JSONDecodeError, IndexError, KeyError):
+                                    pass
+                            yield chunk2
+
+                        # Save & extract
+                        if full_response:
+                            add_conversation_message(user_id, "assistant", full_response)
+                            all_msgs = messages + [{"role": "assistant", "content": full_response}]
+                            asyncio.create_task(_safe_extract(user_id, all_msgs))
+                        try:
+                            add_usage_stat(
+                                user_id=user_id, provider_id=active.get("id", ""),
+                                provider_name=active.get("name", ""), provider_type=active.get("type", ""),
+                                model=model or active.get("model", ""),
+                                tokens_prompt=0, tokens_completion=_estimate_tokens(full_response),
+                                tokens_total=_estimate_tokens(full_response),
+                                response_time_ms=int((time.time() - _req_start) * 1000),
+                                stream=True, search_used=bool(used_tool_names),
+                            )
+                        except Exception:
+                            pass
+                        return
+
+                    # No internal tool calls — forward buffered tool_call chunks to client (HA)
                     for tc_chunk in tc_chunks:
                         yield tc_chunk
                     yield chunk  # forward the [DONE]

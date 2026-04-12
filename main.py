@@ -19,7 +19,7 @@ from pathlib import Path
 from database import init_db, cleanup_old_conversations
 from core.config import VERSION, load_config
 from services.knowledge_graph import init_graph_tables
-from routers import chat, memory, settings
+from routers import chat, memory, settings, skills
 
 # ── In-memory ring buffer for logs ──
 _LOG_BUFFER_SIZE = 2000
@@ -86,6 +86,7 @@ app = FastAPI(
 app.include_router(chat.router)
 app.include_router(memory.router)
 app.include_router(settings.router)
+app.include_router(skills.router)
 
 # ── CORS middleware — allow same-origin + local network access ──
 app.add_middleware(

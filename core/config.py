@@ -50,6 +50,7 @@ DEFAULT_CONFIG = {
         "history_limit": 10,
         "parallel_page_fetch": True,
     },
+    "skills_disabled": [],
     "knowledge_cutoff": "2024-01",
     "language": "en",
     "users": {

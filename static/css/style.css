@@ -299,4 +299,8 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .settings-tab.active{background:var(--accent);color:#fff;font-weight:600}
 .settings-subpanel{display:none}
 .settings-subpanel.active{display:block}
+
+/* ── Skills ── */
+.badge-sm{display:inline-block;padding:2px 7px;border-radius:4px;font-size:.7rem;font-weight:600;vertical-align:middle}
+.skill-card{margin-bottom:8px}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
