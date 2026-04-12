@@ -182,6 +182,7 @@ async def add_provider(data: dict):
         "max_tokens": max_tokens,
         "temperature": temperature,
         "system_prompt": system_prompt,
+        "eco_mode": bool(data.get("eco_mode", False)),
     }
     cfg.setdefault("providers", []).append(provider)
     # Auto-activate if first provider
@@ -197,7 +198,7 @@ async def update_provider(provider_id: str, data: dict):
     cfg = load_config()
     for p in cfg.get("providers", []):
         if p["id"] == provider_id:
-            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider"):
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "eco_mode"):
                 if key in data:
                     p[key] = data[key]
             save_config(cfg)

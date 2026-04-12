@@ -139,12 +139,31 @@ Respond with ONLY a JSON object (no markdown):
 async def _llm_call(messages: list[dict], max_tokens: int = 1000, provider: dict | None = None) -> str:
     """Make a lightweight LLM call for memory operations, with retry (#20)."""
     from services.providers import chat_completion
+    from database import add_usage_stat
     _retries = 2
     _backoff = [1.0, 3.0]
+    _start = time.time()
     for attempt in range(_retries + 1):
         try:
             result = await chat_completion(messages, stream=False, provider=provider)
-            return result["choices"][0]["message"]["content"].strip()
+            content = result["choices"][0]["message"]["content"].strip()
+            # Track secondary provider usage
+            if provider:
+                try:
+                    usage = result.get("usage", {})
+                    add_usage_stat(
+                        user_id="system", provider_id=provider.get("id", ""),
+                        provider_name=provider.get("name", ""), provider_type=provider.get("type", ""),
+                        model=result.get("model", provider.get("model", "")),
+                        tokens_prompt=usage.get("prompt_tokens", 0),
+                        tokens_completion=usage.get("completion_tokens", 0),
+                        tokens_total=usage.get("total_tokens", 0),
+                        response_time_ms=int((time.time() - _start) * 1000),
+                        secondary_used=True,
+                    )
+                except Exception:
+                    pass
+            return content
         except Exception as e:
             if attempt < _retries:
                 log.warning(f"LLM call attempt {attempt + 1} failed: {e}, retrying in {_backoff[attempt]}s")

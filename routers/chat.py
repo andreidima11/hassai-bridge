@@ -628,6 +628,16 @@ async def chat_completions(request: Request):
     secondary = providers.get_secondary_provider(active)
     system_prompt = (active.get("system_prompt") or "").strip() or cfg.get("system_prompt", "")
 
+    # Eco Mode: append conciseness instruction to reduce output tokens
+    if active.get("eco_mode"):
+        eco_instruction = (
+            "Be concise. No filler words, no pleasantries, no sign-offs. "
+            "Answer directly without restating the question. "
+            "Skip explanations unless explicitly asked. "
+            "Keep responses short and to the point."
+        )
+        system_prompt = f"{system_prompt}\n\n{eco_instruction}" if system_prompt else eco_instruction
+
     # 2) Memory + history retrieval (parallel)
     history_limit = cfg.get("performance", {}).get("history_limit", 10)
     memories, history = await asyncio.gather(
@@ -805,6 +815,7 @@ async def chat_completions(request: Request):
                 tokens_total=usage.get("total_tokens", 0),
                 response_time_ms=int((time.time() - _req_start) * 1000),
                 stream=False, search_used=_search_used,
+                eco_mode=bool(active.get("eco_mode")),
             )
         except Exception:
             pass
@@ -966,6 +977,7 @@ async def chat_completions(request: Request):
                                 tokens_total=_prompt_tokens + _estimate_tokens(full_response),
                                 response_time_ms=int((time.time() - _req_start) * 1000),
                                 stream=True, search_used=bool(used_tool_names),
+                                eco_mode=bool(active.get("eco_mode")),
                             )
                         except Exception:
                             pass
@@ -999,6 +1011,7 @@ async def chat_completions(request: Request):
                 tokens_total=_prompt_tokens + _estimate_tokens(full_response),
                 response_time_ms=int((time.time() - _req_start) * 1000),
                 stream=True, search_used=False,
+                eco_mode=bool(active.get("eco_mode")),
             )
         except Exception:
             pass

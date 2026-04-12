@@ -153,6 +153,8 @@ def init_db():
                 response_time_ms INTEGER NOT NULL DEFAULT 0,
                 stream INTEGER NOT NULL DEFAULT 0,
                 search_used INTEGER NOT NULL DEFAULT 0,
+                eco_mode INTEGER NOT NULL DEFAULT 0,
+                secondary_used INTEGER NOT NULL DEFAULT 0,
                 created_at REAL NOT NULL
             )
         """)
@@ -192,7 +194,16 @@ def init_db():
                 (DB_SCHEMA_VERSION, time.time()),
             )
         elif row["version"] < DB_SCHEMA_VERSION:
-            # Future migrations go here (e.g. if row["version"] < 3: ...)
+            # Migration v2 -> v3: add eco_mode and secondary_used columns
+            if row["version"] < 3:
+                try:
+                    conn.execute("ALTER TABLE usage_stats ADD COLUMN eco_mode INTEGER NOT NULL DEFAULT 0")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+                try:
+                    conn.execute("ALTER TABLE usage_stats ADD COLUMN secondary_used INTEGER NOT NULL DEFAULT 0")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             conn.execute(
                 "UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1",
                 (DB_SCHEMA_VERSION, time.time()),
@@ -578,17 +589,19 @@ def clear_conversation(user_id):
 
 def add_usage_stat(user_id, provider_id, provider_name="", provider_type="",
                    model="", tokens_prompt=0, tokens_completion=0, tokens_total=0,
-                   response_time_ms=0, stream=False, search_used=False):
+                   response_time_ms=0, stream=False, search_used=False,
+                   eco_mode=False, secondary_used=False):
     with get_db() as conn:
         conn.execute(
             """INSERT INTO usage_stats
                (user_id, provider_id, provider_name, provider_type, model,
                 tokens_prompt, tokens_completion, tokens_total,
-                response_time_ms, stream, search_used, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                response_time_ms, stream, search_used, eco_mode, secondary_used, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, provider_id, provider_name, provider_type, model,
              tokens_prompt, tokens_completion, tokens_total,
              response_time_ms, 1 if stream else 0, 1 if search_used else 0,
+             1 if eco_mode else 0, 1 if secondary_used else 0,
              time.time()),
         )
 
@@ -664,6 +677,45 @@ def get_usage_stats(days=30):
             (cutoff,)
         ).fetchone()["c"]
 
+        # Eco mode usage
+        eco_count = conn.execute(
+            "SELECT COUNT(*) as c FROM usage_stats WHERE created_at >= ? AND eco_mode = 1",
+            (cutoff,)
+        ).fetchone()["c"]
+
+        eco_tokens = conn.execute(
+            """SELECT COALESCE(SUM(tokens_completion),0) as completion
+               FROM usage_stats WHERE created_at >= ? AND eco_mode = 1""",
+            (cutoff,)
+        ).fetchone()["completion"]
+
+        non_eco_avg = conn.execute(
+            """SELECT CAST(AVG(tokens_completion) AS INTEGER) as avg_comp
+               FROM usage_stats WHERE created_at >= ? AND eco_mode = 0 AND tokens_completion > 0""",
+            (cutoff,)
+        ).fetchone()["avg_comp"] or 0
+
+        eco_avg = conn.execute(
+            """SELECT CAST(AVG(tokens_completion) AS INTEGER) as avg_comp
+               FROM usage_stats WHERE created_at >= ? AND eco_mode = 1 AND tokens_completion > 0""",
+            (cutoff,)
+        ).fetchone()["avg_comp"] or 0
+
+        # Eco mode savings estimate: difference between average non-eco and eco completion tokens × eco requests
+        eco_saved_tokens = max(0, (non_eco_avg - eco_avg) * eco_count) if eco_count and non_eco_avg else 0
+
+        # Secondary provider usage
+        secondary_count = conn.execute(
+            "SELECT COUNT(*) as c FROM usage_stats WHERE created_at >= ? AND secondary_used = 1",
+            (cutoff,)
+        ).fetchone()["c"]
+
+        secondary_tokens = conn.execute(
+            """SELECT COALESCE(SUM(tokens_total),0) as total
+               FROM usage_stats WHERE created_at >= ? AND secondary_used = 1""",
+            (cutoff,)
+        ).fetchone()["total"]
+
     return {
         "period_days": days,
         "total_requests": total,
@@ -679,6 +731,17 @@ def get_usage_stats(days=30):
         "search_requests": search_count,
         "stream_requests": stream_count,
         "non_stream_requests": total - stream_count,
+        "eco_mode": {
+            "requests": eco_count,
+            "completion_tokens": eco_tokens,
+            "saved_tokens": eco_saved_tokens,
+            "avg_completion_eco": eco_avg,
+            "avg_completion_normal": non_eco_avg,
+        },
+        "secondary": {
+            "requests": secondary_count,
+            "tokens": secondary_tokens,
+        },
     }
 
 

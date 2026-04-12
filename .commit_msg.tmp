@@ -1,22 +1,22 @@
-v0.1.8.2-beta — Independent Secondary Providers + Auto-Consolidation + Bug Fixes
+v0.1.9.0-beta — Eco Mode + Usage Statistics for Secondary Provider & Eco Mode
 
-Secondary Providers:
-- Secondary providers now have their own dedicated configuration section
-- Full CRUD: add, edit, delete secondary providers independently
-- Each secondary provider has its own type, URL, API key, model, and settings
-- Primary providers select which secondary provider to use via dropdown
+Eco Mode:
+- Per-provider Eco Mode toggle to reduce output tokens
+- Appends conciseness instruction to system prompt when enabled
+- Removes filler words, pleasantries, and unnecessary explanations
+- Recommended for cloud API providers to save costs
 
-Auto-Consolidation:
-- New auto-consolidation scheduler for automated memory maintenance
-- Configurable schedule: daily or weekly
-- Configurable hour (0-23) for when consolidation runs
-- Background task checks config every minute and runs at scheduled time
+Usage Statistics — Eco Mode & Secondary Provider Tracking:
+- New eco_mode and secondary_used columns in usage_stats (schema v3)
+- Auto-migration from schema v2 to v3 (safe ALTER TABLE)
+- Track eco_mode flag on every chat completion
+- Track secondary provider LLM calls from memory engine
+- Stats API returns eco savings (avg eco vs normal output, tokens saved)
+- Stats API returns secondary provider usage (calls, tokens)
 
-Bug Fixes:
-- Fix HTTP 500 on tool calls (e.g. HA commands) with Grok and other providers
-  that return content:null on assistant messages with tool_calls
-- Changed all .get("content", "") to .get("content") or "" across chat.py
-  and memory_engine.py to handle None values safely
+Dashboard — New Statistics Cards:
+- Eco Mode card: Eco Requests, Tokens Saved, Avg Output (eco vs normal)
+- Secondary Provider card: Secondary Calls, Secondary Tokens
 
 i18n:
-- All new UI strings translated in both EN and RO
+- All new stats and eco mode keys in EN and RO

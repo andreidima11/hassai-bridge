@@ -4,8 +4,8 @@ import time
 import uuid
 from pathlib import Path
 
-VERSION = "v0.1.8.2-beta"
-DB_SCHEMA_VERSION = 2
+VERSION = "v0.1.9.0-beta"
+DB_SCHEMA_VERSION = 3
 
 DATA_DIR = Path(__file__).parent.parent / "data"
 CONFIG_FILE = DATA_DIR / "config.json"

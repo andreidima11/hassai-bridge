@@ -424,6 +424,18 @@ async function loadUsageStats() {
       document.getElementById('statsSkills').textContent = '—';
     }
 
+    // Eco Mode stats
+    const eco = stats.eco_mode || {};
+    document.getElementById('statsEcoRequests').textContent = _formatNumber(eco.requests || 0);
+    document.getElementById('statsEcoSaved').textContent = _formatNumber(eco.saved_tokens || 0);
+    document.getElementById('statsEcoAvg').textContent = _formatNumber(eco.avg_completion_eco || 0);
+    document.getElementById('statsNormalAvg').textContent = _formatNumber(eco.avg_completion_normal || 0);
+
+    // Secondary Provider stats
+    const sec = stats.secondary || {};
+    document.getElementById('statsSecondaryRequests').textContent = _formatNumber(sec.requests || 0);
+    document.getElementById('statsSecondaryTokens').textContent = _formatNumber(sec.tokens || 0);
+
     // Pie chart - by provider
     const provData = stats.by_provider.map(p => ({ label: p.provider_name || p.provider_id, value: p.requests }));
     _drawPieChart(document.getElementById('chartProvider'), provData, CHART_COLORS);
@@ -665,6 +677,7 @@ function openAddProvider() {
   document.getElementById('provMaxTokens').value = 2048;
   document.getElementById('provTemperature').value = 0.7;
   document.getElementById('provSystemPrompt').value = '';
+  document.getElementById('provEcoMode').checked = false;
   _populateSecondarySelect(null);
   document.getElementById('provSecondary').value = '';
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
@@ -687,6 +700,7 @@ function editProvider(id) {
   document.getElementById('provMaxTokens').value = p.max_tokens || 2048;
   document.getElementById('provTemperature').value = p.temperature ?? 0.7;
   document.getElementById('provSystemPrompt').value = p.system_prompt || '';
+  document.getElementById('provEcoMode').checked = !!p.eco_mode;
   _populateSecondarySelect(id);
   document.getElementById('provSecondary').value = p.secondary_provider || '';
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
@@ -731,6 +745,7 @@ async function saveProvider() {
     temperature: parseFloat(document.getElementById('provTemperature').value) || 0.7,
     system_prompt: document.getElementById('provSystemPrompt').value.trim(),
     secondary_provider: document.getElementById('provSecondary').value || '',
+    eco_mode: document.getElementById('provEcoMode').checked,
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
   try {
