@@ -1,9 +1,0 @@
-v0.1.9.2-beta: Chat commands /set2nd and /seteco + secondary stats fix
-
-New chat commands:
-- /set2nd [name|#|off] — set or disable secondary provider for active provider
-- /seteco [1|0] — toggle Eco Mode on the active provider
-
-Bug fix:
-- Secondary provider usage now correctly tracked in statistics when used for search/skill re-calls
-- Stats record secondary provider name/model instead of primary when secondary handles re-call

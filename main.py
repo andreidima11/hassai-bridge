@@ -259,13 +259,14 @@ async def get_logs(
 
 
 STATIC_DIR = Path(__file__).parent / "static"
+_CACHE_BUSTER = f"{VERSION}.{int(time.time())}"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/")
 async def root():
     html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    html = html.replace("__CACHE_BUSTER__", VERSION)
+    html = html.replace("__CACHE_BUSTER__", _CACHE_BUSTER)
     return HTMLResponse(content=html)
 
 

@@ -732,7 +732,9 @@ async def consolidate_memories(user_id: str, provider: dict | None = None):
     """Periodically consolidate memories: merge duplicates, remove outdated."""
     memories = get_memories(user_id, limit=100)
     if len(memories) < 10:
+        log.info(f"Consolidation skipped for {user_id}: only {len(memories)} memories (min 10)")
         return  # Not enough to consolidate
+    log.info(f"Consolidation started for {user_id}: {len(memories)} memories to process")
 
     mem_text = "\n".join(
         f"[ID={m['id']}] [{m['category']}] (importance={m['importance']}) {m['content']}"

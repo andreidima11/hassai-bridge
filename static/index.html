@@ -252,48 +252,46 @@
 
   <!-- ════════════ CONVERSATIONS ════════════ -->
   <div class="panel" id="conversations">
-    <div class="card">
-      <h2 data-i18n="conv.selectUser">Select User</h2>
-      <p class="card-muted" data-i18n="conv.selectUserDesc">Choose a user from the dropdown to browse their conversation history. Sessions load automatically.</p>
-      <div style="flex:1;margin-top:8px">
-        <label data-i18n="conv.user">User</label>
-        <select id="convUserSelect" onchange="loadConversations()">
-          <option value="" data-i18n="conv.choose">— Choose —</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="card" id="convSessionsCard" style="display:none">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <h2 data-i18n="conv.sessions">Conversation Sessions</h2>
-        <div id="convBulkBar" style="display:none;gap:8px;align-items:center">
-          <span id="convSelectedCount" style="font-size:.85rem;color:var(--muted)"></span>
-          <button class="btn btn-danger btn-sm" onclick="bulkDeleteSessions()" data-i18n="conv.deleteSelected">Delete Selected</button>
-          <button class="btn btn-sm" onclick="toggleConvSelectAll()" data-i18n="conv.selectAll">Select All</button>
+    <!-- ── Main view ── -->
+    <div id="convMain">
+      <div class="card">
+        <h2 data-i18n="conv.selectUser">Select User</h2>
+        <p class="card-muted" data-i18n="conv.selectUserDesc">Choose a user from the dropdown to browse their conversation history. Sessions load automatically.</p>
+        <div style="flex:1;margin-top:8px">
+          <label data-i18n="conv.user">User</label>
+          <select id="convUserSelect" onchange="loadConversations()">
+            <option value="" data-i18n="conv.choose">— Choose —</option>
+          </select>
         </div>
       </div>
-      <div id="convSessionsList" class="conv-sessions-list"></div>
-    </div>
-  </div>
 
-  <!-- ════════════ CONVERSATION MODAL ════════════ -->
-  <div class="modal-overlay" id="convModal" onclick="if(event.target===this)closeConvModal()">
-    <div class="modal" style="max-width:820px">
-      <div class="modal-header">
-        <div class="modal-title">
-          <div class="modal-avatar" style="background:linear-gradient(135deg,#6c5ce7,#4f8cff)"></div>
-          <div>
-            <h2 id="convModalTitle" data-i18n="conv.conversation">Conversation</h2>
-            <span class="modal-subtitle" id="convModalSubtitle">—</span>
+      <div class="card" id="convSessionsCard" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <h2 data-i18n="conv.sessions">Conversation Sessions</h2>
+          <div id="convBulkBar" style="display:none;gap:8px;align-items:center">
+            <span id="convSelectedCount" style="font-size:.85rem;color:var(--muted)"></span>
+            <button class="btn btn-danger btn-sm" onclick="bulkDeleteSessions()" data-i18n="conv.deleteSelected">Delete Selected</button>
+            <button class="btn btn-sm" onclick="toggleConvSelectAll()" data-i18n="conv.selectAll">Select All</button>
           </div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center">
+        <div id="convSessionsList" class="conv-sessions-list"></div>
+      </div>
+    </div>
+
+    <!-- ── Conversation detail page ── -->
+    <div id="convDetailPage" style="display:none">
+      <div class="page-back" onclick="closeConvPage()">← <span data-i18n="conv.sessions">Conversation Sessions</span></div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <h2 id="convPageTitle" data-i18n="conv.conversation">Conversation</h2>
+            <span class="card-muted" id="convPageSubtitle">—</span>
+          </div>
           <button class="btn btn-danger btn-sm" onclick="deleteCurrentSession()" data-i18n="conv.delete">Delete</button>
-          <button class="modal-close" onclick="closeConvModal()" data-i18n-title="misc.close" title="Close">✕</button>
         </div>
       </div>
-      <div class="modal-body" id="convModalBody">
-        <div id="convModalMessages"></div>
+      <div class="card" id="convPageMessages">
+        <div id="convPageMsgList"></div>
       </div>
     </div>
   </div>
@@ -307,6 +305,7 @@
       <div class="settings-tab" data-stab="stab-providers" data-i18n="settings.tabProviders">Providers</div>
       <div class="settings-tab" data-stab="stab-search" data-i18n="settings.tabSearch">Search</div>
       <div class="settings-tab" data-stab="stab-memory" data-i18n="settings.tabMemory">Memory</div>
+      <div class="settings-tab" data-stab="stab-security" data-i18n="settings.tabSecurity">Security</div>
       <div class="settings-tab" data-stab="stab-backup" data-i18n="settings.tabBackup">Backup</div>
     </div>
 
@@ -340,45 +339,39 @@
 
       <div class="btn-row">
         <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
-        <button class="btn btn-success" onclick="checkHealth()" data-i18n="settings.checkConnection">Check Connection</button>
       </div>
     </div>
 
     <!-- ── Providers ── -->
     <div class="settings-subpanel" id="stab-providers">
-      <div class="card">
-        <h2 data-i18n="settings.providers">AI Providers</h2>
-        <p class="card-muted" data-i18n="settings.providersDesc">Add and manage AI providers. Supports local servers (LM Studio, Ollama) and cloud APIs (OpenAI, Grok, DeepSeek, GLM).</p>
-        <div id="providersList"></div>
-        <div style="margin-top:12px">
-          <button class="btn btn-primary btn-sm" onclick="openAddProvider()" data-i18n="settings.addProvider">+ Add Provider</button>
-        </div>
-      </div>
-      <div class="card" style="margin-top:16px">
-        <h2 data-i18n="settings.secondaryProviders">Secondary Providers</h2>
-        <p class="card-muted" data-i18n="settings.secondaryProvidersDesc">Secondary providers handle memory operations (extraction, consolidation) and can be assigned to primary providers for tool call re-processing.</p>
-        <div id="secondaryProvidersList"></div>
-        <div style="margin-top:12px">
-          <button class="btn btn-primary btn-sm" onclick="openAddSecondaryProvider()" data-i18n="settings.addSecondaryProvider">+ Add Secondary Provider</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Provider Add/Edit Modal -->
-    <div class="modal-overlay" id="providerModal" onclick="if(event.target===this)cancelProviderForm()">
-      <div class="modal">
-        <div class="modal-header">
-          <div class="modal-title">
-            <div class="modal-avatar">🤖</div>
-            <div>
-              <h2 id="providerFormTitle" data-i18n="settings.addProvider">Add Provider</h2>
-              <span class="modal-subtitle" data-i18n="settings.providerModalDesc">Configure the AI provider connection</span>
-            </div>
+      <!-- Main providers view -->
+      <div id="providersMain">
+        <div class="card">
+          <h2 data-i18n="settings.providers">AI Providers</h2>
+          <p class="card-muted" data-i18n="settings.providersDesc">Add and manage AI providers. Supports local servers (LM Studio, Ollama) and cloud APIs (OpenAI, Grok, DeepSeek, GLM).</p>
+          <div id="providersList"></div>
+          <div style="margin-top:12px">
+            <button class="btn btn-primary btn-sm" onclick="openAddProvider()" data-i18n="settings.addProvider">+ Add Provider</button>
           </div>
-          <button class="modal-close" onclick="cancelProviderForm()" data-i18n-title="misc.close" title="Close">✕</button>
         </div>
-        <div class="modal-body">
-          <div class="modal-section">
+        <div class="card" style="margin-top:16px">
+          <h2 data-i18n="settings.secondaryProviders">Secondary Providers</h2>
+          <p class="card-muted" data-i18n="settings.secondaryProvidersDesc">Secondary providers handle memory operations (extraction, consolidation) and can be assigned to primary providers for tool call re-processing.</p>
+          <div id="secondaryProvidersList"></div>
+          <div style="margin-top:12px">
+            <button class="btn btn-primary btn-sm" onclick="openAddSecondaryProvider()" data-i18n="settings.addSecondaryProvider">+ Add Secondary Provider</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Provider Add/Edit Page -->
+      <div id="providerPage" style="display:none">
+        <div class="page-back" onclick="cancelProviderForm()">← <span data-i18n="settings.tabProviders">Providers</span></div>
+        <div class="card">
+          <h2 id="providerFormTitle" data-i18n="settings.addProvider">Add Provider</h2>
+          <span class="card-muted" data-i18n="settings.providerModalDesc">Configure the AI provider connection</span>
+
+          <div class="modal-section" style="margin-top:16px">
             <label data-i18n="settings.providerType">Type</label>
             <select id="provType" onchange="onProvTypeChange()">
               <option value="local">Local (LM Studio / Ollama)</option>
@@ -445,29 +438,26 @@
             </div>
             <p class="card-muted hint" data-i18n="settings.tempDesc">(0.0 = deterministic, 1.0 = creative)</p>
           </div>
-        </div>
-        <div class="modal-footer" style="background:transparent;justify-content:flex-end;gap:8px">
-          <button class="btn btn-sm" onclick="cancelProviderForm()" data-i18n="settings.cancel">Cancel</button>
-          <button class="btn btn-primary btn-sm" onclick="saveProvider()" id="provSaveBtn" data-i18n="settings.save">Save</button>
+          <div class="modal-section" id="provTestSection" style="display:none">
+            <h3 data-i18n="settings.test">Test</h3>
+            <button class="btn btn-sm btn-success" onclick="testProviderFromPage()" data-i18n="settings.testConnection">Test Connection</button>
+            <p id="provTestResult" class="card-muted" style="margin-top:8px;display:none"></p>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+            <button class="btn btn-sm" onclick="cancelProviderForm()" data-i18n="settings.cancel">Cancel</button>
+            <button class="btn btn-primary btn-sm" onclick="saveProvider()" id="provSaveBtn" data-i18n="settings.save">Save</button>
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- Secondary Provider Add/Edit Modal -->
-    <div class="modal-overlay" id="secProviderModal" onclick="if(event.target===this)cancelSecProviderForm()">
-      <div class="modal">
-        <div class="modal-header">
-          <div class="modal-title">
-            <div class="modal-avatar">🔗</div>
-            <div>
-              <h2 id="secProviderFormTitle" data-i18n="settings.addSecondaryProvider">Add Secondary Provider</h2>
-              <span class="modal-subtitle" data-i18n="settings.secProviderModalDesc">Configure a secondary AI provider for memory operations</span>
-            </div>
-          </div>
-          <button class="modal-close" onclick="cancelSecProviderForm()" data-i18n-title="misc.close" title="Close">✕</button>
-        </div>
-        <div class="modal-body">
-          <div class="modal-section">
+      <!-- Secondary Provider Add/Edit Page -->
+      <div id="secProviderPage" style="display:none">
+        <div class="page-back" onclick="cancelSecProviderForm()">← <span data-i18n="settings.tabProviders">Providers</span></div>
+        <div class="card">
+          <h2 id="secProviderFormTitle" data-i18n="settings.addSecondaryProvider">Add Secondary Provider</h2>
+          <span class="card-muted" data-i18n="settings.secProviderModalDesc">Configure a secondary AI provider for memory operations</span>
+
+          <div class="modal-section" style="margin-top:16px">
             <label data-i18n="settings.providerType">Type</label>
             <select id="secProvType" onchange="onSecProvTypeChange()">
               <option value="local">Local (LM Studio / Ollama)</option>
@@ -512,10 +502,15 @@
             </div>
             <p class="card-muted hint" data-i18n="settings.tempDesc">(0.0 = deterministic, 1.0 = creative)</p>
           </div>
-        </div>
-        <div class="modal-footer" style="background:transparent;justify-content:flex-end;gap:8px">
-          <button class="btn btn-sm" onclick="cancelSecProviderForm()" data-i18n="settings.cancel">Cancel</button>
-          <button class="btn btn-primary btn-sm" onclick="saveSecondaryProvider()" data-i18n="settings.save">Save</button>
+          <div class="modal-section" id="secProvTestSection" style="display:none">
+            <h3 data-i18n="settings.test">Test</h3>
+            <button class="btn btn-sm btn-success" onclick="testSecProviderFromPage()" data-i18n="settings.testConnection">Test Connection</button>
+            <p id="secProvTestResult" class="card-muted" style="margin-top:8px;display:none"></p>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+            <button class="btn btn-sm" onclick="cancelSecProviderForm()" data-i18n="settings.cancel">Cancel</button>
+            <button class="btn btn-primary btn-sm" onclick="saveSecondaryProvider()" data-i18n="settings.save">Save</button>
+          </div>
         </div>
       </div>
     </div>
@@ -542,6 +537,7 @@
       </div>
       <div class="btn-row">
         <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
+        <button class="btn btn-success" onclick="testSearxng()" data-i18n="settings.test">Test</button>
       </div>
     </div>
 
@@ -582,14 +578,26 @@
       </div>
     </div>
 
+    <!-- ── Security ── -->
+    <div class="settings-subpanel" id="stab-security">
+      <div class="card">
+        <h2 data-i18n="settings.ecoModePrompt">Eco Mode Prompt</h2>
+        <p class="card-muted" data-i18n="settings.ecoModePromptDesc">Custom instruction appended to the system prompt when Eco Mode is enabled on a provider. Leave empty to use the default conciseness prompt.</p>
+        <textarea id="securityEcoPrompt" rows="5" data-i18n-placeholder="settings.ecoModePromptPlaceholder" placeholder="Be concise. No filler words, no pleasantries..."></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSecuritySettings()" data-i18n="settings.save">Save</button>
+      </div>
+    </div>
+
     <!-- ── Backup ── -->
     <div class="settings-subpanel" id="stab-backup">
       <div class="card">
         <h2 data-i18n="settings.backup">Backup / Restore</h2>
         <p class="card-muted" data-i18n="settings.backupDesc">Download a copy of the database or restore from backup. Restoring replaces all existing data!</p>
         <div class="btn-row">
-          <button class="btn btn-primary btn-sm" onclick="downloadBackup()" data-i18n="settings.downloadBackup">Download Backup</button>
-          <label class="btn btn-success btn-sm" style="cursor:pointer">
+          <button class="btn btn-sm btn-primary" onclick="downloadBackup()" data-i18n="settings.downloadBackup">Download Backup</button>
+          <label class="btn btn-sm btn-success" style="cursor:pointer">
             <span data-i18n="settings.restore">Restore</span>
             <input type="file" accept=".db" onchange="uploadRestore(this)" style="display:none">
           </label>
@@ -602,29 +610,72 @@
   <!-- ════════════ USERS ════════════ -->
   <div class="panel" id="users">
 
-    <!-- Add user + default user -->
-    <div class="card">
-      <h2 data-i18n="users.newUser">New User</h2>
-      <div style="display:flex;gap:8px;align-items:end">
-        <div style="flex:1">
-          <label data-i18n="users.username">Username</label>
-          <input type="text" id="newUserName" data-i18n-placeholder="users.usernamePlaceholder" placeholder="e.g.: maria">
-        </div>
-        <button class="btn btn-primary" onclick="addUser()" data-i18n="users.generateKey">Generate API Key</button>
+    <!-- ── Main view ── -->
+    <div id="usersMain">
+      <div class="skills-toolbar">
+        <button class="btn btn-sm btn-primary" onclick="openAddUserPage()" data-i18n="users.newUser">+ New User</button>
       </div>
-      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
-        <div style="display:flex;gap:8px;align-items:center">
+
+      <!-- Default user -->
+      <div class="card">
+        <h2 data-i18n="users.title">Users</h2>
+        <p class="card-muted" data-i18n="users.desc">Manage users and API keys. Each user gets personalized AI memory.</p>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
           <label style="margin:0;white-space:nowrap" data-i18n="users.defaultUser">Default user:</label>
           <input type="text" id="defaultUserInput" data-i18n-placeholder="users.defaultUserPlaceholder" placeholder="e.g.: andrei" style="flex:1">
           <button class="btn btn-sm btn-primary" onclick="saveDefaultUser()" data-i18n="users.save">Save</button>
         </div>
         <p class="card-muted" style="margin-top:4px;font-size:.78rem" data-i18n="users.defaultUserDesc">Used when Home Assistant doesn't send user information.</p>
       </div>
+
+      <!-- User cards -->
+      <div id="userCardsList">
+        <p class="card-muted" style="padding:12px" data-i18n="info.loading">Loading...</p>
+      </div>
     </div>
 
-    <!-- User cards -->
-    <div id="userCardsList">
-      <p class="card-muted" style="padding:12px" data-i18n="info.loading">Loading...</p>
+    <!-- ── Add User page ── -->
+    <div id="addUserPage" style="display:none">
+      <div class="page-back" onclick="closeAddUserPage()">← <span data-i18n="users.title">Users</span></div>
+      <div class="card">
+        <h2 data-i18n="users.newUser">+ New User</h2>
+        <span class="card-muted" data-i18n="users.newUserDesc">Create a user and generate an API key</span>
+        <div class="modal-section" style="margin-top:16px">
+          <label data-i18n="users.username">Username</label>
+          <input type="text" id="newUserName" data-i18n-placeholder="users.usernamePlaceholder" placeholder="e.g.: maria">
+          <p style="font-size:.8rem;color:var(--muted);margin-top:8px" data-i18n="users.apiKeyHint">After creating the user, click on their name to view and copy the API key.</p>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+          <button class="btn btn-sm" onclick="closeAddUserPage()" data-i18n="settings.cancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="addUser()" data-i18n="users.createUser">Create user</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── User detail page ── -->
+    <div id="userDetailPage" style="display:none">
+      <div class="page-back" onclick="closeUserPage()">← <span data-i18n="users.title">Users</span></div>
+      <div class="card">
+        <h2 id="selectedUserName">—</h2>
+        <span class="card-muted" data-i18n="modal.userConfig">User configuration</span>
+
+        <div class="modal-section" style="margin-top:16px">
+          <div class="stat-grid" id="statsGrid"></div>
+        </div>
+
+        <div class="modal-section" id="userModalKeySection" style="display:none">
+          <h3 data-i18n="modal.apiKey">API Key</h3>
+          <div class="htc-code-box">
+            <code id="userModalApiKey" class="api-key-blur">••••••••</code>
+            <button class="btn btn-sm" onclick="toggleUserModalKey()" id="btnToggleUserKey" data-i18n="info.show">Show</button>
+            <button class="btn btn-sm btn-primary" onclick="copyUserModalKey()" data-i18n="info.copy">Copy</button>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;margin-top:12px">
+          <button class="btn btn-danger btn-sm" onclick="deleteUserFull()" data-i18n="modal.deleteUser">Delete User</button>
+        </div>
+      </div>
     </div>
 
   </div>
@@ -706,23 +757,23 @@
   <!-- ════════════ LOGS ════════════ -->
   <div class="panel" id="logs">
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <h2 style="margin:0" data-i18n="logs.title">Server Logs</h2>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <select id="logLevel" class="input-sm" onchange="loadLogs()">
-            <option value="ALL">ALL</option>
-            <option value="DEBUG">DEBUG</option>
-            <option value="INFO">INFO</option>
-            <option value="WARNING">WARNING</option>
-            <option value="ERROR">ERROR</option>
-          </select>
-          <input type="text" id="logSearch" class="input-sm" data-i18n-placeholder="logs.searchPlaceholder" placeholder="Search..." style="width:160px">
-          <label style="margin:0;font-size:.82rem;display:flex;align-items:center;gap:4px;white-space:nowrap">
-            <input type="checkbox" id="logAutoRefresh" checked> <span data-i18n="logs.autoRefresh">Auto-refresh</span>
-          </label>
-          <button class="btn btn-sm btn-primary" onclick="loadLogs()" data-i18n="logs.refresh">Refresh</button>
-          <button class="btn btn-sm" onclick="clearLogsView()" data-i18n="logs.clear">Clear</button>
-        </div>
+      <h2 data-i18n="logs.title">Server Logs</h2>
+    </div>
+    <div class="card">
+      <div class="logs-controls">
+        <select id="logLevel" class="input-sm" onchange="loadLogs()">
+          <option value="ALL">ALL</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <input type="text" id="logSearch" class="input-sm" data-i18n-placeholder="logs.searchPlaceholder" placeholder="Search..." style="width:160px">
+        <label style="margin:0;font-size:.82rem;display:flex;align-items:center;gap:4px;white-space:nowrap">
+          <input type="checkbox" id="logAutoRefresh" checked> <span data-i18n="logs.autoRefresh">Auto-refresh</span>
+        </label>
+        <button class="btn btn-sm btn-primary" onclick="loadLogs()" data-i18n="logs.refresh">Refresh</button>
+        <button class="btn btn-sm" onclick="clearLogsView()" data-i18n="logs.clear">Clear</button>
       </div>
     </div>
     <div class="card logs-container">
@@ -732,167 +783,141 @@
 
   <!-- ════════════ MEMORIES ════════════ -->
   <div class="panel" id="memories">
-    <div class="card">
-      <h2 data-i18n="mem.title">Memories</h2>
-      <p class="card-muted" data-i18n="mem.desc">View, add and manage memories for each user. The AI uses memories to personalize responses.</p>
-      <div style="display:flex;gap:8px;align-items:end;margin-top:8px">
-        <div style="flex:1">
-          <label data-i18n="mem.user">User</label>
-          <select id="memTabUserSelect" onchange="loadMemoriesTab()">
-            <option value="" data-i18n="conv.choose">— Choose —</option>
-          </select>
+    <!-- ── Main view ── -->
+    <div id="memoriesMain">
+      <div class="skills-toolbar">
+        <button class="btn btn-sm btn-primary" id="memTabAddBtn" style="display:none" onclick="openAddMemoryPage()" data-i18n="modal.addMemory">+ Add Memory</button>
+      </div>
+      <div class="card">
+        <h2 data-i18n="mem.title">Memories</h2>
+        <p class="card-muted" data-i18n="mem.desc">View, add and manage memories for each user. The AI uses memories to personalize responses.</p>
+        <div style="display:flex;gap:8px;align-items:end;margin-top:8px">
+          <div style="flex:1">
+            <label data-i18n="mem.user">User</label>
+            <select id="memTabUserSelect" onchange="loadMemoriesTab()">
+              <option value="" data-i18n="conv.choose">— Choose —</option>
+            </select>
+          </div>
         </div>
-        <button class="btn btn-sm btn-primary" onclick="refreshMemTabUsers()" data-i18n="conv.reload">Reload</button>
+      </div>
+
+      <!-- Stats -->
+      <div class="card" id="memTabStatsCard" style="display:none">
+        <div class="stat-grid" id="memTabStatsGrid"></div>
+      </div>
+
+      <!-- Memory list -->
+      <div class="card" id="memTabListCard" style="display:none">
+        <h3 style="font-size:1.05rem;font-weight:600;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:12px" data-i18n="modal.memoryList">Memory List</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <button class="btn btn-sm btn-primary mem-tab-filter active" onclick="filterMemoriesTab('all',this)" data-i18n="modal.filterAll">All</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('personal_info',this)" data-i18n="modal.filterPersonal">Personal</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('preferences',this)" data-i18n="modal.filterPreferences">Preferences</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('home_setup',this)" data-i18n="modal.filterHome">Home</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('facts',this)" data-i18n="modal.filterFacts">Facts</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('instructions',this)" data-i18n="modal.filterInstructions">Instructions</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('context',this)" data-i18n="modal.filterContext">Context</button>
+        </div>
+        <div class="mem-list" id="memTabList"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="consolidateMemoriesTab()" data-i18n="modal.consolidate">AI Consolidation</button>
+            <button class="btn btn-sm" id="memTabSelectAllBtn" style="display:none" onclick="toggleMemTabSelectAll()" data-i18n="modal.selectAll">Select All</button>
+            <button class="btn btn-danger btn-sm" id="memTabBulkDeleteBtn" style="display:none" onclick="bulkDeleteMemoriesTab()" data-i18n="modal.deleteSelected">Delete Selected</button>
+            <span id="memTabSelectedCount" style="font-size:.85rem;color:var(--muted);display:none"></span>
+          </div>
+          <div id="memTabPagination" class="mem-pagination" style="margin:0"></div>
+        </div>
       </div>
     </div>
 
-    <!-- Stats -->
-    <div class="card" id="memTabStatsCard" style="display:none">
-      <div class="stat-grid" id="memTabStatsGrid"></div>
-    </div>
-
-    <!-- Add memory -->
-    <div class="card" id="memTabAddCard" style="display:none">
-      <h3 data-i18n="modal.addMemory">Add Memory</h3>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div>
-          <label data-i18n="modal.category">Category</label>
-          <select id="memTabNewCat">
-            <option value="personal_info" data-i18n="cat.personal_info">Personal Info</option>
-            <option value="preferences" data-i18n="cat.preferences">Preferences</option>
-            <option value="home_setup" data-i18n="cat.home_setup">Home Setup</option>
-            <option value="facts" selected data-i18n="cat.facts">Facts</option>
-            <option value="instructions" data-i18n="cat.instructions">Instructions</option>
-            <option value="context" data-i18n="cat.context">Context</option>
-          </select>
+    <!-- ── Add Memory page ── -->
+    <div id="addMemoryPage" style="display:none">
+      <div class="page-back" onclick="closeAddMemoryPage()">← <span data-i18n="mem.title">Memories</span></div>
+      <div class="card">
+        <h2 data-i18n="modal.addMemory">Add Memory</h2>
+        <span class="card-muted" data-i18n="modal.addMemoryDesc">Create a new memory for this user</span>
+        <div class="modal-section" style="margin-top:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label data-i18n="modal.category">Category</label>
+              <select id="memTabNewCat">
+                <option value="personal_info" data-i18n="cat.personal_info">Personal Info</option>
+                <option value="preferences" data-i18n="cat.preferences">Preferences</option>
+                <option value="home_setup" data-i18n="cat.home_setup">Home Setup</option>
+                <option value="facts" selected data-i18n="cat.facts">Facts</option>
+                <option value="instructions" data-i18n="cat.instructions">Instructions</option>
+                <option value="context" data-i18n="cat.context">Context</option>
+              </select>
+            </div>
+            <div>
+              <label data-i18n="modal.importance">Importance (1-5)</label>
+              <input type="number" id="memTabNewImp" value="3" min="1" max="5">
+            </div>
+          </div>
+          <label data-i18n="modal.content">Content</label>
+          <textarea id="memTabNewContent" rows="3" data-i18n-placeholder="modal.contentPlaceholder" placeholder="E.g.: Prefers answers in Romanian..."></textarea>
+          <label data-i18n="modal.keywords">Keywords (comma)</label>
+          <input type="text" id="memTabNewKeywords" data-i18n-placeholder="modal.keywordsPlaceholder" placeholder="language, romanian, preference">
         </div>
-        <div>
-          <label data-i18n="modal.importance">Importance (1-5)</label>
-          <input type="number" id="memTabNewImp" value="3" min="1" max="5">
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+          <button class="btn btn-sm" onclick="closeAddMemoryPage()" data-i18n="settings.cancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="addMemoryTab()" data-i18n="modal.add">Add</button>
         </div>
-      </div>
-      <label data-i18n="modal.content">Content</label>
-      <textarea id="memTabNewContent" rows="2" data-i18n-placeholder="modal.contentPlaceholder" placeholder="E.g.: Prefers answers in Romanian..."></textarea>
-      <label data-i18n="modal.keywords">Keywords (comma)</label>
-      <input type="text" id="memTabNewKeywords" data-i18n-placeholder="modal.keywordsPlaceholder" placeholder="language, romanian, preference">
-      <div class="btn-row">
-        <button class="btn btn-primary btn-sm" onclick="addMemoryTab()" data-i18n="modal.add">Add</button>
-      </div>
-    </div>
-
-    <!-- Memory list -->
-    <div class="card" id="memTabListCard" style="display:none">
-      <h3 data-i18n="modal.memoryList">Memory List</h3>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-        <button class="btn btn-sm btn-primary mem-tab-filter active" onclick="filterMemoriesTab('all',this)" data-i18n="modal.filterAll">All</button>
-        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('personal_info',this)" data-i18n="modal.filterPersonal">Personal</button>
-        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('preferences',this)" data-i18n="modal.filterPreferences">Preferences</button>
-        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('home_setup',this)" data-i18n="modal.filterHome">Home</button>
-        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('facts',this)" data-i18n="modal.filterFacts">Facts</button>
-        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('instructions',this)" data-i18n="modal.filterInstructions">Instructions</button>
-        <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('context',this)" data-i18n="modal.filterContext">Context</button>
-      </div>
-      <div class="mem-list" id="memTabList"></div>
-      <div class="btn-row" style="flex-wrap:wrap;gap:8px;align-items:center">
-        <button class="btn btn-primary btn-sm" onclick="consolidateMemoriesTab()" data-i18n="modal.consolidate">AI Consolidation</button>
-        <button class="btn btn-danger btn-sm" id="memTabBulkDeleteBtn" style="display:none" onclick="bulkDeleteMemoriesTab()" data-i18n="modal.deleteSelected">Delete Selected</button>
-        <button class="btn btn-sm" id="memTabSelectAllBtn" style="display:none" onclick="toggleMemTabSelectAll()" data-i18n="modal.selectAll">Select All</button>
-        <span id="memTabSelectedCount" style="font-size:.85rem;color:var(--muted);display:none"></span>
-        <span style="flex:1"></span>
-        <button class="btn btn-danger btn-sm" onclick="clearMemoriesTab()" data-i18n="modal.deleteAll">Delete All</button>
       </div>
     </div>
   </div>
 
   <!-- ════════════ SKILLS ════════════ -->
   <div class="panel" id="skills">
-    <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
-        <h2 style="margin:0" data-i18n="skills.title">Skills</h2>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-sm btn-primary" onclick="openCreateSkill()" data-i18n="skills.create">+ New Skill</button>
-          <button class="btn btn-sm" onclick="reloadSkills()" data-i18n="skills.reload">Reload</button>
-        </div>
+    <!-- ── Main view ── -->
+    <div id="skillsMain">
+      <div class="skills-toolbar">
+        <button class="btn btn-sm btn-primary" onclick="openCreateSkill()" data-i18n="skills.create">+ New Skill</button>
       </div>
-      <p class="card-muted" data-i18n="skills.desc">Skills extend the AI with custom abilities. The AI calls skills automatically when relevant.</p>
+      <div class="card">
+        <h2 data-i18n="skills.title">Skills</h2>
+        <p class="card-muted" style="margin-bottom:0" data-i18n="skills.desc">Skills extend the AI with custom abilities. The AI calls skills automatically when relevant.</p>
+      </div>
+      <div id="skillsList"></div>
     </div>
-    <div id="skillsList"></div>
-  </div>
 
-  <!-- ════════════ SKILL EDITOR MODAL ════════════ -->
-  <div class="modal-overlay" id="skillModal" onclick="if(event.target===this)closeSkillModal()">
-    <div class="modal" style="max-width:860px">
-      <div class="modal-header">
-        <div class="modal-title">
-          <div class="modal-avatar" style="background:linear-gradient(135deg,#00b894,#00cec9)">⚡</div>
-          <div>
-            <h2 id="skillModalTitle" data-i18n="skills.editSkill">Edit Skill</h2>
-            <span class="modal-subtitle" id="skillModalSubtitle">—</span>
-          </div>
-        </div>
-        <button class="modal-close" onclick="closeSkillModal()" title="Close">✕</button>
-      </div>
-      <div class="modal-body">
-        <div class="modal-section" id="skillNameSection">
+    <!-- ── Skill editor page ── -->
+    <div id="skillEditorPage" style="display:none">
+      <div class="page-back" onclick="closeSkillEditor()">← <span data-i18n="skills.title">Skills</span></div>
+      <div class="card">
+        <h2 id="skillEditorTitle" data-i18n="skills.editSkill">Edit Skill</h2>
+        <span class="card-muted" id="skillEditorSubtitle">—</span>
+
+        <div class="modal-section" id="skillNameSection" style="margin-top:16px">
           <label data-i18n="skills.skillName">Skill Name</label>
           <input type="text" id="skillEditName" placeholder="e.g.: weather_check">
           <p class="card-muted hint" data-i18n="skills.nameHint">Lowercase, underscores only. This becomes the filename.</p>
         </div>
         <div class="modal-section">
           <label data-i18n="skills.sourceCode">Source Code</label>
-          <textarea id="skillEditSource" rows="22" style="font-family:monospace;font-size:.85rem;tab-size:4;white-space:pre;overflow-x:auto"></textarea>
+          <div class="code-editor-wrapper">
+            <div class="code-line-numbers" id="skillLineNumbers"></div>
+            <div class="code-editor-container">
+              <pre class="code-highlight" id="skillHighlight" aria-hidden="true"></pre>
+              <textarea id="skillEditSource" class="code-textarea" rows="22" spellcheck="false" wrap="off"></textarea>
+            </div>
+          </div>
         </div>
         <div class="modal-section" id="skillTestSection">
           <label data-i18n="skills.testInput">Test Input (JSON)</label>
           <textarea id="skillTestInput" rows="2" style="font-family:monospace;font-size:.85rem" placeholder='{"symbol": "AAPL"}'></textarea>
-          <button class="btn btn-sm btn-success" onclick="testSkill()" data-i18n="skills.test">Test Skill</button>
+          <button class="btn btn-sm btn-success" onclick="testSkill()" style="margin-top:10px" data-i18n="skills.test">Test Skill</button>
           <pre id="skillTestOutput" class="logs-pre" style="margin-top:8px;max-height:150px;display:none"></pre>
         </div>
-      </div>
-      <div class="modal-footer" style="background:transparent;justify-content:flex-end;gap:8px">
-        <button class="btn btn-sm" onclick="closeSkillModal()" data-i18n="settings.cancel">Cancel</button>
-        <button class="btn btn-primary btn-sm" onclick="saveSkillEdit()" id="skillSaveBtn" data-i18n="settings.save">Save</button>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+          <button class="btn btn-sm" onclick="closeSkillEditor()" data-i18n="settings.cancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="saveSkillEdit()" id="skillSaveBtn" data-i18n="settings.save">Save</button>
+        </div>
       </div>
     </div>
   </div>
 
-</div>
-
-<!-- ════════════ USER MEMORY MODAL ════════════ -->
-<div class="modal-overlay" id="userModal" onclick="if(event.target===this)closeUserModal()">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">
-        <div class="modal-avatar"></div>
-        <div>
-          <h2 id="selectedUserName">—</h2>
-          <span class="modal-subtitle" data-i18n="modal.userConfig">User configuration</span>
-        </div>
-      </div>
-      <button class="modal-close" onclick="closeUserModal()" data-i18n-title="misc.close" title="Close">✕</button>
-    </div>
-
-    <div class="modal-body">
-      <!-- Stats -->
-      <div class="modal-section">
-        <div class="stat-grid" id="statsGrid"></div>
-      </div>
-
-      <!-- API Key -->
-      <div class="modal-section" id="userModalKeySection" style="display:none">
-        <h3 data-i18n="modal.apiKey">API Key</h3>
-        <div class="htc-code-box">
-          <code id="userModalApiKey" class="api-key-blur">••••••••</code>
-          <button class="btn btn-sm" onclick="toggleUserModalKey()" id="btnToggleUserKey" data-i18n="info.show">Show</button>
-          <button class="btn btn-sm btn-primary" onclick="copyUserModalKey()" data-i18n="info.copy">Copy</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-footer">
-      <button class="btn btn-danger" onclick="deleteUserFull()" data-i18n="modal.deleteUser">Delete User</button>
-    </div>
-  </div>
 </div>
 
 <div class="toast" id="toast"></div>

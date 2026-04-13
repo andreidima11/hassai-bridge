@@ -42,6 +42,7 @@ class SettingsUpdate(BaseModel):
     searxng: dict | None = None
     memory: dict | None = None
     performance: dict | None = None
+    security: dict | None = None
     system_prompt: str | None = None
     knowledge_cutoff: str | None = None
     language: str | None = None
@@ -65,6 +66,8 @@ async def update_settings(data: SettingsUpdate):
         cfg["memory"].update(data.memory)
     if data.performance is not None:
         cfg.setdefault("performance", {}).update(data.performance)
+    if data.security is not None:
+        cfg.setdefault("security", {}).update(data.security)
     if data.system_prompt is not None:
         cfg["system_prompt"] = data.system_prompt
     if data.knowledge_cutoff is not None:
@@ -482,9 +485,16 @@ async def system_info():
             {"method": "GET", "path": "/api/settings/providers/{id}/models", "description": "List Provider Models"},
             {"method": "GET", "path": "/api/settings/providers/{id}/health", "description": "Provider Health Check"},
             {"method": "GET", "path": "/api/settings/providers/presets", "description": "Provider Presets"},
+            {"method": "GET", "path": "/api/settings/secondary-providers", "description": "List Secondary Providers"},
+            {"method": "POST", "path": "/api/settings/secondary-providers", "description": "Add Secondary Provider"},
+            {"method": "PUT", "path": "/api/settings/secondary-providers/{id}", "description": "Update Secondary Provider"},
+            {"method": "DELETE", "path": "/api/settings/secondary-providers/{id}", "description": "Delete Secondary Provider"},
+            {"method": "GET", "path": "/api/settings/secondary-providers/{id}/models", "description": "Secondary Provider Models"},
+            {"method": "GET", "path": "/api/settings/secondary-providers/{id}/health", "description": "Secondary Provider Health"},
             {"method": "GET", "path": "/api/settings/conversations/{user_id}", "description": "List Conversation Sessions"},
             {"method": "GET", "path": "/api/settings/conversations/{user_id}/{session_id}", "description": "Get Session Messages"},
             {"method": "DELETE", "path": "/api/settings/conversations/{user_id}/{session_id}", "description": "Delete Session"},
+            {"method": "POST", "path": "/api/settings/conversations/{user_id}/bulk-delete", "description": "Bulk Delete Sessions"},
             {"method": "GET", "path": "/api/settings/backup", "description": "Download Database Backup"},
             {"method": "POST", "path": "/api/settings/restore", "description": "Restore Database (path)"},
             {"method": "POST", "path": "/api/settings/restore/upload", "description": "Restore Database (upload)"},
@@ -495,6 +505,7 @@ async def system_info():
             {"method": "POST", "path": "/api/memory/", "description": "Add Memory"},
             {"method": "PUT", "path": "/api/memory/{memory_id}", "description": "Update Memory"},
             {"method": "DELETE", "path": "/api/memory/{memory_id}", "description": "Delete Memory"},
+            {"method": "POST", "path": "/api/memory/bulk-delete", "description": "Bulk Delete Memories"},
             {"method": "DELETE", "path": "/api/memory/user/{user_id}", "description": "Clear User Memories"},
             {"method": "POST", "path": "/api/memory/consolidate/{user_id}", "description": "Consolidate Memories"},
             {"method": "GET", "path": "/api/memory/graph/{user_id}/stats", "description": "Knowledge Graph Stats"},
@@ -508,6 +519,15 @@ async def system_info():
             {"method": "GET", "path": "/api/memory/graph/{user_id}/timeline", "description": "Knowledge Timeline"},
             {"method": "GET", "path": "/api/memory/graph/{user_id}/context", "description": "Graph Context"},
             {"method": "GET", "path": "/api/logs", "description": "Server Logs"},
+            {"method": "GET", "path": "/api/skills/", "description": "List Skills"},
+            {"method": "GET", "path": "/api/skills/template", "description": "Skill Template"},
+            {"method": "POST", "path": "/api/skills/", "description": "Create Skill"},
+            {"method": "GET", "path": "/api/skills/{skill_name}", "description": "Get Skill Source"},
+            {"method": "PATCH", "path": "/api/skills/{skill_name}", "description": "Update Skill"},
+            {"method": "DELETE", "path": "/api/skills/{skill_name}", "description": "Delete Skill"},
+            {"method": "POST", "path": "/api/skills/{skill_name}/toggle", "description": "Toggle Skill"},
+            {"method": "POST", "path": "/api/skills/{skill_name}/test", "description": "Test Skill"},
+            {"method": "POST", "path": "/api/skills/reload", "description": "Reload All Skills"},
         ],
     }
 

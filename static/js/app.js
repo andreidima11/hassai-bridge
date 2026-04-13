@@ -8,7 +8,13 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.container > .panel').forEach(p => p.classList.remove('active'));
     tab.classList.add('active');
-    document.getElementById(tab.dataset.panel).classList.add('active');
+    const panelId = tab.dataset.panel;
+    document.getElementById(panelId).classList.add('active');
+    if (panelId === 'statistics') loadUsageStats();
+    if (panelId === 'logs') { loadLogs(); _startLogsAutoRefresh(); }
+    if (panelId === 'skills') loadSkills();
+    if (panelId === 'conversations') refreshConvUsers();
+    if (panelId === 'memories') refreshMemTabUsers();
   });
 });
 
@@ -539,6 +545,11 @@ async function loadSettings() {
     document.getElementById('perfHistoryLimit').value = perf.history_limit || 10;
     document.getElementById('perfParallelFetch').checked = perf.parallel_page_fetch !== false;
 
+    // Security
+    const sec = cfg.security || {};
+    const _defaultEcoPrompt = 'Be concise. No filler words, no pleasantries, no sign-offs. Answer directly without restating the question. Skip explanations unless explicitly asked. Keep responses short and to the point.';
+    document.getElementById('securityEcoPrompt').value = sec.eco_prompt || _defaultEcoPrompt;
+
     // System prompt
     document.getElementById('systemPrompt').value = cfg.system_prompt || '';
   } catch (e) {
@@ -581,12 +592,56 @@ async function saveSettings() {
   }
 }
 
+async function saveSecuritySettings() {
+  try {
+    await api('PUT', '/api/settings/', {
+      security: {
+        eco_prompt: document.getElementById('securityEcoPrompt').value,
+      },
+    });
+    toast(t('toast.settingsSaved'));
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
 async function checkHealth() {
   try {
     const h = await api('GET', '/api/settings/health');
     const provOk = (h.provider || h.lmstudio) === 'connected';
     const provLabel = h.provider_name || 'AI';
     toast(`${provLabel}: ${h.provider || h.lmstudio} | SearXNG: ${h.searxng}`);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function testProvider(id) {
+  try {
+    const h = await api('GET', `/api/settings/providers/${encodeURIComponent(id)}/health`);
+    const status = h.status || h.provider || 'unknown';
+    const model = h.model || '';
+    toast(`${status === 'connected' ? '✅' : '❌'} ${status}${model ? ' — ' + model : ''}`);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function testSecondaryProvider(id) {
+  try {
+    const h = await api('GET', `/api/settings/secondary-providers/${encodeURIComponent(id)}/health`);
+    const status = h.status || 'unknown';
+    const model = h.model || '';
+    toast(`${status === 'connected' ? '✅' : '❌'} ${status}${model ? ' — ' + model : ''}`);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function testSearxng() {
+  try {
+    const h = await api('GET', '/api/settings/health');
+    toast(`SearXNG: ${h.searxng === 'connected' ? '✅ ' + t('status.connected') : '❌ ' + t('status.unavailable')}`);
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
@@ -681,9 +736,11 @@ function openAddProvider() {
   _populateSecondarySelect(null);
   document.getElementById('provSecondary').value = '';
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
+  document.getElementById('provTestSection').style.display = 'none';
+  document.getElementById('provTestResult').style.display = 'none';
   onProvTypeChange();
-  document.getElementById('providerModal').classList.add('open');
-  document.body.style.overflow = 'hidden';
+  document.getElementById('providersMain').style.display = 'none';
+  document.getElementById('providerPage').style.display = '';
 }
 
 function editProvider(id) {
@@ -704,15 +761,35 @@ function editProvider(id) {
   _populateSecondarySelect(id);
   document.getElementById('provSecondary').value = p.secondary_provider || '';
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
+  document.getElementById('provTestSection').style.display = '';
+  document.getElementById('provTestResult').style.display = 'none';
   onProvTypeChange();
-  document.getElementById('providerModal').classList.add('open');
-  document.body.style.overflow = 'hidden';
+  document.getElementById('providersMain').style.display = 'none';
+  document.getElementById('providerPage').style.display = '';
 }
 
 function cancelProviderForm() {
-  document.getElementById('providerModal').classList.remove('open');
-  document.body.style.overflow = '';
+  document.getElementById('providerPage').style.display = 'none';
+  document.getElementById('providersMain').style.display = '';
   _editingProviderId = null;
+}
+
+async function testProviderFromPage() {
+  if (!_editingProviderId) return;
+  const res = document.getElementById('provTestResult');
+  res.style.display = '';
+  res.textContent = '⏳ Testing...';
+  res.style.color = 'var(--muted)';
+  try {
+    const h = await api('GET', `/api/settings/providers/${encodeURIComponent(_editingProviderId)}/health`);
+    const status = h.status || h.provider || 'unknown';
+    const model = h.model || '';
+    res.textContent = `${status === 'connected' ? '✅' : '❌'} ${status}${model ? ' — ' + model : ''}`;
+    res.style.color = status === 'connected' ? 'var(--success)' : 'var(--danger)';
+  } catch (e) {
+    res.textContent = '❌ ' + e.message;
+    res.style.color = 'var(--danger)';
+  }
 }
 
 function onProvTypeChange() {
@@ -901,9 +978,11 @@ function openAddSecondaryProvider() {
   document.getElementById('secProvTimeout').value = 120;
   document.getElementById('secProvMaxTokens').value = 2048;
   document.getElementById('secProvTemperature').value = 0.7;
+  document.getElementById('secProvTestSection').style.display = 'none';
+  document.getElementById('secProvTestResult').style.display = 'none';
   onSecProvTypeChange();
-  document.getElementById('secProviderModal').classList.add('open');
-  document.body.style.overflow = 'hidden';
+  document.getElementById('providersMain').style.display = 'none';
+  document.getElementById('secProviderPage').style.display = '';
 }
 
 function editSecondaryProvider(id) {
@@ -919,15 +998,36 @@ function editSecondaryProvider(id) {
   document.getElementById('secProvTimeout').value = p.timeout || 120;
   document.getElementById('secProvMaxTokens').value = p.max_tokens || 2048;
   document.getElementById('secProvTemperature').value = p.temperature ?? 0.7;
+  document.getElementById('secProvTestSection').style.display = '';
+  document.getElementById('secProvTestResult').style.display = 'none';
   onSecProvTypeChange();
-  document.getElementById('secProviderModal').classList.add('open');
-  document.body.style.overflow = 'hidden';
+  document.getElementById('providersMain').style.display = 'none';
+  document.getElementById('secProviderPage').style.display = '';
 }
 
 function cancelSecProviderForm() {
-  document.getElementById('secProviderModal').classList.remove('open');
-  document.body.style.overflow = '';
+  document.getElementById('secProviderPage').style.display = 'none';
+  document.getElementById('providerPage').style.display = 'none';
+  document.getElementById('providersMain').style.display = '';
   _editingSecProviderId = null;
+}
+
+async function testSecProviderFromPage() {
+  if (!_editingSecProviderId) return;
+  const res = document.getElementById('secProvTestResult');
+  res.style.display = '';
+  res.textContent = '⏳ Testing...';
+  res.style.color = 'var(--muted)';
+  try {
+    const h = await api('GET', `/api/settings/secondary-providers/${encodeURIComponent(_editingSecProviderId)}/health`);
+    const status = h.status || 'unknown';
+    const model = h.model || '';
+    res.textContent = `${status === 'connected' ? '✅' : '❌'} ${status}${model ? ' — ' + model : ''}`;
+    res.style.color = status === 'connected' ? 'var(--success)' : 'var(--danger)';
+  } catch (e) {
+    res.textContent = '❌ ' + e.message;
+    res.style.color = 'var(--danger)';
+  }
 }
 
 function onSecProvTypeChange() {
@@ -1120,12 +1220,26 @@ async function loadUsersTab() {
   }
 }
 
+function openAddUserPage() {
+  document.getElementById('newUserName').value = '';
+  document.getElementById('usersMain').style.display = 'none';
+  document.getElementById('addUserPage').style.display = '';
+  applyTranslations();
+  setTimeout(() => document.getElementById('newUserName').focus(), 100);
+}
+
+function closeAddUserPage() {
+  document.getElementById('addUserPage').style.display = 'none';
+  document.getElementById('usersMain').style.display = '';
+}
+
 async function addUser() {
   const name = document.getElementById('newUserName').value.trim();
   if (!name) { toast(t('toast.enterUsername'), true); return; }
   try {
     const result = await api('POST', '/api/settings/users', { username: name });
     document.getElementById('newUserName').value = '';
+    closeAddUserPage();
     toast(t('toast.userCreated', { name: result.username }));
     loadUsersTab();
   } catch (e) {
@@ -1140,7 +1254,7 @@ async function deleteUser(username) {
     try { await api('DELETE', `/api/memory/user/${encodeURIComponent(username)}`); } catch(e) { /* no memories */ }
     await api('DELETE', `/api/settings/users/${encodeURIComponent(username)}`);
     toast(t('toast.userDeleted', { name: username }));
-    if (_selectedUser === username) closeUserModal();
+    if (_selectedUser === username) closeUserPage();
     loadUsersTab();
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
@@ -1175,7 +1289,7 @@ async function selectUser(username) {
   _userModalKeyVisible = false;
   document.getElementById('selectedUserName').textContent = username;
 
-  // API key section in modal
+  // API key section
   const keySection = document.getElementById('userModalKeySection');
   const keyEl = document.getElementById('userModalApiKey');
   const keyToggle = document.getElementById('btnToggleUserKey');
@@ -1188,9 +1302,8 @@ async function selectUser(username) {
     keySection.style.display = 'none';
   }
 
-  const overlay = document.getElementById('userModal');
-  overlay.classList.add('open');
-  document.body.style.overflow = 'hidden';
+  document.getElementById('usersMain').style.display = 'none';
+  document.getElementById('userDetailPage').style.display = '';
   document.querySelectorAll('.user-card').forEach(c => {
     c.classList.toggle('selected', c.querySelector('.user-name')?.textContent === username);
   });
@@ -1219,22 +1332,24 @@ function copyUserModalKey() {
   navigator.clipboard.writeText(key).then(() => toast(t('toast.apiKeyCopied'))).catch(() => toast(t('toast.copyFail'), true));
 }
 
-function closeUserModal() {
+function closeUserPage() {
   _selectedUser = null;
-  const overlay = document.getElementById('userModal');
-  overlay.classList.remove('open');
-  document.body.style.overflow = '';
+  document.getElementById('userDetailPage').style.display = 'none';
+  document.getElementById('usersMain').style.display = '';
   document.querySelectorAll('.user-card').forEach(c => c.classList.remove('selected'));
 }
-const deselectUser = closeUserModal;
+const closeUserModal = closeUserPage;
+const deselectUser = closeUserPage;
 
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (document.getElementById('providerModal').classList.contains('open')) {
-      cancelProviderForm();
-    } else if (document.getElementById('userModal').classList.contains('open')) {
-      closeUserModal();
-    }
+    if (document.getElementById('addUserPage').style.display !== 'none') closeAddUserPage();
+    else if (document.getElementById('userDetailPage').style.display !== 'none') closeUserPage();
+    else if (document.getElementById('addMemoryPage').style.display !== 'none') closeAddMemoryPage();
+    else if (document.getElementById('skillEditorPage').style.display !== 'none') closeSkillEditor();
+    else if (document.getElementById('convDetailPage').style.display !== 'none') closeConvPage();
+    else if (document.getElementById('secProviderPage').style.display !== 'none') cancelSecProviderForm();
+    else if (document.getElementById('providerPage').style.display !== 'none') cancelProviderForm();
   }
 });
 
@@ -1409,6 +1524,9 @@ async function consolidateMemories() {
 
 let _memTabUser = '';
 let _memTabAll = [];
+let _memTabFiltered = [];
+let _memTabPage = 1;
+const _memTabPerPage = 5;
 
 async function refreshMemTabUsers() {
   const select = document.getElementById('memTabUserSelect');
@@ -1439,16 +1557,16 @@ async function refreshMemTabUsers() {
 async function loadMemoriesTab() {
   _memTabUser = document.getElementById('memTabUserSelect').value;
   const statsCard = document.getElementById('memTabStatsCard');
-  const addCard = document.getElementById('memTabAddCard');
+  const addBtn = document.getElementById('memTabAddBtn');
   const listCard = document.getElementById('memTabListCard');
   if (!_memTabUser) {
     statsCard.style.display = 'none';
-    addCard.style.display = 'none';
+    addBtn.style.display = 'none';
     listCard.style.display = 'none';
     return;
   }
   statsCard.style.display = '';
-  addCard.style.display = '';
+  addBtn.style.display = '';
   listCard.style.display = '';
   await Promise.all([loadMemTabStats(), loadMemTabItems()]);
 }
@@ -1480,13 +1598,21 @@ async function loadMemTabItems() {
 }
 
 function renderMemTabItems(memories) {
+  _memTabFiltered = memories;
   const list = document.getElementById('memTabList');
+  const pagEl = document.getElementById('memTabPagination');
   if (!memories.length) {
     list.innerHTML = `<p style="color:var(--muted);font-size:.9rem">${t('status.noMemory')}</p>`;
+    pagEl.innerHTML = '';
     updateMemTabBulkBar();
     return;
   }
-  list.innerHTML = memories.map(m => {
+  const totalPages = Math.ceil(memories.length / _memTabPerPage);
+  if (_memTabPage > totalPages) _memTabPage = totalPages;
+  if (_memTabPage < 1) _memTabPage = 1;
+  const start = (_memTabPage - 1) * _memTabPerPage;
+  const page = memories.slice(start, start + _memTabPerPage);
+  list.innerHTML = page.map(m => {
     const stars = '★'.repeat(m.importance) + '☆'.repeat(5 - m.importance);
     const date = new Date(m.created_at * 1000).toLocaleDateString(currentLang === 'ro' ? 'ro-RO' : 'en-US');
     const accessed = m.access_count > 0 ? t('status.accessed', { count: m.access_count }) : t('status.notAccessed');
@@ -1504,10 +1630,25 @@ function renderMemTabItems(memories) {
             <span>${m.source}</span>
           </div>
         </div>
-        <button class="btn btn-danger btn-sm" onclick="deleteMemoryTab(${m.id})">${t('users.delete')}</button>
       </div>`;
   }).join('');
+  // Pagination controls
+  if (totalPages > 1) {
+    let pag = `<button onclick="memTabGoPage(${_memTabPage - 1})" ${_memTabPage === 1 ? 'disabled' : ''}>&lsaquo;</button>`;
+    for (let i = 1; i <= totalPages; i++) {
+      pag += `<button onclick="memTabGoPage(${i})" class="${i === _memTabPage ? 'active' : ''}">${i}</button>`;
+    }
+    pag += `<button onclick="memTabGoPage(${_memTabPage + 1})" ${_memTabPage === totalPages ? 'disabled' : ''}>&rsaquo;</button>`;
+    pagEl.innerHTML = pag;
+  } else {
+    pagEl.innerHTML = '';
+  }
   updateMemTabBulkBar();
+}
+
+function memTabGoPage(page) {
+  _memTabPage = page;
+  renderMemTabItems(_memTabFiltered);
 }
 
 function updateMemTabBulkBar() {
@@ -1557,6 +1698,7 @@ async function bulkDeleteMemoriesTab() {
 function filterMemoriesTab(cat, btn) {
   document.querySelectorAll('.mem-tab-filter').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
+  _memTabPage = 1;
   renderMemTabItems(cat === 'all' ? _memTabAll : _memTabAll.filter(m => m.category === cat));
 }
 
@@ -1574,11 +1716,27 @@ async function addMemoryTab() {
     });
     document.getElementById('memTabNewContent').value = '';
     document.getElementById('memTabNewKeywords').value = '';
+    closeAddMemoryPage();
     toast(t('toast.memoryAdded'));
     await Promise.all([loadMemTabStats(), loadMemTabItems()]);
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
+}
+
+function openAddMemoryPage() {
+  document.getElementById('memTabNewCat').value = 'facts';
+  document.getElementById('memTabNewImp').value = 3;
+  document.getElementById('memTabNewContent').value = '';
+  document.getElementById('memTabNewKeywords').value = '';
+  document.getElementById('memoriesMain').style.display = 'none';
+  document.getElementById('addMemoryPage').style.display = '';
+  applyTranslations();
+}
+
+function closeAddMemoryPage() {
+  document.getElementById('addMemoryPage').style.display = 'none';
+  document.getElementById('memoriesMain').style.display = '';
 }
 
 async function deleteMemoryTab(id) {
@@ -1760,12 +1918,11 @@ async function openConvSession(userId, sessionId) {
   _convUserId = userId;
   _convSessionId = sessionId;
 
-  const modal = document.getElementById('convModal');
-  const body = document.getElementById('convModalMessages');
+  const body = document.getElementById('convPageMsgList');
   body.innerHTML = `<p class="card-muted" style="text-align:center;padding:40px 0">${t('conv.loadingMessages')}</p>`;
 
-  modal.classList.add('open');
-  document.body.style.overflow = 'hidden';
+  document.getElementById('convMain').style.display = 'none';
+  document.getElementById('convDetailPage').style.display = '';
 
   const locale = currentLang === 'ro' ? 'ro-RO' : 'en-US';
   try {
@@ -1775,13 +1932,13 @@ async function openConvSession(userId, sessionId) {
     if (messages.length) {
       const first = new Date(messages[0].created_at * 1000);
       const last = new Date(messages[messages.length - 1].created_at * 1000);
-      document.getElementById('convModalTitle').textContent =
+      document.getElementById('convPageTitle').textContent =
         first.toLocaleDateString(locale, { day: '2-digit', month: 'long', year: 'numeric' });
-      document.getElementById('convModalSubtitle').textContent =
+      document.getElementById('convPageSubtitle').textContent =
         `${messages.length} ${t('conv.messages')} · ${first.toLocaleTimeString(locale, {hour:'2-digit',minute:'2-digit'})} — ${last.toLocaleTimeString(locale, {hour:'2-digit',minute:'2-digit'})}`;
     } else {
-      document.getElementById('convModalTitle').textContent = t('conv.conversation');
-      document.getElementById('convModalSubtitle').textContent = t('conv.noMessages');
+      document.getElementById('convPageTitle').textContent = t('conv.conversation');
+      document.getElementById('convPageSubtitle').textContent = t('conv.noMessages');
     }
 
     if (!messages.length) {
@@ -1842,12 +1999,13 @@ async function bulkDeleteSessions() {
   }
 }
 
-function closeConvModal() {
-  document.getElementById('convModal').classList.remove('open');
-  document.body.style.overflow = '';
+function closeConvPage() {
+  document.getElementById('convDetailPage').style.display = 'none';
+  document.getElementById('convMain').style.display = '';
   _convUserId = '';
   _convSessionId = '';
 }
+const closeConvModal = closeConvPage;
 
 async function deleteCurrentSession() {
   if (!_convUserId || !_convSessionId) return;
@@ -1855,18 +2013,12 @@ async function deleteCurrentSession() {
   try {
     await api('DELETE', `/api/settings/conversations/${encodeURIComponent(_convUserId)}/${encodeURIComponent(_convSessionId)}`);
     toast(t('toast.sessionDeleted'));
-    closeConvModal();
+    closeConvPage();
     loadConversations();
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
 }
-
-document.addEventListener('keydown', e => {
-  if (e.key === 'Escape' && document.getElementById('convModal').classList.contains('open')) {
-    closeConvModal();
-  }
-});
 
 // ── Init ──
 loadSystemInfo();
@@ -1964,6 +2116,69 @@ document.querySelectorAll('.tab').forEach(tab => {
 
 let _skillEditing = null; // null = creating, string = skill name being edited
 
+// ── Code Editor helpers ──
+function _syntaxHighlight(code) {
+  const esc = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return esc
+    .replace(/(#.*?)$/gm, '<span class="syn-comment">$1</span>')
+    .replace(/(&quot;{3}|'{3})([\s\S]*?)\1/g, '<span class="syn-str">$1$2$1</span>')
+    .replace(/(["'])(?:(?!\1|\\).|\\.)*?\1/g, '<span class="syn-str">$&</span>')
+    .replace(/\b(def|class|if|elif|else|for|while|return|import|from|as|try|except|finally|with|raise|yield|pass|break|continue|and|or|not|in|is|lambda|async|await|global|nonlocal)\b/g, '<span class="syn-kw">$1</span>')
+    .replace(/\b(print|len|range|int|str|float|list|dict|set|tuple|bool|type|isinstance|getattr|setattr|hasattr|open|super|None|True|False)\b/g, '<span class="syn-builtin">$1</span>')
+    .replace(/\b(self)\b/g, '<span class="syn-self">$1</span>')
+    .replace(/@[\w.]+/g, '<span class="syn-decorator">$&</span>')
+    .replace(/\b(\d+\.?\d*)\b/g, '<span class="syn-number">$1</span>')
+    .replace(/\b([a-zA-Z_]\w*)\s*(?=\()/g, '<span class="syn-func">$1</span>');
+}
+
+function _updateCodeEditor() {
+  const ta = document.getElementById('skillEditSource');
+  const hl = document.getElementById('skillHighlight');
+  const ln = document.getElementById('skillLineNumbers');
+  if (!ta || !hl || !ln) return;
+
+  // Highlight
+  hl.innerHTML = _syntaxHighlight(ta.value) + '\n';
+
+  // Line numbers
+  const lines = ta.value.split('\n').length;
+  let nums = '';
+  for (let i = 1; i <= lines; i++) nums += `<span>${i}</span>`;
+  ln.innerHTML = nums;
+
+  // Resize textarea to fit content (no internal scroll)
+  ta.style.height = 'auto';
+  ta.style.height = Math.max(360, ta.scrollHeight) + 'px';
+}
+
+function _syncEditorScroll() {
+  const container = document.getElementById('skillEditSource').parentElement;
+  const hl = document.getElementById('skillHighlight');
+  const ln = document.getElementById('skillLineNumbers');
+  if (!container || !hl || !ln) return;
+  ln.scrollTop = container.scrollTop;
+}
+
+function _initCodeEditor() {
+  const ta = document.getElementById('skillEditSource');
+  if (!ta || ta._editorInit) return;
+  ta._editorInit = true;
+  ta.addEventListener('input', _updateCodeEditor);
+  // Scroll sync on the container, not textarea
+  ta.parentElement.addEventListener('scroll', _syncEditorScroll);
+  ta.addEventListener('keydown', function(e) {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = this.selectionStart;
+      const end = this.selectionEnd;
+      this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
+      this.selectionStart = this.selectionEnd = start + 4;
+      _updateCodeEditor();
+    }
+  });
+  _updateCodeEditor();
+}
+
 async function loadSkills() {
   const el = document.getElementById('skillsList');
   if (!el) return;
@@ -1999,8 +2214,8 @@ async function loadSkills() {
 
 async function openCreateSkill() {
   _skillEditing = null;
-  document.getElementById('skillModalTitle').textContent = t('skills.createSkill') || 'Create Skill';
-  document.getElementById('skillModalSubtitle').textContent = t('skills.createDesc') || 'Create a new custom skill';
+  document.getElementById('skillEditorTitle').textContent = t('skills.createSkill') || 'Create Skill';
+  document.getElementById('skillEditorSubtitle').textContent = t('skills.createDesc') || 'Create a new custom skill';
   document.getElementById('skillNameSection').style.display = '';
   document.getElementById('skillEditName').value = '';
   document.getElementById('skillTestOutput').style.display = 'none';
@@ -2012,13 +2227,16 @@ async function openCreateSkill() {
   } catch {
     document.getElementById('skillEditSource').value = '';
   }
-  document.getElementById('skillModal').classList.add('open');
+  document.getElementById('skillsMain').style.display = 'none';
+  document.getElementById('skillEditorPage').style.display = '';
+  _initCodeEditor();
+  _updateCodeEditor();
 }
 
 async function editSkill(name) {
   _skillEditing = name;
-  document.getElementById('skillModalTitle').textContent = t('skills.editSkill') || 'Edit Skill';
-  document.getElementById('skillModalSubtitle').textContent = name;
+  document.getElementById('skillEditorTitle').textContent = t('skills.editSkill') || 'Edit Skill';
+  document.getElementById('skillEditorSubtitle').textContent = name;
   document.getElementById('skillNameSection').style.display = 'none';
   document.getElementById('skillTestOutput').style.display = 'none';
 
@@ -2029,13 +2247,18 @@ async function editSkill(name) {
     toast('Error: ' + e.message, true);
     return;
   }
-  document.getElementById('skillModal').classList.add('open');
+  document.getElementById('skillsMain').style.display = 'none';
+  document.getElementById('skillEditorPage').style.display = '';
+  _initCodeEditor();
+  _updateCodeEditor();
 }
 
-function closeSkillModal() {
-  document.getElementById('skillModal').classList.remove('open');
+function closeSkillEditor() {
+  document.getElementById('skillEditorPage').style.display = 'none';
+  document.getElementById('skillsMain').style.display = '';
   _skillEditing = null;
 }
+const closeSkillModal = closeSkillEditor;
 
 async function saveSkillEdit() {
   const source = document.getElementById('skillEditSource').value;
@@ -2049,7 +2272,7 @@ async function saveSkillEdit() {
       await api('POST', '/api/skills/', { name, source });
       toast(t('skills.created') || 'Skill created');
     }
-    closeSkillModal();
+    closeSkillEditor();
     loadSkills();
   } catch (e) {
     toast('Error: ' + e.message, true);
