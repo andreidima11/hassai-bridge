@@ -973,6 +973,9 @@ async def chat_completions(request: Request):
             last_user_msg = (msg.get("content") or "").strip()
             break
 
+    # Authenticate when an API key is configured
+    _validate_api_key(request)
+
     # ── Message size validation (#16) ──
     total_size = sum(len(m.get("content") or "") for m in messages)
     if total_size > 512_000:  # 500KB max
@@ -1455,7 +1458,7 @@ async def list_models():
         models = await providers.list_models()
         return {"object": "list", "data": models}
     except Exception as e:
-        return JSONResponse(
-            status_code=502,
-            content={"error": f"Could not reach LMStudio: {e}"},
-        )
+        # Bridge is up but provider unreachable — return empty list so HA can
+        # still connect; chat will surface a clearer error later.
+        log.warning(f"Could not list models from provider: {e}")
+        return {"object": "list", "data": []}

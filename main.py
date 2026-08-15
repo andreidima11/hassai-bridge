@@ -157,8 +157,21 @@ app.add_middleware(
 
 
 # ── Admin auth dependency — protects /api/ routes ──
+# Read-only monitoring endpoints used by the HA integration sensors.
+# These never expose raw secrets (API keys are masked in /info).
+_PUBLIC_GET_PATHS = {
+    "/api/settings/info",
+    "/api/settings/health",
+    "/api/settings/stats",
+}
+
+
 def _require_admin_key(request: Request):
     """Validate API key for admin endpoints (/api/settings, /api/memory, /api/logs)."""
+    # Allow unauthenticated GET for HA sensor polling (info/stats/health)
+    if request.method == "GET" and request.url.path in _PUBLIC_GET_PATHS:
+        return
+
     cfg = load_config()
     expected_key = cfg.get("api_key", "")
     if not expected_key:
