@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Publish hassai-bridge-ha v1.5.0 from your Mac (Cursor bot has no write access to that repo).
+# Publish hassai-bridge-ha v1.5.1 from your Mac (Cursor bot has no write access to that repo).
 set -euo pipefail
 
 REPO_DIR="${1:-$HOME/hassai-bridge-ha}"
-ZIP_URL="https://github.com/andreidima11/hassai-bridge/releases/download/v0.1.9.5-beta/hassai-bridge-ha-1.5.0.zip"
+ZIP_URL="https://github.com/andreidima11/hassai-bridge/releases/download/v0.1.9.5-beta/hassai-bridge-ha-1.5.1.zip"
 WORKDIR=$(mktemp -d)
 
 cleanup() { rm -rf "$WORKDIR"; }
@@ -29,16 +29,16 @@ cp -a "$WORKDIR/pack/custom_components/hassai_bridge" custom_components/
 cp "$WORKDIR/pack/README.md" README.md
 
 git add -A
-git commit -m "Release v1.5.0: automation tools + sensor coordinator fix" || echo "Nothing to commit"
+git commit -m "Release v1.5.1: automation tools + sensor coordinator fix" || echo "Nothing to commit"
 git push origin main
 
-git tag -a v1.5.0 -m "v1.5.0" || true
-git push origin v1.5.0
+git tag -a v1.5.1 -m "v1.5.1" || true
+git push origin v1.5.1
 
-gh release create v1.5.0 \
-  --title "v1.5.0 — Automations + sensor fix" \
+gh release create v1.5.1 \
+  --title "v1.5.1 — Automations + sensor fix" \
   --notes "$(cat <<'EOF'
-## HASSAI Bridge HA Integration v1.5.0
+## HASSAI Bridge HA Integration v1.5.1
 
 ### Fixes
 - Sensors no longer stuck on Unknown/unavailable (DataUpdateCoordinator + better fallbacks)
@@ -57,4 +57,4 @@ EOF
 )" \
   --latest
 
-echo "Done: https://github.com/andreidima11/hassai-bridge-ha/releases/tag/v1.5.0"
+echo "Done: https://github.com/andreidima11/hassai-bridge-ha/releases/tag/v1.5.1"
