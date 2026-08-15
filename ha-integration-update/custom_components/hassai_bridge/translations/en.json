@@ -1,0 +1,38 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HASSAI Bridge Connection",
+        "description": "Configure the connection to your HASSAI Bridge server.",
+        "data": {
+          "base_url": "Bridge URL",
+          "api_key": "API Key (leave empty if not configured)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to HASSAI Bridge. Check the URL and ensure the server is running.",
+      "invalid_auth": "Invalid API key.",
+      "unknown": "An unknown error occurred."
+    },
+    "abort": {
+      "already_configured": "This HASSAI Bridge instance is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HASSAI Bridge Options",
+        "description": "Model, temperature, max tokens and other AI settings are configured in the HASSAI Bridge Web UI ({url}).",
+        "data": {
+          "prompt": "System Prompt (Jinja2 template with exposed_entities)",
+          "max_function_calls_per_conversation": "Max Function Calls Per Conversation",
+          "functions": "Functions (YAML)"
+        }
+      }
+    },
+    "error": {
+      "invalid_yaml": "Invalid YAML syntax. Please check your functions configuration."
+    }
+  }
+}
