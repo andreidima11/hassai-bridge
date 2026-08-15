@@ -76,6 +76,22 @@ async def _validate_automation_config(
     await async_validate_config_item(hass, config_key, config)
 
 
+def _json_safe(value: Any) -> Any:
+    """Convert values so tool results can be JSON-serialized."""
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "isoformat"):
+        try:
+            return value.isoformat()
+        except Exception:
+            return str(value)
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(v) for v in value]
+    return str(value)
+
+
 def list_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
     """List automation entities with basic metadata."""
     ent_reg = er.async_get(hass)
@@ -93,7 +109,7 @@ def list_automations(hass: HomeAssistant) -> list[dict[str, Any]]:
                 "alias": state.attributes.get("friendly_name", state.entity_id),
                 "state": state.state,
                 "enabled": state.state == STATE_ON,
-                "last_triggered": state.attributes.get("last_triggered"),
+                "last_triggered": _json_safe(state.attributes.get("last_triggered")),
                 "description": state.attributes.get("description"),
             }
         )

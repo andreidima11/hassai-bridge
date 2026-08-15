@@ -286,7 +286,7 @@ class HASSAIBridgeAgent(ConversationEntity):
                         "role": "tool",
                         "name": tc["function"]["name"],
                         "content": (
-                            json.dumps(tc_result)
+                            json.dumps(tc_result, default=str)
                             if isinstance(tc_result, (dict, list))
                             else str(tc_result)
                         ),
@@ -425,8 +425,14 @@ class HASSAIBridgeAgent(ConversationEntity):
         func_name = tool_call["function"]["name"]
 
         try:
-            arguments = json.loads(tool_call["function"]["arguments"])
-        except (json.JSONDecodeError, KeyError) as err:
+            raw_args = tool_call["function"].get("arguments", {})
+            if isinstance(raw_args, str):
+                arguments = json.loads(raw_args) if raw_args.strip() else {}
+            elif isinstance(raw_args, dict):
+                arguments = raw_args
+            else:
+                arguments = {}
+        except (json.JSONDecodeError, KeyError, TypeError) as err:
             _LOGGER.error("Invalid tool call arguments: %s", err)
             return {"error": f"Invalid arguments: {err}"}
 
@@ -440,54 +446,58 @@ class HASSAIBridgeAgent(ConversationEntity):
         func_type = func_def.get("function", {}).get("type")
         native_name = func_def.get("function", {}).get("name")
 
-        if func_type == "native" and native_name == "execute_service":
-            return await self._execute_services(arguments, exposed_entities)
+        try:
+            if func_type == "native" and native_name == "execute_service":
+                return await self._execute_services(arguments, exposed_entities)
 
-        if func_type == "native" and native_name == "list_automations":
-            return automation_tools.list_automations(self.hass)
+            if func_type == "native" and native_name == "list_automations":
+                return automation_tools.list_automations(self.hass)
 
-        if func_type == "native" and native_name == "get_automation":
-            return await automation_tools.get_automation(
-                self.hass,
-                automation_id=arguments.get("automation_id"),
-                entity_id=arguments.get("entity_id"),
-            )
+            if func_type == "native" and native_name == "get_automation":
+                return await automation_tools.get_automation(
+                    self.hass,
+                    automation_id=arguments.get("automation_id"),
+                    entity_id=arguments.get("entity_id"),
+                )
 
-        if func_type == "native" and native_name == "create_automation":
-            return await automation_tools.create_automation(
-                self.hass,
-                alias=arguments.get("alias", ""),
-                triggers=arguments.get("triggers") or arguments.get("trigger"),
-                actions=arguments.get("actions") or arguments.get("action"),
-                conditions=arguments.get("conditions", arguments.get("condition")),
-                description=arguments.get("description"),
-                mode=arguments.get("mode"),
-                automation_id=arguments.get("automation_id"),
-                confirm=bool(arguments.get("confirm", False)),
-            )
+            if func_type == "native" and native_name == "create_automation":
+                return await automation_tools.create_automation(
+                    self.hass,
+                    alias=arguments.get("alias", ""),
+                    triggers=arguments.get("triggers") or arguments.get("trigger"),
+                    actions=arguments.get("actions") or arguments.get("action"),
+                    conditions=arguments.get("conditions", arguments.get("condition")),
+                    description=arguments.get("description"),
+                    mode=arguments.get("mode"),
+                    automation_id=arguments.get("automation_id"),
+                    confirm=bool(arguments.get("confirm", False)),
+                )
 
-        if func_type == "native" and native_name == "update_automation":
-            return await automation_tools.update_automation(
-                self.hass,
-                automation_id=arguments.get("automation_id", ""),
-                updates=arguments.get("updates") or {},
-                confirm=bool(arguments.get("confirm", False)),
-            )
+            if func_type == "native" and native_name == "update_automation":
+                return await automation_tools.update_automation(
+                    self.hass,
+                    automation_id=arguments.get("automation_id", ""),
+                    updates=arguments.get("updates") or {},
+                    confirm=bool(arguments.get("confirm", False)),
+                )
 
-        if func_type == "native" and native_name == "delete_automation":
-            return await automation_tools.delete_automation(
-                self.hass,
-                automation_id=arguments.get("automation_id", ""),
-                confirm=bool(arguments.get("confirm", False)),
-            )
+            if func_type == "native" and native_name == "delete_automation":
+                return await automation_tools.delete_automation(
+                    self.hass,
+                    automation_id=arguments.get("automation_id", ""),
+                    confirm=bool(arguments.get("confirm", False)),
+                )
 
-        if func_type == "native" and native_name == "toggle_automation":
-            return await automation_tools.toggle_automation(
-                self.hass,
-                entity_id=arguments.get("entity_id"),
-                automation_id=arguments.get("automation_id"),
-                enabled=arguments.get("enabled"),
-            )
+            if func_type == "native" and native_name == "toggle_automation":
+                return await automation_tools.toggle_automation(
+                    self.hass,
+                    entity_id=arguments.get("entity_id"),
+                    automation_id=arguments.get("automation_id"),
+                    enabled=arguments.get("enabled"),
+                )
+        except Exception as err:
+            _LOGGER.exception("Error executing tool %s", func_name)
+            return {"error": f"Tool {func_name} failed: {err}"}
 
         return {"error": f"Unsupported function: {func_name}"}
 
