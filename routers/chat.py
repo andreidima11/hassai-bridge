@@ -1007,11 +1007,11 @@ async def chat_completions(request: Request):
         return JSONResponse(content=_command_response_openai(cmd_result, model))
 
     # ── Build augmented message list ──
+    active = get_active_provider()
     log.info(f"[{user_id}] Request: \"{last_user_msg[:80]}\" (provider={active.get('name','?')}, stream={stream})")
     augmented: list[dict] = []
 
     # 1) System prompt (per-provider overrides global)
-    active = get_active_provider()
     secondary = providers.get_secondary_provider(active)
     system_prompt = (active.get("system_prompt") or "").strip() or cfg.get("system_prompt", "")
 
