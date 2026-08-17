@@ -72,19 +72,17 @@ All version strings come from the root [`VERSION`](VERSION) file:
 
 | Place | Value |
 |-------|--------|
-| `/VERSION` | `0.2.2-beta` (source of truth, no leading `v`) |
-| App / Web UI / API | `v0.2.2-beta` |
-| Add-on `hassai_bridge/config.yaml` | `0.2.2-beta` |
-| GitHub Release / tag | `v0.2.2-beta` |
+| `/VERSION` | `0.2.4-beta` (source of truth, no leading `v`) |
+| App / Web UI / API | `v0.2.4-beta` |
+| Add-on `hassai_bridge/config.yaml` | `0.2.4-beta` |
+| Add-on image sources | `hassai_bridge/app/` (vendored by `scripts/sync_version.sh`) |
 
-Home Assistant shows an add-on **Update** when `hassai_bridge/config.yaml` → `version` on `main` is newer than the installed add-on. After bumping, create the matching git tag + GitHub Release, then refresh the add-on store.
+Home Assistant shows an add-on **Update** when `hassai_bridge/config.yaml` → `version` on `main` is newer than the installed add-on. After bumping, run `bash scripts/sync_version.sh`, merge to `main`, then refresh the add-on store.
 
 ```bash
 # bump VERSION, then:
 bash scripts/sync_version.sh
-# update hassai_bridge/CHANGELOG.md, commit, merge to main, then:
-git tag "v$(tr -d '[:space:]' < VERSION | sed 's/^v//')"
-git push origin "v$(tr -d '[:space:]' < VERSION | sed 's/^v//')"
+# update hassai_bridge/CHANGELOG.md, commit, merge to main
 ```
 
 ## Home Assistant Setup

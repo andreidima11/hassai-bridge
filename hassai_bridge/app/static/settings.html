@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="__BASE_HREF__">
+  <title>HASSAI Bridge — Settings</title>
+  <script>window.HASSAI_BASE = "__INGRESS_PATH__";</script>
+  <link rel="stylesheet" href="static/css/style.css?v=__CACHE_BUSTER__">
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1 class="brand-logo"><a href="./" style="color:inherit;text-decoration:none;background:inherit;-webkit-background-clip:text;background-clip:text">HASSAI Bridge</a></h1>
+    <span class="badge" id="versionBadge">__VERSION__</span>
+    <a href="./" class="btn btn-sm" style="margin-left:8px" data-i18n="nav.chat">Chat</a>
+  </div>
+  <div class="header-right" id="statusBadges">
+    <select id="langSelect" style="display:none"><option value="en">EN</option><option value="ro">RO</option></select>
+  </div>
+</div>
+
+<div class="container">
+  <div class="tabs">
+    <div class="tab active" data-panel="dashboard" data-i18n="tab.dashboard">Dashboard</div>
+    <div class="tab" data-panel="statistics" data-i18n="tab.statistics">Statistics</div>
+    <div class="tab" data-panel="conversations" data-i18n="tab.conversations">Conversations</div>
+    <div class="tab" data-panel="users" data-i18n="tab.users">Users</div>
+    <div class="tab" data-panel="memories" data-i18n="tab.memories">Memories</div>
+    <div class="tab" data-panel="skills" data-i18n="tab.skills">Skills</div>
+    <div class="tab" data-panel="settings" data-i18n="tab.settings">Settings</div>
+    <div class="tab" data-panel="help" data-i18n="tab.help">Help</div>
+    <div class="tab" data-panel="logs" data-i18n="tab.logs">Logs</div>
+  </div>
+
+  <!-- ════════════ DASHBOARD ════════════ -->
+  <div class="panel active" id="dashboard">
+
+    <!-- Status services -->
+    <div class="card">
+      <h2 data-i18n="info.serviceStatus">Service Status</h2>
+      <div class="services-grid" id="servicesGrid">
+        <div class="service-card" id="svcLMStudio">
+          <div class="svc-icon">AI</div>
+          <div class="svc-name" id="svcProviderName">AI Provider</div>
+          <div class="svc-status loading" data-i18n="info.checking">Checking...</div>
+          <div class="svc-detail" id="svcLMDetail">—</div>
+        </div>
+        <div class="service-card" id="svcSearXNG">
+          <div class="svc-icon">SX</div>
+          <div class="svc-name">SearXNG</div>
+          <div class="svc-status loading" data-i18n="info.checking">Checking...</div>
+          <div class="svc-detail" id="svcSXDetail">—</div>
+        </div>
+        <div class="service-card" id="svcMemory">
+          <div class="svc-icon">AI</div>
+          <div class="svc-name" data-i18n="info.memoryAi">AI Memory</div>
+          <div class="svc-status loading" data-i18n="info.checking">Checking...</div>
+          <div class="svc-detail" id="svcMemDetail">—</div>
+        </div>
+      </div>
+      <div style="text-align:right;margin-top:12px">
+        <button class="btn btn-danger btn-sm" onclick="restartServer()" data-i18n="info.restartServer">Restart Server</button>
+      </div>
+    </div>
+
+    <!-- Quick stats with "More >" -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <h2 data-i18n="info.statistics">Statistics</h2>
+        <button class="btn btn-sm btn-link" onclick="switchToTab('statistics')" data-i18n="info.moreStats">More &rsaquo;</button>
+      </div>
+      <div class="info-stats-grid" id="infoStatsGrid">
+        <div class="info-stat">
+          <div class="info-stat-num" id="statUptime">—</div>
+          <div class="info-stat-lbl" data-i18n="info.uptime">Uptime</div>
+        </div>
+        <div class="info-stat">
+          <div class="info-stat-num" id="statUsers">—</div>
+          <div class="info-stat-lbl" data-i18n="info.users">Users</div>
+        </div>
+        <div class="info-stat">
+          <div class="info-stat-num" id="statMemories">—</div>
+          <div class="info-stat-lbl" data-i18n="info.totalMemories">Total Memories</div>
+        </div>
+        <div class="info-stat">
+          <div class="info-stat-num" id="statConversations">—</div>
+          <div class="info-stat-lbl" data-i18n="info.messages">Messages</div>
+        </div>
+        <div class="info-stat">
+          <div class="info-stat-num" id="statActions24h">—</div>
+          <div class="info-stat-lbl" data-i18n="info.actions24h">Actions (24h)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════ STATISTICS ════════════ -->
+  <div class="panel" id="statistics">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0" data-i18n="stats.title">Usage Statistics</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <select id="statsPeriod" class="input-sm" onchange="loadUsageStats()">
+            <option value="7">7 days</option>
+            <option value="30" selected>30 days</option>
+            <option value="90">90 days</option>
+            <option value="365">365 days</option>
+          </select>
+          <button class="btn btn-sm btn-primary" onclick="loadUsageStats()" data-i18n="logs.refresh">Refresh</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Statistics sub-tabs -->
+    <div class="settings-tabs">
+      <div class="settings-tab active" data-stab="stab-stats-model" data-i18n="stats.tabModel">Model</div>
+      <div class="settings-tab" data-stab="stab-stats-memory" data-i18n="stats.tabMemory">Memory</div>
+      <div class="settings-tab" data-stab="stab-stats-skills" data-i18n="stats.tabSkills">Skills</div>
+      <div class="settings-tab" data-stab="stab-stats-server" data-i18n="stats.tabServer">Server</div>
+    </div>
+
+    <!-- ── Model sub-tab ── -->
+    <div class="settings-subpanel active" id="stab-stats-model">
+      <!-- Overview cards -->
+      <div class="card">
+        <h2 data-i18n="stats.overview">Overview</h2>
+        <div class="stats-overview-grid" id="statsOverviewGrid">
+          <div class="info-stat"><div class="info-stat-num" id="statsRequests">—</div><div class="info-stat-lbl" data-i18n="stats.totalRequests">Total Requests</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsTokens">—</div><div class="info-stat-lbl" data-i18n="stats.totalTokens">Total Tokens</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSearches">—</div><div class="info-stat-lbl" data-i18n="stats.searchRequests">Search Requests</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSkills">—</div><div class="info-stat-lbl" data-i18n="stats.skills">Skills</div></div>
+        </div>
+      </div>
+
+      <!-- Eco Mode & Secondary Provider stats -->
+      <div class="stats-charts-row">
+        <div class="card" style="flex:1;min-width:280px">
+          <h2>🌿 <span data-i18n="stats.ecoMode">Eco Mode</span></h2>
+          <div class="stats-overview-grid">
+            <div class="info-stat"><div class="info-stat-num" id="statsEcoRequests">—</div><div class="info-stat-lbl" data-i18n="stats.ecoRequests">Eco Requests</div></div>
+            <div class="info-stat"><div class="info-stat-num" id="statsEcoSaved">—</div><div class="info-stat-lbl" data-i18n="stats.ecoSavedTokens">Tokens Saved</div></div>
+            <div class="info-stat"><div class="info-stat-num" id="statsEcoAvg">—</div><div class="info-stat-lbl" data-i18n="stats.ecoAvgCompletion">Avg Output (eco)</div></div>
+            <div class="info-stat"><div class="info-stat-num" id="statsNormalAvg">—</div><div class="info-stat-lbl" data-i18n="stats.normalAvgCompletion">Avg Output (normal)</div></div>
+          </div>
+        </div>
+        <div class="card" style="flex:1;min-width:280px">
+          <h2>🔄 <span data-i18n="stats.secondaryProvider">Secondary Provider</span></h2>
+          <div class="stats-overview-grid">
+            <div class="info-stat"><div class="info-stat-num" id="statsSecondaryRequests">—</div><div class="info-stat-lbl" data-i18n="stats.secondaryRequests">Secondary Calls</div></div>
+            <div class="info-stat"><div class="info-stat-num" id="statsSecondaryTokens">—</div><div class="info-stat-lbl" data-i18n="stats.secondaryTokens">Secondary Tokens</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pie charts -->
+      <div class="stats-charts-row">
+        <div class="card" style="flex:1;min-width:280px">
+          <h2 data-i18n="stats.byProvider">By Provider</h2>
+          <canvas id="chartProvider" width="300" height="300"></canvas>
+          <div id="chartProviderLegend" class="chart-legend"></div>
+        </div>
+        <div class="card" style="flex:1;min-width:280px">
+          <h2 data-i18n="stats.byModel">By Model</h2>
+          <canvas id="chartModel" width="300" height="300"></canvas>
+          <div id="chartModelLegend" class="chart-legend"></div>
+        </div>
+      </div>
+
+      <!-- Daily activity -->
+      <div class="card">
+        <h2 data-i18n="stats.dailyActivity">Daily Activity</h2>
+        <canvas id="chartDaily" width="800" height="200"></canvas>
+      </div>
+
+      <!-- Details tables -->
+      <div class="stats-charts-row">
+        <div class="card" style="flex:1;min-width:280px">
+          <h2 data-i18n="stats.providerDetails">Provider Details</h2>
+          <div id="statsProviderTable" class="stats-detail-table"></div>
+        </div>
+        <div class="card" style="flex:1;min-width:280px">
+          <h2 data-i18n="stats.modelDetails">Model Details</h2>
+          <div id="statsModelTable" class="stats-detail-table"></div>
+        </div>
+      </div>
+
+      <!-- Per-user -->
+      <div class="card">
+        <h2 data-i18n="stats.byUser">By User</h2>
+        <div id="statsUserTable" class="stats-detail-table"></div>
+      </div>
+    </div>
+
+    <!-- ── Memory sub-tab ── -->
+    <div class="settings-subpanel" id="stab-stats-memory">
+      <div class="card">
+        <h2 data-i18n="stats.memoryOverview">Memory Overview</h2>
+        <div class="stats-overview-grid" id="statsMemoryGrid">
+          <div class="info-stat"><div class="info-stat-num" id="statsMemTotal">—</div><div class="info-stat-lbl" data-i18n="stats.totalMemories">Total Memories</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsMemUsers">—</div><div class="info-stat-lbl" data-i18n="stats.usersWithMemory">Users with Memory</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsMemAutoExtract">—</div><div class="info-stat-lbl" data-i18n="stats.autoExtract">Auto-Extract</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="stats.memoryByUser">Memory by User</h2>
+        <div id="statsMemoryUserTable" class="stats-detail-table"></div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="stats.memoryByCategory">Memory by Category</h2>
+        <div id="statsMemoryCatTable" class="stats-detail-table"></div>
+      </div>
+    </div>
+
+    <!-- ── Skills sub-tab ── -->
+    <div class="settings-subpanel" id="stab-stats-skills">
+      <div class="card">
+        <h2 data-i18n="stats.skillsOverview">Skills Overview</h2>
+        <div class="stats-overview-grid" id="statsSkillsGrid">
+          <div class="info-stat"><div class="info-stat-num" id="statsSkillsTotal">—</div><div class="info-stat-lbl" data-i18n="stats.totalSkills">Total Skills</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSkillsEnabled">—</div><div class="info-stat-lbl" data-i18n="stats.enabledSkills">Enabled</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSkillsBuiltin">—</div><div class="info-stat-lbl" data-i18n="stats.builtinSkills">Built-in</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSkillsGenerated">—</div><div class="info-stat-lbl" data-i18n="stats.generatedSkills">User-Created</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsSkillsTotalUsage">—</div><div class="info-stat-lbl" data-i18n="stats.totalUsage">Total Uses</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="stats.skillsList">Skills Details</h2>
+        <div id="statsSkillsTable" class="stats-detail-table"></div>
+      </div>
+    </div>
+
+    <!-- ── Server sub-tab ── -->
+    <div class="settings-subpanel" id="stab-stats-server">
+      <div class="card">
+        <h2 data-i18n="stats.serverOverview">Server Overview</h2>
+        <div class="stats-overview-grid" id="statsServerGrid">
+          <div class="info-stat"><div class="info-stat-num" id="statsServerUptime">—</div><div class="info-stat-lbl" data-i18n="info.uptime">Uptime</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsServerVersion">—</div><div class="info-stat-lbl" data-i18n="stats.version">Version</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsServerEndpoints">—</div><div class="info-stat-lbl" data-i18n="stats.endpoints">Endpoints</div></div>
+          <div class="info-stat"><div class="info-stat-num" id="statsServerProviders">—</div><div class="info-stat-lbl" data-i18n="stats.providers">Providers</div></div>
+        </div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="stats.serverDetails">Server Details</h2>
+        <div id="statsServerDetails" class="stats-detail-table"></div>
+      </div>
+      <div class="card">
+        <h2 data-i18n="stats.serviceDetails">Service Status</h2>
+        <div id="statsServiceDetails" class="stats-detail-table"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════ CONVERSATIONS ════════════ -->
+  <div class="panel" id="conversations">
+    <!-- ── Main view ── -->
+    <div id="convMain">
+      <div class="card">
+        <h2 data-i18n="conv.selectUser">Select User</h2>
+        <p class="card-muted" data-i18n="conv.selectUserDesc">Choose a user from the dropdown to browse their conversation history. Sessions load automatically.</p>
+        <div style="flex:1;margin-top:8px">
+          <label data-i18n="conv.user">User</label>
+          <select id="convUserSelect" onchange="loadConversations()">
+            <option value="" data-i18n="conv.choose">— Choose —</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card" id="convSessionsCard" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <h2 data-i18n="conv.sessions">Conversation Sessions</h2>
+          <div id="convBulkBar" style="display:none;gap:8px;align-items:center">
+            <span id="convSelectedCount" style="font-size:.85rem;color:var(--muted)"></span>
+            <button class="btn btn-danger btn-sm" onclick="bulkDeleteSessions()" data-i18n="conv.deleteSelected">Delete Selected</button>
+            <button class="btn btn-sm" onclick="toggleConvSelectAll()" data-i18n="conv.selectAll">Select All</button>
+          </div>
+        </div>
+        <div id="convSessionsList" class="conv-sessions-list"></div>
+      </div>
+    </div>
+
+    <!-- ── Conversation detail page ── -->
+    <div id="convDetailPage" style="display:none">
+      <div class="page-back" onclick="closeConvPage()">← <span data-i18n="conv.sessions">Conversation Sessions</span></div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <div>
+            <h2 id="convPageTitle" data-i18n="conv.conversation">Conversation</h2>
+            <span class="card-muted" id="convPageSubtitle">—</span>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="deleteCurrentSession()" data-i18n="conv.delete">Delete</button>
+        </div>
+      </div>
+      <div class="card" id="convPageMessages">
+        <div id="convPageMsgList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════ SETTINGS ════════════ -->
+  <div class="panel" id="settings">
+
+    <!-- Settings sub-tabs -->
+    <div class="settings-tabs">
+      <div class="settings-tab active" data-stab="stab-general" data-i18n="settings.tabGeneral">General</div>
+      <div class="settings-tab" data-stab="stab-providers" data-i18n="settings.tabProviders">Providers</div>
+      <div class="settings-tab" data-stab="stab-search" data-i18n="settings.tabSearch">Search</div>
+      <div class="settings-tab" data-stab="stab-memory" data-i18n="settings.tabMemory">Memory</div>
+      <div class="settings-tab" data-stab="stab-security" data-i18n="settings.tabSecurity">Security</div>
+      <div class="settings-tab" data-stab="stab-backup" data-i18n="settings.tabBackup">Backup</div>
+    </div>
+
+    <!-- ── General ── -->
+    <div class="settings-subpanel active" id="stab-general">
+      <div class="card">
+        <h2 data-i18n="settings.language">Language</h2>
+        <label data-i18n="settings.language">Language</label>
+        <select id="settingsLang" onchange="setLanguage(this.value)">
+          <option value="en">English</option>
+          <option value="ro">Română</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <h2 data-i18n="settings.performance">Performance</h2>
+        <p class="card-muted" data-i18n="settings.perfDesc">Optimizations for faster response time.</p>
+        <label><span data-i18n="settings.historyLimit">Conversation history limit</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.historyLimitDesc">(how many history messages to send to LLM)</span></label>
+        <input type="number" id="perfHistoryLimit" value="10" min="2" max="50">
+        <div class="toggle-row">
+          <span data-i18n="settings.parallelFetch">Fetch web pages in parallel</span>
+          <label class="toggle"><input type="checkbox" id="perfParallelFetch" checked><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 data-i18n="settings.systemPromptGlobal">Global System Prompt</h2>
+        <p class="card-muted" data-i18n="settings.systemPromptGlobalDesc">Default system prompt for providers that don't have their own.</p>
+        <textarea id="systemPrompt" rows="4"></textarea>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
+      </div>
+    </div>
+
+    <!-- ── Providers ── -->
+    <div class="settings-subpanel" id="stab-providers">
+      <!-- Main providers view -->
+      <div id="providersMain">
+        <div class="card">
+          <h2 data-i18n="settings.providers">AI Providers</h2>
+          <p class="card-muted" data-i18n="settings.providersDesc">Add and manage AI providers. Supports local servers (LM Studio, Ollama) and cloud APIs (OpenAI, Grok, DeepSeek, GLM).</p>
+          <div id="providersList"></div>
+          <div style="margin-top:12px">
+            <button class="btn btn-primary btn-sm" onclick="openAddProvider()" data-i18n="settings.addProvider">+ Add Provider</button>
+          </div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h2 data-i18n="settings.secondaryProviders">Secondary Providers</h2>
+          <p class="card-muted" data-i18n="settings.secondaryProvidersDesc">Secondary providers handle memory operations (extraction, consolidation) and can be assigned to primary providers for tool call re-processing.</p>
+          <div id="secondaryProvidersList"></div>
+          <div style="margin-top:12px">
+            <button class="btn btn-primary btn-sm" onclick="openAddSecondaryProvider()" data-i18n="settings.addSecondaryProvider">+ Add Secondary Provider</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Provider Add/Edit Page -->
+      <div id="providerPage" style="display:none">
+        <div class="page-back" onclick="cancelProviderForm()">← <span data-i18n="settings.tabProviders">Providers</span></div>
+        <div class="card">
+          <h2 id="providerFormTitle" data-i18n="settings.addProvider">Add Provider</h2>
+          <span class="card-muted" data-i18n="settings.providerModalDesc">Configure the AI provider connection</span>
+
+          <div class="modal-section" style="margin-top:16px">
+            <label data-i18n="settings.providerType">Type</label>
+            <select id="provType" onchange="onProvTypeChange()">
+              <option value="local">Local (LM Studio / Ollama)</option>
+              <option value="openai">OpenAI</option>
+              <option value="grok">Grok (xAI)</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="glm">GLM (Zhipu AI)</option>
+            </select>
+            <label data-i18n="settings.providerName">Name</label>
+            <input type="text" id="provName" placeholder="e.g.: My LM Studio">
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.connection">Connection</h3>
+            <label data-i18n="settings.serverUrl">Server URL</label>
+            <input type="text" id="provUrl" placeholder="http://localhost:1234">
+            <p class="card-muted hint" id="provUrlHint" data-i18n="settings.providerUrlHint">For local servers, use the full URL (e.g. http://192.168.0.100:1234). For cloud APIs, the default URL is pre-filled.</p>
+            <label id="provApiKeyLabel" data-i18n="settings.providerApiKey">API Key</label>
+            <input type="password" id="provApiKey" data-i18n-placeholder="settings.apiKeyPlaceholder" placeholder="Insert API key">
+            <p class="card-muted hint" id="provApiKeyHint" data-i18n="settings.providerApiKeyHint">Your API key for this provider. Required for cloud providers.</p>
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.model">Model</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="provModel" placeholder="e.g.: gpt-4o-mini" style="flex:1">
+              <button class="btn btn-sm btn-primary" onclick="fetchProviderModels()" id="provFetchModelsBtn" data-i18n="settings.fetchModels">Fetch Models</button>
+            </div>
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.personality">Personality</h3>
+            <p class="card-muted hint" data-i18n="settings.personalityDesc">Custom system prompt for this provider. Leave empty to use the global system prompt.</p>
+            <textarea id="provSystemPrompt" rows="3" data-i18n-placeholder="settings.personalityPlaceholder" placeholder="e.g.: You are a creative writing assistant..."></textarea>
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.secondaryProvider">Secondary Provider</h3>
+            <p class="card-muted hint" data-i18n="settings.secondaryProviderDesc">Optional. Select a secondary provider to handle tool call re-processing (cost reduction / faster processing) and memory operations for this provider.</p>
+            <select id="provSecondary">
+              <option value="" data-i18n="settings.noSecondary">— None —</option>
+            </select>
+          </div>
+          <div class="modal-section">
+            <label class="toggle-row" style="cursor:pointer;display:flex;align-items:center;gap:10px">
+              <input type="checkbox" id="provEcoMode">
+              <div>
+                <strong data-i18n="settings.ecoMode">Eco Mode</strong>
+                <p class="card-muted hint" style="margin:2px 0 0" data-i18n="settings.ecoModeDesc">Reduce output tokens by instructing the AI to be concise. Removes filler words, pleasantries, and unnecessary explanations. Recommended for cloud API providers to save costs.</p>
+              </div>
+            </label>
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.advanced">Advanced</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+              <div>
+                <label data-i18n="settings.timeout">Timeout (s)</label>
+                <input type="number" id="provTimeout" value="120" min="10" max="600">
+              </div>
+              <div>
+                <label data-i18n="settings.maxTokens">Max Tokens</label>
+                <input type="number" id="provMaxTokens" value="2048" min="128" max="128000">
+              </div>
+              <div>
+                <label data-i18n="settings.temperature">Temperature</label>
+                <input type="number" id="provTemperature" value="0.7" min="0" max="2" step="0.1">
+              </div>
+            </div>
+            <p class="card-muted hint" data-i18n="settings.tempDesc">(0.0 = deterministic, 1.0 = creative)</p>
+          </div>
+          <div class="modal-section" id="provTestSection" style="display:none">
+            <h3 data-i18n="settings.test">Test</h3>
+            <button class="btn btn-sm btn-success" onclick="testProviderFromPage()" data-i18n="settings.testConnection">Test Connection</button>
+            <p id="provTestResult" class="card-muted" style="margin-top:8px;display:none"></p>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+            <button class="btn btn-sm" onclick="cancelProviderForm()" data-i18n="settings.cancel">Cancel</button>
+            <button class="btn btn-primary btn-sm" onclick="saveProvider()" id="provSaveBtn" data-i18n="settings.save">Save</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Secondary Provider Add/Edit Page -->
+      <div id="secProviderPage" style="display:none">
+        <div class="page-back" onclick="cancelSecProviderForm()">← <span data-i18n="settings.tabProviders">Providers</span></div>
+        <div class="card">
+          <h2 id="secProviderFormTitle" data-i18n="settings.addSecondaryProvider">Add Secondary Provider</h2>
+          <span class="card-muted" data-i18n="settings.secProviderModalDesc">Configure a secondary AI provider for memory operations</span>
+
+          <div class="modal-section" style="margin-top:16px">
+            <label data-i18n="settings.providerType">Type</label>
+            <select id="secProvType" onchange="onSecProvTypeChange()">
+              <option value="local">Local (LM Studio / Ollama)</option>
+              <option value="openai">OpenAI</option>
+              <option value="grok">Grok (xAI)</option>
+              <option value="deepseek">DeepSeek</option>
+              <option value="glm">GLM (Zhipu AI)</option>
+            </select>
+            <label data-i18n="settings.providerName">Name</label>
+            <input type="text" id="secProvName" placeholder="e.g.: Memory LLM">
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.connection">Connection</h3>
+            <label data-i18n="settings.serverUrl">Server URL</label>
+            <input type="text" id="secProvUrl" placeholder="http://localhost:1234">
+            <p class="card-muted hint" id="secProvUrlHint" data-i18n="settings.providerUrlHint">For local servers, use the full URL (e.g. http://192.168.0.100:1234). For cloud APIs, the default URL is pre-filled.</p>
+            <label id="secProvApiKeyLabel" data-i18n="settings.providerApiKey">API Key</label>
+            <input type="password" id="secProvApiKey" data-i18n-placeholder="settings.apiKeyPlaceholder" placeholder="Insert API key">
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.model">Model</h3>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="secProvModel" placeholder="e.g.: gpt-4o-mini" style="flex:1">
+              <button class="btn btn-sm btn-primary" onclick="fetchSecProviderModels()" data-i18n="settings.fetchModels">Fetch Models</button>
+            </div>
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.advanced">Advanced</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+              <div>
+                <label data-i18n="settings.timeout">Timeout (s)</label>
+                <input type="number" id="secProvTimeout" value="120" min="10" max="600">
+              </div>
+              <div>
+                <label data-i18n="settings.maxTokens">Max Tokens</label>
+                <input type="number" id="secProvMaxTokens" value="2048" min="128" max="128000">
+              </div>
+              <div>
+                <label data-i18n="settings.temperature">Temperature</label>
+                <input type="number" id="secProvTemperature" value="0.7" min="0" max="2" step="0.1">
+              </div>
+            </div>
+            <p class="card-muted hint" data-i18n="settings.tempDesc">(0.0 = deterministic, 1.0 = creative)</p>
+          </div>
+          <div class="modal-section" id="secProvTestSection" style="display:none">
+            <h3 data-i18n="settings.test">Test</h3>
+            <button class="btn btn-sm btn-success" onclick="testSecProviderFromPage()" data-i18n="settings.testConnection">Test Connection</button>
+            <p id="secProvTestResult" class="card-muted" style="margin-top:8px;display:none"></p>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+            <button class="btn btn-sm" onclick="cancelSecProviderForm()" data-i18n="settings.cancel">Cancel</button>
+            <button class="btn btn-primary btn-sm" onclick="saveSecondaryProvider()" data-i18n="settings.save">Save</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Search ── -->
+    <div class="settings-subpanel" id="stab-search">
+      <div class="card">
+        <h2 data-i18n="settings.searxng">SearXNG — AI Web Search</h2>
+        <p class="card-muted" data-i18n="settings.searxngDesc">When enabled, the AI decides on its own when to search the internet, based on knowledge cutoff date.</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.searxngEnabled">Enabled — AI can search the internet</span>
+          <label class="toggle"><input type="checkbox" id="sxEnabled"><span class="slider"></span></label>
+        </div>
+        <label><span data-i18n="settings.knowledgeCutoff">Knowledge Cutoff Date</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.knowledgeCutoffDesc">(month up to which the AI has training data, e.g.: 2024-01)</span></label>
+        <input type="text" id="knowledgeCutoff" placeholder="2024-01">
+        <label data-i18n="settings.searxngUrl">SearXNG Server URL</label>
+        <input type="text" id="sxUrl" placeholder="http://localhost:8080">
+        <label data-i18n="settings.maxResults">Max results per search</label>
+        <input type="number" id="sxMaxResults" value="5" min="1" max="20">
+        <label data-i18n="settings.maxChars">Max characters per page</label>
+        <input type="number" id="sxMaxChars" value="4000" min="500" max="20000">
+        <label><span data-i18n="settings.cacheTtl">Cache TTL (seconds)</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.cacheTtlDesc">(how long results stay cached)</span></label>
+        <input type="number" id="sxCacheTtl" value="300" min="30" max="3600">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
+        <button class="btn btn-success" onclick="testSearxng()" data-i18n="settings.test">Test</button>
+      </div>
+    </div>
+
+    <!-- ── Memory ── -->
+    <div class="settings-subpanel" id="stab-memory">
+      <div class="card">
+        <h2 data-i18n="settings.memoryAi">AI Memory</h2>
+        <p class="card-muted" data-i18n="settings.memoryDesc">Automatic fact extraction from conversations, personalized responses per user.</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.memoryEnabled">Memory enabled</span>
+          <label class="toggle"><input type="checkbox" id="memEnabled" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span data-i18n="settings.autoExtract">Auto-extract from conversations</span>
+          <label class="toggle"><input type="checkbox" id="memAutoExtract" checked><span class="slider"></span></label>
+        </div>
+        <label data-i18n="settings.maxMemories">Max memories per user</label>
+        <input type="number" id="memMax" value="500" min="10" max="2000">
+      </div>
+      <div class="card" style="margin-top:16px">
+        <h2 data-i18n="settings.autoConsolidation">Auto Consolidation</h2>
+        <p class="card-muted" data-i18n="settings.autoConsolidationDesc">Automatically consolidates memories on a schedule — merges duplicates, removes outdated facts, and keeps memory organized. Uses the secondary provider assigned to the active primary provider.</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.autoConsolidationEnabled">Auto consolidation enabled</span>
+          <label class="toggle"><input type="checkbox" id="acEnabled"><span class="slider"></span></label>
+        </div>
+        <label data-i18n="settings.acSchedule">Schedule</label>
+        <select id="acSchedule">
+          <option value="daily" data-i18n="settings.acDaily">Daily</option>
+          <option value="weekly" data-i18n="settings.acWeekly">Weekly (Monday)</option>
+        </select>
+        <label data-i18n="settings.acHour">Hour (0-23)</label>
+        <input type="number" id="acHour" value="3" min="0" max="23">
+        <p class="card-muted hint" data-i18n="settings.acHourDesc">The hour of the day when consolidation runs (server time, 24h format).</p>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
+      </div>
+    </div>
+
+    <!-- ── Security ── -->
+    <div class="settings-subpanel" id="stab-security">
+      <div class="card">
+        <h2 data-i18n="settings.ecoModePrompt">Eco Mode Prompt</h2>
+        <p class="card-muted" data-i18n="settings.ecoModePromptDesc">Custom instruction appended to the system prompt when Eco Mode is enabled on a provider. Leave empty to use the default conciseness prompt.</p>
+        <textarea id="securityEcoPrompt" rows="5" data-i18n-placeholder="settings.ecoModePromptPlaceholder" placeholder="Be concise. No filler words, no pleasantries..."></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="saveSecuritySettings()" data-i18n="settings.save">Save</button>
+      </div>
+    </div>
+
+    <!-- ── Backup ── -->
+    <div class="settings-subpanel" id="stab-backup">
+      <div class="card">
+        <h2 data-i18n="settings.backup">Backup / Restore</h2>
+        <p class="card-muted" data-i18n="settings.backupDesc">Download a copy of the database or restore from backup. Restoring replaces all existing data!</p>
+        <div class="btn-row">
+          <button class="btn btn-sm btn-primary" onclick="downloadBackup()" data-i18n="settings.downloadBackup">Download Backup</button>
+          <label class="btn btn-sm btn-success" style="cursor:pointer">
+            <span data-i18n="settings.restore">Restore</span>
+            <input type="file" accept=".db" onchange="uploadRestore(this)" style="display:none">
+          </label>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ════════════ USERS ════════════ -->
+  <div class="panel" id="users">
+
+    <!-- ── Main view ── -->
+    <div id="usersMain">
+      <div class="skills-toolbar">
+        <button class="btn btn-sm btn-primary" onclick="openAddUserPage()" data-i18n="users.newUser">+ New User</button>
+      </div>
+
+      <!-- Default user -->
+      <div class="card">
+        <h2 data-i18n="users.title">Users</h2>
+        <p class="card-muted" data-i18n="users.desc">Manage users and API keys. Each user gets personalized AI memory.</p>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+          <label style="margin:0;white-space:nowrap" data-i18n="users.defaultUser">Default user:</label>
+          <input type="text" id="defaultUserInput" data-i18n-placeholder="users.defaultUserPlaceholder" placeholder="e.g.: George" style="flex:1">
+          <button class="btn btn-sm btn-primary" onclick="saveDefaultUser()" data-i18n="users.save">Save</button>
+        </div>
+        <p class="card-muted" style="margin-top:4px;font-size:.78rem" data-i18n="users.defaultUserDesc">Used when Home Assistant doesn't send user information.</p>
+      </div>
+
+      <!-- User cards -->
+      <div id="userCardsList">
+        <p class="card-muted" style="padding:12px" data-i18n="info.loading">Loading...</p>
+      </div>
+    </div>
+
+    <!-- ── Add User page ── -->
+    <div id="addUserPage" style="display:none">
+      <div class="page-back" onclick="closeAddUserPage()">← <span data-i18n="users.title">Users</span></div>
+      <div class="card">
+        <h2 data-i18n="users.newUser">+ New User</h2>
+        <span class="card-muted" data-i18n="users.newUserDesc">Create a user and generate an API key</span>
+        <div class="modal-section" style="margin-top:16px">
+          <label data-i18n="users.username">Username</label>
+          <input type="text" id="newUserName" data-i18n-placeholder="users.usernamePlaceholder" placeholder="e.g.: George">
+          <p style="font-size:.8rem;color:var(--muted);margin-top:8px" data-i18n="users.apiKeyHint">After creating the user, click on their name to view and copy the API key.</p>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+          <button class="btn btn-sm" onclick="closeAddUserPage()" data-i18n="settings.cancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="addUser()" data-i18n="users.createUser">Create user</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── User detail page ── -->
+    <div id="userDetailPage" style="display:none">
+      <div class="page-back" onclick="closeUserPage()">← <span data-i18n="users.title">Users</span></div>
+      <div class="card">
+        <h2 id="selectedUserName">—</h2>
+        <span class="card-muted" data-i18n="modal.userConfig">User configuration</span>
+
+        <div class="modal-section" style="margin-top:16px">
+          <div class="stat-grid" id="statsGrid"></div>
+        </div>
+
+        <div class="modal-section" id="userModalKeySection" style="display:none">
+          <h3 data-i18n="modal.apiKey">API Key</h3>
+          <div class="htc-code-box">
+            <code id="userModalApiKey" class="api-key-blur">••••••••</code>
+            <button class="btn btn-sm" onclick="toggleUserModalKey()" id="btnToggleUserKey" data-i18n="info.show">Show</button>
+            <button class="btn btn-sm btn-primary" onclick="copyUserModalKey()" data-i18n="info.copy">Copy</button>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;margin-top:12px">
+          <button class="btn btn-danger btn-sm" onclick="deleteUserFull()" data-i18n="modal.deleteUser">Delete User</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ════════════ HELP ════════════ -->
+  <div class="panel" id="help">
+
+    <!-- How to Connect — wizard slides -->
+    <div class="card htc-card">
+      <h2 data-i18n="htc.title">How to Connect</h2>
+      <div class="htc-slider">
+        <div class="htc-slides" id="htcSlides">
+          <!-- Slide 1 -->
+          <div class="htc-slide active" data-step="1">
+            <div class="htc-step-badge">1</div>
+            <h3 data-i18n="htc.step1Title">Install the Integration</h3>
+            <p data-i18n-html="htc.step1Desc">Install the <strong>HASSAI Bridge</strong> custom integration in Home Assistant from the official repository.</p>
+            <div class="htc-code-box">
+              <code>https://github.com/andreidima11/hassai-bridge-ha</code>
+              <button class="btn btn-sm btn-primary" onclick="copyHtcText(this)" data-i18n="info.copy">Copy</button>
+            </div>
+            <p class="htc-hint" data-i18n-html="htc.step1Hint">Go to <strong>HACS → Integrations → Custom repositories</strong>, paste the URL above and install.</p>
+          </div>
+          <!-- Slide 2 -->
+          <div class="htc-slide" data-step="2">
+            <div class="htc-step-badge">2</div>
+            <h3 data-i18n="htc.step2Title">Enter the API URL</h3>
+            <p data-i18n="htc.step2Desc">When configuring the integration, enter the HASSAI Bridge server URL.</p>
+            <div class="htc-code-box">
+              <code id="htcApiUrl">http://localhost:8899</code>
+              <button class="btn btn-sm btn-primary" onclick="copyHtcText(this)" data-i18n="info.copy">Copy</button>
+            </div>
+            <p class="htc-hint" data-i18n="htc.step2Hint">Use the local IP of the machine running HASSAI Bridge, not localhost, so Home Assistant can reach it.</p>
+          </div>
+          <!-- Slide 3 -->
+          <div class="htc-slide" data-step="3">
+            <div class="htc-step-badge">3</div>
+            <h3 data-i18n="htc.step3Title">Create a User &amp; API Key</h3>
+            <p data-i18n-html="htc.step3Desc">Go to the <strong>Users</strong> tab above and create a user. Each user gets a unique API key — this allows the AI to remember things per person and track usage individually.</p>
+            <p class="htc-hint" data-i18n="htc.step3Hint">Copy the API key and paste it in the integration configuration in Home Assistant.</p>
+            <div style="margin-top:12px">
+              <button class="btn btn-sm btn-primary" onclick="switchToTab('users')" data-i18n="htc.goToUsers">Go to Users &rsaquo;</button>
+            </div>
+          </div>
+          <!-- Slide 4 -->
+          <div class="htc-slide" data-step="4">
+            <div class="htc-step-badge">4</div>
+            <h3 data-i18n="htc.step4Title">Set as Assistant</h3>
+            <p data-i18n-html="htc.step4Desc">In Home Assistant, go to <strong>Settings → Voice assistants</strong> and select <strong>HASSAI Bridge</strong> as your conversation agent. That's it!</p>
+            <p class="htc-hint" data-i18n="htc.step4Hint">You can now talk to the AI from any dashboard, Assist pipeline, or automation.</p>
+          </div>
+        </div>
+        <div class="htc-nav">
+          <button class="btn btn-sm htc-prev" onclick="htcPrev()" disabled data-i18n="htc.prev">&lsaquo; Back</button>
+          <div class="htc-dots" id="htcDots">
+            <span class="htc-dot active" onclick="htcGo(0)"></span>
+            <span class="htc-dot" onclick="htcGo(1)"></span>
+            <span class="htc-dot" onclick="htcGo(2)"></span>
+            <span class="htc-dot" onclick="htcGo(3)"></span>
+          </div>
+          <button class="btn btn-sm btn-primary htc-next" onclick="htcNext()" data-i18n="htc.next">Next &rsaquo;</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- All endpoints -->
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleEndpoints()">
+        <h2 style="margin:0" data-i18n="info.availableEndpoints">Available Endpoints</h2>
+        <span class="ep-toggle-arrow" id="epToggleArrow">▶</span>
+      </div>
+      <div class="endpoints-table" id="endpointsTable" style="display:none">
+        <p class="card-muted" data-i18n="info.loading">Loading...</p>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ════════════ LOGS ════════════ -->
+  <div class="panel" id="logs">
+    <div class="card">
+      <h2 data-i18n="logs.title">Server Logs</h2>
+    </div>
+    <div class="card">
+      <div class="logs-controls">
+        <select id="logLevel" class="input-sm" onchange="loadLogs()">
+          <option value="ALL">ALL</option>
+          <option value="DEBUG">DEBUG</option>
+          <option value="INFO">INFO</option>
+          <option value="WARNING">WARNING</option>
+          <option value="ERROR">ERROR</option>
+        </select>
+        <input type="text" id="logSearch" class="input-sm" data-i18n-placeholder="logs.searchPlaceholder" placeholder="Search..." style="width:160px">
+        <label style="margin:0;font-size:.82rem;display:flex;align-items:center;gap:4px;white-space:nowrap">
+          <input type="checkbox" id="logAutoRefresh" checked> <span data-i18n="logs.autoRefresh">Auto-refresh</span>
+        </label>
+        <button class="btn btn-sm btn-primary" onclick="loadLogs()" data-i18n="logs.refresh">Refresh</button>
+        <button class="btn btn-sm" onclick="clearLogsView()" data-i18n="logs.clear">Clear</button>
+      </div>
+    </div>
+    <div class="card logs-container">
+      <pre class="logs-pre" id="logsOutput"><span class="log-muted" data-i18n="logs.loading">Loading logs...</span></pre>
+    </div>
+  </div>
+
+  <!-- ════════════ MEMORIES ════════════ -->
+  <div class="panel" id="memories">
+    <!-- ── Main view ── -->
+    <div id="memoriesMain">
+      <div class="skills-toolbar">
+        <button class="btn btn-sm btn-primary" id="memTabAddBtn" style="display:none" onclick="openAddMemoryPage()" data-i18n="modal.addMemory">+ Add Memory</button>
+      </div>
+      <div class="card">
+        <h2 data-i18n="mem.title">Memories</h2>
+        <p class="card-muted" data-i18n="mem.desc">View, add and manage memories for each user. The AI uses memories to personalize responses.</p>
+        <div style="display:flex;gap:8px;align-items:end;margin-top:8px">
+          <div style="flex:1">
+            <label data-i18n="mem.user">User</label>
+            <select id="memTabUserSelect" onchange="loadMemoriesTab()">
+              <option value="" data-i18n="conv.choose">— Choose —</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="card" id="memTabStatsCard" style="display:none">
+        <div class="stat-grid" id="memTabStatsGrid"></div>
+      </div>
+
+      <!-- Memory list -->
+      <div class="card" id="memTabListCard" style="display:none">
+        <h3 style="font-size:1.05rem;font-weight:600;padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:12px" data-i18n="modal.memoryList">Memory List</h3>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+          <button class="btn btn-sm btn-primary mem-tab-filter active" onclick="filterMemoriesTab('all',this)" data-i18n="modal.filterAll">All</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('personal_info',this)" data-i18n="modal.filterPersonal">Personal</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('preferences',this)" data-i18n="modal.filterPreferences">Preferences</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('home_setup',this)" data-i18n="modal.filterHome">Home</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('facts',this)" data-i18n="modal.filterFacts">Facts</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('instructions',this)" data-i18n="modal.filterInstructions">Instructions</button>
+          <button class="btn btn-sm mem-tab-filter" onclick="filterMemoriesTab('context',this)" data-i18n="modal.filterContext">Context</button>
+        </div>
+        <div class="mem-list" id="memTabList"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid var(--border)">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-primary btn-sm" onclick="consolidateMemoriesTab()" data-i18n="modal.consolidate">AI Consolidation</button>
+            <button class="btn btn-sm" id="memTabSelectAllBtn" style="display:none" onclick="toggleMemTabSelectAll()" data-i18n="modal.selectAll">Select All</button>
+            <button class="btn btn-danger btn-sm" id="memTabBulkDeleteBtn" style="display:none" onclick="bulkDeleteMemoriesTab()" data-i18n="modal.deleteSelected">Delete Selected</button>
+            <span id="memTabSelectedCount" style="font-size:.85rem;color:var(--muted);display:none"></span>
+          </div>
+          <div id="memTabPagination" class="mem-pagination" style="margin:0"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Add Memory page ── -->
+    <div id="addMemoryPage" style="display:none">
+      <div class="page-back" onclick="closeAddMemoryPage()">← <span data-i18n="mem.title">Memories</span></div>
+      <div class="card">
+        <h2 data-i18n="modal.addMemory">Add Memory</h2>
+        <span class="card-muted" data-i18n="modal.addMemoryDesc">Create a new memory for this user</span>
+        <div class="modal-section" style="margin-top:16px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <label data-i18n="modal.category">Category</label>
+              <select id="memTabNewCat">
+                <option value="personal_info" data-i18n="cat.personal_info">Personal Info</option>
+                <option value="preferences" data-i18n="cat.preferences">Preferences</option>
+                <option value="home_setup" data-i18n="cat.home_setup">Home Setup</option>
+                <option value="facts" selected data-i18n="cat.facts">Facts</option>
+                <option value="instructions" data-i18n="cat.instructions">Instructions</option>
+                <option value="context" data-i18n="cat.context">Context</option>
+              </select>
+            </div>
+            <div>
+              <label data-i18n="modal.importance">Importance (1-5)</label>
+              <input type="number" id="memTabNewImp" value="3" min="1" max="5">
+            </div>
+          </div>
+          <label data-i18n="modal.content">Content</label>
+          <textarea id="memTabNewContent" rows="3" data-i18n-placeholder="modal.contentPlaceholder" placeholder="E.g.: Prefers answers in Romanian..."></textarea>
+          <label data-i18n="modal.keywords">Keywords (comma)</label>
+          <input type="text" id="memTabNewKeywords" data-i18n-placeholder="modal.keywordsPlaceholder" placeholder="language, romanian, preference">
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+          <button class="btn btn-sm" onclick="closeAddMemoryPage()" data-i18n="settings.cancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="addMemoryTab()" data-i18n="modal.add">Add</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════ SKILLS ════════════ -->
+  <div class="panel" id="skills">
+    <!-- ── Main view ── -->
+    <div id="skillsMain">
+      <div class="skills-toolbar">
+        <button class="btn btn-sm btn-primary" onclick="openCreateSkill()" data-i18n="skills.create">+ New Skill</button>
+      </div>
+      <div class="card">
+        <h2 data-i18n="skills.title">Skills</h2>
+        <p class="card-muted" style="margin-bottom:0" data-i18n="skills.desc">Skills extend the AI with custom abilities. The AI calls skills automatically when relevant.</p>
+      </div>
+      <div id="skillsList"></div>
+    </div>
+
+    <!-- ── Skill editor page ── -->
+    <div id="skillEditorPage" style="display:none">
+      <div class="page-back" onclick="closeSkillEditor()">← <span data-i18n="skills.title">Skills</span></div>
+      <div class="card">
+        <h2 id="skillEditorTitle" data-i18n="skills.editSkill">Edit Skill</h2>
+        <span class="card-muted" id="skillEditorSubtitle">—</span>
+
+        <div class="modal-section" id="skillNameSection" style="margin-top:16px">
+          <label data-i18n="skills.skillName">Skill Name</label>
+          <input type="text" id="skillEditName" placeholder="e.g.: weather_check">
+          <p class="card-muted hint" data-i18n="skills.nameHint">Lowercase, underscores only. This becomes the filename.</p>
+        </div>
+        <div class="modal-section">
+          <label data-i18n="skills.sourceCode">Source Code</label>
+          <div class="code-editor-wrapper">
+            <div class="code-line-numbers" id="skillLineNumbers"></div>
+            <div class="code-editor-container">
+              <pre class="code-highlight" id="skillHighlight" aria-hidden="true"></pre>
+              <textarea id="skillEditSource" class="code-textarea" rows="22" spellcheck="false" wrap="off"></textarea>
+            </div>
+          </div>
+        </div>
+        <div class="modal-section" id="skillTestSection">
+          <label data-i18n="skills.testInput">Test Input (JSON)</label>
+          <textarea id="skillTestInput" rows="2" style="font-family:monospace;font-size:.85rem" placeholder='{"symbol": "AAPL"}'></textarea>
+          <button class="btn btn-sm btn-success" onclick="testSkill()" style="margin-top:10px" data-i18n="skills.test">Test Skill</button>
+          <pre id="skillTestOutput" class="logs-pre" style="margin-top:8px;max-height:150px;display:none"></pre>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:12px">
+          <button class="btn btn-sm" onclick="closeSkillEditor()" data-i18n="settings.cancel">Cancel</button>
+          <button class="btn btn-primary btn-sm" onclick="saveSkillEdit()" id="skillSaveBtn" data-i18n="settings.save">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+<script src="static/js/i18n.js?v=__CACHE_BUSTER__"></script>
+<script src="static/js/app.js?v=__CACHE_BUSTER__"></script>
+</body>
+</html>
