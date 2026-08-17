@@ -3,8 +3,9 @@
 ## 0.2.3-beta
 
 - Chat gear inset from edges; redesigned composer with centered text
-- Add-on chat can control Home Assistant via Supervisor API tools
-  (`ha_list_entities`, `ha_get_state`, `ha_call_service`)
+- Add-on chat is an HA admin copilot: entities, services, dashboards/cards,
+  logs, Supervisor problems/fixes, config check/reload, and `/config` files
+- User name placeholders use “George”
 
 ## 0.2.2-beta
 

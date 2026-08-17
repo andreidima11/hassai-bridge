@@ -17,13 +17,17 @@ panel_icon: mdi:robot-outline
 panel_title: HASSAI
 panel_admin: false
 homeassistant_api: true
+hassio_api: true
+hassio_role: manager
 ports:
   8899/tcp: 8899
 ports_description:
   8899/tcp: HASSAI Bridge API (integration + optional direct access)
 map:
+  - homeassistant_config:rw
   - addon_config:rw
   - share:rw
+  - media:rw
 options:
   log_level: info
 schema:

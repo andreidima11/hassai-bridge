@@ -444,9 +444,7 @@ async def system_info():
         "home_assistant": {
             "available": ha_api.is_available(),
             "connected": ha_connected,
-            "tools": [
-                "ha_list_entities", "ha_get_state", "ha_call_service"
-            ] if ha_api.is_available() else [],
+            "tools": sorted(ha_api.HA_TOOL_NAMES) if ha_api.is_available() else [],
         },
         "active_provider": cfg.get("active_provider", ""),
         "providers": safe_providers,

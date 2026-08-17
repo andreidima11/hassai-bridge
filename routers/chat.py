@@ -43,7 +43,7 @@ from services import homeassistant as ha_api
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
 
-_HA_TOOL_NAMES = {"ha_list_entities", "ha_get_state", "ha_call_service"}
+_HA_TOOL_NAMES = ha_api.HA_TOOL_NAMES
 _INTERNAL_TOOLS = {"search_web", "run_skill"} | _HA_TOOL_NAMES
 
 # ── Start time for /uptime command ──
