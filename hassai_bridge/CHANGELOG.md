@@ -6,6 +6,8 @@
 - Tools stay available across steps (same tool can be reused); identical repeats are skipped
 - Prompt: don't ask "should I continue?"; if the user asked for a change, set `confirm=true` and do it
 - Settings → Performance: **Agent tool rounds**
+- Chat home: **HASSAI** + copilot subtitle (follows Settings language, including Romanian)
+- Phone keyboard lifts the composer only — the logo stays put
 
 ## 0.2.7-beta
 

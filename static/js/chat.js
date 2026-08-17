@@ -34,6 +34,9 @@ const I18N = {
     haOk: "Connected to Home Assistant — you can ask about devices and control them here.",
     haToken: "Home Assistant token is present; Core ping failed ({detail}). Chat still works; retry in a moment.",
     haOff: "Not running as a Home Assistant add-on — HA admin tools are off.",
+    welcome: "Your Home Assistant copilot.",
+    placeholder: "Message HASSAI…",
+    settings: "Settings",
   },
   ro: {
     you: "Tu",
@@ -46,6 +49,9 @@ const I18N = {
     haOk: "Conectat la Home Assistant — poți întreba despre dispozitive și le poți controla de aici.",
     haToken: "Token-ul Home Assistant e prezent; ping-ul către Core a eșuat ({detail}). Chat-ul merge; reîncearcă imediat.",
     haOff: "Nu rulează ca add-on Home Assistant — uneltele de admin HA sunt oprite.",
+    welcome: "Copilotul tău pentru Home Assistant.",
+    placeholder: "Mesaj către HASSAI…",
+    settings: "Setări",
   },
 };
 
@@ -57,10 +63,24 @@ function tr(key, params = {}) {
 }
 
 function applyChatI18n() {
+  document.documentElement.lang = lang;
   const title = document.getElementById("chatSidebarTitle");
   const neu = document.getElementById("newChatBtn");
+  const welcomeText = document.getElementById("chatWelcomeText");
+  const settings = document.getElementById("chatSettingsLink");
+  const toggle = document.getElementById("sidebarToggle");
   if (title) title.textContent = tr("chats");
   if (neu) neu.textContent = tr("newChat");
+  if (welcomeText) welcomeText.textContent = tr("welcome");
+  if (inputEl) inputEl.placeholder = tr("placeholder");
+  if (settings) {
+    settings.title = tr("settings");
+    settings.setAttribute("aria-label", tr("settings"));
+  }
+  if (toggle) {
+    toggle.title = tr("chats");
+    toggle.setAttribute("aria-label", tr("chats"));
+  }
 }
 
 function sessionStoreKey() {
@@ -255,6 +275,22 @@ inputEl.addEventListener("keydown", (e) => {
   }
 });
 
+function keepPagePinned() {
+  window.scrollTo(0, 0);
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+}
+
+inputEl.addEventListener("focus", () => {
+  keepPagePinned();
+  if (welcomeEl && !welcomeEl.hidden) mainEl.scrollTop = 0;
+  setTimeout(keepPagePinned, 50);
+  setTimeout(keepPagePinned, 250);
+});
+window.addEventListener("scroll", keepPagePinned, { passive: true });
+window.visualViewport?.addEventListener("resize", keepPagePinned);
+window.visualViewport?.addEventListener("scroll", keepPagePinned);
+
 document.getElementById("sidebarToggle")?.addEventListener("click", toggleSidebar);
 backdropEl?.addEventListener("click", () => setSidebar(false));
 document.getElementById("newChatBtn")?.addEventListener("click", startNewChat);
@@ -416,17 +452,22 @@ formEl.addEventListener("submit", async (e) => {
   } finally {
     busy = false;
     sendEl.disabled = false;
-    inputEl.focus();
+    if (!window.matchMedia("(pointer: coarse)").matches) inputEl.focus();
   }
 });
 
-inputEl.focus();
+if (!window.matchMedia("(pointer: coarse)").matches) inputEl.focus();
 
 (async () => {
   try {
     await bootIdentity();
   } catch (_) {
     startNewChat();
+    try {
+      const cfg = await fetch(API + "/api/settings/").then((r) => r.json());
+      lang = cfg.language === "ro" ? "ro" : "en";
+      applyChatI18n();
+    } catch (_) { /* ignore */ }
   }
   try {
     const info = await fetch(API + "/api/settings/info").then((r) => r.json());
