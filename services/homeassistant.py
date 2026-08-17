@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from pathlib import Path
 from typing import Any, Callable, Awaitable
 
@@ -75,6 +76,44 @@ async def _http(
         if "json" in ctype:
             return resp.json()
         return resp.text
+
+
+async def _ws_call(payload: dict, timeout: float = 20.0) -> Any:
+    """Home Assistant WebSocket command (Lovelace has no REST API anymore)."""
+    token = os.environ.get("SUPERVISOR_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("Home Assistant API unavailable (not running as HA add-on)")
+    url = os.environ.get("HASSAI_HA_WS", "ws://supervisor/core/websocket")
+    try:
+        from websockets.asyncio.client import connect as ws_connect
+    except ImportError:
+        from websockets import connect as ws_connect  # type: ignore
+
+    async with ws_connect(url, open_timeout=8, close_timeout=4) as ws:
+        hello = json.loads(await ws.recv())
+        if hello.get("type") != "auth_required":
+            raise RuntimeError(f"unexpected HA websocket hello: {hello.get('type')}")
+        await ws.send(json.dumps({"type": "auth", "access_token": token}))
+        auth = json.loads(await ws.recv())
+        if auth.get("type") != "auth_ok":
+            raise RuntimeError(f"HA websocket auth failed: {auth.get('message') or auth}")
+        msg_id = 1
+        await ws.send(json.dumps({"id": msg_id, **payload}))
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            raw = await ws.recv()
+            data = json.loads(raw)
+            if data.get("type") in {"event", "pong"}:
+                continue
+            if data.get("id") != msg_id:
+                continue
+            if not data.get("success"):
+                err = data.get("error") or {}
+                code = err.get("code") or "error"
+                message = err.get("message") or str(data)
+                raise RuntimeError(f"HA websocket {code}: {message}")
+            return data.get("result")
+    raise RuntimeError("HA websocket timed out")
 
 
 async def ping() -> tuple[bool, str]:
@@ -253,14 +292,14 @@ _TOOL_SPECS: dict[str, dict] = {
         },
     },
     "ha_list_dashboards": {
-        "description": "List Lovelace dashboards (pages) including url_path and mode (storage/yaml).",
+        "description": "List Lovelace dashboards (url_path, title, mode: storage or yaml).",
         "parameters": {"type": "object", "properties": {}},
     },
     "ha_get_dashboard": {
         "description": (
-            "Get Lovelace dashboard JSON (views + cards). "
+            "Get Lovelace dashboard JSON (views + cards) via HA WebSocket. "
             "Omit url_path for the default Overview dashboard. "
-            "Use view_index or view_title to return a single view."
+            "YAML-mode dashboards cannot be edited with save/upsert — use ha_read_file / ha_write_file."
         ),
         "parameters": {
             "type": "object",
@@ -368,8 +407,9 @@ def ha_system_hint() -> str:
         f"{names}. "
         "Chain tools in one turn until the job is done — do not stop after a single lookup. "
         "Diagnose with ha_list_problems + ha_get_logs. "
-        "Dashboards: ha_list_dashboards → ha_get_dashboard → "
-        "ha_upsert_card / ha_delete_card / ha_save_dashboard (storage mode). "
+        "Dashboards (WebSocket API): ha_list_dashboards → ha_get_dashboard → "
+        "ha_upsert_card / ha_delete_card / ha_save_dashboard (storage mode only). "
+        "YAML dashboards: ha_read_file / ha_write_file on ui-lovelace.yaml or dashboards/*.yaml. "
         "YAML / configuration.yaml: ha_read_file / ha_write_file then ha_check_config, then ha_reload if needed. "
         "Mutating tools need confirm=true: set it when the user already asked you to make the change. "
         "Do not wait for a second confirmation. "
@@ -387,7 +427,16 @@ async def run_ha_tool(name: str, args: dict) -> str:
         return await handler(args or {})
     except Exception as e:
         log.error("HA tool %s failed: %s", name, e)
-        return f"Error: {e}"
+        msg = str(e)
+        if ("404" in msg or "not_found" in msg.lower()) and name in {
+            "ha_list_dashboards", "ha_get_dashboard", "ha_save_dashboard",
+            "ha_upsert_card", "ha_delete_card",
+        }:
+            return (
+                f"Error: {msg}. "
+                "If this dashboard is YAML mode, edit the YAML file with ha_read_file / ha_write_file instead."
+            )
+        return f"Error: {msg}"
 
 
 def _require_confirm(args: dict) -> str | None:
@@ -579,23 +628,45 @@ async def _reload(args: dict) -> str:
     return f"OK: reloaded {what} ({domain}.{service})"
 
 
-def _dashboard_path(url_path: str | None) -> str:
+def _ws_url_path(url_path: str | None) -> str | None:
     path = (url_path or "").strip().strip("/")
-    if not path:
-        return "/lovelace/config"
-    return f"/lovelace/{path}/config"
+    return path or None
+
+
+def _normalize_lovelace_config(result: Any) -> dict:
+    if isinstance(result, dict):
+        if "views" in result:
+            return result
+        if isinstance(result.get("config"), dict):
+            return result["config"]
+    if isinstance(result, list):
+        return {"views": result}
+    raise RuntimeError("unexpected Lovelace config payload from Home Assistant")
 
 
 async def _list_dashboards(_args: dict) -> str:
-    data = await _core("GET", "/lovelace/dashboards")
+    data = await _ws_call({"type": "lovelace/dashboards/list"})
     return _dump(data)
 
 
 async def _load_dashboard(url_path: str | None) -> dict:
-    cfg = await _core("GET", _dashboard_path(url_path))
-    if not isinstance(cfg, dict):
-        raise RuntimeError("unexpected dashboard payload")
-    return cfg
+    payload: dict[str, Any] = {"type": "lovelace/config"}
+    ws_path = _ws_url_path(url_path)
+    if ws_path:
+        payload["url_path"] = ws_path
+    result = await _ws_call(payload)
+    return _normalize_lovelace_config(result)
+
+
+async def _save_dashboard_config(url_path: str | None, config: dict) -> None:
+    payload: dict[str, Any] = {
+        "type": "lovelace/config/save",
+        "config": config,
+    }
+    ws_path = _ws_url_path(url_path)
+    if ws_path:
+        payload["url_path"] = ws_path
+    await _ws_call(payload)
 
 
 def _pick_view(cfg: dict, args: dict) -> tuple[int, dict]:
@@ -633,7 +704,7 @@ async def _save_dashboard(args: dict) -> str:
     if not isinstance(config, dict) or "views" not in config:
         return "Error: config must be an object with a views array"
     url_path = args.get("url_path")
-    await _core("POST", _dashboard_path(url_path), json_body=config)
+    await _save_dashboard_config(url_path, config)
     nviews = len(config.get("views") or [])
     return f"OK: saved dashboard {url_path or '(default)'} ({nviews} views)"
 
@@ -659,7 +730,7 @@ async def _upsert_card(args: dict) -> str:
         action = f"replaced card #{cidx}"
     view["cards"] = cards
     cfg["views"][idx] = view
-    await _core("POST", _dashboard_path(url_path), json_body=cfg)
+    await _save_dashboard_config(url_path, cfg)
     return f"OK: {action} on view {idx} ({view.get('title') or view.get('path') or idx})"
 
 
@@ -676,7 +747,7 @@ async def _delete_card(args: dict) -> str:
     removed = cards.pop(cidx)
     view["cards"] = cards
     cfg["views"][idx] = view
-    await _core("POST", _dashboard_path(url_path), json_body=cfg)
+    await _save_dashboard_config(url_path, cfg)
     rtype = (removed or {}).get("type", "?")
     return f"OK: deleted card #{cidx} (type={rtype}) from view {idx}"
 
