@@ -9,7 +9,7 @@
 - **Per-user Memory** — each Home Assistant user gets their own persistent memory store
 - **Knowledge Graph** — automatically builds entity-relationship graphs from conversations
 - **Web Search** — searches the internet and extracts page content (like ChatGPT)
-- **Web UI** — settings and management panel accessible on port 8899
+- **Web UI** — agentic chat home + settings panel (port 8899, or HA sidebar via add-on Ingress)
 
 ## Quick Install (one command)
 
@@ -23,6 +23,15 @@ This will:
 3. Generate a default config
 4. Create a `hassai-bridge` launcher script
 5. Optionally install as a system service (auto-start on boot)
+
+### Home Assistant Add-on (recommended on HA OS)
+
+1. **Settings → Add-ons → Add-on store → ⋮ → Repositories**
+2. Add: `https://github.com/andreidima11/hassai-bridge`
+3. Install **HASSAI Bridge**, start it
+4. Open **HASSAI** from the sidebar (Ingress) — chat is the home screen; **Settings** is the management UI
+
+Add-on sources live under `addon/hassai_bridge/`.
 
 ### Managing the server
 
@@ -47,6 +56,8 @@ python main.py
 ```
 
 The app will run on **http://0.0.0.0:8899**
+- **Chat**: `http://<host>:8899/`
+- **Settings**: `http://<host>:8899/settings`
 
 ### Uninstall
 
@@ -85,11 +96,16 @@ hassai-bridge/
 │   ├── searxng.py       # Web search client
 │   └── web_scraper.py   # Web page text extraction
 ├── static/
-│   ├── index.html       # Web UI
-│   ├── css/style.css
+│   ├── index.html       # Agentic chat home
+│   ├── settings.html    # Settings / management UI
+│   ├── css/
+│   │   ├── style.css
+│   │   └── chat.css
 │   └── js/
-│       ├── app.js       # Main frontend logic
+│       ├── app.js       # Settings frontend
+│       ├── chat.js      # Chat client (streaming)
 │       └── i18n.js      # Internationalization (EN/RO)
+├── addon/hassai_bridge/ # Home Assistant add-on (Ingress sidebar)
 └── data/                # SQLite DB + config.json (auto-generated)
 ```
 

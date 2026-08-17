@@ -13,14 +13,14 @@ import uvicorn
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
-from urllib.parse import urlparse
-from fastapi import FastAPI, Request, Query, Depends, HTTPException
+from fastapi import FastAPI, Request, Query, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from pathlib import Path
 
 from database import init_db, cleanup_old_conversations, get_all_users
+from core.auth import get_ingress_path, require_api_key_or_webui
 from core.config import VERSION, load_config
 from services.knowledge_graph import init_graph_tables
 from services.memory_engine import consolidate_memories
@@ -169,48 +169,15 @@ _PUBLIC_GET_PATHS = {
 def _require_admin_key(request: Request):
     """Validate API key for admin endpoints (/api/settings, /api/memory, /api/logs)."""
     # Allow unauthenticated GET for HA sensor polling (info/stats/health)
-    if request.method == "GET" and request.url.path in _PUBLIC_GET_PATHS:
+    # Strip ingress prefix if present (HA may forward the full path).
+    path = request.url.path
+    ingress = get_ingress_path(request)
+    if ingress and path.startswith(ingress):
+        path = path[len(ingress):] or "/"
+    if request.method == "GET" and path in _PUBLIC_GET_PATHS:
         return
 
-    cfg = load_config()
-    expected_key = cfg.get("api_key", "")
-    if not expected_key:
-        return  # No key configured — allow all
-
-    valid_keys = {expected_key}
-    user_api_keys = cfg.get("users", {}).get("api_keys", {})
-    valid_keys.update(user_api_keys.keys())
-
-    # Try Bearer token
-    auth = request.headers.get("authorization", "")
-    if auth.lower().startswith("bearer "):
-        token = auth[7:].strip()
-        if token in valid_keys:
-            return
-
-    # Try X-Assist-Key header
-    assist_key = request.headers.get("x-assist-key", "").strip()
-    if assist_key and assist_key in valid_keys:
-        return
-
-    # Allow same-origin requests (WebUI served by this server) — strict match
-    server_host = request.headers.get("host", "")
-    if server_host:
-        expected_origins = {
-            f"http://{server_host}",
-            f"https://{server_host}",
-        }
-        origin = request.headers.get("origin", "")
-        if origin and origin in expected_origins:
-            return
-        referer = request.headers.get("referer", "")
-        if referer:
-            ref_parsed = urlparse(referer)
-            ref_origin = f"{ref_parsed.scheme}://{ref_parsed.netloc}"
-            if ref_origin in expected_origins:
-                return
-
-    raise HTTPException(status_code=401, detail="API key required")
+    require_api_key_or_webui(request)
 
 
 @app.middleware("http")
@@ -276,11 +243,30 @@ _CACHE_BUSTER = f"{VERSION}.{int(time.time())}"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
-@app.get("/")
-async def root():
-    html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
-    html = html.replace("__CACHE_BUSTER__", _CACHE_BUSTER)
+def _render_html(filename: str, request: Request) -> HTMLResponse:
+    """Serve an HTML page with cache-buster + HA Ingress base path injected."""
+    html = (STATIC_DIR / filename).read_text(encoding="utf-8")
+    ingress = get_ingress_path(request)
+    base_href = (ingress + "/") if ingress else "/"
+    html = (
+        html.replace("__CACHE_BUSTER__", _CACHE_BUSTER)
+        .replace("__BASE_HREF__", base_href)
+        .replace("__INGRESS_PATH__", ingress)
+        .replace("__VERSION__", VERSION)
+    )
     return HTMLResponse(content=html)
+
+
+@app.get("/")
+async def root(request: Request):
+    """Agentic chat home (HA sidebar entrypoint)."""
+    return _render_html("index.html", request)
+
+
+@app.get("/settings")
+async def settings_page(request: Request):
+    """Legacy / full settings Web UI."""
+    return _render_html("settings.html", request)
 
 
 # ── Graceful shutdown ──

@@ -1,6 +1,6 @@
 // ── HASSAI Bridge v2 — Frontend ──
 
-const API = '';
+const API = (typeof window.HASSAI_BASE === "string" ? window.HASSAI_BASE : "").replace(/\/$/, "");
 
 // ── Tabs ──
 document.querySelectorAll('.tab').forEach(tab => {

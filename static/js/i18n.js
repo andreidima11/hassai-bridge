@@ -11,6 +11,7 @@ const TRANSLATIONS = {
     'tab.memories': 'Memories',
     'tab.help': 'Help',
     'tab.logs': 'Logs',
+    'nav.chat': 'Chat',
 
     // Info / Dashboard panel
     'info.serviceStatus': 'Service Status',
@@ -393,6 +394,7 @@ const TRANSLATIONS = {
     'tab.memories': 'Memorii',
     'tab.help': 'Ajutor',
     'tab.logs': 'Loguri',
+    'nav.chat': 'Chat',
 
     // Info / Dashboard panel
     'info.serviceStatus': 'Status servicii',

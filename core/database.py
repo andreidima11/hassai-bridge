@@ -1,3 +1,4 @@
+import os
 import sqlite3
 import json
 import time
@@ -5,7 +6,8 @@ import threading
 from pathlib import Path
 from contextlib import contextmanager
 
-DB_PATH = Path(__file__).parent.parent / "data" / "hassai.db"
+_DATA_DIR = Path(os.environ.get("HASSAI_DATA_DIR") or (Path(__file__).parent.parent / "data"))
+DB_PATH = _DATA_DIR / "hassai.db"
 
 CATEGORIES = [
     "personal_info",
