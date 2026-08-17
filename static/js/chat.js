@@ -20,7 +20,8 @@ let busy = false;
 let sessionId = "";
 let currentUser = { username: "default", display_name: "default" };
 let sessions = [];
-let lang = "en";
+const LANG_STORE_KEY = "hassai.language";
+let lang = readStoredLang() || "en";
 
 const I18N = {
   en: {
@@ -54,6 +55,25 @@ const I18N = {
     settings: "Setări",
   },
 };
+
+function readStoredLang() {
+  try {
+    const stored = localStorage.getItem(LANG_STORE_KEY);
+    if (stored === "ro" || stored === "en") return stored;
+  } catch (_) { /* ignore */ }
+  return "";
+}
+
+function persistLang(next) {
+  try { localStorage.setItem(LANG_STORE_KEY, next); } catch (_) { /* ignore */ }
+}
+
+function setChatLang(next) {
+  const resolved = next === "ro" ? "ro" : "en";
+  lang = resolved;
+  persistLang(resolved);
+  applyChatI18n();
+}
 
 function tr(key, params = {}) {
   const table = I18N[lang] || I18N.en;
@@ -184,15 +204,28 @@ function escapeHtml(str) {
 }
 
 function setSidebar(open) {
-  if (!sidebarEl) return;
-  sidebarEl.hidden = !open;
-  if (backdropEl) backdropEl.hidden = !open;
-  document.body.classList.toggle("sidebar-open", open);
+  const show = !!open;
+  if (sidebarEl) {
+    sidebarEl.classList.toggle("is-open", show);
+    sidebarEl.setAttribute("aria-hidden", show ? "false" : "true");
+  }
+  if (backdropEl) {
+    backdropEl.classList.toggle("is-open", show);
+    backdropEl.setAttribute("aria-hidden", show ? "false" : "true");
+  }
+  document.body.classList.toggle("sidebar-open", show);
 }
 
-function toggleSidebar() {
-  setSidebar(sidebarEl && sidebarEl.hidden);
+function toggleSidebar(event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const open = !(sidebarEl && sidebarEl.classList.contains("is-open"));
+  setSidebar(open);
 }
+
+window.__hassaiToggleSidebar = toggleSidebar;
 
 function startNewChat() {
   sessionId = newSessionId();
@@ -245,6 +278,7 @@ async function bootIdentity() {
   const data = await apiJson("/api/me");
   currentUser = data.user || currentUser;
   lang = (data.language === "ro" ? "ro" : "en");
+  persistLang(lang);
   applyChatI18n();
   if (userLabelEl) {
     const name = currentUser.display_name || currentUser.username || "";
@@ -281,17 +315,38 @@ function keepPagePinned() {
   document.body.scrollTop = 0;
 }
 
-inputEl.addEventListener("focus", () => {
+function keyboardOverlap() {
+  const vv = window.visualViewport;
+  if (!vv) return 0;
+  return Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+}
+
+function syncKeyboardLayout() {
   keepPagePinned();
-  if (welcomeEl && !welcomeEl.hidden) mainEl.scrollTop = 0;
-  setTimeout(keepPagePinned, 50);
-  setTimeout(keepPagePinned, 250);
+  const composer = document.querySelector(".chat-composer");
+  const overlap = keyboardOverlap();
+  if (composer) {
+    composer.style.transform = overlap ? `translateY(-${overlap}px)` : "";
+  }
+  // Keep the welcome logo on the layout viewport — do not follow the keyboard.
+  if (welcomeEl) welcomeEl.style.transform = "";
+  if (welcomeEl && !welcomeEl.hidden && mainEl) mainEl.scrollTop = 0;
+}
+
+inputEl.addEventListener("focus", () => {
+  syncKeyboardLayout();
+  setTimeout(syncKeyboardLayout, 50);
+  setTimeout(syncKeyboardLayout, 300);
+});
+inputEl.addEventListener("blur", () => {
+  setTimeout(syncKeyboardLayout, 50);
 });
 window.addEventListener("scroll", keepPagePinned, { passive: true });
-window.visualViewport?.addEventListener("resize", keepPagePinned);
-window.visualViewport?.addEventListener("scroll", keepPagePinned);
+window.visualViewport?.addEventListener("resize", syncKeyboardLayout);
+window.visualViewport?.addEventListener("scroll", syncKeyboardLayout);
 
-document.getElementById("sidebarToggle")?.addEventListener("click", toggleSidebar);
+const sidebarToggleEl = document.getElementById("sidebarToggle");
+sidebarToggleEl?.addEventListener("click", toggleSidebar);
 backdropEl?.addEventListener("click", () => setSidebar(false));
 document.getElementById("newChatBtn")?.addEventListener("click", startNewChat);
 sessionListEl?.addEventListener("click", (e) => {
@@ -459,18 +514,23 @@ formEl.addEventListener("submit", async (e) => {
 if (!window.matchMedia("(pointer: coarse)").matches) inputEl.focus();
 
 (async () => {
+  applyChatI18n();
   try {
     await bootIdentity();
   } catch (_) {
     startNewChat();
     try {
+      const info = await fetch(API + "/api/settings/info").then((r) => r.json());
+      if (info && info.language) setChatLang(info.language);
+    } catch (_) { /* ignore */ }
+    try {
       const cfg = await fetch(API + "/api/settings/").then((r) => r.json());
-      lang = cfg.language === "ro" ? "ro" : "en";
-      applyChatI18n();
+      if (cfg && cfg.language) setChatLang(cfg.language);
     } catch (_) { /* ignore */ }
   }
   try {
     const info = await fetch(API + "/api/settings/info").then((r) => r.json());
+    if (info && info.language) setChatLang(info.language);
     const el = document.getElementById("haStatus");
     if (!el) return;
     const ha = info && info.home_assistant;

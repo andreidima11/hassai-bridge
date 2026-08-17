@@ -51,9 +51,18 @@ document.querySelectorAll('.settings-tab').forEach(stab => {
 // ── Toast ──
 function toast(msg, isError = false) {
   const el = document.getElementById('toast');
+  if (!el) {
+    console.error(msg);
+    return;
+  }
   el.textContent = msg;
   el.className = 'toast show' + (isError ? ' error' : '');
   setTimeout(() => el.className = 'toast', 3000);
+}
+
+function setText(id, value) {
+  const el = typeof id === 'string' ? document.getElementById(id) : id;
+  if (el) el.textContent = value;
 }
 
 // ── API helpers ──
@@ -114,6 +123,7 @@ let _apiKeyValue = '';
 function toggleHtcKey() {
   _apiKeyVisible = !_apiKeyVisible;
   const el = document.getElementById('htcApiKey');
+  if (!el) return;
   if (_apiKeyVisible && _apiKeyValue) {
     el.textContent = _apiKeyValue;
     el.classList.remove('api-key-blur');
@@ -167,82 +177,82 @@ function _copyFallback(text, msg) {
 async function loadSystemInfo() {
   try {
     const info = await api('GET', '/api/settings/info');
+    const services = info.services || {};
+    const stats = info.stats || {};
 
-    // LMStudio / Provider
-    const lm = info.services.lmstudio;
-    const prov = info.services.provider || lm;
-    const sx = info.services.searxng;
-    const mem = info.services.memory;
+    const lm = services.lmstudio || {};
+    const prov = services.provider || lm;
+    const sx = services.searxng || {};
+    const mem = services.memory || {};
 
     const lmCard = document.getElementById('svcLMStudio');
     const sxCard = document.getElementById('svcSearXNG');
     const memCard = document.getElementById('svcMemory');
 
-    // Provider
     const lmOnline = (prov.status || lm.status) === 'connected';
-    lmCard.className = 'service-card ' + (lmOnline ? 'online' : 'offline');
-    lmCard.querySelector('.svc-status').className = 'svc-status ' + (lmOnline ? 'online' : 'offline');
-    lmCard.querySelector('.svc-status').textContent = lmOnline ? t('status.connected') : t('status.unavailable');
+    if (lmCard) {
+      lmCard.className = 'service-card ' + (lmOnline ? 'online' : 'offline');
+      const st = lmCard.querySelector('.svc-status');
+      if (st) {
+        st.className = 'svc-status ' + (lmOnline ? 'online' : 'offline');
+        st.textContent = lmOnline ? t('status.connected') : t('status.unavailable');
+      }
+    }
     const provName = prov.name || lm.model || 'AI Provider';
-    document.getElementById('svcProviderName').textContent = provName;
-    document.getElementById('svcLMDetail').textContent = `${prov.url || lm.url} — ${prov.model || lm.model}`;
+    setText('svcProviderName', provName);
+    setText('svcLMDetail', `${prov.url || lm.url || ''} — ${prov.model || lm.model || ''}`);
 
-    // SearXNG
     const sxOnline = sx.status === 'connected';
-    sxCard.className = 'service-card ' + (sx.enabled ? (sxOnline ? 'online' : 'offline') : '');
-    const sxStatusEl = sxCard.querySelector('.svc-status');
-    if (!sx.enabled) {
-      sxStatusEl.className = 'svc-status disabled';
-      sxStatusEl.textContent = t('status.disabled');
-    } else {
-      sxStatusEl.className = 'svc-status ' + (sxOnline ? 'online' : 'offline');
-      sxStatusEl.textContent = sxOnline ? t('status.connected') : t('status.unavailable');
+    if (sxCard) {
+      sxCard.className = 'service-card ' + (sx.enabled ? (sxOnline ? 'online' : 'offline') : '');
+      const sxStatusEl = sxCard.querySelector('.svc-status');
+      if (sxStatusEl) {
+        if (!sx.enabled) {
+          sxStatusEl.className = 'svc-status disabled';
+          sxStatusEl.textContent = t('status.disabled');
+        } else {
+          sxStatusEl.className = 'svc-status ' + (sxOnline ? 'online' : 'offline');
+          sxStatusEl.textContent = sxOnline ? t('status.connected') : t('status.unavailable');
+        }
+      }
     }
-    document.getElementById('svcSXDetail').textContent = sx.url;
+    setText('svcSXDetail', sx.url || '');
 
-    // Memory
-    memCard.className = 'service-card ' + (mem.enabled ? 'online' : '');
-    const memStatusEl = memCard.querySelector('.svc-status');
-    if (mem.enabled) {
-      memStatusEl.className = 'svc-status online';
-      memStatusEl.textContent = mem.auto_extract ? t('status.activeAutoExtract') : t('status.active');
-    } else {
-      memStatusEl.className = 'svc-status disabled';
-      memStatusEl.textContent = t('status.disabled');
+    if (memCard) {
+      memCard.className = 'service-card ' + (mem.enabled ? 'online' : '');
+      const memStatusEl = memCard.querySelector('.svc-status');
+      if (memStatusEl) {
+        if (mem.enabled) {
+          memStatusEl.className = 'svc-status online';
+          memStatusEl.textContent = mem.auto_extract ? t('status.activeAutoExtract') : t('status.active');
+        } else {
+          memStatusEl.className = 'svc-status disabled';
+          memStatusEl.textContent = t('status.disabled');
+        }
+      }
     }
-    document.getElementById('svcMemDetail').textContent = t('status.memoriesStored', { count: info.stats.total_memories });
+    setText('svcMemDetail', t('status.memoriesStored', { count: stats.total_memories || 0 }));
 
-    // Stats
-    document.getElementById('statUptime').textContent = formatUptime(info.uptime_seconds);
-    document.getElementById('statUsers').textContent = info.stats.total_users;
-    document.getElementById('statMemories').textContent = info.stats.total_memories;
-    document.getElementById('statConversations').textContent = info.stats.total_conversations;
-    document.getElementById('statActions24h').textContent = info.stats.actions_last_24h;
+    setText('statUptime', formatUptime(info.uptime_seconds));
+    setText('statUsers', stats.total_users);
+    setText('statMemories', stats.total_memories);
+    setText('statConversations', stats.total_conversations);
+    setText('statActions24h', stats.actions_last_24h);
 
-    // Version badge
-    if (info.version) {
-      const badge = document.getElementById('versionBadge');
-      if (badge) badge.textContent = info.version;
-    }
-
-    // API Key
-    if (info.api_key) {
-      _apiKeyValue = info.api_key;
-    }
-
-    // Update endpoints with real LAN IP
+    if (info.version) setText('versionBadge', info.version);
+    if (info.api_key) _apiKeyValue = info.api_key;
     updateEndpointDisplay(info.local_ip, info.port);
 
-    // Endpoints table (hidden by default, loaded for toggle)
     const table = document.getElementById('endpointsTable');
-    table.innerHTML = info.endpoints.map(ep => `
-      <div class="ep-row">
-        <span class="ep-method ${ep.method.toLowerCase()}">${escapeHtml(ep.method)}</span>
-        <span class="ep-path">${escapeHtml(ep.path)}</span>
-        <span class="ep-desc">${escapeHtml(ep.description)}</span>
-      </div>
-    `).join('');
-
+    if (table && Array.isArray(info.endpoints)) {
+      table.innerHTML = info.endpoints.map(ep => `
+        <div class="ep-row">
+          <span class="ep-method ${escapeHtml((ep.method || '').toLowerCase())}">${escapeHtml(ep.method)}</span>
+          <span class="ep-path">${escapeHtml(ep.path)}</span>
+          <span class="ep-desc">${escapeHtml(ep.description)}</span>
+        </div>
+      `).join('');
+    }
   } catch (e) {
     toast(t('toast.infoError', { msg: e.message }), true);
   }
@@ -256,12 +266,13 @@ function refreshInfo() {
 function toggleEndpoints() {
   const table = document.getElementById('endpointsTable');
   const arrow = document.getElementById('epToggleArrow');
+  if (!table) return;
   if (table.style.display === 'none') {
     table.style.display = '';
-    arrow.classList.add('open');
+    if (arrow) arrow.classList.add('open');
   } else {
     table.style.display = 'none';
-    arrow.classList.remove('open');
+    if (arrow) arrow.classList.remove('open');
   }
 }
 
@@ -509,13 +520,13 @@ async function loadSettings() {
   try {
     const cfg = await api('GET', '/api/settings/');
 
-    // Apply saved language
+    // Apply saved language (also persist so the chat page can read it)
     const savedLang = cfg.language || 'en';
-    if (savedLang !== currentLang) {
-      setLanguage(savedLang, true);
-    }
-    document.getElementById('settingsLang').value = savedLang;
-    document.getElementById('langSelect').value = savedLang;
+    setLanguage(savedLang, true);
+    const langEl = document.getElementById('settingsLang');
+    if (langEl) langEl.value = savedLang;
+    const topLang = document.getElementById('langSelect');
+    if (topLang) topLang.value = savedLang;
 
     // Providers
     _allProviders = cfg.providers || [];
@@ -591,6 +602,7 @@ async function saveSettings() {
       language: document.getElementById('settingsLang').value,
     });
     toast(t('toast.settingsSaved'));
+    persistLanguage(document.getElementById('settingsLang')?.value || currentLang);
     loadSystemInfo();
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);

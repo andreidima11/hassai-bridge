@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.9-beta
+
+- **Fix:** Settings toast `Cannot set properties of null (setting 'textContent')` — system info no longer writes to missing DOM nodes
+- **Fix:** Chat page follows Settings language (Română / English), including after a refresh
+- **Fix:** Top-left chats button actually opens the conversation list (sidebar was hidden by CSS `display:flex` vs `hidden`)
+- **Fix:** Welcome logo stays put when the phone keyboard opens; only the composer moves up
+
 ## 0.2.8-beta
 
 - **Agentic loop:** the model keeps using HA/search/skill tools until the task is done (up to 16 steps, configurable), like Cursor — it no longer stops after one lookup

@@ -20,8 +20,11 @@
 
 html, body {
   height: 100%;
+  width: 100%;
   overflow: hidden;
 }
+
+[hidden] { display: none !important; }
 
 body.chat-app {
   font-family: var(--font);
@@ -32,7 +35,11 @@ body.chat-app {
   color: var(--text);
   display: grid;
   grid-template-rows: 1fr auto;
+  position: fixed;
+  inset: 0;
+  width: 100%;
   height: 100%;
+  height: 100dvh;
   min-height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
@@ -79,18 +86,20 @@ a:hover { text-decoration: underline; }
   position: fixed;
   top: 28px;
   left: 28px;
-  z-index: 26;
+  z-index: 40;
   width: 44px;
   height: 44px;
   display: grid;
   place-items: center;
+  border: 1px solid var(--border);
   border-radius: 14px;
   color: var(--muted);
   background: rgba(24, 27, 37, 0.85);
-  border: 1px solid var(--border);
   cursor: pointer;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
   backdrop-filter: blur(10px);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 .chat-sidebar-toggle:hover {
   color: var(--text);
@@ -102,7 +111,16 @@ a:hover { text-decoration: underline; }
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.45);
-  z-index: 24;
+  z-index: 34;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+.chat-sidebar-backdrop.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .chat-sidebar {
@@ -111,13 +129,22 @@ a:hover { text-decoration: underline; }
   left: 0;
   bottom: 0;
   width: min(320px, 86vw);
-  z-index: 25;
+  z-index: 36;
   background: #141722;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   padding: 18px 12px 16px;
   box-shadow: 8px 0 32px rgba(0, 0, 0, 0.35);
+  transform: translateX(-110%);
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 0.22s ease, visibility 0.22s ease;
+}
+.chat-sidebar.is-open {
+  transform: none;
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .chat-sidebar-head {
@@ -207,9 +234,15 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
 }
 
 .chat-welcome {
+  position: fixed;
+  top: 96px;
+  left: 16px;
+  right: 16px;
+  z-index: 5;
   max-width: 560px;
-  margin: 16px auto 0;
+  margin: 0 auto;
   text-align: center;
+  pointer-events: none;
   animation: chatIn 0.45s ease both;
 }
 
@@ -316,10 +349,12 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
 
 /* ── Composer ── */
 .chat-composer {
+  position: relative;
   padding: 8px 20px 22px;
   padding-bottom: max(22px, env(safe-area-inset-bottom));
   background: linear-gradient(180deg, transparent, rgba(13, 15, 20, 0.92) 32%);
   z-index: 12;
+  will-change: transform;
 }
 
 .chat-form {
@@ -394,11 +429,7 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
   .msg { max-width: 100%; }
   .chat-settings { top: 20px; right: 16px; }
   .chat-sidebar-toggle { top: 20px; left: 16px; }
-  .chat-welcome { margin-top: 12px; }
+  .chat-welcome { top: 80px; }
   .chat-composer { padding: 8px 12px max(16px, env(safe-area-inset-bottom)); }
   .chat-form { padding-left: 14px; border-radius: 18px; }
-}
-
-@media (min-width: 561px) {
-  .chat-welcome { margin-top: 28px; }
 }

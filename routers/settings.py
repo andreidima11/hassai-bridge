@@ -462,6 +462,7 @@ async def system_info():
 
     return {
         "version": VERSION,
+        "language": cfg.get("language") or "en",
         "uptime_seconds": round(uptime),
         "api_key": _mask_key(cfg.get("api_key", "")),
         "local_ip": _get_local_ip(),

@@ -164,6 +164,7 @@ _PUBLIC_GET_PATHS = {
     "/api/settings/info",
     "/api/settings/health",
     "/api/settings/stats",
+    "/api/me",
 }
 
 

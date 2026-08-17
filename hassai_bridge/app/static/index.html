@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
   <title>HASSAI Bridge</title>
   <script>
     window.HASSAI_BASE = (function () {
@@ -20,8 +20,7 @@
   </script>
 </head>
 <body class="chat-app">
-  <button type="button" class="chat-sidebar-toggle" id="sidebarToggle" title="Chats" aria-label="Chats"
-          style="position:fixed;top:28px;left:28px;z-index:21;width:44px;height:44px;display:grid;place-items:center;border-radius:14px;color:#7a7e92;background:rgba(24,27,37,.85);border:1px solid #252836;cursor:pointer">
+  <button type="button" class="chat-sidebar-toggle" id="sidebarToggle" title="Chats" aria-label="Chats">
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
   </button>
   <a class="chat-settings" id="chatSettingsLink" href="__ASSET_PREFIX__/settings" title="Settings" aria-label="Settings"
@@ -31,8 +30,8 @@
     </svg>
   </a>
 
-  <div class="chat-sidebar-backdrop" id="sidebarBackdrop" hidden></div>
-  <aside class="chat-sidebar" id="chatSidebar" hidden>
+  <div class="chat-sidebar-backdrop" id="sidebarBackdrop"></div>
+  <aside class="chat-sidebar" id="chatSidebar" aria-hidden="true">
     <div class="chat-sidebar-head">
       <strong id="chatSidebarTitle">Chats</strong>
       <button type="button" class="chat-sidebar-new" id="newChatBtn">New</button>

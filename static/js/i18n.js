@@ -776,7 +776,17 @@ const TRANSLATIONS = {
   },
 };
 
-let currentLang = 'en';
+const LANG_STORE_KEY = 'hassai.language';
+
+function readStoredLanguage() {
+  try {
+    const stored = localStorage.getItem(LANG_STORE_KEY);
+    if (stored && TRANSLATIONS[stored]) return stored;
+  } catch (_) { /* ignore */ }
+  return '';
+}
+
+let currentLang = readStoredLanguage() || 'en';
 
 /**
  * Get translated string. Supports {param} interpolation.
@@ -821,9 +831,14 @@ function applyTranslations() {
 /**
  * Set the active language, apply translations, and re-render dynamic content.
  */
+function persistLanguage(lang) {
+  try { localStorage.setItem(LANG_STORE_KEY, lang); } catch (_) { /* ignore */ }
+}
+
 function setLanguage(lang, skipSave) {
   if (!TRANSLATIONS[lang]) return;
   currentLang = lang;
+  persistLanguage(lang);
   applyTranslations();
   // Update both language selectors
   const sel = document.getElementById('langSelect');
@@ -841,4 +856,10 @@ function setLanguage(lang, skipSave) {
       }).catch(() => {});
     }
   }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', applyTranslations);
+} else {
+  applyTranslations();
 }
