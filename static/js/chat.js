@@ -55,6 +55,8 @@ const I18N = {
     thinking: "Thinking",
     working: "Working",
     steps: "{n} steps · {s}s",
+    thoughtFor: "Thought for {s}s",
+    thoughtBrief: "Finished thinking",
     skipped: "skipped",
     search_web: "Search",
     run_skill: "Skill",
@@ -93,6 +95,8 @@ const I18N = {
     thinking: "Gândește",
     working: "Lucrează",
     steps: "{n} pași · {s}s",
+    thoughtFor: "A gândit {s}s",
+    thoughtBrief: "Gândire terminată",
     skipped: "sărit",
     search_web: "Caută",
     run_skill: "Skill",
@@ -204,6 +208,7 @@ function newSessionId() {
 
 async function apiJson(path, opts = {}) {
   const resp = await fetch(API + path, {
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
     ...opts,
   });
@@ -236,23 +241,43 @@ function appendMessage(role, content, { error = false, streaming = false } = {})
   roleEl.textContent = role === "user" ? tr("you") : "HASSAI";
 
   let traceEl = null;
+  let thinkingEl = null;
   if (role === "assistant") {
+    thinkingEl = document.createElement("div");
+    thinkingEl.className = "agent-thinking is-collapsed";
+    thinkingEl.hidden = true;
+
+    const head = document.createElement("button");
+    head.type = "button";
+    head.className = "agent-thinking-head";
+    head.innerHTML =
+      '<span class="agent-thinking-dot" aria-hidden="true"></span>' +
+      `<span class="agent-thinking-label">${escapeHtml(tr("thinking"))}</span>` +
+      '<span class="agent-thinking-chevron" aria-hidden="true">›</span>';
+    head.addEventListener("click", () => {
+      if (thinkingEl.classList.contains("has-steps")) {
+        thinkingEl.classList.toggle("is-collapsed");
+      }
+    });
+
     traceEl = document.createElement("div");
     traceEl.className = "agent-trace";
-    traceEl.hidden = true;
+
+    thinkingEl.appendChild(head);
+    thinkingEl.appendChild(traceEl);
   }
 
   const bubble = document.createElement("div");
-  bubble.className = "msg-bubble";
+  bubble.className = "msg-bubble msg-answer";
   bubble.textContent = content || "";
   if (role === "assistant" && !content) bubble.hidden = true;
 
   wrap.appendChild(roleEl);
-  if (traceEl) wrap.appendChild(traceEl);
+  if (thinkingEl) wrap.appendChild(thinkingEl);
   wrap.appendChild(bubble);
   messagesEl.appendChild(wrap);
   mainEl.scrollTop = mainEl.scrollHeight;
-  return { wrap, bubble, traceEl };
+  return { wrap, bubble, traceEl, thinkingEl };
 }
 
 function setBubbleText(bubble, text) {
@@ -272,8 +297,42 @@ function formatMs(ms) {
   return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}s`;
 }
 
+function thinkingPanel(traceEl) {
+  return traceEl?.closest(".agent-thinking") || null;
+}
+
+function showThinkingPanel(thinkingEl, active) {
+  if (!thinkingEl) return;
+  thinkingEl.hidden = false;
+  thinkingEl.classList.toggle("is-active", !!active);
+  if (active && !thinkingEl.classList.contains("has-summary")) {
+    const label = thinkingEl.querySelector(".agent-thinking-label");
+    if (label) label.textContent = tr("thinking");
+  }
+}
+
+function addThinkMs(thinkingEl, ms) {
+  if (!thinkingEl) return;
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return;
+  const prev = Number(thinkingEl.dataset.thinkMs || 0);
+  thinkingEl.dataset.thinkMs = String(prev + n);
+}
+
 function applyActivity(traceEl, ev, opts = {}) {
   if (!traceEl || !ev) return;
+  const thinkingEl = thinkingPanel(traceEl);
+  const name = ev.name || "think";
+
+  if (name === "think") {
+    if (ev.status === "running") showThinkingPanel(thinkingEl, true);
+    if (ev.status === "done") addThinkMs(thinkingEl, ev.ms);
+    if (!opts.quiet) mainEl.scrollTop = mainEl.scrollHeight;
+    return;
+  }
+
+  showThinkingPanel(thinkingEl, ev.status === "running");
+
   const id = String(ev.id || `i${ev.i ?? ""}`);
   let row = null;
   for (const child of traceEl.querySelectorAll(".agent-step")) {
@@ -285,7 +344,6 @@ function applyActivity(traceEl, ev, opts = {}) {
     row.dataset.aid = id;
     traceEl.appendChild(row);
   }
-  const name = ev.name || "think";
   row.dataset.name = name;
   row.classList.toggle("is-run", ev.status === "running");
   row.classList.toggle("is-done", ev.status === "done");
@@ -299,39 +357,51 @@ function applyActivity(traceEl, ev, opts = {}) {
     (detail ? `<span class="agent-detail">${detail}</span>` : "") +
     skip +
     (ms ? `<span class="agent-ms">${escapeHtml(ms)}</span>` : "");
-  traceEl.hidden = false;
+  if (thinkingEl) thinkingEl.classList.add("has-steps");
   if (!opts.quiet) mainEl.scrollTop = mainEl.scrollHeight;
 }
 
 function finishTrace(traceEl) {
   if (!traceEl) return;
+  const thinkingEl = thinkingPanel(traceEl);
+  if (!thinkingEl) return;
+
+  thinkingEl.classList.remove("is-active");
   const steps = [...traceEl.querySelectorAll(".agent-step")];
   const tools = steps.filter((el) => el.dataset.name !== "think");
-  if (!tools.length) {
-    traceEl.innerHTML = "";
-    traceEl.hidden = true;
+  const label = thinkingEl.querySelector(".agent-thinking-label");
+  const thinkMs = Number(thinkingEl.dataset.thinkMs || 0);
+
+  if (!tools.length && thinkMs <= 0) {
+    thinkingEl.hidden = true;
     return;
   }
-  let total = 0;
-  for (const el of steps) {
-    const label = el.querySelector(".agent-ms")?.textContent || "";
-    if (label.endsWith("ms")) total += parseFloat(label) || 0;
-    else if (label.endsWith("s")) total += (parseFloat(label) || 0) * 1000;
+
+  let toolMs = 0;
+  for (const el of tools) {
+    const t = el.querySelector(".agent-ms")?.textContent || "";
+    if (t.endsWith("ms")) toolMs += parseFloat(t) || 0;
+    else if (t.endsWith("s")) toolMs += (parseFloat(t) || 0) * 1000;
   }
-  const toggle = document.createElement("button");
-  toggle.type = "button";
-  toggle.className = "agent-toggle";
-  toggle.textContent = tr("steps", {
-    n: tools.length,
-    s: (total / 1000).toFixed(total >= 10000 ? 0 : 1),
-  });
-  toggle.addEventListener("click", () => {
-    traceEl.classList.toggle("is-collapsed");
-  });
-  traceEl.querySelector(".agent-toggle")?.remove();
-  traceEl.prepend(toggle);
-  traceEl.classList.add("has-summary", "is-collapsed");
-  traceEl.hidden = false;
+  const totalMs = Math.max(thinkMs + toolMs, thinkMs, toolMs);
+
+  if (label) {
+    if (tools.length) {
+      label.textContent = tr("steps", {
+        n: tools.length,
+        s: (totalMs / 1000).toFixed(totalMs >= 10000 ? 0 : 1),
+      });
+    } else {
+      label.textContent = thinkMs >= 1000
+        ? tr("thoughtFor", { s: (thinkMs / 1000).toFixed(thinkMs >= 10000 ? 0 : 1) })
+        : tr("thoughtBrief");
+    }
+  }
+
+  thinkingEl.classList.add("has-summary");
+  thinkingEl.classList.toggle("has-steps", tools.length > 0);
+  thinkingEl.classList.add("is-collapsed");
+  thinkingEl.hidden = false;
 }
 
 function startActivityPoll(traceId, onEvent) {
@@ -344,8 +414,8 @@ function startActivityPoll(traceId, onEvent) {
       for (const ev of data.events || []) onEvent(ev);
       if (typeof data.after === "number") after = data.after;
       if (data.done) return;
-    } catch (_) { /* ignore */ }
-    if (!stopped) setTimeout(tick, 320);
+    } catch (_) { /* retry — ingress may start the trace slightly later */ }
+    if (!stopped) setTimeout(tick, ON_INGRESS ? 240 : 320);
   };
   tick();
   return () => { stopped = true; };
@@ -685,6 +755,7 @@ async function readError(resp) {
 async function postChat(stream, userText, traceId) {
   return fetch(API + "/v1/chat/completions", {
     method: "POST",
+    credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       messages: [{ role: "user", content: userText }],
@@ -759,9 +830,10 @@ async function streamChat(userText) {
   history.push({ role: "user", content: userText });
   appendMessage("user", userText);
 
-  const { wrap, bubble, traceEl } = appendMessage("assistant", "", { streaming: true });
+  const { wrap, bubble, traceEl, thinkingEl } = appendMessage("assistant", "", { streaming: true });
+  showThinkingPanel(thinkingEl, true);
   const traceId = `${newSessionId()}${newSessionId()}`;
-  const ui = { wrap, bubble, traceEl, traceId };
+  const ui = { wrap, bubble, traceEl, thinkingEl, traceId };
   const stopPoll = startActivityPoll(traceId, (ev) => applyActivity(traceEl, ev));
   let full = "";
 

@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.22-beta
+
+- **Thinking UI (Cursor-style):** „Gândește” / pașii de tool apar într-un panou separat deasupra răspunsului, nu în același bubble
+- **Add-on / Ingress:** panoul de thinking apare imediat (nu mai pare blocat/pauză); polling activitate mai rapid pe Ingress
+
 ## 0.2.21-beta
 
 - **Fix `lang is not defined`:** language init in HTML before chat.js; chat uses `window.HASSAI_CHAT_LANG` (works even if an old cached script loads)
