@@ -8,6 +8,7 @@ from core.config import VERSION
 from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session, bulk_delete_conversation_sessions, get_usage_stats, delete_user_data
 from services import providers, searxng
 from services.providers import get_active_provider, PROVIDER_PRESETS
+from services import homeassistant as ha_api
 
 
 def _require_admin_key(request: Request):
@@ -411,6 +412,14 @@ async def system_info():
     sx_ok = await searxng.health_check()
     active = get_active_provider()
 
+    ha_connected = False
+    if ha_api.is_available():
+        try:
+            await ha_api._request("GET", "/config")
+            ha_connected = True
+        except Exception:
+            ha_connected = False
+
     # Mask API keys in response (#10)
     safe_providers = []
     for p in cfg.get("providers", []):
@@ -432,6 +441,11 @@ async def system_info():
         "api_key": _mask_key(cfg.get("api_key", "")),
         "local_ip": _get_local_ip(),
         "port": 8899,
+        "home_assistant": {
+            "available": ha_api.is_available(),
+            "connected": ha_connected,
+            "tools": sorted(ha_api.HA_TOOL_NAMES) if ha_api.is_available() else [],
+        },
         "active_provider": cfg.get("active_provider", ""),
         "providers": safe_providers,
         "secondary_providers": safe_secondary,

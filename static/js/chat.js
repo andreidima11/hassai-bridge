@@ -39,8 +39,11 @@ function appendMessage(role, content, { error = false, streaming = false } = {})
 }
 
 function autosize() {
-  inputEl.style.height = "auto";
-  inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + "px";
+  inputEl.style.height = "24px";
+  const next = Math.min(Math.max(inputEl.scrollHeight, 24), 160);
+  inputEl.style.height = next + "px";
+  // Multi-line: align composer to bottom; single-line: keep text vertically centered
+  formEl.style.alignItems = next > 28 ? "flex-end" : "center";
 }
 
 inputEl.addEventListener("input", autosize);
@@ -147,3 +150,20 @@ formEl.addEventListener("submit", async (e) => {
 });
 
 inputEl.focus();
+
+// Show HA link status on welcome (add-on only)
+(async () => {
+  try {
+    const info = await fetch(API + "/api/settings/info").then((r) => r.json());
+    const el = document.getElementById("haStatus");
+    if (!el) return;
+    if (info && info.home_assistant) {
+      el.hidden = false;
+      el.textContent = info.home_assistant.connected
+        ? "Connected to Home Assistant — you can ask about devices and control them here."
+        : "Home Assistant API not available in this runtime.";
+    }
+  } catch (_) {
+    /* ignore */
+  }
+})();

@@ -2,7 +2,7 @@
 # Keep `version` identical to the root /VERSION file (no leading "v").
 # Bumping this on main is what makes Home Assistant show an add-on update.
 name: HASSAI Bridge
-version: "0.2.2-beta"
+version: "0.2.3-beta"
 slug: hassai_bridge
 description: AI bridge for Home Assistant — agentic chat, memory, and LLM proxy
 url: https://github.com/andreidima11/hassai-bridge
@@ -17,13 +17,17 @@ panel_icon: mdi:robot-outline
 panel_title: HASSAI
 panel_admin: false
 homeassistant_api: true
+hassio_api: true
+hassio_role: manager
 ports:
   8899/tcp: 8899
 ports_description:
   8899/tcp: HASSAI Bridge API (integration + optional direct access)
 map:
+  - homeassistant_config:rw
   - addon_config:rw
   - share:rw
+  - media:rw
 options:
   log_level: info
 schema:

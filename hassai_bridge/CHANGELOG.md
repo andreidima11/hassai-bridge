@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.3-beta
+
+- Chat gear inset from edges; redesigned composer with centered text
+- Add-on chat is an HA admin copilot: entities, services, dashboards/cards,
+  logs, Supervisor problems/fixes, config check/reload, and `/config` files
+- User name placeholders use “George”
+
 ## 0.2.2-beta
 
 - Chat UI: removed top bar; settings gear only (top-right)
