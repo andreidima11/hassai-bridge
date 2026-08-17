@@ -16,6 +16,25 @@ AI bridge for Home Assistant with agentic chat, per-user memory, knowledge graph
 3. Install **HASSAI Bridge**, start it
 4. Open from the sidebar (**HASSAI**) or **Open Web UI**
 
+## Integration URL (Assist / sensors)
+
+The custom integration talks to the **API**, not to Ingress.
+
+Use one of these as **Bridge URL** (without `/v1`):
+
+| When | Bridge URL |
+|------|------------|
+| Add-on on same HA OS (recommended) | `http://hassai_bridge:8899` |
+| Port 8899 published on the host | `http://<IP-ul-HA>:8899` |
+
+Examples that **do not** work for the integration:
+
+- Ingress / sidebar URL
+- `http://homeassistant.local:8123/...`
+- Anything ending in `/v1` (the integration appends `/v1` itself)
+
+API key: the one from add-on **Settings** (or leave empty if none is set yet).
+
 ## Configuration
 
 | Option | Description |
@@ -24,9 +43,10 @@ AI bridge for Home Assistant with agentic chat, per-user memory, knowledge graph
 
 Data is stored on the add-on data disk. Configure LLM providers in **Settings** inside the panel.
 
-## Direct port (optional)
+## Network
 
-Ingress is preferred. If you map port `8899`, you can also open `http://homeassistant.local:8899`.
+- **8899/tcp** is published on the host by default (for the integration and direct access).
+- Sidebar UI still uses **Ingress** (no need to open a browser to `:8899`).
 
 ## Standalone
 

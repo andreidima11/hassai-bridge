@@ -68,9 +68,22 @@ bash uninstall.sh
 
 ## Home Assistant Setup
 
+### Add-on + integration
+
+1. Install the **HASSAI Bridge** add-on from this repository (sidebar **HASSAI**).
+2. Install the [HASSAI Bridge integration](https://github.com/andreidima11/hassai-bridge-ha).
+3. In the integration, set **Bridge URL** to (no `/v1`):
+
+| Setup | Bridge URL |
+|-------|------------|
+| HA OS add-on (same machine) | `http://hassai_bridge:8899` |
+| Bridge on LAN / published port | `http://<IP>:8899` |
+
+### Manual / standalone Bridge
+
 In Home Assistant, add the **HASSAI Bridge** integration with:
 
-- **URL**: `http://<HASSAI_BRIDGE_IP>:8899/v1`
+- **URL**: `http://<HASSAI_BRIDGE_IP>:8899` (no `/v1`)
 - **API Key**: used as the user identifier to separate memories per user (e.g. use a different key for each HA user)
 - **Model**: the model name from your LLM server
 
