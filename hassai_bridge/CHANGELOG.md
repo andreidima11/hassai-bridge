@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.12-beta
+
+- Add-on now **pulls a prebuilt image** from GHCR (`ghcr.io/andreidima11/hassai-bridge`) instead of building on the HA machine (that cache kept shipping an old UI while the store said “up to date”)
+- Chat home shows the running version under the logo so you can confirm it matches GitHub
+
 ## 0.2.11-beta
 
 - **Add-on image:** Supervisor can no longer reuse a cached Docker layer of an old `app/` (terminal had new chat, sidebar add-on did not). Version is baked into the Dockerfile so every store update rebuilds the UI

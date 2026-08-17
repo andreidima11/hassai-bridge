@@ -1,11 +1,12 @@
 # https://developers.home-assistant.io/docs/add-ons/configuration
 # Keep `version` identical to the root /VERSION file (no leading "v").
-# Bumping this on main is what makes Home Assistant show an add-on update.
+# `image` is the prebuilt GHCR image — Supervisor PULLS it (no local stale build).
 name: HASSAI Bridge
-version: "0.2.11-beta"
+version: "0.2.12-beta"
 slug: hassai_bridge
 description: AI bridge for Home Assistant — agentic chat, memory, and LLM proxy
 url: https://github.com/andreidima11/hassai-bridge
+image: ghcr.io/andreidima11/hassai-bridge
 arch:
   - aarch64
   - amd64

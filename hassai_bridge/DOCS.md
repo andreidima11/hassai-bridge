@@ -16,7 +16,7 @@ AI bridge for Home Assistant with agentic chat, per-user memory, knowledge graph
 3. Install **HASSAI Bridge**, start it
 4. Open from the sidebar (**HASSAI**) or **Open Web UI**
 
-The sidebar panel is a **Docker image** built from `hassai_bridge/app/` (a copy of this repo). Running `python main.py` on your PC is not the add-on. After an update, wait until the add-on **rebuild finishes**, then restart it. The log should show the same version as GitHub (`0.2.11-beta` or newer).
+The sidebar panel is a **prebuilt Docker image** (`ghcr.io/andreidima11/hassai-bridge:<version>`), the same code as `python main.py`. After **Update**, the chat home must show **v0.2.12-beta** (or newer) under the logo. If the store says you are current but the logo has no version / old UI: uninstall the add-on (keep data) and install again.
 
 ## Integration URL (Assist / sensors)
 
