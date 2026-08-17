@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>HASSAI Bridge</title>
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta name="hassai-build" content="__CACHE_BUSTER__">
@@ -15,10 +15,7 @@
       return m ? m[1] : "";
     })();
     try {
-      if (navigator.virtualKeyboard) navigator.virtualKeyboard.overlaysContent = true;
-      if (window.parent && window.parent.navigator && window.parent.navigator.virtualKeyboard) {
-        window.parent.navigator.virtualKeyboard.overlaysContent = true;
-      }
+      if (navigator.virtualKeyboard) navigator.virtualKeyboard.overlaysContent = false;
     } catch (e) {}
   </script>
   <link rel="stylesheet" href="static/css/chat.css?v=__CACHE_BUSTER__">

@@ -487,7 +487,9 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
   padding-bottom: max(22px, env(safe-area-inset-bottom));
   background: linear-gradient(180deg, transparent, rgba(13, 15, 20, 0.92) 32%);
   z-index: 100;
-  will-change: top;
+  transform: translateY(calc(-1 * var(--kb-offset, 0px)));
+  transition: transform 0.1s ease-out;
+  will-change: transform;
 }
 
 .chat-form {

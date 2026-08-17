@@ -6,7 +6,21 @@
   --success:#2ecc71;--danger:#e74c3c;--warn:#f1c40f;
   --radius:12px;--shadow:0 2px 12px rgba(0,0,0,.3);
 }
-body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:48px}
+
+.app-footer{
+  position:fixed;left:0;right:0;bottom:0;z-index:30;
+  display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;
+  padding:10px 16px max(10px,env(safe-area-inset-bottom));
+  font-size:.72rem;color:var(--muted);
+  background:linear-gradient(180deg,transparent,rgba(13,15,20,.92) 40%);
+  border-top:1px solid rgba(37,40,54,.6);
+  pointer-events:none;
+}
+.app-footer-sep{opacity:.45}
+.app-footer .footer-ha-connected{color:var(--success)}
+.app-footer .footer-ha-disconnected{color:var(--warn)}
+.app-footer .footer-ha-standalone{color:var(--muted)}
 a{color:var(--accent);text-decoration:none}
 ::selection{background:var(--accent);color:#fff}
 

@@ -32,6 +32,11 @@ const TRANSLATIONS = {
     'info.refresh': 'Refresh',
     'info.restartServer': 'Restart Server',
 
+    // App footer
+    'footer.haConnected': 'Home Assistant connected',
+    'footer.haDisconnected': 'Home Assistant unreachable',
+    'footer.haStandalone': 'Standalone (not HA add-on)',
+
     // How to Connect
     'htc.title': 'How to Connect',
     'htc.prev': '‹ Back',

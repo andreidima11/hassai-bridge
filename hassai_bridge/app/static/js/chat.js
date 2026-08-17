@@ -500,41 +500,20 @@ function keepPagePinned() {
   } catch (_) { /* iframe parent blocked */ }
 }
 
-function keyboardInset() {
+/** Keyboard overlap in px (0 when interactive-widget=resizes-content works). */
+function keyboardOffset() {
+  const layoutH = window.innerHeight || document.documentElement.clientHeight || 0;
   const vv = window.visualViewport;
   if (vv) {
-    // Bottom edge of the visible area in layout coordinates (ChatGPT/Gemini web pattern).
     const visualBottom = vv.offsetTop + vv.height;
-    const layoutBottom = window.innerHeight || document.documentElement.clientHeight;
-    return Math.max(0, Math.round(layoutBottom - visualBottom));
+    const buffer = ON_INGRESS ? 12 : 8;
+    return Math.max(0, Math.round(layoutH - visualBottom) + buffer);
   }
   const vk = navigator.virtualKeyboard;
-  if (vk && vk.boundingRect && vk.boundingRect.height > 0) {
-    const rect = vk.boundingRect;
-    const layoutBottom = window.innerHeight || document.documentElement.clientHeight;
-    return Math.max(0, Math.round(layoutBottom - rect.top));
+  if (vk?.boundingRect?.height > 0) {
+    return Math.max(0, Math.round(layoutH - vk.boundingRect.top) + 8);
   }
   return 0;
-}
-
-function placeComposer(composer, focused) {
-  const vv = window.visualViewport;
-  if (!composer || !vv || !focused) {
-    composer.style.top = "";
-    composer.style.bottom = "0";
-    return 0;
-  }
-  const inset = keyboardInset();
-  if (inset <= 0) {
-    composer.style.top = "";
-    composer.style.bottom = "0";
-    return 0;
-  }
-  const visualBottom = vv.offsetTop + vv.height;
-  const top = Math.max(0, Math.round(visualBottom - composer.offsetHeight));
-  composer.style.bottom = "auto";
-  composer.style.top = `${top}px`;
-  return inset;
 }
 
 let _parentOverflow = null;
@@ -572,12 +551,12 @@ function syncKeyboardLayout() {
   keepPagePinned();
   const composer = document.querySelector(".chat-composer");
   const focused = document.activeElement === inputEl;
-  const inset = composer ? placeComposer(composer, focused) : 0;
-  document.documentElement.style.setProperty("--kb-inset", `${inset}px`);
+  const offset = focused ? keyboardOffset() : 0;
+  document.documentElement.style.setProperty("--kb-offset", `${offset}px`);
+  document.documentElement.style.setProperty("--kb-inset", `${offset}px`);
   if (composer) {
     document.documentElement.style.setProperty("--composer-space", `${composer.offsetHeight}px`);
   }
-  if (welcomeEl) welcomeEl.style.transform = "";
   if (focused) lockParentScroll();
   else unlockParentScroll();
   if (welcomeEl && !welcomeEl.hidden && mainEl) mainEl.scrollTop = 0;
@@ -605,11 +584,8 @@ function stopKeyboardSync() {
 
 try {
   if (navigator.virtualKeyboard) {
-    navigator.virtualKeyboard.overlaysContent = true;
+    navigator.virtualKeyboard.overlaysContent = false;
     navigator.virtualKeyboard.addEventListener("geometrychange", syncKeyboardLayout);
-  }
-  if (window.parent && window.parent !== window && window.parent.navigator.virtualKeyboard) {
-    window.parent.navigator.virtualKeyboard.overlaysContent = true;
   }
 } catch (_) { /* ignore */ }
 

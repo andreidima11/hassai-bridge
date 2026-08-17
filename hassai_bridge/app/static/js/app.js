@@ -258,6 +258,24 @@ async function loadSystemInfo() {
     if (info.api_key) _apiKeyValue = info.api_key;
     updateEndpointDisplay(info.local_ip, info.port);
 
+    const footerVer = document.getElementById('footerVersion');
+    const footerHa = document.getElementById('footerHaStatus');
+    if (footerVer) footerVer.textContent = info.version ? `v${info.version}` : '—';
+    if (footerHa) {
+      const ha = info.home_assistant || {};
+      footerHa.className = '';
+      if (!ha.available) {
+        footerHa.textContent = t('footer.haStandalone');
+        footerHa.classList.add('footer-ha-standalone');
+      } else if (ha.connected) {
+        footerHa.textContent = t('footer.haConnected');
+        footerHa.classList.add('footer-ha-connected');
+      } else {
+        footerHa.textContent = t('footer.haDisconnected');
+        footerHa.classList.add('footer-ha-disconnected');
+      }
+    }
+
     const table = document.getElementById('endpointsTable');
     if (table && Array.isArray(info.endpoints)) {
       table.innerHTML = info.endpoints.map(ep => `
