@@ -21,7 +21,9 @@ let sessionId = "";
 let currentUser = { username: "default", display_name: "default" };
 let sessions = [];
 const LANG_STORE_KEY = "hassai.language";
-let lang = readStoredLang() || "en";
+let bootDone = false;
+let panelHiddenAt = 0;
+let keyboardSyncRaf = 0;
 
 const I18N = {
   en: {
@@ -397,8 +399,12 @@ window.__hassaiToggleSidebar = toggleSidebar;
 
 function startNewChat(options) {
   const focus = !(options && options.focus === false);
+  const persist = !(options && options.ephemeral);
   sessionId = newSessionId();
-  storeSession(sessionId);
+  if (persist) storeSession(sessionId);
+  else {
+    try { localStorage.removeItem(sessionStoreKey()); } catch (_) { /* ignore */ }
+  }
   clearThread();
   renderSessions();
   setSidebar(false);
@@ -456,7 +462,13 @@ async function bootIdentity() {
     userLabelEl.textContent = name;
   }
   await refreshSessions();
-  startNewChat({ focus: false });
+  startNewChat({ focus: false, ephemeral: true });
+  bootDone = true;
+}
+
+function onPanelReopen() {
+  if (!bootDone || busy) return;
+  if (panelHiddenAt > 0) startNewChat({ focus: false, ephemeral: true });
 }
 
 function autosize() {
@@ -489,14 +501,40 @@ function keepPagePinned() {
 }
 
 function keyboardInset() {
+  const vv = window.visualViewport;
+  if (vv) {
+    // Bottom edge of the visible area in layout coordinates (ChatGPT/Gemini web pattern).
+    const visualBottom = vv.offsetTop + vv.height;
+    const layoutBottom = window.innerHeight || document.documentElement.clientHeight;
+    return Math.max(0, Math.round(layoutBottom - visualBottom));
+  }
   const vk = navigator.virtualKeyboard;
   if (vk && vk.boundingRect && vk.boundingRect.height > 0) {
-    return vk.boundingRect.height;
+    const rect = vk.boundingRect;
+    const layoutBottom = window.innerHeight || document.documentElement.clientHeight;
+    return Math.max(0, Math.round(layoutBottom - rect.top));
   }
+  return 0;
+}
+
+function placeComposer(composer, focused) {
   const vv = window.visualViewport;
-  if (!vv) return 0;
-  // Do not add offsetTop — that is page pan (HA header). Undo pan instead.
-  return Math.max(0, Math.round(window.innerHeight - vv.height));
+  if (!composer || !vv || !focused) {
+    composer.style.top = "";
+    composer.style.bottom = "0";
+    return 0;
+  }
+  const inset = keyboardInset();
+  if (inset <= 0) {
+    composer.style.top = "";
+    composer.style.bottom = "0";
+    return 0;
+  }
+  const visualBottom = vv.offsetTop + vv.height;
+  const top = Math.max(0, Math.round(visualBottom - composer.offsetHeight));
+  composer.style.bottom = "auto";
+  composer.style.top = `${top}px`;
+  return inset;
 }
 
 let _parentOverflow = null;
@@ -534,16 +572,35 @@ function syncKeyboardLayout() {
   keepPagePinned();
   const composer = document.querySelector(".chat-composer");
   const focused = document.activeElement === inputEl;
-  const inset = focused ? keyboardInset() : 0;
+  const inset = composer ? placeComposer(composer, focused) : 0;
   document.documentElement.style.setProperty("--kb-inset", `${inset}px`);
   if (composer) {
-    composer.style.transform = "";
     document.documentElement.style.setProperty("--composer-space", `${composer.offsetHeight}px`);
   }
   if (welcomeEl) welcomeEl.style.transform = "";
   if (focused) lockParentScroll();
   else unlockParentScroll();
   if (welcomeEl && !welcomeEl.hidden && mainEl) mainEl.scrollTop = 0;
+}
+
+function startKeyboardSync() {
+  if (keyboardSyncRaf) return;
+  const tick = () => {
+    syncKeyboardLayout();
+    if (document.activeElement === inputEl) {
+      keyboardSyncRaf = requestAnimationFrame(tick);
+    } else {
+      keyboardSyncRaf = 0;
+    }
+  };
+  keyboardSyncRaf = requestAnimationFrame(tick);
+}
+
+function stopKeyboardSync() {
+  if (keyboardSyncRaf) {
+    cancelAnimationFrame(keyboardSyncRaf);
+    keyboardSyncRaf = 0;
+  }
 }
 
 try {
@@ -560,11 +617,14 @@ inputEl.addEventListener("focus", () => {
   keepPagePinned();
   lockParentScroll();
   syncKeyboardLayout();
+  startKeyboardSync();
   requestAnimationFrame(syncKeyboardLayout);
   setTimeout(syncKeyboardLayout, 50);
   setTimeout(syncKeyboardLayout, 280);
+  setTimeout(syncKeyboardLayout, 520);
 });
 inputEl.addEventListener("blur", () => {
+  stopKeyboardSync();
   setTimeout(() => {
     syncKeyboardLayout();
     unlockParentScroll();
@@ -575,6 +635,17 @@ window.visualViewport?.addEventListener("resize", syncKeyboardLayout);
 window.visualViewport?.addEventListener("scroll", () => {
   keepPagePinned();
   syncKeyboardLayout();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") {
+    panelHiddenAt = Date.now();
+    stopKeyboardSync();
+    return;
+  }
+  onPanelReopen();
+});
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) onPanelReopen();
 });
 
 const sidebarToggleEl = document.getElementById("sidebarToggle");
@@ -689,7 +760,8 @@ async function completeStream(ui, userText) {
 }
 
 async function streamChat(userText) {
-  if (!sessionId) startNewChat({ focus: false });
+  if (!sessionId) startNewChat({ focus: false, ephemeral: true });
+  storeSession(sessionId);
   history.push({ role: "user", content: userText });
   appendMessage("user", userText);
 
@@ -761,7 +833,8 @@ formEl.addEventListener("submit", async (e) => {
   try {
     await bootIdentity();
   } catch (_) {
-    startNewChat({ focus: false });
+    startNewChat({ focus: false, ephemeral: true });
+    bootDone = true;
     try {
       const info = await fetch(API + "/api/settings/info").then((r) => r.json());
       if (info && info.build) ensureFreshBuild(info.build);

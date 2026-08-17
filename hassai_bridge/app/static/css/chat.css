@@ -458,12 +458,12 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: var(--kb-inset, 0px);
+  bottom: 0;
   padding: 8px 20px 22px;
   padding-bottom: max(22px, env(safe-area-inset-bottom));
   background: linear-gradient(180deg, transparent, rgba(13, 15, 20, 0.92) 32%);
-  z-index: 12;
-  transform: none;
+  z-index: 100;
+  will-change: top;
 }
 
 .chat-form {
