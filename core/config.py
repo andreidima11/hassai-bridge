@@ -4,7 +4,11 @@ import time
 import uuid
 from pathlib import Path
 
-VERSION = "v0.2.0-beta"
+# Single source of truth: /VERSION (no leading "v")
+_VERSION_FILE = Path(__file__).parent.parent / "VERSION"
+_raw = _VERSION_FILE.read_text(encoding="utf-8").strip() if _VERSION_FILE.exists() else "0.0.0-dev"
+VERSION = _raw if _raw.startswith("v") else f"v{_raw}"
+ADDON_VERSION = _raw.lstrip("v")  # HA add-on config.yaml version field
 DB_SCHEMA_VERSION = 3
 
 DATA_DIR = Path(os.environ.get("HASSAI_DATA_DIR") or (Path(__file__).parent.parent / "data"))

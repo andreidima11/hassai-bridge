@@ -7,8 +7,8 @@ RUN apk add --no-cache \
         git \
     && pip3 install --no-cache-dir --break-system-packages --upgrade pip
 
-# Clone the app into the image (add-on build context is this folder only)
-ARG HASSAI_REF=main
+# Clone app sources matching this add-on release tag (see /VERSION)
+ARG HASSAI_REF=v0.2.2-beta
 RUN git clone --depth 1 --branch "${HASSAI_REF}" \
         https://github.com/andreidima11/hassai-bridge.git /opt/hassai-bridge \
     && pip3 install --no-cache-dir --break-system-packages \

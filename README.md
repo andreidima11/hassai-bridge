@@ -66,6 +66,27 @@ cd ~/hassai-bridge
 bash uninstall.sh
 ```
 
+## Versioning & add-on updates
+
+All version strings come from the root [`VERSION`](VERSION) file:
+
+| Place | Value |
+|-------|--------|
+| `/VERSION` | `0.2.2-beta` (source of truth, no leading `v`) |
+| App / Web UI / API | `v0.2.2-beta` |
+| Add-on `hassai_bridge/config.yaml` | `0.2.2-beta` |
+| GitHub Release / tag | `v0.2.2-beta` |
+
+Home Assistant shows an add-on **Update** when `hassai_bridge/config.yaml` → `version` on `main` is newer than the installed add-on. After bumping, create the matching git tag + GitHub Release, then refresh the add-on store.
+
+```bash
+# bump VERSION, then:
+bash scripts/sync_version.sh
+# update hassai_bridge/CHANGELOG.md, commit, merge to main, then:
+git tag "v$(tr -d '[:space:]' < VERSION | sed 's/^v//')"
+git push origin "v$(tr -d '[:space:]' < VERSION | sed 's/^v//')"
+```
+
 ## Home Assistant Setup
 
 ### Add-on + integration
