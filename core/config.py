@@ -4,10 +4,10 @@ import time
 import uuid
 from pathlib import Path
 
-VERSION = "v0.1.9.6-beta"
+VERSION = "v0.2.0-beta"
 DB_SCHEMA_VERSION = 3
 
-DATA_DIR = Path(__file__).parent.parent / "data"
+DATA_DIR = Path(os.environ.get("HASSAI_DATA_DIR") or (Path(__file__).parent.parent / "data"))
 CONFIG_FILE = DATA_DIR / "config.json"
 
 # ── In-memory config cache (debounced mtime check #12) ──

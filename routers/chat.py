@@ -877,30 +877,10 @@ async def _stream_with_keepalive_sse(gen, interval: float = _KEEPALIVE_INTERVAL)
 
 
 def _validate_api_key(request: Request):
-    """Validate API key from Bearer token or X-Assist-Key header."""
-    cfg = load_config()
-    expected_key = cfg.get("api_key", "")
-    if not expected_key:
-        return  # No key configured — allow all
+    """Validate API key, or allow trusted Web UI / HA Ingress sessions."""
+    from core.auth import require_api_key_or_webui
 
-    # Collect all valid keys: system key + per-user keys
-    valid_keys = {expected_key}
-    user_api_keys = cfg.get("users", {}).get("api_keys", {})
-    valid_keys.update(user_api_keys.keys())
-
-    # Try Bearer token first
-    auth = request.headers.get("authorization", "")
-    if auth.lower().startswith("bearer "):
-        token = auth[7:].strip()
-        if token in valid_keys:
-            return
-
-    # Try X-Assist-Key header
-    assist_key = request.headers.get("x-assist-key", "").strip()
-    if assist_key and assist_key in valid_keys:
-        return
-
-    raise HTTPException(status_code=401, detail="Invalid API key")
+    require_api_key_or_webui(request)
 
 
 def _extract_user_id(request: Request, body: dict) -> str:
