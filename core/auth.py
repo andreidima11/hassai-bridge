@@ -12,15 +12,23 @@ _INGRESS_RE = re.compile(r"(/api/hassio_ingress/[^/]+)")
 
 def get_ingress_path(request: Request) -> str:
     """Return HA Ingress path prefix (no trailing slash), or empty string."""
-    for key in ("x-ingress-path", "x-forwarded-prefix"):
-        val = (request.headers.get(key) or "").strip().rstrip("/")
-        if val and val != "/":
-            return val
+    header = (request.headers.get("x-ingress-path") or "").strip().rstrip("/")
+    if header and header != "/" and "hassio_ingress" in header:
+        return header
+
+    match = _INGRESS_RE.search(request.url.path or "")
+    if match:
+        return match.group(1)
 
     referer = request.headers.get("referer") or ""
     match = _INGRESS_RE.search(referer)
     if match:
         return match.group(1)
+
+    # Only trust forwarded-prefix when it is an Ingress path (not "/" or /hassio).
+    fwd = (request.headers.get("x-forwarded-prefix") or "").strip().rstrip("/")
+    if fwd and fwd != "/" and "hassio_ingress" in fwd:
+        return fwd
     return ""
 
 
@@ -31,6 +39,8 @@ def is_trusted_webui(request: Request) -> bool:
     Same-origin browser requests (direct :8899) are trusted for admin/chat UI.
     """
     if request.headers.get("x-ingress-path"):
+        return True
+    if "hassio_ingress" in (request.url.path or ""):
         return True
 
     server_host = request.headers.get("host", "")

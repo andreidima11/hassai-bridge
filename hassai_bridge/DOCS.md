@@ -16,6 +16,8 @@ AI bridge for Home Assistant with agentic chat, per-user memory, knowledge graph
 3. Install **HASSAI Bridge**, start it
 4. Open from the sidebar (**HASSAI**) or **Open Web UI**
 
+The sidebar panel is a **Docker image** built from `hassai_bridge/app/` (a copy of this repo). Running `python main.py` on your PC is not the add-on. After an update, wait until the add-on **rebuild finishes**, then restart it. The log should show the same version as GitHub (`0.2.11-beta` or newer).
+
 ## Integration URL (Assist / sensors)
 
 The custom integration talks to the **API**, not to Ingress.

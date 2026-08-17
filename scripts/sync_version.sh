@@ -12,6 +12,10 @@ if [[ ! "$RAW" =~ ^[0-9] ]]; then
 fi
 
 sed -i -E "s/^(version: ).*/\\1\"${RAW}\"/" "$ROOT/hassai_bridge/config.yaml"
+sed -i -E "s/^(ARG HASSAI_VERSION=).*/\\1${RAW}/" "$ROOT/hassai_bridge/Dockerfile"
+if grep -q 'HASSAI_VERSION:' "$ROOT/hassai_bridge/build.yaml"; then
+  sed -i -E "s/^(  HASSAI_VERSION: ).*/\\1${RAW}/" "$ROOT/hassai_bridge/build.yaml"
+fi
 bash "$ROOT/scripts/sync_addon_app.sh"
 
 echo "Synced add-on to ${RAW} (app vendored into hassai_bridge/app)"

@@ -1,0 +1,14 @@
+name: addon-sync
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  vendor-matches-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: hassai_bridge/app must match root app
+        run: bash scripts/check_addon_sync.sh

@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from pathlib import Path
 
 from database import init_db, cleanup_old_conversations, get_all_users
-from core.auth import get_ingress_path, require_api_key_or_webui
+from core.auth import get_ingress_path, require_api_key_or_webui, _INGRESS_RE
 from core.config import VERSION, load_config
 from services.knowledge_graph import init_graph_tables
 from services.memory_engine import consolidate_memories
@@ -180,6 +180,19 @@ def _require_admin_key(request: Request):
         return
 
     require_api_key_or_webui(request)
+
+
+@app.middleware("http")
+async def strip_ingress_prefix(request: Request, call_next):
+    """If Supervisor forwards the full /api/hassio_ingress/<token>/... path, strip it."""
+    path = request.url.path
+    match = _INGRESS_RE.search(path)
+    if match:
+        prefix = match.group(1)
+        if path.startswith(prefix):
+            request.scope["path"] = path[len(prefix):] or "/"
+            request.scope["root_path"] = (request.scope.get("root_path") or "") + prefix
+    return await call_next(request)
 
 
 @app.middleware("http")

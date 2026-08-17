@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.11-beta
+
+- **Add-on image:** Supervisor can no longer reuse a cached Docker layer of an old `app/` (terminal had new chat, sidebar add-on did not). Version is baked into the Dockerfile so every store update rebuilds the UI
+- CSS/JS in the HA sidebar use relative URLs (no missing stylesheet when Ingress prefix is empty)
+
 ## 0.2.10-beta
 
 - Chat shows a live activity log while the agent works (thinking, HA tools, search, skills) — compact timeline, then collapses to a step count
