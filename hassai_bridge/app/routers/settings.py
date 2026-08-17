@@ -508,6 +508,7 @@ async def system_info():
         },
         "endpoints": [
             {"method": "POST", "path": "/v1/chat/completions", "description": "Chat Completions (OpenAI-compatible)"},
+            {"method": "GET", "path": "/v1/chat/activity/{trace_id}", "description": "Live agent tool steps"},
             {"method": "GET", "path": "/v1/models", "description": "List Models (OpenAI)"},
             {"method": "GET", "path": "/api/settings/", "description": "Get Settings"},
             {"method": "PUT", "path": "/api/settings/", "description": "Update Settings"},

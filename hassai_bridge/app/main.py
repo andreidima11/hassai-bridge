@@ -188,8 +188,8 @@ async def rate_limit_and_timing(request: Request, call_next):
     start = time.time()
     path = request.url.path
 
-    # Rate limit chat and API endpoints
-    if path.startswith(("/v1/", "/api/")):
+    # Rate limit chat and API endpoints (skip live activity polls)
+    if path.startswith(("/v1/", "/api/")) and "/chat/activity/" not in path:
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
         bucket = _rate_buckets[client_ip]

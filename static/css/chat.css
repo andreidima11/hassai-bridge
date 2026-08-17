@@ -325,7 +325,7 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
   border-bottom-left-radius: 4px;
 }
 
-.msg-assistant.streaming .msg-bubble::after {
+.msg-assistant.streaming .msg-bubble:not([hidden])::after {
   content: "|";
   display: inline-block;
   margin-left: 2px;
@@ -336,6 +336,101 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
 .msg-error .msg-bubble {
   border-color: rgba(231, 76, 60, 0.5);
   color: #ffb4ae;
+}
+
+/* ── Agentic activity ── */
+.agent-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 2px 4px 8px;
+  padding-left: 2px;
+  max-width: 100%;
+}
+
+.agent-toggle {
+  display: none;
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0;
+  cursor: pointer;
+}
+
+.agent-toggle:hover { color: var(--text); }
+
+.agent-trace.has-summary .agent-toggle { display: inline; }
+.agent-trace.is-collapsed .agent-step { display: none; }
+
+.agent-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: var(--muted);
+  animation: chatIn 0.18s ease both;
+}
+
+.agent-mark {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: rgba(122, 126, 146, 0.55);
+  transform: translateY(-1px);
+}
+
+.agent-step.is-run .agent-mark {
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(79, 140, 255, 0.55);
+  animation: agentPulse 1.2s ease-out infinite;
+}
+
+.agent-step.is-done .agent-mark {
+  background: #6ee7a8;
+}
+
+.agent-step.is-skip .agent-mark {
+  background: #c9a227;
+}
+
+.agent-verb {
+  flex-shrink: 0;
+  color: #b7c7ea;
+  font-weight: 650;
+}
+
+.agent-detail {
+  min-width: 0;
+  color: #8b90a7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-ms,
+.agent-skip {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: #6a6e82;
+}
+
+.agent-skip { color: #c9a227; }
+
+@keyframes agentPulse {
+  0% { box-shadow: 0 0 0 0 rgba(79, 140, 255, 0.45); }
+  70% { box-shadow: 0 0 0 6px rgba(79, 140, 255, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(79, 140, 255, 0); }
 }
 
 @keyframes blink {

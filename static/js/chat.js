@@ -38,6 +38,29 @@ const I18N = {
     welcome: "Your Home Assistant copilot.",
     placeholder: "Message HASSAI…",
     settings: "Settings",
+    thinking: "Thinking",
+    working: "Working",
+    steps: "{n} steps · {s}s",
+    skipped: "skipped",
+    search_web: "Search",
+    run_skill: "Skill",
+    ha_list_entities: "List",
+    ha_get_state: "State",
+    ha_call_service: "Call",
+    ha_system_info: "System",
+    ha_get_logs: "Logs",
+    ha_list_problems: "Problems",
+    ha_apply_fix: "Fix",
+    ha_check_config: "Check config",
+    ha_reload: "Reload",
+    ha_list_dashboards: "Dashboards",
+    ha_get_dashboard: "Dashboard",
+    ha_save_dashboard: "Save dash",
+    ha_upsert_card: "Card",
+    ha_delete_card: "Remove card",
+    ha_list_files: "Files",
+    ha_read_file: "Read",
+    ha_write_file: "Write",
   },
   ro: {
     you: "Tu",
@@ -53,6 +76,29 @@ const I18N = {
     welcome: "Copilotul tău pentru Home Assistant.",
     placeholder: "Mesaj către HASSAI…",
     settings: "Setări",
+    thinking: "Gândește",
+    working: "Lucrează",
+    steps: "{n} pași · {s}s",
+    skipped: "sărit",
+    search_web: "Caută",
+    run_skill: "Skill",
+    ha_list_entities: "Listează",
+    ha_get_state: "Stare",
+    ha_call_service: "Apelează",
+    ha_system_info: "Sistem",
+    ha_get_logs: "Loguri",
+    ha_list_problems: "Probleme",
+    ha_apply_fix: "Repară",
+    ha_check_config: "Verifică config",
+    ha_reload: "Reîncarcă",
+    ha_list_dashboards: "Dashboard-uri",
+    ha_get_dashboard: "Dashboard",
+    ha_save_dashboard: "Salvează dash",
+    ha_upsert_card: "Card",
+    ha_delete_card: "Șterge card",
+    ha_list_files: "Fișiere",
+    ha_read_file: "Citește",
+    ha_write_file: "Scrie",
   },
 };
 
@@ -157,15 +203,120 @@ function appendMessage(role, content, { error = false, streaming = false } = {})
   roleEl.className = "msg-role";
   roleEl.textContent = role === "user" ? tr("you") : "HASSAI";
 
+  let traceEl = null;
+  if (role === "assistant") {
+    traceEl = document.createElement("div");
+    traceEl.className = "agent-trace";
+    traceEl.hidden = true;
+  }
+
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble";
   bubble.textContent = content || "";
+  if (role === "assistant" && !content) bubble.hidden = true;
 
   wrap.appendChild(roleEl);
+  if (traceEl) wrap.appendChild(traceEl);
   wrap.appendChild(bubble);
   messagesEl.appendChild(wrap);
   mainEl.scrollTop = mainEl.scrollHeight;
-  return { wrap, bubble };
+  return { wrap, bubble, traceEl };
+}
+
+function setBubbleText(bubble, text) {
+  bubble.textContent = text || "";
+  bubble.hidden = !text;
+}
+
+function activityVerb(name) {
+  if (name === "think") return tr("thinking");
+  return tr(name) === name ? name.replace(/^ha_/, "").replace(/_/g, " ") : tr(name);
+}
+
+function formatMs(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n < 0) return "";
+  if (n < 1000) return `${Math.round(n)}ms`;
+  return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}s`;
+}
+
+function applyActivity(traceEl, ev) {
+  if (!traceEl || !ev) return;
+  const id = String(ev.id || `i${ev.i ?? ""}`);
+  let row = null;
+  for (const child of traceEl.querySelectorAll(".agent-step")) {
+    if (child.dataset.aid === id) { row = child; break; }
+  }
+  if (!row) {
+    row = document.createElement("div");
+    row.className = "agent-step";
+    row.dataset.aid = id;
+    traceEl.appendChild(row);
+  }
+  const name = ev.name || "think";
+  row.dataset.name = name;
+  row.classList.toggle("is-run", ev.status === "running");
+  row.classList.toggle("is-done", ev.status === "done");
+  row.classList.toggle("is-skip", ev.status === "skip");
+  const ms = formatMs(ev.ms);
+  const detail = ev.detail ? escapeHtml(ev.detail) : "";
+  const skip = ev.status === "skip" ? `<span class="agent-skip">${escapeHtml(tr("skipped"))}</span>` : "";
+  row.innerHTML =
+    `<span class="agent-mark"></span>` +
+    `<span class="agent-verb">${escapeHtml(activityVerb(name))}</span>` +
+    (detail ? `<span class="agent-detail">${detail}</span>` : "") +
+    skip +
+    (ms ? `<span class="agent-ms">${escapeHtml(ms)}</span>` : "");
+  traceEl.hidden = false;
+  mainEl.scrollTop = mainEl.scrollHeight;
+}
+
+function finishTrace(traceEl) {
+  if (!traceEl) return;
+  const steps = [...traceEl.querySelectorAll(".agent-step")];
+  const tools = steps.filter((el) => el.dataset.name !== "think");
+  if (!tools.length) {
+    traceEl.innerHTML = "";
+    traceEl.hidden = true;
+    return;
+  }
+  let total = 0;
+  for (const el of steps) {
+    const label = el.querySelector(".agent-ms")?.textContent || "";
+    if (label.endsWith("ms")) total += parseFloat(label) || 0;
+    else if (label.endsWith("s")) total += (parseFloat(label) || 0) * 1000;
+  }
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "agent-toggle";
+  toggle.textContent = tr("steps", {
+    n: tools.length,
+    s: (total / 1000).toFixed(total >= 10000 ? 0 : 1),
+  });
+  toggle.addEventListener("click", () => {
+    traceEl.classList.toggle("is-collapsed");
+  });
+  traceEl.querySelector(".agent-toggle")?.remove();
+  traceEl.prepend(toggle);
+  traceEl.classList.add("has-summary", "is-collapsed");
+  traceEl.hidden = false;
+}
+
+function startActivityPoll(traceId, onEvent) {
+  let after = -1;
+  let stopped = false;
+  const tick = async () => {
+    if (stopped) return;
+    try {
+      const data = await apiJson(`/v1/chat/activity/${encodeURIComponent(traceId)}?after=${after}`);
+      for (const ev of data.events || []) onEvent(ev);
+      if (typeof data.after === "number") after = data.after;
+      if (data.done) return;
+    } catch (_) { /* ignore */ }
+    if (!stopped) setTimeout(tick, 320);
+  };
+  tick();
+  return () => { stopped = true; };
 }
 
 function sessionTitle(row) {
@@ -385,7 +536,7 @@ async function readError(resp) {
   }
 }
 
-async function postChat(stream, userText) {
+async function postChat(stream, userText, traceId) {
   return fetch(API + "/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -393,25 +544,29 @@ async function postChat(stream, userText) {
       messages: [{ role: "user", content: userText }],
       stream,
       session_id: sessionId,
+      trace_id: traceId,
     }),
   });
 }
 
-async function completeNonStream(bubble, userText) {
-  const resp = await postChat(false, userText);
+async function completeNonStream(ui, userText) {
+  const resp = await postChat(false, userText, ui.traceId);
   if (!resp.ok) throw new Error(await readError(resp));
   const data = await resp.json();
+  if (Array.isArray(data.hassai_activity)) {
+    data.hassai_activity.forEach((ev) => applyActivity(ui.traceEl, ev));
+  }
   const text = extractText(data);
   if (!text) {
     throw new Error(tr("emptyReply"));
   }
-  bubble.textContent = text;
+  setBubbleText(ui.bubble, text);
   mainEl.scrollTop = mainEl.scrollHeight;
   return text;
 }
 
-async function completeStream(bubble, userText) {
-  const resp = await postChat(true, userText);
+async function completeStream(ui, userText) {
+  const resp = await postChat(true, userText, ui.traceId);
   if (!resp.ok) throw new Error(await readError(resp));
   if (!resp.body) throw new Error("No stream body (Ingress blocked SSE)");
 
@@ -434,10 +589,14 @@ async function completeStream(bubble, userText) {
       if (payload === "[DONE]") continue;
       try {
         const chunk = JSON.parse(payload);
+        if (chunk && chunk.hassai === "activity") {
+          applyActivity(ui.traceEl, chunk);
+          continue;
+        }
         const delta = extractText(chunk);
         if (delta) {
           full += delta;
-          bubble.textContent = full;
+          setBubbleText(ui.bubble, full);
           mainEl.scrollTop = mainEl.scrollHeight;
         }
       } catch (_) {
@@ -453,17 +612,20 @@ async function streamChat(userText) {
   history.push({ role: "user", content: userText });
   appendMessage("user", userText);
 
-  const { wrap, bubble } = appendMessage("assistant", "", { streaming: true });
+  const { wrap, bubble, traceEl } = appendMessage("assistant", "", { streaming: true });
+  const traceId = `${newSessionId()}${newSessionId()}`;
+  const ui = { wrap, bubble, traceEl, traceId };
+  const stopPoll = startActivityPoll(traceId, (ev) => applyActivity(traceEl, ev));
   let full = "";
 
   try {
     // Companion app / Ingress WebViews often drop SSE → empty reply.
-    // Use JSON there; stream on direct :8899.
+    // Use JSON there; stream on direct :8899. Activity still arrives via poll.
     if (ON_INGRESS) {
-      full = await completeNonStream(bubble, userText);
+      full = await completeNonStream(ui, userText);
     } else {
       try {
-        full = await completeStream(bubble, userText);
+        full = await completeStream(ui, userText);
       } catch (e) {
         full = "";
         if (!String(e.message || "").includes("Empty reply")) {
@@ -471,18 +633,20 @@ async function streamChat(userText) {
         }
       }
       if (!full) {
-        full = await completeNonStream(bubble, userText);
+        full = await completeNonStream(ui, userText);
       }
     }
   } catch (err) {
     wrap.classList.add("msg-error");
-    wrap.classList.remove("streaming");
-    bubble.textContent = err.message || "Request failed";
+    setBubbleText(bubble, err.message || "Request failed");
     history.pop();
     throw err;
+  } finally {
+    stopPoll();
+    finishTrace(traceEl);
+    wrap.classList.remove("streaming");
   }
 
-  wrap.classList.remove("streaming");
   history.push({ role: "assistant", content: full || "" });
   refreshSessions().catch(() => {});
 }

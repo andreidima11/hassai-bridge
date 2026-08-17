@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.10-beta
+
+- Chat shows a live activity log while the agent works (thinking, HA tools, search, skills) — compact timeline, then collapses to a step count
+- Works in the HA sidebar too (polls steps; does not depend on SSE)
+
 ## 0.2.9-beta
 
 - **Fix:** Settings toast `Cannot set properties of null (setting 'textContent')` — system info no longer writes to missing DOM nodes

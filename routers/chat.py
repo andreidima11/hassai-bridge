@@ -91,6 +91,85 @@ def _parse_tool_args(raw) -> dict:
         return {}
 
 
+def _clip_detail(value, n: int = 56) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) <= n:
+        return text
+    return text[: n - 1] + "…"
+
+
+def _tool_detail(name: str, args: dict) -> str:
+    args = args or {}
+    if name == "search_web":
+        return _clip_detail(args.get("query"))
+    if name == "run_skill":
+        return _clip_detail(args.get("skill_name"))
+    if name == "ha_call_service":
+        call = f"{args.get('domain') or ''}.{args.get('service') or ''}".strip(".")
+        entity = str(args.get("entity_id") or "").strip()
+        return _clip_detail(" ".join(p for p in (call, entity) if p))
+    for key in ("entity_id", "path", "url_path", "suggestion_id", "what", "source", "domain", "search"):
+        val = args.get(key)
+        if val:
+            extra = args.get("search") if key == "domain" else None
+            return _clip_detail(f"{val} {extra}".strip() if extra else val)
+    return ""
+
+
+_TRACE_TTL = 600.0
+_traces: dict[str, dict] = {}
+
+
+def _sanitize_trace_id(raw) -> str:
+    value = str(raw or "").strip()
+    if re.fullmatch(r"[A-Za-z0-9_-]{8,48}", value):
+        return value
+    return ""
+
+
+def _trace_gc() -> None:
+    now = time.time()
+    stale = [key for key, bucket in _traces.items() if now - bucket.get("ts", 0) > _TRACE_TTL]
+    for key in stale:
+        _traces.pop(key, None)
+
+
+def _trace_start(trace_id: str) -> None:
+    if not trace_id:
+        return
+    _trace_gc()
+    _traces[trace_id] = {"events": [], "done": False, "ts": time.time()}
+
+
+def _trace_push(trace_id: str, event: dict) -> dict:
+    payload = dict(event)
+    if trace_id and trace_id in _traces:
+        bucket = _traces[trace_id]
+        payload["i"] = len(bucket["events"])
+        bucket["events"].append(payload)
+        bucket["ts"] = time.time()
+    return payload
+
+
+def _trace_done(trace_id: str) -> None:
+    if trace_id and trace_id in _traces:
+        _traces[trace_id]["done"] = True
+        _traces[trace_id]["ts"] = time.time()
+
+
+def _activity_sse(event: dict) -> str:
+    payload = {"hassai": "activity", **event}
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+async def _fire_activity(on_event, event: dict) -> None:
+    if not on_event:
+        return
+    result = on_event(event)
+    if asyncio.iscoroutine(result):
+        await result
+
+
 async def _invoke_internal_tool(fn_name: str, args: dict, *, search_enabled: bool) -> tuple[str, bool]:
     """Run one bridge-handled tool. Returns (result_text, search_used)."""
     if fn_name == "search_web" and search_enabled:
@@ -136,6 +215,7 @@ async def _append_internal_tool_results(
     *,
     search_enabled: bool,
     fingerprints: list[str],
+    on_event=None,
 ) -> bool:
     """Append tool-role messages for internal calls. Returns search_used."""
     search_used = False
@@ -146,7 +226,12 @@ async def _append_internal_tool_results(
             continue
         tc_id = tc.get("id") or f"call_{fn_name}"
         args = _parse_tool_args(fn.get("arguments"))
+        detail = _tool_detail(fn_name, args)
         fp = _tool_fingerprint(fn_name, args)
+        await _fire_activity(on_event, {
+            "id": tc_id, "name": fn_name, "detail": detail, "status": "running",
+        })
+        started = time.time()
         if fingerprints.count(fp) >= _AGENT_REPEAT_LIMIT:
             log.info("Skipping repeated tool %s", fp[:80])
             content = (
@@ -154,12 +239,20 @@ async def _append_internal_tool_results(
                 "Do not call the same tool with the same arguments again. "
                 "Continue with a different action or give the final answer."
             )
+            await _fire_activity(on_event, {
+                "id": tc_id, "name": fn_name, "detail": detail,
+                "status": "skip", "ms": int((time.time() - started) * 1000),
+            })
         else:
             fingerprints.append(fp)
             content, used_search = await _invoke_internal_tool(
                 fn_name, args, search_enabled=search_enabled
             )
             search_used = search_used or used_search
+            await _fire_activity(on_event, {
+                "id": tc_id, "name": fn_name, "detail": detail,
+                "status": "done", "ms": int((time.time() - started) * 1000),
+            })
         augmented.append({"role": "tool", "tool_call_id": tc_id, "content": content})
     return search_used
 
@@ -1045,6 +1138,20 @@ def _extract_user_id(request: Request, body: dict) -> str:
     return "default"
 
 
+@router.get("/v1/chat/activity/{trace_id}")
+async def chat_activity(trace_id: str, request: Request, after: int = -1):
+    """Live agent steps for the Web UI (polling; Ingress cannot rely on SSE)."""
+    _validate_api_key(request)
+    _trace_gc()
+    safe_id = _sanitize_trace_id(trace_id)
+    bucket = _traces.get(safe_id) if safe_id else None
+    if not bucket:
+        return {"events": [], "after": after, "done": False}
+    events = [ev for ev in bucket["events"] if int(ev.get("i", 0)) > after]
+    last = events[-1]["i"] if events else after
+    return {"events": events, "after": last, "done": bool(bucket.get("done"))}
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
@@ -1055,6 +1162,7 @@ async def chat_completions(request: Request):
     tool_choice = body.get("tool_choice")
     user_id = _extract_user_id(request, body)
     session_id = str(body.get("session_id") or "").strip() or None
+    trace_id = _sanitize_trace_id(body.get("trace_id"))
     cfg = load_config()
     search_enabled = cfg["searxng"].get("enabled", False)
 
@@ -1188,15 +1296,31 @@ async def chat_completions(request: Request):
     _req_start = time.time()
     _search_used = False
     _secondary_used_for_recall = False  # tracks if secondary handled a re-call (search/skill)
+    _trace_start(trace_id)
+    activity_events: list[dict] = []
+
+    async def on_activity(event: dict):
+        activity_events.append(_trace_push(trace_id, event))
+
+    async def emit_think(think_id: str, status: str, started: float | None = None):
+        payload = {"id": think_id, "name": "think", "detail": "", "status": status}
+        if status != "running" and started is not None:
+            payload["ms"] = int((time.time() - started) * 1000)
+        await on_activity(payload)
+
     if not stream:
+        think_t0 = time.time()
+        await emit_think("think-0", "running")
         try:
             result = await providers.chat_completion(augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active)
         except Exception as e:
             log.error(f"Provider [{active.get('name', '?')}] request failed: {e}")
+            _trace_done(trace_id)
             return JSONResponse(
                 status_code=502,
                 content={"error": {"message": "Provider request failed. Check server logs for details.", "type": "upstream_error"}},
             )
+        await emit_think("think-0", "done", think_t0)
 
         # ── Handle tool_calls (search_web, run_skill, HA, or forward to client) ──
         # Agentic loop: keep tools available and continue until the model
@@ -1215,6 +1339,8 @@ async def chat_completions(request: Request):
             ]
             if not internal_calls:
                 msg["content"] = ""
+                _trace_done(trace_id)
+                result["hassai_activity"] = activity_events
                 return JSONResponse(content=result)
 
             log.info("Agent round %s/%s — %s tool(s)", _round + 1, max_rounds, len(internal_calls))
@@ -1224,6 +1350,7 @@ async def chat_completions(request: Request):
                 internal_calls,
                 search_enabled=search_enabled,
                 fingerprints=fingerprints,
+                on_event=on_activity,
             ):
                 _search_used = True
 
@@ -1231,6 +1358,9 @@ async def chat_completions(request: Request):
             if secondary and re_provider is secondary:
                 _secondary_used_for_recall = True
             last = _round >= max_rounds - 1
+            think_id = f"think-{_round + 1}"
+            think_t0 = time.time()
+            await emit_think(think_id, "running")
             try:
                 result = await providers.chat_completion(
                     augmented,
@@ -1241,10 +1371,12 @@ async def chat_completions(request: Request):
                 )
             except Exception as e:
                 log.error("Provider re-call failed (round %s): %s", _round + 1, e)
+                _trace_done(trace_id)
                 return JSONResponse(
                     status_code=502,
                     content={"error": {"message": "Provider request failed during tool loop.", "type": "upstream_error"}},
                 )
+            await emit_think(think_id, "done", think_t0)
 
         # If final result still has non-internal tool_calls, forward to client
         final_msg = result.get("choices", [{}])[0].get("message", {})
@@ -1253,6 +1385,8 @@ async def chat_completions(request: Request):
             if remaining:
                 final_msg["tool_calls"] = remaining
                 final_msg["content"] = ""
+                _trace_done(trace_id)
+                result["hassai_activity"] = activity_events
                 return JSONResponse(content=result)
             else:
                 del final_msg["tool_calls"]
@@ -1291,6 +1425,8 @@ async def chat_completions(request: Request):
         except Exception:
             pass
 
+        _trace_done(trace_id)
+        result["hassai_activity"] = activity_events
         return JSONResponse(content=result)
 
     # ── Streaming path ──
@@ -1304,129 +1440,170 @@ async def chat_completions(request: Request):
         search_used = False
         secondary_used = False
         rounds_left = _agent_max_rounds(cfg)
+        sse_buf: list[str] = []
+        round_i = 0
+
+        async def on_stream_activity(event: dict):
+            pushed = _trace_push(trace_id, event)
+            sse_buf.append(_activity_sse(pushed))
+
+        async def flush_activity():
+            while sse_buf:
+                yield sse_buf.pop(0)
+
         current_gen = providers.chat_completion_stream(
             augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active
         )
 
-        while True:
-            tc_accum: dict[int, dict] = {}
-            tc_chunks: list[str] = []
-            has_tool_calls = False
-
-            async for chunk in _stream_with_keepalive_sse(current_gen):
-                if chunk.startswith("data: ") and chunk.strip() != "data: [DONE]":
-                    try:
-                        data = json.loads(chunk[6:])
-                        delta = data.get("choices", [{}])[0].get("delta", {})
-                    except (json.JSONDecodeError, IndexError, KeyError):
-                        yield chunk
-                        continue
-
-                    content = delta.get("content") or ""
-                    reasoning = delta.get("reasoning_content")
-                    tool_calls_delta = delta.get("tool_calls")
-                    finish_reason = data.get("choices", [{}])[0].get("finish_reason")
-
-                    if tool_calls_delta:
-                        has_tool_calls = True
-                        tc_chunks.append(chunk)
-                        for tc in tool_calls_delta:
-                            idx = tc.get("index", 0)
-                            if idx not in tc_accum:
-                                tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
-                            if tc.get("id"):
-                                tc_accum[idx]["id"] = tc["id"]
-                            fn = tc.get("function") or {}
-                            if fn.get("name"):
-                                tc_accum[idx]["name"] = fn["name"]
-                            if fn.get("arguments"):
-                                tc_accum[idx]["arguments"] += fn["arguments"]
-                        continue
-
-                    if has_tool_calls and finish_reason:
-                        continue
-
-                    if reasoning:
-                        yield chunk
-                        continue
-
-                    if content:
-                        full_response += content
-                    yield chunk
-
-                elif chunk.strip() == "data: [DONE]":
-                    break
-                else:
-                    yield chunk
-
-            if not (has_tool_calls and tc_accum):
-                yield "data: [DONE]\n\n"
-                break
-
-            if rounds_left <= 0:
-                yield "data: [DONE]\n\n"
-                break
-
-            internal_tcs = [
-                {
-                    "id": td["id"] or f"call_{idx}",
-                    "type": "function",
-                    "function": {"name": td["name"], "arguments": td["arguments"]},
-                }
-                for idx, td in sorted(tc_accum.items())
-                if td["name"] in _INTERNAL_TOOLS
-            ]
-            if not internal_tcs:
-                for tc_chunk in tc_chunks:
-                    yield tc_chunk
-                yield "data: [DONE]\n\n"
-                break
-
-            log.info("Agent stream round — %s tool(s), %s left", len(internal_tcs), rounds_left)
-            augmented.append({"role": "assistant", "content": None, "tool_calls": internal_tcs})
-            if await _append_internal_tool_results(
-                augmented,
-                internal_tcs,
-                search_enabled=search_enabled,
-                fingerprints=fingerprints,
-            ):
-                search_used = True
-
-            re_provider = secondary or active
-            if secondary and re_provider is secondary:
-                secondary_used = True
-            rounds_left -= 1
-            current_gen = providers.chat_completion_stream(
-                augmented,
-                model=model,
-                tools=None if rounds_left <= 0 else effective_tools,
-                tool_choice=tool_choice,
-                provider=re_provider,
-            )
-
-        if full_response:
-            clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
-            add_conversation_message(user_id, "assistant", clean_response, session_id=session_id)
-            all_msgs = messages + [{"role": "assistant", "content": clean_response}]
-            asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
-
-        _stream_elapsed = int((time.time() - _req_start) * 1000)
-        log.info(f"[{user_id}] Stream response: {len(full_response)} chars, {_stream_elapsed}ms, search={search_used}")
         try:
-            stat_prov = secondary if secondary_used and secondary else active
-            add_usage_stat(
-                user_id=user_id, provider_id=stat_prov.get("id", ""),
-                provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
-                model=model or stat_prov.get("model", ""),
-                tokens_prompt=_prompt_tokens, tokens_completion=_estimate_tokens(full_response),
-                tokens_total=_prompt_tokens + _estimate_tokens(full_response),
-                response_time_ms=int((time.time() - _req_start) * 1000),
-                stream=True, search_used=search_used,
-                eco_mode=bool(active.get("eco_mode")),
-                secondary_used=secondary_used,
-            )
-        except Exception:
-            pass
+            while True:
+                tc_accum: dict[int, dict] = {}
+                tc_chunks: list[str] = []
+                has_tool_calls = False
+                think_id = f"think-{round_i}"
+                think_t0 = time.time()
+                think_open = True
+                await on_stream_activity({"id": think_id, "name": "think", "detail": "", "status": "running"})
+                async for part in flush_activity():
+                    yield part
+
+                async for chunk in _stream_with_keepalive_sse(current_gen):
+                    if chunk.startswith("data: ") and chunk.strip() != "data: [DONE]":
+                        try:
+                            data = json.loads(chunk[6:])
+                            delta = data.get("choices", [{}])[0].get("delta", {})
+                        except (json.JSONDecodeError, IndexError, KeyError):
+                            yield chunk
+                            continue
+
+                        content = delta.get("content") or ""
+                        reasoning = delta.get("reasoning_content")
+                        tool_calls_delta = delta.get("tool_calls")
+                        finish_reason = data.get("choices", [{}])[0].get("finish_reason")
+
+                        if tool_calls_delta:
+                            has_tool_calls = True
+                            tc_chunks.append(chunk)
+                            for tc in tool_calls_delta:
+                                idx = tc.get("index", 0)
+                                if idx not in tc_accum:
+                                    tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                                if tc.get("id"):
+                                    tc_accum[idx]["id"] = tc["id"]
+                                fn = tc.get("function") or {}
+                                if fn.get("name"):
+                                    tc_accum[idx]["name"] = fn["name"]
+                                if fn.get("arguments"):
+                                    tc_accum[idx]["arguments"] += fn["arguments"]
+                            continue
+
+                        if has_tool_calls and finish_reason:
+                            continue
+
+                        if reasoning:
+                            yield chunk
+                            continue
+
+                        if content:
+                            if think_open:
+                                think_open = False
+                                await on_stream_activity({
+                                    "id": think_id, "name": "think", "detail": "",
+                                    "status": "done", "ms": int((time.time() - think_t0) * 1000),
+                                })
+                                async for part in flush_activity():
+                                    yield part
+                            full_response += content
+                        yield chunk
+
+                    elif chunk.strip() == "data: [DONE]":
+                        break
+                    else:
+                        yield chunk
+
+                if think_open:
+                    think_open = False
+                    await on_stream_activity({
+                        "id": think_id, "name": "think", "detail": "",
+                        "status": "done", "ms": int((time.time() - think_t0) * 1000),
+                    })
+                    async for part in flush_activity():
+                        yield part
+
+                if not (has_tool_calls and tc_accum):
+                    yield "data: [DONE]\n\n"
+                    break
+
+                if rounds_left <= 0:
+                    yield "data: [DONE]\n\n"
+                    break
+
+                internal_tcs = [
+                    {
+                        "id": td["id"] or f"call_{idx}",
+                        "type": "function",
+                        "function": {"name": td["name"], "arguments": td["arguments"]},
+                    }
+                    for idx, td in sorted(tc_accum.items())
+                    if td["name"] in _INTERNAL_TOOLS
+                ]
+                if not internal_tcs:
+                    for tc_chunk in tc_chunks:
+                        yield tc_chunk
+                    yield "data: [DONE]\n\n"
+                    break
+
+                log.info("Agent stream round — %s tool(s), %s left", len(internal_tcs), rounds_left)
+                augmented.append({"role": "assistant", "content": None, "tool_calls": internal_tcs})
+                if await _append_internal_tool_results(
+                    augmented,
+                    internal_tcs,
+                    search_enabled=search_enabled,
+                    fingerprints=fingerprints,
+                    on_event=on_stream_activity,
+                ):
+                    search_used = True
+                async for part in flush_activity():
+                    yield part
+
+                re_provider = secondary or active
+                if secondary and re_provider is secondary:
+                    secondary_used = True
+                rounds_left -= 1
+                round_i += 1
+                current_gen = providers.chat_completion_stream(
+                    augmented,
+                    model=model,
+                    tools=None if rounds_left <= 0 else effective_tools,
+                    tool_choice=tool_choice,
+                    provider=re_provider,
+                )
+
+            if full_response:
+                clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
+                add_conversation_message(user_id, "assistant", clean_response, session_id=session_id)
+                all_msgs = messages + [{"role": "assistant", "content": clean_response}]
+                asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
+
+            _stream_elapsed = int((time.time() - _req_start) * 1000)
+            log.info(f"[{user_id}] Stream response: {len(full_response)} chars, {_stream_elapsed}ms, search={search_used}")
+            try:
+                stat_prov = secondary if secondary_used and secondary else active
+                add_usage_stat(
+                    user_id=user_id, provider_id=stat_prov.get("id", ""),
+                    provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
+                    model=model or stat_prov.get("model", ""),
+                    tokens_prompt=_prompt_tokens, tokens_completion=_estimate_tokens(full_response),
+                    tokens_total=_prompt_tokens + _estimate_tokens(full_response),
+                    response_time_ms=int((time.time() - _req_start) * 1000),
+                    stream=True, search_used=search_used,
+                    eco_mode=bool(active.get("eco_mode")),
+                    secondary_used=secondary_used,
+                )
+            except Exception:
+                pass
+        finally:
+            _trace_done(trace_id)
 
     async def _guarded_stream():
         try:
@@ -1434,6 +1611,7 @@ async def chat_completions(request: Request):
                 yield chunk
         except Exception as e:
             log.error(f"[{user_id}] Stream failed: {e}")
+            _trace_done(trace_id)
             async for chunk in _sse_error(f"Provider error: {e}"):
                 yield chunk
 
