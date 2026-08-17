@@ -31,7 +31,7 @@ This will:
 3. Install **HASSAI Bridge**, start it
 4. Open **HASSAI** from the sidebar (Ingress) — chat is the home screen; **Settings** is the management UI
 
-Add-on sources live under `addon/hassai_bridge/`.
+Add-on sources live under `hassai_bridge/`.
 
 ### Managing the server
 
@@ -105,7 +105,7 @@ hassai-bridge/
 │       ├── app.js       # Settings frontend
 │       ├── chat.js      # Chat client (streaming)
 │       └── i18n.js      # Internationalization (EN/RO)
-├── addon/hassai_bridge/ # Home Assistant add-on (Ingress sidebar)
+├── hassai_bridge/       # Home Assistant add-on (Ingress sidebar)
 └── data/                # SQLite DB + config.json (auto-generated)
 ```
 

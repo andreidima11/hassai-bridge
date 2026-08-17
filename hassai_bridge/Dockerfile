@@ -13,7 +13,7 @@ RUN git clone --depth 1 --branch "${HASSAI_REF}" \
         https://github.com/andreidima11/hassai-bridge.git /opt/hassai-bridge \
     && pip3 install --no-cache-dir --break-system-packages \
         -r /opt/hassai-bridge/requirements.txt \
-    && rm -rf /opt/hassai-bridge/.git /opt/hassai-bridge/addon /opt/hassai-bridge/venv \
+    && rm -rf /opt/hassai-bridge/.git /opt/hassai-bridge/hassai_bridge /opt/hassai-bridge/venv \
     && rm -rf /root/.cache
 
 COPY run.sh /
