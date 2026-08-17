@@ -38,8 +38,11 @@ API key: the one from add-on **Settings** (or leave empty if none is set yet).
 ## Versioning
 
 The add-on `version` in `config.yaml` must match the root `/VERSION` file.
-Bump both (or run `bash scripts/sync_version.sh`) and publish a GitHub release
-tag `v…` so Home Assistant shows an update in the add-on store.
+Bump both (or run `bash scripts/sync_version.sh`) so Home Assistant shows an update in the add-on store.
+
+The add-on image is built from `hassai_bridge/app/` (vendored copy of the app).
+`sync_version.sh` refreshes that copy. Do not git-clone `main` in the Dockerfile:
+Supervisor may cache that layer and ship an old UI version.
 
 ## Configuration
 

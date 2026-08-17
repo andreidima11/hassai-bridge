@@ -3,21 +3,18 @@ FROM $BUILD_FROM
 
 ENV LANG=C.UTF-8
 
-RUN apk add --no-cache \
-        git \
-    && pip3 install --no-cache-dir --break-system-packages --upgrade pip
+# Supervisor builds with THIS folder as context. Do not git-clone the repo:
+# that layer was cached and shipped stale app code (UI showed v0.2.0-beta
+# while the store listed 0.2.3-beta). Sources are vendored in ./app.
+COPY app/ /opt/hassai-bridge/
+COPY run.sh /
 
-# Clone app sources. Prefer a release tag when publishing; use main until then.
-ARG HASSAI_REF=main
-RUN git clone --depth 1 --branch "${HASSAI_REF}" \
-        https://github.com/andreidima11/hassai-bridge.git /opt/hassai-bridge \
+RUN chmod a+x /run.sh \
+    && pip3 install --no-cache-dir --break-system-packages --upgrade pip \
     && pip3 install --no-cache-dir --break-system-packages \
         -r /opt/hassai-bridge/requirements.txt \
-    && rm -rf /opt/hassai-bridge/.git /opt/hassai-bridge/hassai_bridge /opt/hassai-bridge/venv \
-    && rm -rf /root/.cache
-
-COPY run.sh /
-RUN chmod a+x /run.sh
+    && rm -rf /root/.cache \
+    && test -f /opt/hassai-bridge/VERSION
 
 WORKDIR /opt/hassai-bridge
 CMD [ "/run.sh" ]

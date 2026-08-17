@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.4-beta
+
+- **Fix:** add-on update could keep a cached Docker layer that git-cloned
+  old `main` (`v0.2.0-beta`) while the store showed `0.2.3-beta`
+- App sources are now copied into `hassai_bridge/app/` and baked into the
+  image (no git clone at build time)
+
 ## 0.2.3-beta
 
 - Chat gear inset from edges; redesigned composer with centered text
