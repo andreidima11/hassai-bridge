@@ -1,5 +1,9 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.19-beta
+
+- **Fix:** chat crashed with `lang is not defined` when sending a message (missing variable declaration)
+
 ## 0.2.18-beta
 
 - **Keyboard (mobile):** chat composer stays above the keyboard using `interactive-widget=resizes-content` plus `visualViewport` fallback — works better in HA sidebar / Ingress iframes

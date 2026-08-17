@@ -21,6 +21,7 @@ let sessionId = "";
 let currentUser = { username: "default", display_name: "default" };
 let sessions = [];
 const LANG_STORE_KEY = "hassai.language";
+let lang = "en";
 let bootDone = false;
 let panelHiddenAt = 0;
 let keyboardSyncRaf = 0;
@@ -111,6 +112,8 @@ function readStoredLang() {
   } catch (_) { /* ignore */ }
   return "";
 }
+
+lang = readStoredLang() || "en";
 
 function persistLang(next) {
   try { localStorage.setItem(LANG_STORE_KEY, next); } catch (_) { /* ignore */ }
