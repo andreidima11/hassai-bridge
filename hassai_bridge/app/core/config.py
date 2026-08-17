@@ -60,6 +60,7 @@ DEFAULT_CONFIG = {
     "performance": {
         "history_limit": 10,
         "parallel_page_fetch": True,
+        "agent_max_rounds": 16,
     },
     "skills_disabled": [],
     "knowledge_cutoff": "2024-01",
@@ -70,9 +71,9 @@ DEFAULT_CONFIG = {
         "profiles": {},
     },
     "system_prompt": (
-        "You are a helpful AI assistant integrated with Home Assistant. "
-        "Answer questions clearly and concisely. When you have memory context "
-        "about the user, use it to personalize your responses."
+        "You are HASSAI, an autonomous Home Assistant copilot. "
+        "Use tools to inspect and change the home; keep going until the request is done. "
+        "When you have memory context about the user, use it to personalize responses."
     ),
 }
 

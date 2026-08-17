@@ -334,6 +334,8 @@
         <p class="card-muted" data-i18n="settings.perfDesc">Optimizations for faster response time.</p>
         <label><span data-i18n="settings.historyLimit">Conversation history limit</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.historyLimitDesc">(how many history messages to send to LLM)</span></label>
         <input type="number" id="perfHistoryLimit" value="10" min="2" max="50">
+        <label><span data-i18n="settings.agentRounds">Agent tool rounds</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.agentRoundsDesc">(how many tool steps the AI may take on its own, like Cursor)</span></label>
+        <input type="number" id="perfAgentRounds" value="16" min="2" max="32">
         <div class="toggle-row">
           <span data-i18n="settings.parallelFetch">Fetch web pages in parallel</span>
           <label class="toggle"><input type="checkbox" id="perfParallelFetch" checked><span class="slider"></span></label>

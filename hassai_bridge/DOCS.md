@@ -5,7 +5,7 @@ AI bridge for Home Assistant with agentic chat, per-user memory, knowledge graph
 ## Features
 
 - **Sidebar panel** via Ingress — open **HASSAI** from the HA sidebar
-- **Chat** as the home screen — HA admin copilot (dashboards/cards, logs, repairs, config files)
+- **Chat** as the home screen — HA admin copilot that keeps using tools until the job is done (dashboards/cards, logs, repairs, config files)
 - **Settings** — providers, memory, users, search (existing Web UI)
 - Works with the [HASSAI Bridge HA integration](https://github.com/andreidima11/hassai-bridge-ha) for Assist / voice
 

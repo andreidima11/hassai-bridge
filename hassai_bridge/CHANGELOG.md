@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.8-beta
+
+- **Agentic loop:** the model keeps using HA/search/skill tools until the task is done (up to 16 steps, configurable), like Cursor — it no longer stops after one lookup
+- Tools stay available across steps (same tool can be reused); identical repeats are skipped
+- Prompt: don't ask "should I continue?"; if the user asked for a change, set `confirm=true` and do it
+- Settings → Performance: **Agent tool rounds**
+
 ## 0.2.7-beta
 
 - Settings has no top header (chat icon only, same as the chat page)

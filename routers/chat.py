@@ -46,6 +46,123 @@ router = APIRouter()
 _HA_TOOL_NAMES = ha_api.HA_TOOL_NAMES
 _INTERNAL_TOOLS = {"search_web", "run_skill"} | _HA_TOOL_NAMES
 
+# Identical tool+args this many times → skip and tell the model to move on.
+_AGENT_REPEAT_LIMIT = 2
+
+
+def _agent_max_rounds(cfg: dict) -> int:
+    raw = (cfg.get("performance") or {}).get("agent_max_rounds", 16)
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = 16
+    return max(2, min(n, 32))
+
+
+def _agentic_instruction() -> str:
+    """Always injected so the model keeps working like Cursor, not Q&A."""
+    return (
+        "Work style: autonomous agent. Finish the job; do not narrate a plan and wait. "
+        "Keep using tools until the task is actually done — inspect, change, verify, fix, then stop. "
+        "Never ask \"should I continue?\" or \"want me to proceed?\". "
+        "If the user asked you to change Home Assistant (entities, cards, files, automations, reloads), "
+        "set confirm=true and do it. Only pause when the request is ambiguous or truly destructive "
+        "and they did not ask for that change. End with a short summary of what you did."
+    )
+
+
+def _tool_fingerprint(name: str, args: dict) -> str:
+    try:
+        payload = json.dumps(args or {}, sort_keys=True, default=str)
+    except TypeError:
+        payload = str(args)
+    return f"{name}:{payload[:600]}"
+
+
+def _parse_tool_args(raw) -> dict:
+    if isinstance(raw, dict):
+        return raw
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+async def _invoke_internal_tool(fn_name: str, args: dict, *, search_enabled: bool) -> tuple[str, bool]:
+    """Run one bridge-handled tool. Returns (result_text, search_used)."""
+    if fn_name == "search_web" and search_enabled:
+        query = (args.get("query") or "").strip()[:200]
+        if not query:
+            return "Error: empty search query.", False
+        log.info("AI requested search: %s", query)
+        try:
+            search_ctx = await search_and_fetch(query)
+        except Exception as e:
+            log.error("Search failed: %s", e)
+            search_ctx = ""
+        return (
+            f"[Web search results for '{query}' — use this to answer accurately. "
+            "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
+            + (search_ctx or "No results found."),
+            True,
+        )
+
+    if fn_name == "run_skill":
+        skill_name = (args.get("skill_name") or "").strip()
+        input_data = args.get("input_data") or {}
+        log.info("AI requested skill '%s': %s", skill_name, input_data)
+        skill_result = skills.run_skill(skill_name, input_data)
+        body = (
+            skill_result.get("message", "")
+            if skill_result.get("success")
+            else f"Error: {skill_result.get('message', 'unknown error')}"
+        )
+        return f"[Skill '{skill_name}' result]\n{body}", False
+
+    if fn_name in _HA_TOOL_NAMES:
+        log.info("AI requested HA tool '%s': %s", fn_name, args)
+        ha_result = await ha_api.run_ha_tool(fn_name, args)
+        return f"[Home Assistant — {fn_name}]\n{ha_result}", False
+
+    return f"Error: unknown tool '{fn_name}'", False
+
+
+async def _append_internal_tool_results(
+    augmented: list,
+    tool_calls: list[dict],
+    *,
+    search_enabled: bool,
+    fingerprints: list[str],
+) -> bool:
+    """Append tool-role messages for internal calls. Returns search_used."""
+    search_used = False
+    for tc in tool_calls:
+        fn = tc.get("function") or {}
+        fn_name = fn.get("name") or ""
+        if fn_name not in _INTERNAL_TOOLS:
+            continue
+        tc_id = tc.get("id") or f"call_{fn_name}"
+        args = _parse_tool_args(fn.get("arguments"))
+        fp = _tool_fingerprint(fn_name, args)
+        if fingerprints.count(fp) >= _AGENT_REPEAT_LIMIT:
+            log.info("Skipping repeated tool %s", fp[:80])
+            content = (
+                "Repeated tool call skipped — you already received this result. "
+                "Do not call the same tool with the same arguments again. "
+                "Continue with a different action or give the final answer."
+            )
+        else:
+            fingerprints.append(fp)
+            content, used_search = await _invoke_internal_tool(
+                fn_name, args, search_enabled=search_enabled
+            )
+            search_used = search_used or used_search
+        augmented.append({"role": "tool", "tool_call_id": tc_id, "content": content})
+    return search_used
+
 # ── Start time for /uptime command ──
 _cmd_start_time = time.time()
 
@@ -1032,6 +1149,7 @@ async def chat_completions(request: Request):
     ha_hint = ha_api.ha_system_hint()
     if ha_hint:
         system_parts.append(ha_hint)
+    system_parts.append(_agentic_instruction())
     if system_parts:
         augmented.append({"role": "system", "content": "\n\n".join(system_parts)})
 
@@ -1081,91 +1199,52 @@ async def chat_completions(request: Request):
             )
 
         # ── Handle tool_calls (search_web, run_skill, HA, or forward to client) ──
-        for _round in range(3):
+        # Agentic loop: keep tools available and continue until the model
+        # stops calling them (or we hit the round cap).
+        fingerprints: list[str] = []
+        max_rounds = _agent_max_rounds(cfg)
+        for _round in range(max_rounds):
             msg = result.get("choices", [{}])[0].get("message", {})
             tool_calls = msg.get("tool_calls") or []
             if not tool_calls:
                 break
 
-            # Separate internal (bridge-handled) vs external (client-handled) tool calls
-            internal_calls = [tc for tc in tool_calls if tc.get("function", {}).get("name") in _INTERNAL_TOOLS]
-            external_calls = [tc for tc in tool_calls if tc.get("function", {}).get("name") not in _INTERNAL_TOOLS]
-
+            internal_calls = [
+                tc for tc in tool_calls
+                if (tc.get("function") or {}).get("name") in _INTERNAL_TOOLS
+            ]
             if not internal_calls:
-                # Only external tool_calls — forward to client (HA)
                 msg["content"] = ""
                 return JSONResponse(content=result)
 
-            # Process all internal tool calls
-            augmented.append(msg)  # assistant message with tool_calls
-            used_tool_names = set()
+            log.info("Agent round %s/%s — %s tool(s)", _round + 1, max_rounds, len(internal_calls))
+            augmented.append(msg)
+            if await _append_internal_tool_results(
+                augmented,
+                internal_calls,
+                search_enabled=search_enabled,
+                fingerprints=fingerprints,
+            ):
+                _search_used = True
 
-            for tc in internal_calls:
-                fn_name = tc.get("function", {}).get("name", "")
-                tc_id = tc.get("id", f"call_{fn_name}")
-                try:
-                    args = json.loads(tc["function"]["arguments"])
-                except (json.JSONDecodeError, KeyError):
-                    args = {}
-
-                if fn_name == "search_web" and search_enabled:
-                    query = (args.get("query") or "").strip()[:200]
-                    if query:
-                        log.info(f"AI requested search (tool, round {_round + 1}): {query}")
-                        _search_used = True
-                        try:
-                            search_ctx = await search_and_fetch(query)
-                        except Exception as e:
-                            log.error(f"Search failed: {e}")
-                            search_ctx = ""
-                        augmented.append({
-                            "role": "tool",
-                            "tool_call_id": tc_id,
-                            "content": (
-                                f"[Web search results for '{query}' — use this to answer accurately. "
-                                "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
-                                + (search_ctx or "No results found.")
-                            ),
-                        })
-                        used_tool_names.add("search_web")
-
-                elif fn_name == "run_skill":
-                    skill_name = (args.get("skill_name") or "").strip()
-                    input_data = args.get("input_data") or {}
-                    log.info(f"AI requested skill '{skill_name}' (round {_round + 1}): {input_data}")
-                    skill_result = skills.run_skill(skill_name, input_data)
-                    augmented.append({
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "content": (
-                            f"[Skill '{skill_name}' result]\n"
-                            + (skill_result.get("message", "") if skill_result.get("success")
-                               else f"Error: {skill_result.get('message', 'unknown error')}")
-                        ),
-                    })
-                    used_tool_names.add("run_skill")
-
-                elif fn_name in _HA_TOOL_NAMES:
-                    log.info(f"AI requested HA tool '{fn_name}' (round {_round + 1}): {args}")
-                    ha_result = await ha_api.run_ha_tool(fn_name, args)
-                    augmented.append({
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "content": f"[Home Assistant — {fn_name}]\n{ha_result}",
-                    })
-                    used_tool_names.add(fn_name)
-
-            # Re-call without used tools to avoid loops
-            # Use secondary provider if configured (cost reduction / faster processing)
             re_provider = secondary or active
-            re_tools = [t for t in all_tools if t.get("function", {}).get("name") not in used_tool_names]
-            result = await providers.chat_completion(
-                augmented, model=model, tools=re_tools or None,
-                tool_choice=tool_choice, provider=re_provider,
-            )
-            # Track secondary provider re-call
             if secondary and re_provider is secondary:
                 _secondary_used_for_recall = True
+            last = _round >= max_rounds - 1
+            try:
+                result = await providers.chat_completion(
+                    augmented,
+                    model=model,
+                    tools=None if last else effective_tools,
+                    tool_choice=tool_choice,
+                    provider=re_provider,
+                )
+            except Exception as e:
+                log.error("Provider re-call failed (round %s): %s", _round + 1, e)
+                return JSONResponse(
+                    status_code=502,
+                    content={"error": {"message": "Provider request failed during tool loop.", "type": "upstream_error"}},
+                )
 
         # If final result still has non-internal tool_calls, forward to client
         final_msg = result.get("choices", [{}])[0].get("message", {})
@@ -1215,192 +1294,115 @@ async def chat_completions(request: Request):
         return JSONResponse(content=result)
 
     # ── Streaming path ──
-    # Uses tool_calls for search (like hass_memory). No marker parsing needed.
-    # Tool call chunks are accumulated silently; content/reasoning chunks pass through.
-    gen = providers.chat_completion_stream(augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active)
+    # Tool-call chunks are accumulated silently; content/reasoning pass through.
+    # After tools run, we start another stream — same agentic loop as JSON.
 
     async def stream_wrapper():
         nonlocal augmented
         full_response = ""
-        # Accumulate streaming tool_call deltas
-        tc_accum: dict[int, dict] = {}  # index -> {id, name, arguments}
-        tc_chunks: list[str] = []  # raw chunks for forwarding if not search
-        has_tool_calls = False
+        fingerprints: list[str] = []
+        search_used = False
+        secondary_used = False
+        rounds_left = _agent_max_rounds(cfg)
+        current_gen = providers.chat_completion_stream(
+            augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active
+        )
 
-        async for chunk in _stream_with_keepalive_sse(gen):
-            if chunk.startswith("data: ") and chunk.strip() != "data: [DONE]":
-                try:
-                    data = json.loads(chunk[6:])
-                    delta = data.get("choices", [{}])[0].get("delta", {})
-                except (json.JSONDecodeError, IndexError, KeyError):
+        while True:
+            tc_accum: dict[int, dict] = {}
+            tc_chunks: list[str] = []
+            has_tool_calls = False
+
+            async for chunk in _stream_with_keepalive_sse(current_gen):
+                if chunk.startswith("data: ") and chunk.strip() != "data: [DONE]":
+                    try:
+                        data = json.loads(chunk[6:])
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        yield chunk
+                        continue
+
+                    content = delta.get("content") or ""
+                    reasoning = delta.get("reasoning_content")
+                    tool_calls_delta = delta.get("tool_calls")
+                    finish_reason = data.get("choices", [{}])[0].get("finish_reason")
+
+                    if tool_calls_delta:
+                        has_tool_calls = True
+                        tc_chunks.append(chunk)
+                        for tc in tool_calls_delta:
+                            idx = tc.get("index", 0)
+                            if idx not in tc_accum:
+                                tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                            if tc.get("id"):
+                                tc_accum[idx]["id"] = tc["id"]
+                            fn = tc.get("function") or {}
+                            if fn.get("name"):
+                                tc_accum[idx]["name"] = fn["name"]
+                            if fn.get("arguments"):
+                                tc_accum[idx]["arguments"] += fn["arguments"]
+                        continue
+
+                    if has_tool_calls and finish_reason:
+                        continue
+
+                    if reasoning:
+                        yield chunk
+                        continue
+
+                    if content:
+                        full_response += content
                     yield chunk
-                    continue
 
-                content = delta.get("content") or ""
-                reasoning = delta.get("reasoning_content")
-                tool_calls_delta = delta.get("tool_calls")
-                finish_reason = data.get("choices", [{}])[0].get("finish_reason")
-
-                # Tool call delta — accumulate silently (don't yield to client yet)
-                if tool_calls_delta:
-                    has_tool_calls = True
-                    tc_chunks.append(chunk)
-                    for tc in tool_calls_delta:
-                        idx = tc.get("index", 0)
-                        if idx not in tc_accum:
-                            tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
-                        if tc.get("id"):
-                            tc_accum[idx]["id"] = tc["id"]
-                        fn = tc.get("function") or {}
-                        if fn.get("name"):
-                            tc_accum[idx]["name"] = fn["name"]
-                        if fn.get("arguments"):
-                            tc_accum[idx]["arguments"] += fn["arguments"]
-                    continue
-
-                # Suppress finish chunk when we have accumulated tool_calls
-                # (we'll handle search and re-stream on [DONE])
-                if has_tool_calls and finish_reason:
-                    continue
-
-                # Reasoning content — yield immediately (user sees "thinking")
-                if reasoning:
-                    yield chunk
-                    continue
-
-                # Regular content — yield directly (no buffering!)
-                if content:
-                    full_response += content
-                yield chunk
-
-            elif chunk.strip() == "data: [DONE]":
-                # Stream finished — handle accumulated tool_calls
-                if has_tool_calls and tc_accum:
-                    # Identify internal tool calls we handle (search_web, run_skill, HA)
-                    internal_calls = {idx: td for idx, td in tc_accum.items() if td["name"] in _INTERNAL_TOOLS}
-
-                    if internal_calls:
-                        # Build all tool_calls for the assistant message
-                        all_tcs = [
-                            {
-                                "id": td["id"] or f"call_{idx}",
-                                "type": "function",
-                                "function": {"name": td["name"], "arguments": td["arguments"]},
-                            }
-                            for idx, td in tc_accum.items()
-                        ]
-                        augmented.append({"role": "assistant", "content": None, "tool_calls": all_tcs})
-
-                        # Process each internal tool call
-                        used_tool_names = set()
-                        for idx, td in internal_calls.items():
-                            tc_id = td["id"] or f"call_{idx}"
-                            try:
-                                args = json.loads(td["arguments"])
-                            except (json.JSONDecodeError, KeyError):
-                                args = {}
-
-                            if td["name"] == "search_web" and search_enabled:
-                                query = (args.get("query") or "").strip()[:200]
-                                if query:
-                                    log.info(f"AI requested search (stream/tool): {query}")
-                                    search_ctx = ""
-                                    try:
-                                        search_ctx = await search_and_fetch(query)
-                                    except Exception as e:
-                                        log.error(f"Search failed: {e}")
-                                    augmented.append({
-                                        "role": "tool",
-                                        "tool_call_id": tc_id,
-                                        "content": (
-                                            f"[Web search results for '{query}' — use this to answer accurately. "
-                                            "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
-                                            + (search_ctx or "No results found.")
-                                        ),
-                                    })
-                                    used_tool_names.add("search_web")
-
-                            elif td["name"] == "run_skill":
-                                skill_name = (args.get("skill_name") or "").strip()
-                                input_data = args.get("input_data") or {}
-                                log.info(f"AI requested skill '{skill_name}' (stream): {input_data}")
-                                skill_result = skills.run_skill(skill_name, input_data)
-                                augmented.append({
-                                    "role": "tool",
-                                    "tool_call_id": tc_id,
-                                    "content": (
-                                        f"[Skill '{skill_name}' result]\n"
-                                        + (skill_result.get("message", "") if skill_result.get("success")
-                                           else f"Error: {skill_result.get('message', 'unknown error')}")
-                                    ),
-                                })
-                                used_tool_names.add("run_skill")
-
-                            elif td["name"] in _HA_TOOL_NAMES:
-                                log.info(f"AI requested HA tool '{td['name']}' (stream): {args}")
-                                ha_result = await ha_api.run_ha_tool(td["name"], args)
-                                augmented.append({
-                                    "role": "tool",
-                                    "tool_call_id": tc_id,
-                                    "content": f"[Home Assistant — {td['name']}]\n{ha_result}",
-                                })
-                                used_tool_names.add(td["name"])
-
-                        # Re-stream without used tools
-                        # Use secondary provider if configured (cost reduction / faster processing)
-                        re_provider = secondary or active
-                        if secondary and re_provider is secondary:
-                            _secondary_used_for_recall = True
-                        re_tools = [t for t in all_tools if t.get("function", {}).get("name") not in used_tool_names]
-                        gen2 = providers.chat_completion_stream(
-                            augmented, model=model, tools=re_tools or None,
-                            tool_choice=tool_choice, provider=re_provider,
-                        )
-                        async for chunk2 in gen2:
-                            if chunk2.startswith("data: ") and chunk2.strip() != "data: [DONE]":
-                                try:
-                                    d2 = json.loads(chunk2[6:])
-                                    t2 = d2.get("choices", [{}])[0].get("delta", {}).get("content") or ""
-                                    if t2:
-                                        full_response += t2
-                                except (json.JSONDecodeError, IndexError, KeyError):
-                                    pass
-                            yield chunk2
-
-                        # Save & extract
-                        if full_response:
-                            add_conversation_message(user_id, "assistant", full_response, session_id=session_id)
-                            all_msgs = messages + [{"role": "assistant", "content": full_response}]
-                            asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
-                        try:
-                            stat_prov = secondary if _secondary_used_for_recall and secondary else active
-                            add_usage_stat(
-                                user_id=user_id, provider_id=stat_prov.get("id", ""),
-                                provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
-                                model=model or stat_prov.get("model", ""),
-                                tokens_prompt=_prompt_tokens, tokens_completion=_estimate_tokens(full_response),
-                                tokens_total=_prompt_tokens + _estimate_tokens(full_response),
-                                response_time_ms=int((time.time() - _req_start) * 1000),
-                                stream=True, search_used=bool(used_tool_names),
-                                eco_mode=bool(active.get("eco_mode")),
-                                secondary_used=_secondary_used_for_recall,
-                            )
-                        except Exception:
-                            pass
-                        return
-
-                    # No internal tool calls — forward buffered tool_call chunks to client (HA)
-                    for tc_chunk in tc_chunks:
-                        yield tc_chunk
-                    yield chunk  # forward the [DONE]
-
+                elif chunk.strip() == "data: [DONE]":
+                    break
                 else:
-                    # No tool_calls — just forward [DONE]
                     yield chunk
 
-            else:
-                # Keepalive comments or other non-data lines — pass through
-                yield chunk
+            if not (has_tool_calls and tc_accum):
+                yield "data: [DONE]\n\n"
+                break
+
+            if rounds_left <= 0:
+                yield "data: [DONE]\n\n"
+                break
+
+            internal_tcs = [
+                {
+                    "id": td["id"] or f"call_{idx}",
+                    "type": "function",
+                    "function": {"name": td["name"], "arguments": td["arguments"]},
+                }
+                for idx, td in sorted(tc_accum.items())
+                if td["name"] in _INTERNAL_TOOLS
+            ]
+            if not internal_tcs:
+                for tc_chunk in tc_chunks:
+                    yield tc_chunk
+                yield "data: [DONE]\n\n"
+                break
+
+            log.info("Agent stream round — %s tool(s), %s left", len(internal_tcs), rounds_left)
+            augmented.append({"role": "assistant", "content": None, "tool_calls": internal_tcs})
+            if await _append_internal_tool_results(
+                augmented,
+                internal_tcs,
+                search_enabled=search_enabled,
+                fingerprints=fingerprints,
+            ):
+                search_used = True
+
+            re_provider = secondary or active
+            if secondary and re_provider is secondary:
+                secondary_used = True
+            rounds_left -= 1
+            current_gen = providers.chat_completion_stream(
+                augmented,
+                model=model,
+                tools=None if rounds_left <= 0 else effective_tools,
+                tool_choice=tool_choice,
+                provider=re_provider,
+            )
 
         if full_response:
             clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
@@ -1409,18 +1411,19 @@ async def chat_completions(request: Request):
             asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
 
         _stream_elapsed = int((time.time() - _req_start) * 1000)
-        log.info(f"[{user_id}] Stream response: {len(full_response)} chars, {_stream_elapsed}ms")
+        log.info(f"[{user_id}] Stream response: {len(full_response)} chars, {_stream_elapsed}ms, search={search_used}")
         try:
+            stat_prov = secondary if secondary_used and secondary else active
             add_usage_stat(
-                user_id=user_id, provider_id=active.get("id", ""),
-                provider_name=active.get("name", ""), provider_type=active.get("type", ""),
-                model=model or active.get("model", ""),
+                user_id=user_id, provider_id=stat_prov.get("id", ""),
+                provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
+                model=model or stat_prov.get("model", ""),
                 tokens_prompt=_prompt_tokens, tokens_completion=_estimate_tokens(full_response),
                 tokens_total=_prompt_tokens + _estimate_tokens(full_response),
                 response_time_ms=int((time.time() - _req_start) * 1000),
-                stream=True, search_used=False,
+                stream=True, search_used=search_used,
                 eco_mode=bool(active.get("eco_mode")),
-                secondary_used=False,
+                secondary_used=secondary_used,
             )
         except Exception:
             pass

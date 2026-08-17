@@ -9,7 +9,7 @@
 - **Per-user Memory** — each Home Assistant user gets their own persistent memory store
 - **Knowledge Graph** — automatically builds entity-relationship graphs from conversations
 - **Web Search** — searches the internet and extracts page content (like ChatGPT)
-- **Web UI** — agentic chat home + settings panel (port 8899, or HA sidebar via add-on Ingress)
+- **Web UI** — agentic chat home + settings panel (port 8899, or HA sidebar via add-on Ingress). Chat keeps using tools until the task is done (Cursor-style).
 
 ## Quick Install (one command)
 

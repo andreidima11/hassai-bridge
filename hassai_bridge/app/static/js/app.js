@@ -546,6 +546,7 @@ async function loadSettings() {
     // Performance
     const perf = cfg.performance || {};
     document.getElementById('perfHistoryLimit').value = perf.history_limit || 10;
+    document.getElementById('perfAgentRounds').value = perf.agent_max_rounds || 16;
     document.getElementById('perfParallelFetch').checked = perf.parallel_page_fetch !== false;
 
     // Security
@@ -582,6 +583,7 @@ async function saveSettings() {
       },
       performance: {
         history_limit: parseInt(document.getElementById('perfHistoryLimit').value),
+        agent_max_rounds: parseInt(document.getElementById('perfAgentRounds').value) || 16,
         parallel_page_fetch: document.getElementById('perfParallelFetch').checked,
       },
       system_prompt: document.getElementById('systemPrompt').value,
