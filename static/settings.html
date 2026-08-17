@@ -3,18 +3,29 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <base href="__BASE_HREF__">
   <title>HASSAI Bridge — Settings</title>
-  <script>window.HASSAI_BASE = "__INGRESS_PATH__";</script>
-  <link rel="stylesheet" href="static/css/style.css?v=__CACHE_BUSTER__">
+  <script>
+    window.HASSAI_BASE = (function () {
+      var injected = "__INGRESS_PATH__".replace(/\/$/, "");
+      if (injected && injected.indexOf("__") !== 0) return injected;
+      var m = location.pathname.match(/^(.*?\/api\/hassio_ingress\/[^/]+)/);
+      return m ? m[1] : "";
+    })();
+    (function () {
+      var l = document.createElement("link");
+      l.rel = "stylesheet";
+      l.href = window.HASSAI_BASE + "/static/css/style.css?v=__CACHE_BUSTER__";
+      document.head.appendChild(l);
+    })();
+  </script>
 </head>
 <body>
 
 <div class="header">
   <div class="header-left">
-    <h1 class="brand-logo"><a href="./" style="color:inherit;text-decoration:none;background:inherit;-webkit-background-clip:text;background-clip:text">HASSAI Bridge</a></h1>
+    <h1 class="brand-logo"><a id="chatHomeLink" href="__ASSET_PREFIX__/" style="color:inherit;text-decoration:none;background:inherit;-webkit-background-clip:text;background-clip:text">HASSAI Bridge</a></h1>
     <span class="badge" id="versionBadge">__VERSION__</span>
-    <a href="./" class="btn btn-sm" style="margin-left:8px" data-i18n="nav.chat">Chat</a>
+    <a id="chatNavLink" href="__ASSET_PREFIX__/" class="btn btn-sm" style="margin-left:8px" data-i18n="nav.chat">Chat</a>
   </div>
   <div class="header-right" id="statusBadges">
     <select id="langSelect" style="display:none"><option value="en">EN</option><option value="ro">RO</option></select>
@@ -924,7 +935,25 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<script src="static/js/i18n.js?v=__CACHE_BUSTER__"></script>
-<script src="static/js/app.js?v=__CACHE_BUSTER__"></script>
+<script>
+  (function () {
+    var home = window.HASSAI_BASE + "/";
+    var a = document.getElementById("chatHomeLink");
+    var b = document.getElementById("chatNavLink");
+    if (a) a.setAttribute("href", home);
+    if (b) b.setAttribute("href", home);
+    var v = "?v=__CACHE_BUSTER__";
+    function load(src) {
+      return new Promise(function (resolve, reject) {
+        var s = document.createElement("script");
+        s.src = window.HASSAI_BASE + "/" + src + v;
+        s.onload = resolve;
+        s.onerror = reject;
+        document.body.appendChild(s);
+      });
+    }
+    load("static/js/i18n.js").then(function () { return load("static/js/app.js"); });
+  })();
+</script>
 </body>
 </html>

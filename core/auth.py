@@ -1,15 +1,27 @@
 """Shared auth helpers for Web UI / HA Ingress / API keys."""
 
+import re
 from urllib.parse import urlparse
 
 from fastapi import HTTPException, Request
 
 from core.config import load_config
 
+_INGRESS_RE = re.compile(r"(/api/hassio_ingress/[^/]+)")
+
 
 def get_ingress_path(request: Request) -> str:
     """Return HA Ingress path prefix (no trailing slash), or empty string."""
-    return (request.headers.get("x-ingress-path") or "").rstrip("/")
+    for key in ("x-ingress-path", "x-forwarded-prefix"):
+        val = (request.headers.get(key) or "").strip().rstrip("/")
+        if val and val != "/":
+            return val
+
+    referer = request.headers.get("referer") or ""
+    match = _INGRESS_RE.search(referer)
+    if match:
+        return match.group(1)
+    return ""
 
 
 def is_trusted_webui(request: Request) -> bool:

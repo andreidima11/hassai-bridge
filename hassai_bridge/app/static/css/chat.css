@@ -42,6 +42,9 @@ a:hover { text-decoration: underline; }
   position: fixed;
   top: 28px;
   right: 28px;
+  left: auto;
+  inset-inline-start: auto;
+  inset-inline-end: 28px;
   z-index: 20;
   width: 44px;
   height: 44px;
