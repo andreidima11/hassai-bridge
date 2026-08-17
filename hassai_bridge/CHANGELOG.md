@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.7-beta
+
+- Settings has no top header (chat icon only, same as the chat page)
+- Chat sidebar: list, open, delete, and start conversations for the **logged-in Home Assistant user**
+- Opening HASSAI upserts that HA user in Settings and generates an Assist API key
+- Settings → Users: **Sync HA users** from `person.*`; each user has a key for the integration
+- Chat no longer sends `user: "webui"` — identity comes from Ingress headers or the Assist API key
+
 ## 0.2.6-beta
 
 - **Fix:** HA status always said “no API access” (`_request` was renamed; ping never succeeded)

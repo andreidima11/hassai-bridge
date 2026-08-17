@@ -89,6 +89,31 @@ async def ping() -> tuple[bool, str]:
         return False, str(e)
 
 
+async def list_ha_people() -> list[dict]:
+    """HA person entities (often linked to login users via user_id)."""
+    if not is_available():
+        return []
+    try:
+        states = await _core("GET", "/states")
+    except Exception as e:
+        log.warning("list_ha_people failed: %s", e)
+        return []
+    people = []
+    if not isinstance(states, list):
+        return people
+    for st in states:
+        eid = st.get("entity_id") or ""
+        if not eid.startswith("person."):
+            continue
+        attrs = st.get("attributes") or {}
+        people.append({
+            "entity_id": eid,
+            "name": attrs.get("friendly_name") or eid,
+            "user_id": attrs.get("user_id") or "",
+        })
+    return people
+
+
 async def _core(method: str, path: str, **kwargs) -> Any:
     return await _http(method, f"{_SUPERVISOR}/core/api{path}", **kwargs)
 

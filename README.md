@@ -103,8 +103,15 @@ bash scripts/sync_version.sh
 In Home Assistant, add the **HASSAI Bridge** integration with:
 
 - **URL**: `http://<HASSAI_BRIDGE_IP>:8899` (no `/v1`)
-- **API Key**: used as the user identifier to separate memories per user (e.g. use a different key for each HA user)
+- **API Key**: paste **that Home Assistant user's** key from add-on **Settings → Users** so Assist chats and memory belong to the same person as the sidebar
 - **Model**: the model name from your LLM server
+
+### Users and chats
+
+- Opening **HASSAI** from the sidebar identifies the logged-in Home Assistant user (`X-Remote-User-*` Ingress headers) and creates a Settings user + Assist API key automatically.
+- The chat hamburger lists **that user's** conversations (new / open / delete).
+- **Settings → Users → Sync HA users** imports `person.*` entities so everyone shows up even before they open the panel.
+- Assist / the custom integration does not see Ingress headers. It maps to a Bridge user via the **API key** you paste. Use the key of the person who should own those voice chats.
 
 ## Project Structure
 

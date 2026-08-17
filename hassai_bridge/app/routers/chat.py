@@ -888,20 +888,21 @@ def _validate_api_key(request: Request):
 
 
 def _extract_user_id(request: Request, body: dict) -> str:
-    """Identify the HA user from the request.
+    """Identify the HA / Bridge user from the request.
 
     Priority:
-    1. API key → username mapping (config users.api_keys)
-    2. HA headers (X-HA-User-Id, X-HA-Username, etc.)
-    3. body fields (user, user_id, username)
-    4. Fallback to config users.default_user
+    1. API key → username mapping (Assist / integration)
+    2. HA Ingress headers (X-Remote-User-*) — auto-creates Settings user + API key
+    3. body fields (not 'webui')
+    4. config users.default_user
     """
+    from core.identity import ensure_from_request
+
     cfg = load_config()
     users_cfg = cfg.get("users", {})
     api_key_map = users_cfg.get("api_keys", {})
     default_user = users_cfg.get("default_user", "").strip()
 
-    # 1) Check if the API key maps to a specific user
     auth = request.headers.get("authorization", "")
     if auth.lower().startswith("bearer "):
         token = auth[7:].strip()
@@ -912,19 +913,15 @@ def _extract_user_id(request: Request, body: dict) -> str:
     if assist_key and assist_key in api_key_map:
         return api_key_map[assist_key]
 
-    # 2) HA headers
-    for header in ("X-HA-Username", "X-HA-User-Name", "X-HA-User-Id", "X-HA-User"):
-        val = request.headers.get(header, "").strip()
-        if val:
-            return val
+    profile = ensure_from_request(request)
+    if profile:
+        return profile["username"]
 
-    # 3) Body fields
     for field in ("username", "user_name", "user_id", "user"):
         val = str(body.get(field, "") or "").strip()
-        if val:
+        if val and val not in ("webui",):
             return val
 
-    # 4) Fallback to configured default user
     if default_user:
         return default_user
 
@@ -940,6 +937,7 @@ async def chat_completions(request: Request):
     tools = body.get("tools")
     tool_choice = body.get("tool_choice")
     user_id = _extract_user_id(request, body)
+    session_id = str(body.get("session_id") or "").strip() or None
     cfg = load_config()
     search_enabled = cfg["searxng"].get("enabled", False)
 
@@ -1018,7 +1016,7 @@ async def chat_completions(request: Request):
     history_limit = cfg.get("performance", {}).get("history_limit", 10)
     memories, history = await asyncio.gather(
         retrieve_relevant_memories(user_id, last_user_msg),
-        asyncio.to_thread(get_conversation_history, user_id, history_limit),
+        asyncio.to_thread(get_conversation_history, user_id, history_limit, session_id),
     )
 
     mem_ctx = build_memory_context(memories, user_id=user_id, message=last_user_msg)
@@ -1047,12 +1045,10 @@ async def chat_completions(request: Request):
     # 5) Current messages
     augmented.extend(messages)
 
-    # ── Save user messages to history ──
-    for msg in messages:
-        role = msg.get("role", "user")
-        content = msg.get("content") or ""
-        if content and role in ("user", "assistant"):
-            add_conversation_message(user_id, role, content)
+    # Save only the latest user turn. Clients (Web UI / Assist) may send a
+    # full transcript; re-inserting every message would duplicate the thread.
+    if last_user_msg:
+        add_conversation_message(user_id, "user", last_user_msg, session_id=session_id)
 
     # ── Strip any <<SEARCH markers that leaked into stored assistant messages ──
     for m in augmented:
@@ -1191,7 +1187,7 @@ async def chat_completions(request: Request):
 
         # Save & extract memories
         if assistant_content:
-            add_conversation_message(user_id, "assistant", assistant_content)
+            add_conversation_message(user_id, "assistant", assistant_content, session_id=session_id)
             all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
             asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
 
@@ -1373,7 +1369,7 @@ async def chat_completions(request: Request):
 
                         # Save & extract
                         if full_response:
-                            add_conversation_message(user_id, "assistant", full_response)
+                            add_conversation_message(user_id, "assistant", full_response, session_id=session_id)
                             all_msgs = messages + [{"role": "assistant", "content": full_response}]
                             asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
                         try:
@@ -1408,7 +1404,7 @@ async def chat_completions(request: Request):
 
         if full_response:
             clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
-            add_conversation_message(user_id, "assistant", clean_response)
+            add_conversation_message(user_id, "assistant", clean_response, session_id=session_id)
             all_msgs = messages + [{"role": "assistant", "content": clean_response}]
             asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
 

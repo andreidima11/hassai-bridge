@@ -497,6 +497,11 @@ def log_memory_action(user_id, action, details=""):
 _SESSION_GAP_SECONDS = 1800
 
 
+def create_conversation_session() -> str:
+    import uuid
+    return uuid.uuid4().hex[:12]
+
+
 def _get_or_create_session(conn, user_id: str) -> str:
     """Get current session ID or create a new one if gap elapsed."""
     row = conn.execute(
@@ -505,8 +510,7 @@ def _get_or_create_session(conn, user_id: str) -> str:
     ).fetchone()
     if row and row["session_id"] and (time.time() - row["created_at"]) < _SESSION_GAP_SECONDS:
         return row["session_id"]
-    import uuid
-    return uuid.uuid4().hex[:12]
+    return create_conversation_session()
 
 
 def add_conversation_message(user_id, role, content, session_id=None):
@@ -519,12 +523,20 @@ def add_conversation_message(user_id, role, content, session_id=None):
         )
 
 
-def get_conversation_history(user_id, limit=20):
+def get_conversation_history(user_id, limit=20, session_id: str | None = None):
     with get_db() as conn:
-        rows = conn.execute(
-            "SELECT role, content FROM conversations WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
-            (user_id, limit),
-        ).fetchall()
+        if session_id:
+            rows = conn.execute(
+                """SELECT role, content FROM conversations
+                   WHERE user_id = ? AND session_id = ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (user_id, session_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT role, content FROM conversations WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                (user_id, limit),
+            ).fetchall()
     return list(reversed([dict(r) for r in rows]))
 
 
@@ -532,14 +544,19 @@ def get_conversation_sessions(user_id, limit=20):
     """Get conversation sessions for a user with message counts."""
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT session_id,
-                      MIN(created_at) as started_at,
-                      MAX(created_at) as last_at,
-                      COUNT(*) as message_count
-               FROM conversations
-               WHERE user_id = ? AND session_id != ''
-               GROUP BY session_id
-               ORDER BY MAX(created_at) DESC
+            """SELECT c.session_id as session_id,
+                      MIN(c.created_at) as started_at,
+                      MAX(c.created_at) as last_at,
+                      COUNT(*) as message_count,
+                      (SELECT content FROM conversations c2
+                       WHERE c2.user_id = c.user_id
+                         AND c2.session_id = c.session_id
+                         AND c2.role = 'user'
+                       ORDER BY c2.created_at ASC LIMIT 1) as title
+               FROM conversations c
+               WHERE c.user_id = ? AND c.session_id != ''
+               GROUP BY c.session_id
+               ORDER BY MAX(c.created_at) DESC
                LIMIT ?""",
             (user_id, limit),
         ).fetchall()

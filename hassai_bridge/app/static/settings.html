@@ -21,18 +21,13 @@
 </head>
 <body>
 
-<div class="header">
-  <div class="header-left">
-    <h1 class="brand-logo"><a id="chatHomeLink" href="__ASSET_PREFIX__/" style="color:inherit;text-decoration:none;background:inherit;-webkit-background-clip:text;background-clip:text">HASSAI Bridge</a></h1>
-    <span class="badge" id="versionBadge">__VERSION__</span>
-    <a id="chatNavLink" href="__ASSET_PREFIX__/" class="btn btn-sm" style="margin-left:8px" data-i18n="nav.chat">Chat</a>
-  </div>
-  <div class="header-right" id="statusBadges">
-    <select id="langSelect" style="display:none"><option value="en">EN</option><option value="ro">RO</option></select>
-  </div>
-</div>
+<a class="settings-chat" id="chatNavLink" href="__ASSET_PREFIX__/" title="Chat" aria-label="Chat"
+   style="position:fixed;top:28px;right:28px;z-index:20;width:44px;height:44px;display:grid;place-items:center;border-radius:14px;color:#7a7e92;background:rgba(24,27,37,.85);border:1px solid #252836;text-decoration:none;box-sizing:border-box">
+  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+</a>
+<select id="langSelect" style="display:none"><option value="en">EN</option><option value="ro">RO</option></select>
 
-<div class="container">
+<div class="container" style="padding-top:72px">
   <div class="tabs">
     <div class="tab active" data-panel="dashboard" data-i18n="tab.dashboard">Dashboard</div>
     <div class="tab" data-panel="statistics" data-i18n="tab.statistics">Statistics</div>
@@ -628,12 +623,13 @@
     <div id="usersMain">
       <div class="skills-toolbar">
         <button class="btn btn-sm btn-primary" onclick="openAddUserPage()" data-i18n="users.newUser">+ New User</button>
+        <button class="btn btn-sm" onclick="syncHaUsers()" data-i18n="users.syncHa">Sync HA users</button>
       </div>
 
       <!-- Default user -->
       <div class="card">
         <h2 data-i18n="users.title">Users</h2>
-        <p class="card-muted" data-i18n="users.desc">Manage users and API keys. Each user gets personalized AI memory.</p>
+        <p class="card-muted" data-i18n="users.desc">Each Home Assistant user gets their own chats, memory, and an API key for Assist. Opening HASSAI from the sidebar creates the user automatically. Sync imports person entities. Paste a user's API key in the integration so voice/Assist maps to the same person.</p>
         <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
           <label style="margin:0;white-space:nowrap" data-i18n="users.defaultUser">Default user:</label>
           <input type="text" id="defaultUserInput" data-i18n-placeholder="users.defaultUserPlaceholder" placeholder="e.g.: George" style="flex:1">
@@ -727,9 +723,9 @@
           <!-- Slide 3 -->
           <div class="htc-slide" data-step="3">
             <div class="htc-step-badge">3</div>
-            <h3 data-i18n="htc.step3Title">Create a User &amp; API Key</h3>
-            <p data-i18n-html="htc.step3Desc">Go to the <strong>Users</strong> tab above and create a user. Each user gets a unique API key — this allows the AI to remember things per person and track usage individually.</p>
-            <p class="htc-hint" data-i18n="htc.step3Hint">Copy the API key and paste it in the integration configuration in Home Assistant.</p>
+            <h3 data-i18n="htc.step3Title">Users &amp; Assist API keys</h3>
+            <p data-i18n-html="htc.step3Desc">Open HASSAI from the Home Assistant sidebar — your HA login is created automatically. Or use <strong>Users → Sync HA users</strong>. Each user has an API key: paste <em>that user's</em> key in the integration so Assist chats and memory match the same person.</p>
+            <p class="htc-hint" data-i18n="htc.step3Hint">Sidebar chat uses the logged-in HA user. Assist uses the API key you paste in the integration.</p>
             <div style="margin-top:12px">
               <button class="btn btn-sm btn-primary" onclick="switchToTab('users')" data-i18n="htc.goToUsers">Go to Users &rsaquo;</button>
             </div>

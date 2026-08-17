@@ -1,5 +1,4 @@
 import time
-import uuid
 import socket
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
@@ -94,30 +93,59 @@ async def set_default_user(data: dict):
 
 @router.post("/users")
 async def add_user(data: dict):
+    from core.identity import ensure_user, list_profiles
+
     username = data.get("username", "").strip()
     if not username:
         raise HTTPException(status_code=400, detail="Username required")
-    cfg = load_config()
-    users = cfg.setdefault("users", {"default_user": "", "api_keys": {}})
-    api_keys = users.setdefault("api_keys", {})
-    for key, name in api_keys.items():
-        if name == username:
-            raise HTTPException(status_code=409, detail="User already exists")
-    new_key = f"hab_{uuid.uuid4().hex}"
-    api_keys[new_key] = username
-    save_config(cfg)
-    return {"username": username, "api_key": new_key}
+    if any(p["username"] == username for p in list_profiles()):
+        raise HTTPException(status_code=409, detail="User already exists")
+    return ensure_user(username, source="manual")
+
+
+@router.get("/users/profiles")
+async def user_profiles():
+    from core.identity import list_profiles
+    return {"users": list_profiles()}
+
+
+@router.post("/users/sync-ha")
+async def sync_ha_users():
+    """Upsert Bridge users from HA person entities + anyone already seen via Ingress."""
+    from core.identity import ensure_user, list_profiles
+
+    created = []
+    people = await ha_api.list_ha_people()
+    for person in people:
+        name = (person.get("name") or "").strip()
+        if not name:
+            continue
+        row = ensure_user(
+            name,
+            ha_id=person.get("user_id") or "",
+            display_name=name,
+            source="home_assistant",
+        )
+        created.append(row)
+    existing = {u["username"] for u in created}
+    for row in list_profiles():
+        if row["username"] not in existing:
+            created.append(row)
+    return {"users": created, "synced": len(people)}
 
 
 @router.delete("/users/{username}")
 async def delete_user(username: str, purge: bool = False):
     cfg = load_config()
-    api_keys = cfg.get("users", {}).get("api_keys", {})
+    users = cfg.setdefault("users", {})
+    api_keys = users.setdefault("api_keys", {})
+    profiles = users.setdefault("profiles", {})
     to_remove = [k for k, v in api_keys.items() if v == username]
     for k in to_remove:
         del api_keys[k]
-    if to_remove:
-        save_config(cfg)
+    if username in profiles:
+        del profiles[username]
+    save_config(cfg)
     # Cascade-delete all user data if purge requested
     data_deleted = {}
     if purge:
@@ -486,7 +514,14 @@ async def system_info():
             {"method": "GET", "path": "/api/settings/info", "description": "System Info"},
             {"method": "GET", "path": "/api/settings/stats", "description": "Usage Statistics"},
             {"method": "POST", "path": "/api/settings/restart", "description": "Restart Server"},
+            {"method": "GET", "path": "/api/me", "description": "Current HA / Bridge user"},
+            {"method": "GET", "path": "/api/conversations", "description": "List current user chats"},
+            {"method": "POST", "path": "/api/conversations", "description": "Start a new chat"},
+            {"method": "GET", "path": "/api/conversations/{session_id}", "description": "Get chat messages"},
+            {"method": "DELETE", "path": "/api/conversations/{session_id}", "description": "Delete a chat"},
             {"method": "POST", "path": "/api/settings/users", "description": "Add User + Generate API Key"},
+            {"method": "GET", "path": "/api/settings/users/profiles", "description": "List Users + HA profiles"},
+            {"method": "POST", "path": "/api/settings/users/sync-ha", "description": "Sync users from HA person entities"},
             {"method": "DELETE", "path": "/api/settings/users/{username}", "description": "Delete User"},
             {"method": "PUT", "path": "/api/settings/users/default", "description": "Set Default User"},
             {"method": "GET", "path": "/api/settings/providers", "description": "List Providers"},

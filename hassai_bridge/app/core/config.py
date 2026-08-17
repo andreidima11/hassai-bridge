@@ -67,6 +67,7 @@ DEFAULT_CONFIG = {
     "users": {
         "default_user": "",
         "api_keys": {},
+        "profiles": {},
     },
     "system_prompt": (
         "You are a helpful AI assistant integrated with Home Assistant. "

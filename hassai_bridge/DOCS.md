@@ -33,7 +33,14 @@ Examples that **do not** work for the integration:
 - `http://homeassistant.local:8123/...`
 - Anything ending in `/v1` (the integration appends `/v1` itself)
 
-API key: the one from add-on **Settings** (or leave empty if none is set yet).
+API key: in add-on **Settings → Users**, copy the key for the Home Assistant user who should own Assist chats (or leave empty if none is set yet). Sidebar chat always follows the logged-in HA user.
+
+## Users and conversations
+
+- Sidebar chat is scoped to the Home Assistant login (Ingress `X-Remote-User-Id` / `X-Remote-User-Name`).
+- Opening the panel upserts that user in Settings and generates an Assist API key.
+- **Sync HA users** imports `person.*` entities.
+- Use each user's API key in the integration so voice/Assist matches the same identity.
 
 ## Versioning
 

@@ -25,7 +25,7 @@ from core.config import VERSION, load_config
 from services.knowledge_graph import init_graph_tables
 from services.memory_engine import consolidate_memories
 from services.providers import get_active_provider, get_secondary_provider
-from routers import chat, memory, settings, skills
+from routers import chat, memory, settings, skills, conversations
 
 # ── In-memory ring buffer for logs ──
 _LOG_BUFFER_SIZE = 2000
@@ -145,6 +145,7 @@ app.include_router(chat.router)
 app.include_router(memory.router)
 app.include_router(settings.router)
 app.include_router(skills.router)
+app.include_router(conversations.router)
 
 # ── CORS middleware — allow cross-origin API access (API-key auth, no cookies) ──
 app.add_middleware(

@@ -15,6 +15,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (panelId === 'skills') loadSkills();
     if (panelId === 'conversations') refreshConvUsers();
     if (panelId === 'memories') refreshMemTabUsers();
+    if (panelId === 'users') loadUsersTab();
   });
 });
 
@@ -30,6 +31,7 @@ function switchToTab(panelId) {
   if (panelId === 'skills') loadSkills();
   if (panelId === 'conversations') refreshConvUsers();
   if (panelId === 'memories') refreshMemTabUsers();
+  if (panelId === 'users') loadUsersTab();
 }
 
 // ── Settings sub-tabs (used in both Settings and Statistics) ──
@@ -219,7 +221,8 @@ async function loadSystemInfo() {
 
     // Version badge
     if (info.version) {
-      document.getElementById('versionBadge').textContent = info.version;
+      const badge = document.getElementById('versionBadge');
+      if (badge) badge.textContent = info.version;
     }
 
     // API Key
@@ -1171,9 +1174,10 @@ function catLabel(cat) {
 
 async function loadUsersTab() {
   try {
-    const [cfg, memUsers] = await Promise.all([
+    const [cfg, memUsers, profiles] = await Promise.all([
       api('GET', '/api/settings/'),
       api('GET', '/api/memory/users'),
+      api('GET', '/api/settings/users/profiles').catch(() => ({ users: [] })),
     ]);
     const users = cfg.users || {};
     const apiKeys = users.api_keys || {};
@@ -1181,13 +1185,21 @@ async function loadUsersTab() {
 
     const userMap = {};
     _userKeysMap = {};
+    const profileByName = {};
+    for (const p of (profiles.users || [])) {
+      profileByName[p.username] = p;
+      if (p.api_key) _userKeysMap[p.username] = p.api_key;
+    }
     for (const [key, name] of Object.entries(apiKeys)) {
-      if (!userMap[name]) userMap[name] = { keys: [], hasMemories: false };
+      if (!userMap[name]) userMap[name] = { keys: [], hasMemories: false, profile: profileByName[name] };
       userMap[name].keys.push(key);
       _userKeysMap[name] = key;
     }
+    for (const p of (profiles.users || [])) {
+      if (!userMap[p.username]) userMap[p.username] = { keys: p.api_key ? [p.api_key] : [], hasMemories: false, profile: p };
+    }
     for (const u of (memUsers.users || [])) {
-      if (!userMap[u]) userMap[u] = { keys: [], hasMemories: true };
+      if (!userMap[u]) userMap[u] = { keys: [], hasMemories: true, profile: profileByName[u] };
       else userMap[u].hasMemories = true;
     }
 
@@ -1201,6 +1213,10 @@ async function loadUsersTab() {
     container.innerHTML = names.map(name => {
       const info = userMap[name];
       const isSelected = _selectedUser === name;
+      const prof = info.profile || {};
+      const subtitle = prof.source === 'home_assistant'
+        ? (prof.display_name && prof.display_name !== name ? `${prof.display_name} · HA` : 'Home Assistant')
+        : (info.keys.length ? 'API key' : '');
       const actionsHtml = info.keys.length
         ? `<button class="btn btn-sm btn-danger" onclick="event.stopPropagation();deleteUser('${escapeHtml(name)}')">${t('users.delete')}</button>`
         : '';
@@ -1210,6 +1226,7 @@ async function loadUsersTab() {
             <div class="user-avatar">${escapeHtml(name.substring(0,2).toUpperCase())}</div>
             <div class="user-info">
               <div class="user-name">${escapeHtml(name)}</div>
+              ${subtitle ? `<div class="user-meta" style="font-size:.75rem;color:var(--muted)">${escapeHtml(subtitle)}</div>` : ''}
             </div>
           </div>
           <div class="user-actions">${actionsHtml}</div>
@@ -1217,6 +1234,16 @@ async function loadUsersTab() {
     }).join('');
   } catch (e) {
     toast(t('toast.usersError', { msg: e.message }), true);
+  }
+}
+
+async function syncHaUsers() {
+  try {
+    const result = await api('POST', '/api/settings/users/sync-ha');
+    toast(t('users.synced', { count: result.synced || 0 }));
+    await loadUsersTab();
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
   }
 }
 
