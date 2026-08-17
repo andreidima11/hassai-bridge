@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.6-beta
+
+- **Fix:** HA status always said “no API access” (`_request` was renamed; ping never succeeded)
+- **Fix:** empty “(empty response)” on phone/Ingress — SSE is unreliable in the
+  Companion WebView; chat uses JSON there, and falls back if a stream is empty
+- Surface provider/network errors instead of a blank reply
+- Install CA certificates in the add-on image (HTTPS to DeepSeek/OpenAI)
+
 ## 0.2.5-beta
 
 - **Fix:** Ingress sidebar loaded HTML without CSS (gear stuck on the left).

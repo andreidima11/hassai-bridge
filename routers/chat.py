@@ -1429,7 +1429,30 @@ async def chat_completions(request: Request):
         except Exception:
             pass
 
-    return StreamingResponse(stream_wrapper(), media_type="text/event-stream")
+    async def _guarded_stream():
+        try:
+            async for chunk in stream_wrapper():
+                yield chunk
+        except Exception as e:
+            log.error(f"[{user_id}] Stream failed: {e}")
+            async for chunk in _sse_error(f"Provider error: {e}"):
+                yield chunk
+
+    return StreamingResponse(_guarded_stream(), media_type="text/event-stream")
+
+
+async def _sse_error(message: str):
+    payload = json.dumps({
+        "id": "hassai-error",
+        "object": "chat.completion.chunk",
+        "choices": [{
+            "index": 0,
+            "delta": {"role": "assistant", "content": message},
+            "finish_reason": "stop",
+        }],
+    })
+    yield f"data: {payload}\n\n"
+    yield "data: [DONE]\n\n"
 
 
 # Per-user extraction locks to prevent concurrent duplicate extractions (#6)

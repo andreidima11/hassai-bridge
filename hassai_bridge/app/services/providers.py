@@ -252,14 +252,25 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
         payload["temperature"] = temperature
 
     client = _get_client()
-    async with client.stream("POST", url, json=payload, headers=headers, timeout=timeout) as resp:
-        resp.raise_for_status()
-        async for line in resp.aiter_lines():
-            if line.startswith("data: "):
-                yield line + "\n\n"
-            elif line == "data: [DONE]":
-                yield "data: [DONE]\n\n"
-                break
+    try:
+        async with client.stream("POST", url, json=payload, headers=headers, timeout=timeout) as resp:
+            if resp.status_code >= 400:
+                body = (await resp.aread())[:800].decode("utf-8", "replace")
+                log.error("Provider [%s] stream %s: %s", provider.get("name", "?"), resp.status_code, body)
+                raise httpx.HTTPStatusError(
+                    f"{resp.status_code} {body[:300]}",
+                    request=resp.request,
+                    response=resp,
+                )
+            async for line in resp.aiter_lines():
+                if line.startswith("data: "):
+                    yield line + "\n\n"
+                elif line == "data: [DONE]":
+                    yield "data: [DONE]\n\n"
+                    break
+    except httpx.RequestError as e:
+        log.error("Provider [%s] stream connection failed: %s", provider.get("name", "?"), e)
+        raise
 
 
 async def list_models(provider: dict | None = None) -> list[dict]:
@@ -285,7 +296,8 @@ async def health_check(provider: dict | None = None) -> bool:
         url = _build_url(provider, "/v1/models")
         headers = _build_headers(provider)
         client = _get_client()
-        resp = await client.get(url, headers=headers, timeout=5)
+        resp = await client.get(url, headers=headers, timeout=15)
         return resp.status_code == 200
-    except Exception:
+    except Exception as e:
+        log.warning("Provider health check failed [%s]: %s", provider.get("name", "?"), e)
         return False
