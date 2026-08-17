@@ -4,7 +4,7 @@
 # Without {arch}, older Supervisor cannot resolve GHCR and keeps a local build
 # while the store still says "up to date". Quotes are required so YAML keeps {arch}.
 name: HASSAI Bridge
-version: "0.2.14-beta"
+version: "0.2.15-beta"
 slug: hassai_bridge
 description: AI bridge for Home Assistant — agentic chat, memory, and LLM proxy
 url: https://github.com/andreidima11/hassai-bridge

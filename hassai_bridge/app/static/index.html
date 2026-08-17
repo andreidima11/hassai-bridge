@@ -14,6 +14,12 @@
       var m = location.pathname.match(/^(.*?\/api\/hassio_ingress\/[^/]+)/);
       return m ? m[1] : "";
     })();
+    try {
+      if (navigator.virtualKeyboard) navigator.virtualKeyboard.overlaysContent = true;
+      if (window.parent && window.parent.navigator && window.parent.navigator.virtualKeyboard) {
+        window.parent.navigator.virtualKeyboard.overlaysContent = true;
+      }
+    } catch (e) {}
   </script>
   <link rel="stylesheet" href="static/css/chat.css?v=__CACHE_BUSTER__">
 </head>

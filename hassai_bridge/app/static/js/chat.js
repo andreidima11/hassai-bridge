@@ -395,13 +395,14 @@ function toggleSidebar(event) {
 
 window.__hassaiToggleSidebar = toggleSidebar;
 
-function startNewChat() {
+function startNewChat(options) {
+  const focus = !(options && options.focus === false);
   sessionId = newSessionId();
   storeSession(sessionId);
   clearThread();
   renderSessions();
   setSidebar(false);
-  inputEl.focus();
+  if (focus) inputEl.focus({ preventScroll: true });
 }
 
 async function refreshSessions() {
@@ -439,7 +440,7 @@ async function deleteSession(id) {
   if (inDb) {
     await apiJson(`/api/conversations/${encodeURIComponent(id)}`, { method: "DELETE" });
   }
-  if (sessionId === id) startNewChat();
+  if (sessionId === id) startNewChat({ focus: false });
   await refreshSessions();
 }
 
@@ -455,12 +456,7 @@ async function bootIdentity() {
     userLabelEl.textContent = name;
   }
   await refreshSessions();
-  const stored = loadStoredSession();
-  if (stored && sessions.some((s) => s.session_id === stored)) {
-    await openSession(stored);
-  } else {
-    startNewChat();
-  }
+  startNewChat({ focus: false });
 }
 
 function autosize() {
@@ -483,42 +479,108 @@ function keepPagePinned() {
   window.scrollTo(0, 0);
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.scrollTo(0, 0);
+      const se = window.parent.document.scrollingElement;
+      if (se) se.scrollTop = 0;
+    }
+  } catch (_) { /* iframe parent blocked */ }
 }
 
-function keyboardOverlap() {
+function keyboardInset() {
+  const vk = navigator.virtualKeyboard;
+  if (vk && vk.boundingRect && vk.boundingRect.height > 0) {
+    return vk.boundingRect.height;
+  }
   const vv = window.visualViewport;
   if (!vv) return 0;
-  return Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+  // Do not add offsetTop — that is page pan (HA header). Undo pan instead.
+  return Math.max(0, Math.round(window.innerHeight - vv.height));
+}
+
+let _parentOverflow = null;
+function lockParentScroll() {
+  try {
+    if (_parentOverflow || !window.parent || window.parent === window) return;
+    const html = window.parent.document.documentElement;
+    const body = window.parent.document.body;
+    _parentOverflow = {
+      html: html.style.overflow,
+      body: body.style.overflow,
+      htmlOh: html.style.overscrollBehavior,
+    };
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    html.style.overscrollBehavior = "none";
+  } catch (_) { /* ignore */ }
+}
+
+function unlockParentScroll() {
+  try {
+    if (!_parentOverflow || !window.parent || window.parent === window) return;
+    const html = window.parent.document.documentElement;
+    const body = window.parent.document.body;
+    html.style.overflow = _parentOverflow.html;
+    body.style.overflow = _parentOverflow.body;
+    html.style.overscrollBehavior = _parentOverflow.htmlOh;
+    _parentOverflow = null;
+  } catch (_) {
+    _parentOverflow = null;
+  }
 }
 
 function syncKeyboardLayout() {
   keepPagePinned();
   const composer = document.querySelector(".chat-composer");
-  const overlap = keyboardOverlap();
+  const focused = document.activeElement === inputEl;
+  const inset = focused ? keyboardInset() : 0;
+  document.documentElement.style.setProperty("--kb-inset", `${inset}px`);
   if (composer) {
-    composer.style.transform = overlap ? `translateY(-${overlap}px)` : "";
+    composer.style.transform = "";
+    document.documentElement.style.setProperty("--composer-space", `${composer.offsetHeight}px`);
   }
-  // Keep the welcome logo on the layout viewport — do not follow the keyboard.
   if (welcomeEl) welcomeEl.style.transform = "";
+  if (focused) lockParentScroll();
+  else unlockParentScroll();
   if (welcomeEl && !welcomeEl.hidden && mainEl) mainEl.scrollTop = 0;
 }
 
+try {
+  if (navigator.virtualKeyboard) {
+    navigator.virtualKeyboard.overlaysContent = true;
+    navigator.virtualKeyboard.addEventListener("geometrychange", syncKeyboardLayout);
+  }
+  if (window.parent && window.parent !== window && window.parent.navigator.virtualKeyboard) {
+    window.parent.navigator.virtualKeyboard.overlaysContent = true;
+  }
+} catch (_) { /* ignore */ }
+
 inputEl.addEventListener("focus", () => {
+  keepPagePinned();
+  lockParentScroll();
   syncKeyboardLayout();
+  requestAnimationFrame(syncKeyboardLayout);
   setTimeout(syncKeyboardLayout, 50);
-  setTimeout(syncKeyboardLayout, 300);
+  setTimeout(syncKeyboardLayout, 280);
 });
 inputEl.addEventListener("blur", () => {
-  setTimeout(syncKeyboardLayout, 50);
+  setTimeout(() => {
+    syncKeyboardLayout();
+    unlockParentScroll();
+  }, 50);
 });
 window.addEventListener("scroll", keepPagePinned, { passive: true });
 window.visualViewport?.addEventListener("resize", syncKeyboardLayout);
-window.visualViewport?.addEventListener("scroll", syncKeyboardLayout);
+window.visualViewport?.addEventListener("scroll", () => {
+  keepPagePinned();
+  syncKeyboardLayout();
+});
 
 const sidebarToggleEl = document.getElementById("sidebarToggle");
 sidebarToggleEl?.addEventListener("click", toggleSidebar);
 backdropEl?.addEventListener("click", () => setSidebar(false));
-document.getElementById("newChatBtn")?.addEventListener("click", startNewChat);
+document.getElementById("newChatBtn")?.addEventListener("click", () => startNewChat());
 sessionListEl?.addEventListener("click", (e) => {
   const del = e.target.closest("[data-del]");
   if (del) {
@@ -627,7 +689,7 @@ async function completeStream(ui, userText) {
 }
 
 async function streamChat(userText) {
-  if (!sessionId) startNewChat();
+  if (!sessionId) startNewChat({ focus: false });
   history.push({ role: "user", content: userText });
   appendMessage("user", userText);
 
@@ -690,18 +752,16 @@ formEl.addEventListener("submit", async (e) => {
   } finally {
     busy = false;
     sendEl.disabled = false;
-    if (!window.matchMedia("(pointer: coarse)").matches) inputEl.focus();
+    if (!window.matchMedia("(pointer: coarse)").matches) inputEl.focus({ preventScroll: true });
   }
 });
-
-if (!window.matchMedia("(pointer: coarse)").matches) inputEl.focus();
 
 (async () => {
   applyChatI18n();
   try {
     await bootIdentity();
   } catch (_) {
-    startNewChat();
+    startNewChat({ focus: false });
     try {
       const info = await fetch(API + "/api/settings/info").then((r) => r.json());
       if (info && info.build) ensureFreshBuild(info.build);
@@ -731,4 +791,5 @@ if (!window.matchMedia("(pointer: coarse)").matches) inputEl.focus();
   } catch (_) {
     /* ignore */
   }
+  syncKeyboardLayout();
 })();

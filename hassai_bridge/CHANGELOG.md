@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.15-beta
+
+- Opening HASSAI always starts a **new chat** (previous threads stay in the sidebar)
+- Phone keyboard lifts **only the message bar**; the welcome/logo and Home Assistant header stay put
+
 ## 0.2.14-beta
 
 - **Cache buster:** CSS/JS URLs use `version.hash` of the UI files; if Ingress still has old HTML, the page reloads once with `?_b=` so you are not stuck on a cached chat.js

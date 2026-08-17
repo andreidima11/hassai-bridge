@@ -34,15 +34,17 @@ body.chat-app {
     var(--bg);
   color: var(--text);
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: 1fr;
   position: fixed;
   inset: 0;
   width: 100%;
   height: 100%;
-  height: 100dvh;
-  min-height: 100%;
+  height: 100svh;
+  max-height: 100svh;
+  min-height: 0;
   overflow: hidden;
   overscroll-behavior: none;
+  touch-action: manipulation;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -226,7 +228,9 @@ a:hover { text-decoration: underline; }
   overflow-y: auto;
   padding: 24px 16px 12px;
   padding-top: 72px;
-  scroll-behavior: smooth;
+  padding-bottom: calc(12px + var(--composer-space, 92px) + var(--kb-inset, 0px));
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 
 body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
@@ -451,12 +455,15 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
 
 /* ── Composer ── */
 .chat-composer {
-  position: relative;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--kb-inset, 0px);
   padding: 8px 20px 22px;
   padding-bottom: max(22px, env(safe-area-inset-bottom));
   background: linear-gradient(180deg, transparent, rgba(13, 15, 20, 0.92) 32%);
   z-index: 12;
-  will-change: transform;
+  transform: none;
 }
 
 .chat-form {
