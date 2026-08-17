@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.5-beta
+
+- **Fix:** Ingress sidebar loaded HTML without CSS (gear stuck on the left).
+  Asset URLs now use the Ingress prefix (or detect it from the iframe path).
+
 ## 0.2.4-beta
 
 - **Fix:** add-on update could keep a cached Docker layer that git-cloned

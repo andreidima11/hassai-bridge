@@ -244,14 +244,13 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 def _render_html(filename: str, request: Request) -> HTMLResponse:
-    """Serve an HTML page with cache-buster + HA Ingress base path injected."""
+    """Serve an HTML page with cache-buster + HA Ingress prefix injected."""
     html = (STATIC_DIR / filename).read_text(encoding="utf-8")
     ingress = get_ingress_path(request)
-    base_href = (ingress + "/") if ingress else "/"
     html = (
         html.replace("__CACHE_BUSTER__", _CACHE_BUSTER)
-        .replace("__BASE_HREF__", base_href)
         .replace("__INGRESS_PATH__", ingress)
+        .replace("__ASSET_PREFIX__", ingress)
         .replace("__VERSION__", VERSION)
     )
     return HTMLResponse(content=html)
