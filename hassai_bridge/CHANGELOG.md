@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.16-beta
+
+- **Lovelace dashboards:** edit storage dashboards via HA WebSocket (REST `/lovelace/*` returned 404 on modern HA)
+- **Welcome screen:** HASSAI centered, subtle glow — no version line, no “connected to HA” banner
+- **Fresh chat** every time you open the HASSAI panel (iframe no longer keeps the old thread)
+- **Keyboard:** message bar sticks to the bottom of the visible screen above the keyboard
+- **Add-on builds on your HA** again (no GHCR pull). Stale UI was browser cache — hard refresh once if needed
+
 ## 0.2.15-beta
 
 - Opening HASSAI always starts a **new chat** (previous threads stay in the sidebar)
