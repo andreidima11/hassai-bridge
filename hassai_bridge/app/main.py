@@ -226,6 +226,9 @@ async def rate_limit_and_timing(request: Request, call_next):
     # Add request ID header for tracing
     request_id = uuid.uuid4().hex[:12]
     response.headers["X-Request-ID"] = request_id
+    # Ingress / Companion WebView otherwise keep a stale chat UI after add-on updates
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
 
     # Log timing for API requests
     duration = time.time() - start
@@ -268,7 +271,13 @@ def _render_html(filename: str, request: Request) -> HTMLResponse:
         .replace("__ASSET_PREFIX__", ingress)
         .replace("__VERSION__", VERSION)
     )
-    return HTMLResponse(content=html)
+    return HTMLResponse(
+        content=html,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
 
 
 @app.get("/")

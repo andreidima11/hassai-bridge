@@ -272,9 +272,9 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
 
 .chat-version {
   margin-top: 10px;
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  color: #5c6073;
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  color: #8b90a4;
 }
 
 .chat-messages {

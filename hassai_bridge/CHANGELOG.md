@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.13-beta
+
+- **Fix:** store could say “up to date” while the sidebar still ran an old local build. Supervisor substitutes `{arch}` in `image:` (`ghcr.io/andreidima11/{arch}-hassai-bridge`); the generic name without `{arch}` does not pull on many HA OS versions
+- Chat HTML/CSS/JS are served with `Cache-Control: no-store` so Ingress cannot keep a previous UI after you update
+
 ## 0.2.12-beta
 
 - Add-on now **pulls a prebuilt image** from GHCR (`ghcr.io/andreidima11/hassai-bridge`) instead of building on the HA machine (that cache kept shipping an old UI while the store said “up to date”)
