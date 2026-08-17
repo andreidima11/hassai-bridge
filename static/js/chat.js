@@ -21,7 +21,18 @@ let sessionId = "";
 let currentUser = { username: "default", display_name: "default" };
 let sessions = [];
 const LANG_STORE_KEY = "hassai.language";
-let lang = "en";
+
+function getChatLang() {
+  const v = window.HASSAI_CHAT_LANG;
+  return v === "ro" ? "ro" : "en";
+}
+
+function syncGlobalLang(next) {
+  const resolved = next === "ro" ? "ro" : "en";
+  window.HASSAI_CHAT_LANG = resolved;
+  try { lang = resolved; } catch (_) { /* legacy global from index.html */ }
+  return resolved;
+}
 let bootDone = false;
 let panelHiddenAt = 0;
 let keyboardSyncRaf = 0;
@@ -113,7 +124,7 @@ function readStoredLang() {
   return "";
 }
 
-lang = readStoredLang() || "en";
+syncGlobalLang(readStoredLang() || "en");
 
 function persistLang(next) {
   try { localStorage.setItem(LANG_STORE_KEY, next); } catch (_) { /* ignore */ }
@@ -137,21 +148,20 @@ function replayActivity(traceEl, events) {
 }
 
 function setChatLang(next) {
-  const resolved = next === "ro" ? "ro" : "en";
-  lang = resolved;
+  const resolved = syncGlobalLang(next);
   persistLang(resolved);
   applyChatI18n();
 }
 
 function tr(key, params = {}) {
-  const table = I18N[lang] || I18N.en;
+  const table = I18N[getChatLang()] || I18N.en;
   let str = table[key] || I18N.en[key] || key;
   for (const [k, v] of Object.entries(params)) str = str.replaceAll(`{${k}}`, v);
   return str;
 }
 
 function applyChatI18n() {
-  document.documentElement.lang = lang;
+  document.documentElement.lang = getChatLang();
   const title = document.getElementById("chatSidebarTitle");
   const neu = document.getElementById("newChatBtn");
   const welcomeText = document.getElementById("chatWelcomeText");
@@ -457,8 +467,8 @@ async function bootIdentity() {
   const data = await apiJson("/api/me");
   ensureFreshBuild(data.build);
   currentUser = data.user || currentUser;
-  lang = (data.language === "ro" ? "ro" : "en");
-  persistLang(lang);
+  syncGlobalLang(data.language === "ro" ? "ro" : "en");
+  persistLang(getChatLang());
   applyChatI18n();
   if (userLabelEl) {
     const name = currentUser.display_name || currentUser.username || "";

@@ -41,6 +41,7 @@
     <div class="chat-sidebar-list" id="chatSessionList"></div>
   </aside>
 
+  <div class="chat-shell" id="chatShell">
   <main class="chat-main" id="chatMain">
     <div class="chat-welcome" id="chatWelcome">
       <div class="chat-welcome-aura" aria-hidden="true"></div>
@@ -65,6 +66,18 @@
       </button>
     </form>
   </footer>
+  </div>
+
+  <script>
+    window.HASSAI_CHAT_LANG = (function () {
+      try {
+        var s = localStorage.getItem("hassai.language");
+        if (s === "ro" || s === "en") return s;
+      } catch (e) {}
+      return "en";
+    })();
+    var lang = window.HASSAI_CHAT_LANG;
+  </script>
 
   <script>
     (function () {

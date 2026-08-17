@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.21-beta
+
+- **Fix `lang is not defined`:** language init in HTML before chat.js; chat uses `window.HASSAI_CHAT_LANG` (works even if an old cached script loads)
+- **Mobile browser toolbar:** chat composer is in a flex column inside `100dvh` instead of `position: fixed` — stays above Safari/Chrome bottom bar
+
 ## 0.2.20-beta
 
 - **Mobile browser:** chat bar stays above the browser bottom toolbar (Safari/Chrome), not only when the keyboard is open — uses `visualViewport` inset at all times
