@@ -77,6 +77,18 @@ async def _http(
         return resp.text
 
 
+async def ping() -> tuple[bool, str]:
+    """Return (ok, detail) for a cheap Core API check."""
+    if not is_available():
+        return False, "not running as HA add-on (no SUPERVISOR_TOKEN)"
+    try:
+        await _core("GET", "/config", timeout=8.0)
+        return True, "ok"
+    except Exception as e:
+        log.warning("HA Core ping failed: %s", e)
+        return False, str(e)
+
+
 async def _core(method: str, path: str, **kwargs) -> Any:
     return await _http(method, f"{_SUPERVISOR}/core/api{path}", **kwargs)
 

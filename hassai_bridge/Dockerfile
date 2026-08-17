@@ -8,8 +8,9 @@ ENV LANG=C.UTF-8
 # while the store listed 0.2.3-beta). Sources are vendored in ./app.
 COPY app/ /opt/hassai-bridge/
 COPY run.sh /
-
 RUN chmod a+x /run.sh \
+    && apk add --no-cache ca-certificates \
+    && update-ca-certificates \
     && pip3 install --no-cache-dir --break-system-packages --upgrade pip \
     && pip3 install --no-cache-dir --break-system-packages \
         -r /opt/hassai-bridge/requirements.txt \

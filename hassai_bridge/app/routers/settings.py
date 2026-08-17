@@ -413,12 +413,9 @@ async def system_info():
     active = get_active_provider()
 
     ha_connected = False
+    ha_detail = "standalone"
     if ha_api.is_available():
-        try:
-            await ha_api._request("GET", "/config")
-            ha_connected = True
-        except Exception:
-            ha_connected = False
+        ha_connected, ha_detail = await ha_api.ping()
 
     # Mask API keys in response (#10)
     safe_providers = []
@@ -444,6 +441,7 @@ async def system_info():
         "home_assistant": {
             "available": ha_api.is_available(),
             "connected": ha_connected,
+            "detail": ha_detail,
             "tools": sorted(ha_api.HA_TOOL_NAMES) if ha_api.is_available() else [],
         },
         "active_provider": cfg.get("active_provider", ""),

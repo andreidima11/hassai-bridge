@@ -1,6 +1,7 @@
 /* HASSAI Bridge — Agentic chat client */
 
 const API = (typeof window.HASSAI_BASE === "string" ? window.HASSAI_BASE : "").replace(/\/$/, "");
+const ON_INGRESS = /\/api\/hassio_ingress\//.test(API || location.pathname);
 
 const messagesEl = document.getElementById("chatMessages");
 const welcomeEl = document.getElementById("chatWelcome");
@@ -42,7 +43,6 @@ function autosize() {
   inputEl.style.height = "24px";
   const next = Math.min(Math.max(inputEl.scrollHeight, 24), 160);
   inputEl.style.height = next + "px";
-  // Multi-line: align composer to bottom; single-line: keep text vertically centered
   formEl.style.alignItems = next > 28 ? "flex-end" : "center";
 }
 
@@ -55,42 +55,64 @@ inputEl.addEventListener("keydown", (e) => {
   }
 });
 
-async function streamChat(userText) {
-  history.push({ role: "user", content: userText });
-  appendMessage("user", userText);
+function extractText(payload) {
+  const choice = payload?.choices?.[0] || {};
+  const delta = choice.delta || {};
+  const msg = choice.message || {};
+  return (
+    delta.content ||
+    delta.reasoning_content ||
+    msg.content ||
+    msg.reasoning_content ||
+    payload?.error?.message ||
+    ""
+  );
+}
 
-  const { wrap, bubble } = appendMessage("assistant", "", { streaming: true });
-  let full = "";
+async function readError(resp) {
+  const errText = await resp.text().catch(() => "");
+  try {
+    const j = JSON.parse(errText);
+    return j?.error?.message || j?.detail || `HTTP ${resp.status}`;
+  } catch (_) {
+    return errText ? errText.slice(0, 240) : `HTTP ${resp.status}`;
+  }
+}
 
-  const resp = await fetch(API + "/v1/chat/completions", {
+async function postChat(stream) {
+  return fetch(API + "/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       messages: history.map((m) => ({ role: m.role, content: m.content })),
-      stream: true,
+      stream,
       user: "webui",
     }),
   });
+}
 
-  if (!resp.ok) {
-    const errText = await resp.text().catch(() => "");
-    let detail = `HTTP ${resp.status}`;
-    try {
-      const j = JSON.parse(errText);
-      detail = j?.error?.message || j?.detail || detail;
-    } catch (_) {
-      if (errText) detail = errText.slice(0, 200);
-    }
-    wrap.classList.add("msg-error");
-    wrap.classList.remove("streaming");
-    bubble.textContent = detail;
-    history.pop(); // drop failed user turn from memory context
-    throw new Error(detail);
+async function completeNonStream(bubble) {
+  const resp = await postChat(false);
+  if (!resp.ok) throw new Error(await readError(resp));
+  const data = await resp.json();
+  const text = extractText(data);
+  if (!text) {
+    throw new Error("Empty reply from provider. Check Settings → provider URL, API key, and model.");
   }
+  bubble.textContent = text;
+  mainEl.scrollTop = mainEl.scrollHeight;
+  return text;
+}
+
+async function completeStream(bubble) {
+  const resp = await postChat(true);
+  if (!resp.ok) throw new Error(await readError(resp));
+  if (!resp.body) throw new Error("No stream body (Ingress blocked SSE)");
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let full = "";
 
   while (true) {
     const { done, value } = await reader.read();
@@ -106,22 +128,54 @@ async function streamChat(userText) {
       if (payload === "[DONE]") continue;
       try {
         const chunk = JSON.parse(payload);
-        const delta = chunk?.choices?.[0]?.delta?.content;
+        const delta = extractText(chunk);
         if (delta) {
           full += delta;
           bubble.textContent = full;
           mainEl.scrollTop = mainEl.scrollHeight;
         }
       } catch (_) {
-        /* ignore keepalive / partial JSON */
+        /* keepalive / partial JSON */
       }
     }
   }
+  return full;
+}
+
+async function streamChat(userText) {
+  history.push({ role: "user", content: userText });
+  appendMessage("user", userText);
+
+  const { wrap, bubble } = appendMessage("assistant", "", { streaming: true });
+  let full = "";
+
+  try {
+    // Companion app / Ingress WebViews often drop SSE → empty reply.
+    // Use JSON there; stream on direct :8899.
+    if (ON_INGRESS) {
+      full = await completeNonStream(bubble);
+    } else {
+      try {
+        full = await completeStream(bubble);
+      } catch (e) {
+        full = "";
+        if (!String(e.message || "").includes("Empty reply")) {
+          /* stream transport error — fall through */
+        }
+      }
+      if (!full) {
+        full = await completeNonStream(bubble);
+      }
+    }
+  } catch (err) {
+    wrap.classList.add("msg-error");
+    wrap.classList.remove("streaming");
+    bubble.textContent = err.message || "Request failed";
+    history.pop();
+    throw err;
+  }
 
   wrap.classList.remove("streaming");
-  if (!full) {
-    bubble.textContent = "(empty response)";
-  }
   history.push({ role: "assistant", content: full || "" });
 }
 
@@ -151,17 +205,20 @@ formEl.addEventListener("submit", async (e) => {
 
 inputEl.focus();
 
-// Show HA link status on welcome (add-on only)
 (async () => {
   try {
     const info = await fetch(API + "/api/settings/info").then((r) => r.json());
     const el = document.getElementById("haStatus");
     if (!el) return;
-    if (info && info.home_assistant) {
-      el.hidden = false;
-      el.textContent = info.home_assistant.connected
-        ? "Connected to Home Assistant — you can ask about devices and control them here."
-        : "Home Assistant API not available in this runtime.";
+    const ha = info && info.home_assistant;
+    if (!ha) return;
+    el.hidden = false;
+    if (ha.connected) {
+      el.textContent = "Connected to Home Assistant — you can ask about devices and control them here.";
+    } else if (ha.available) {
+      el.textContent = "Home Assistant token is present; Core ping failed (" + (ha.detail || "unknown") + "). Chat still works; retry in a moment.";
+    } else {
+      el.textContent = "Not running as a Home Assistant add-on — HA admin tools are off.";
     }
   } catch (_) {
     /* ignore */
