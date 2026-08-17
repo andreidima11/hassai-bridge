@@ -4,7 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
   <title>HASSAI Bridge</title>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta name="hassai-build" content="__CACHE_BUSTER__">
   <script>
+    window.HASSAI_BUILD = "__CACHE_BUSTER__";
     window.HASSAI_BASE = (function () {
       var injected = "__INGRESS_PATH__".replace(/\/$/, "");
       if (injected && injected.indexOf("__") !== 0) return injected;

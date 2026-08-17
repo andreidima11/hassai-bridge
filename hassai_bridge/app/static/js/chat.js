@@ -114,6 +114,23 @@ function persistLang(next) {
   try { localStorage.setItem(LANG_STORE_KEY, next); } catch (_) { /* ignore */ }
 }
 
+function ensureFreshBuild(serverBuild) {
+  const local = typeof window.HASSAI_BUILD === "string" ? window.HASSAI_BUILD : "";
+  if (!serverBuild || !local || serverBuild === local) return;
+  try {
+    const u = new URL(location.href);
+    if (u.searchParams.get("_b") === serverBuild) return;
+    u.searchParams.set("_b", serverBuild);
+    location.replace(u.href);
+  } catch (_) { /* ignore */ }
+}
+
+function replayActivity(traceEl, events) {
+  if (!traceEl || !Array.isArray(events) || !events.length) return;
+  events.forEach((ev) => applyActivity(traceEl, ev, { quiet: true }));
+  finishTrace(traceEl);
+}
+
 function setChatLang(next) {
   const resolved = next === "ro" ? "ro" : "en";
   lang = resolved;
@@ -240,7 +257,7 @@ function formatMs(ms) {
   return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}s`;
 }
 
-function applyActivity(traceEl, ev) {
+function applyActivity(traceEl, ev, opts = {}) {
   if (!traceEl || !ev) return;
   const id = String(ev.id || `i${ev.i ?? ""}`);
   let row = null;
@@ -268,7 +285,7 @@ function applyActivity(traceEl, ev) {
     skip +
     (ms ? `<span class="agent-ms">${escapeHtml(ms)}</span>` : "");
   traceEl.hidden = false;
-  mainEl.scrollTop = mainEl.scrollHeight;
+  if (!opts.quiet) mainEl.scrollTop = mainEl.scrollHeight;
 }
 
 function finishTrace(traceEl) {
@@ -407,7 +424,8 @@ async function openSession(id) {
     for (const m of msgs) {
       if (m.role === "user" || m.role === "assistant") {
         history.push({ role: m.role, content: m.content || "" });
-        appendMessage(m.role, m.content || "");
+        const ui = appendMessage(m.role, m.content || "");
+        if (m.role === "assistant") replayActivity(ui.traceEl, m.activity);
       }
     }
   }
@@ -427,6 +445,7 @@ async function deleteSession(id) {
 
 async function bootIdentity() {
   const data = await apiJson("/api/me");
+  ensureFreshBuild(data.build);
   currentUser = data.user || currentUser;
   lang = (data.language === "ro" ? "ro" : "en");
   persistLang(lang);
@@ -685,6 +704,7 @@ if (!window.matchMedia("(pointer: coarse)").matches) inputEl.focus();
     startNewChat();
     try {
       const info = await fetch(API + "/api/settings/info").then((r) => r.json());
+      if (info && info.build) ensureFreshBuild(info.build);
       if (info && info.language) setChatLang(info.language);
     } catch (_) { /* ignore */ }
     try {
@@ -694,6 +714,7 @@ if (!window.matchMedia("(pointer: coarse)").matches) inputEl.focus();
   }
   try {
     const info = await fetch(API + "/api/settings/info").then((r) => r.json());
+    if (info && info.build) ensureFreshBuild(info.build);
     if (info && info.language) setChatLang(info.language);
     const el = document.getElementById("haStatus");
     if (!el) return;

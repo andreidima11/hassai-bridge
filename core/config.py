@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import time
@@ -9,7 +10,30 @@ _VERSION_FILE = Path(__file__).parent.parent / "VERSION"
 _raw = _VERSION_FILE.read_text(encoding="utf-8").strip() if _VERSION_FILE.exists() else "0.0.0-dev"
 VERSION = _raw if _raw.startswith("v") else f"v{_raw}"
 ADDON_VERSION = _raw.lstrip("v")  # HA add-on config.yaml version field
-DB_SCHEMA_VERSION = 3
+DB_SCHEMA_VERSION = 4
+
+
+def _static_build_id() -> str:
+    """VERSION + hash of UI files — query-string cache buster for Ingress."""
+    root = Path(__file__).parent.parent / "static"
+    h = hashlib.sha256()
+    for name in (
+        "css/chat.css",
+        "js/chat.js",
+        "css/style.css",
+        "js/app.js",
+        "js/i18n.js",
+        "index.html",
+        "settings.html",
+    ):
+        path = root / name
+        if path.is_file():
+            h.update(name.encode())
+            h.update(path.read_bytes())
+    return f"{ADDON_VERSION}.{h.hexdigest()[:12]}"
+
+
+BUILD_ID = _static_build_id()
 
 DATA_DIR = Path(os.environ.get("HASSAI_DATA_DIR") or (Path(__file__).parent.parent / "data"))
 CONFIG_FILE = DATA_DIR / "config.json"

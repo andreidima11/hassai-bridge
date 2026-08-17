@@ -3,7 +3,7 @@ import socket
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel
 from config import load_config, save_config
-from core.config import VERSION
+from core.config import VERSION, BUILD_ID
 from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session, bulk_delete_conversation_sessions, get_usage_stats, delete_user_data
 from services import providers, searxng
 from services.providers import get_active_provider, PROVIDER_PRESETS
@@ -462,6 +462,7 @@ async def system_info():
 
     return {
         "version": VERSION,
+        "build": BUILD_ID,
         "language": cfg.get("language") or "en",
         "uptime_seconds": round(uptime),
         "api_key": _mask_key(cfg.get("api_key", "")),

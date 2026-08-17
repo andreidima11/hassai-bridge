@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, Request
 
 from core.identity import ensure_from_request, ensure_user, list_profiles
+from core.config import BUILD_ID
 from database import (
     create_conversation_session,
     delete_conversation_session,
@@ -57,6 +58,7 @@ async def me(request: Request):
     return {
         "user": _public_profile(match),
         "language": cfg.get("language") or "en",
+        "build": BUILD_ID,
     }
 
 

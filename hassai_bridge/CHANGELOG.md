@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.14-beta
+
+- **Cache buster:** CSS/JS URLs use `version.hash` of the UI files; if Ingress still has old HTML, the page reloads once with `?_b=` so you are not stuck on a cached chat.js
+- **Agent steps persist:** leaving a chat and opening it again still shows what HASSAI thought and which tools it ran (collapsed timeline, same as live)
+
 ## 0.2.13-beta
 
 - **Fix:** store could say “up to date” while the sidebar still ran an old local build. Supervisor substitutes `{arch}` in `image:` (`ghcr.io/andreidima11/{arch}-hassai-bridge`); the generic name without `{arch}` does not pull on many HA OS versions

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from database import init_db, cleanup_old_conversations, get_all_users
 from core.auth import get_ingress_path, require_api_key_or_webui, _INGRESS_RE
-from core.config import VERSION, load_config
+from core.config import VERSION, BUILD_ID, load_config
 from services.knowledge_graph import init_graph_tables
 from services.memory_engine import consolidate_memories
 from services.providers import get_active_provider, get_secondary_provider
@@ -165,6 +165,7 @@ _PUBLIC_GET_PATHS = {
     "/api/settings/health",
     "/api/settings/stats",
     "/api/me",
+    "/api/build",
 }
 
 
@@ -257,7 +258,7 @@ async def get_logs(
 
 
 STATIC_DIR = Path(__file__).parent / "static"
-_CACHE_BUSTER = f"{VERSION}.{int(time.time())}"
+_CACHE_BUSTER = BUILD_ID
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -284,6 +285,12 @@ def _render_html(filename: str, request: Request) -> HTMLResponse:
 async def root(request: Request):
     """Agentic chat home (HA sidebar entrypoint)."""
     return _render_html("index.html", request)
+
+
+@app.get("/api/build")
+async def build_info():
+    """Cache-buster token for Ingress / browser (version + UI file hash)."""
+    return {"version": VERSION, "build": BUILD_ID}
 
 
 @app.get("/settings")

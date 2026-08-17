@@ -77,7 +77,8 @@ def init_db():
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
                 created_at REAL NOT NULL,
-                session_id TEXT NOT NULL DEFAULT ''
+                session_id TEXT NOT NULL DEFAULT '',
+                meta TEXT NOT NULL DEFAULT ''
             )
         """)
 
@@ -85,6 +86,8 @@ def init_db():
         cols = [r[1] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()]
         if "session_id" not in cols:
             conn.execute("ALTER TABLE conversations ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
+        if "meta" not in cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN meta TEXT NOT NULL DEFAULT ''")
 
         conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_user ON conversations(user_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_session ON conversations(user_id, session_id)")
@@ -206,6 +209,10 @@ def init_db():
                     conn.execute("ALTER TABLE usage_stats ADD COLUMN secondary_used INTEGER NOT NULL DEFAULT 0")
                 except sqlite3.OperationalError:
                     pass  # column already exists
+            if row["version"] < 4:
+                conv_cols = [r[1] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()]
+                if "meta" not in conv_cols:
+                    conn.execute("ALTER TABLE conversations ADD COLUMN meta TEXT NOT NULL DEFAULT ''")
             conn.execute(
                 "UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1",
                 (DB_SCHEMA_VERSION, time.time()),
@@ -513,13 +520,19 @@ def _get_or_create_session(conn, user_id: str) -> str:
     return create_conversation_session()
 
 
-def add_conversation_message(user_id, role, content, session_id=None):
+def add_conversation_message(user_id, role, content, session_id=None, meta=None):
+    meta_json = ""
+    if meta:
+        meta_json = json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
+        if len(meta_json) > 48_000:
+            activity = list((meta.get("activity") or [])[:80])
+            meta_json = json.dumps({"activity": activity}, ensure_ascii=False, separators=(",", ":"))
     with get_db() as conn:
         if session_id is None:
             session_id = _get_or_create_session(conn, user_id)
         conn.execute(
-            "INSERT INTO conversations (user_id, role, content, created_at, session_id) VALUES (?, ?, ?, ?, ?)",
-            (user_id, role, content, time.time(), session_id),
+            "INSERT INTO conversations (user_id, role, content, created_at, session_id, meta) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, role, content, time.time(), session_id, meta_json),
         )
 
 
@@ -563,18 +576,36 @@ def get_conversation_sessions(user_id, limit=20):
     return [dict(r) for r in rows]
 
 
+def _parse_message_meta(raw) -> dict:
+    if not raw:
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def get_session_messages(user_id, session_id, limit=100):
     """Get all messages in a specific session."""
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT role, content, created_at
+            """SELECT role, content, created_at, meta
                FROM conversations
                WHERE user_id = ? AND session_id = ?
                ORDER BY created_at ASC
                LIMIT ?""",
             (user_id, session_id, limit),
         ).fetchall()
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        item = dict(r)
+        meta = _parse_message_meta(item.pop("meta", ""))
+        item["activity"] = meta.get("activity") if isinstance(meta.get("activity"), list) else []
+        out.append(item)
+    return out
 
 
 def delete_conversation_session(user_id, session_id):

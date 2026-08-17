@@ -2,6 +2,21 @@
 
 const API = (typeof window.HASSAI_BASE === "string" ? window.HASSAI_BASE : "").replace(/\/$/, "");
 
+(function ensureFreshBuild() {
+  const local = typeof window.HASSAI_BUILD === "string" ? window.HASSAI_BUILD : "";
+  if (!local) return;
+  fetch(API + "/api/build")
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d || !d.build || d.build === local) return;
+      const u = new URL(location.href);
+      if (u.searchParams.get("_b") === d.build) return;
+      u.searchParams.set("_b", d.build);
+      location.replace(u.href);
+    })
+    .catch(() => {});
+})();
+
 // ── Tabs ──
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {

@@ -151,6 +151,47 @@ def _trace_push(trace_id: str, event: dict) -> dict:
     return payload
 
 
+def _compact_activity(events: list | None) -> list[dict]:
+    """Keep the last status per step id (running → done) for storage."""
+    if not events:
+        return []
+    latest: dict[str, dict] = {}
+    order: list[str] = []
+    for ev in events:
+        if not isinstance(ev, dict):
+            continue
+        eid = str(ev.get("id") or "")
+        if not eid:
+            continue
+        if eid not in latest:
+            order.append(eid)
+        row = dict(latest.get(eid) or {"id": eid})
+        for key in ("id", "name", "detail", "status", "ms"):
+            val = ev.get(key)
+            if val not in (None, ""):
+                row[key] = val
+        latest[eid] = row
+    out = []
+    for eid in order:
+        row = dict(latest[eid])
+        if row.get("status") == "running":
+            row["status"] = "done"
+        out.append(row)
+    return out
+
+
+def _activity_meta(trace_id: str, events: list | None = None) -> dict | None:
+    merged = list(events or [])
+    if trace_id and trace_id in _traces:
+        stored = _traces[trace_id].get("events") or []
+        if stored:
+            merged = list(stored)
+    compact = _compact_activity(merged)
+    if not compact:
+        return None
+    return {"activity": compact}
+
+
 def _trace_done(trace_id: str) -> None:
     if trace_id and trace_id in _traces:
         _traces[trace_id]["done"] = True
@@ -1400,7 +1441,11 @@ async def chat_completions(request: Request):
 
         # Save & extract memories
         if assistant_content:
-            add_conversation_message(user_id, "assistant", assistant_content, session_id=session_id)
+            add_conversation_message(
+                user_id, "assistant", assistant_content,
+                session_id=session_id,
+                meta=_activity_meta(trace_id, activity_events),
+            )
             all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
             asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
 
@@ -1581,7 +1626,11 @@ async def chat_completions(request: Request):
 
             if full_response:
                 clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
-                add_conversation_message(user_id, "assistant", clean_response, session_id=session_id)
+                add_conversation_message(
+                    user_id, "assistant", clean_response,
+                    session_id=session_id,
+                    meta=_activity_meta(trace_id),
+                )
                 all_msgs = messages + [{"role": "assistant", "content": clean_response}]
                 asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
 
