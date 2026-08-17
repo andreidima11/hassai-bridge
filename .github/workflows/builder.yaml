@@ -1,9 +1,10 @@
 name: Build add-on images
 
-# Manual only — GHCR builds are slow and were only needed when we thought
-# stale UI was a Docker cache issue (it was browser/Ingress cache).
-# The add-on builds locally on HA from hassai_bridge/ in this repo.
+# Builds GHCR images on GitHub Release only (not every push to main).
+# Run manually: Actions → Build add-on images → Run workflow.
 on:
+  release:
+    types: [published]
   workflow_dispatch:
 
 env:

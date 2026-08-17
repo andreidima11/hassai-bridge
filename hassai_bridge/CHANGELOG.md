@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.17-beta
+
+- **Ships a fresh GHCR image** — 0.2.16 had no prebuilt pull, so many installs kept the old 0.2.15 container (only HTML tweaks visible). Update to this version to get Lovelace WebSocket, fresh chat, keyboard fix, and welcome UI
+- GHCR builds run on **GitHub Release only** (not every push)
+
 ## 0.2.16-beta
 
 - **Lovelace dashboards:** edit storage dashboards via HA WebSocket (REST `/lovelace/*` returned 404 on modern HA)

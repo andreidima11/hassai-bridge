@@ -1,12 +1,12 @@
 # https://developers.home-assistant.io/docs/add-ons/configuration
 # Keep `version` identical to the root /VERSION file (no leading "v").
-# No `image:` — Supervisor builds from this folder on your HA machine.
-# Dockerfile ARG HASSAI_VERSION busts Docker cache on every store update.
+# Prebuilt GHCR image — Supervisor PULLS it (reliable updates). Quotes keep {arch}.
 name: HASSAI Bridge
-version: "0.2.16-beta"
+version: "0.2.17-beta"
 slug: hassai_bridge
 description: AI bridge for Home Assistant — agentic chat, memory, and LLM proxy
 url: https://github.com/andreidima11/hassai-bridge
+image: "ghcr.io/andreidima11/{arch}-hassai-bridge"
 arch:
   - aarch64
   - amd64

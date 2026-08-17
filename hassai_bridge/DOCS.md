@@ -16,16 +16,15 @@ AI bridge for Home Assistant with agentic chat, per-user memory, knowledge graph
 3. Install **HASSAI Bridge**, start it
 4. Open from the sidebar (**HASSAI**) or **Open Web UI**
 
-The sidebar panel is built **on your Home Assistant** from this GitHub repo (same code as `python main.py`). There is no separate GHCR download step.
+The sidebar uses a **prebuilt image** (`ghcr.io/andreidima11/{arch}-hassai-bridge:<version>`).
 
 After an update:
 
 1. Add-on store → **⋮ → Check for updates**
-2. Update **HASSAI Bridge** to **0.2.16-beta** (or newer) — first update after 0.2.15 may take a minute while Supervisor rebuilds the image
+2. Update **HASSAI Bridge** to **0.2.17-beta** (or newer)
 3. Restart the add-on
-4. Open **HASSAI** — clean welcome screen, new chat
 
-If the UI looks old after an update, hard-refresh the panel once (Ctrl+Shift+R). That was usually browser cache, not a stale Docker layer.
+If the UI still looks old after update: hard refresh once (Ctrl+Shift+R). Browser cache can hide new CSS/JS even when the container is new.
 
 ## Integration URL (Assist / sensors)
 
