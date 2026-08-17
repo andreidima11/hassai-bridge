@@ -26,6 +26,18 @@ html, body {
 
 [hidden] { display: none !important; }
 
+.hassai-build-stamp {
+  position: fixed;
+  left: 10px;
+  bottom: 8px;
+  z-index: 3;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: rgba(122, 126, 146, 0.5);
+  pointer-events: none;
+  user-select: none;
+}
+
 body.chat-app {
   font-family: var(--font);
   background:

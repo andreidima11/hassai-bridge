@@ -589,7 +589,7 @@ function viewportBottomInset() {
   const vv = window.visualViewport;
   if (vv) {
     const visualBottom = vv.offsetTop + vv.height;
-    const buffer = ON_INGRESS ? 12 : 6;
+    const buffer = 6;
     return Math.max(0, Math.round(layoutH - visualBottom) + buffer);
   }
   const vk = navigator.virtualKeyboard;

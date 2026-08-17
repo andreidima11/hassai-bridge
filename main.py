@@ -13,10 +13,9 @@ import uvicorn
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
-from fastapi import FastAPI, Request, Query, Depends
+from fastapi import FastAPI, Request, Query, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pathlib import Path
 
 from database import init_db, cleanup_old_conversations, get_all_users
@@ -259,7 +258,22 @@ async def get_logs(
 
 STATIC_DIR = Path(__file__).parent / "static"
 _CACHE_BUSTER = BUILD_ID
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+_NO_STORE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "Surrogate-Control": "no-store",
+}
+
+
+@app.get("/static/{asset_path:path}")
+async def serve_static(asset_path: str):
+    """Serve UI assets with strict no-cache headers (HA Ingress caches aggressively)."""
+    file_path = (STATIC_DIR / asset_path).resolve()
+    if not str(file_path).startswith(str(STATIC_DIR.resolve())) or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(file_path, headers=_NO_STORE_HEADERS)
 
 
 def _render_html(filename: str, request: Request) -> HTMLResponse:
@@ -274,10 +288,7 @@ def _render_html(filename: str, request: Request) -> HTMLResponse:
     )
     return HTMLResponse(
         content=html,
-        headers={
-            "Cache-Control": "no-store, no-cache, must-revalidate",
-            "Pragma": "no-cache",
-        },
+        headers=_NO_STORE_HEADERS,
     )
 
 
@@ -290,7 +301,10 @@ async def root(request: Request):
 @app.get("/api/build")
 async def build_info():
     """Cache-buster token for Ingress / browser (version + UI file hash)."""
-    return {"version": VERSION, "build": BUILD_ID}
+    return JSONResponse(
+        {"version": VERSION, "build": BUILD_ID},
+        headers=_NO_STORE_HEADERS,
+    )
 
 
 @app.get("/settings")

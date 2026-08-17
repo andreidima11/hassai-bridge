@@ -8,17 +8,76 @@
   <meta name="hassai-build" content="__CACHE_BUSTER__">
   <script>
     window.HASSAI_BUILD = "__CACHE_BUSTER__";
+    window.HASSAI_VERSION = "__VERSION__";
     window.HASSAI_BASE = (function () {
       var injected = "__INGRESS_PATH__".replace(/\/$/, "");
       if (injected && injected.indexOf("__") !== 0) return injected;
       var m = location.pathname.match(/^(.*?\/api\/hassio_ingress\/[^/]+)/);
       return m ? m[1] : "";
     })();
+    window.HASSAI_CHAT_LANG = (function () {
+      try {
+        var s = localStorage.getItem("hassai.language");
+        if (s === "ro" || s === "en") return s;
+      } catch (e) {}
+      return "en";
+    })();
+    var lang = window.HASSAI_CHAT_LANG;
     try {
       if (navigator.virtualKeyboard) navigator.virtualKeyboard.overlaysContent = false;
     } catch (e) {}
+
+    window.HASSAI_BOOT = function () {
+      var base = window.HASSAI_BASE || "";
+      var build = window.HASSAI_BUILD || "";
+      function assetUrl(path) {
+        return base + path + "?v=" + encodeURIComponent(build);
+      }
+      function setStamp(text) {
+        var el = document.getElementById("hassaiBuildStamp");
+        if (el) el.textContent = text;
+      }
+      function reloadWith(buildId) {
+        try {
+          var u = new URL(location.href);
+          if (u.searchParams.get("_b") === buildId) return false;
+          u.searchParams.set("_b", buildId);
+          location.replace(u.toString());
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+      function loadCss() {
+        var link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = assetUrl("/static/css/chat.css");
+        document.head.appendChild(link);
+      }
+      function loadJs() {
+        var s = document.createElement("script");
+        s.src = assetUrl("/static/js/chat.js");
+        document.body.appendChild(s);
+      }
+      setStamp(String(window.HASSAI_VERSION || build).replace(/^v?/, "v"));
+      fetch(base + "/api/build", { cache: "no-store", credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d && d.build && d.build !== build) {
+            if (reloadWith(d.build)) return;
+            build = d.build;
+            window.HASSAI_BUILD = build;
+          }
+          if (d && d.version) setStamp(String(d.version).replace(/^v?/, "v"));
+          loadCss();
+          loadJs();
+        })
+        .catch(function () {
+          loadCss();
+          loadJs();
+        });
+    };
   </script>
-  <link rel="stylesheet" href="static/css/chat.css?v=__CACHE_BUSTER__">
 </head>
 <body class="chat-app">
   <button type="button" class="chat-sidebar-toggle" id="sidebarToggle" title="Chats" aria-label="Chats">
@@ -42,49 +101,33 @@
   </aside>
 
   <div class="chat-shell" id="chatShell">
-  <main class="chat-main" id="chatMain">
-    <div class="chat-welcome" id="chatWelcome">
-      <div class="chat-welcome-aura" aria-hidden="true"></div>
-      <h1 class="chat-welcome-title">HASSAI</h1>
-      <p class="chat-welcome-text" id="chatWelcomeText">Your Home Assistant copilot.</p>
-    </div>
-    <div class="chat-messages" id="chatMessages" hidden></div>
-  </main>
+    <main class="chat-main" id="chatMain">
+      <div class="chat-welcome" id="chatWelcome">
+        <div class="chat-welcome-aura" aria-hidden="true"></div>
+        <h1 class="chat-welcome-title">HASSAI</h1>
+        <p class="chat-welcome-text" id="chatWelcomeText">Your Home Assistant copilot.</p>
+      </div>
+      <div class="chat-messages" id="chatMessages" hidden></div>
+    </main>
 
-  <footer class="chat-composer">
-    <form class="chat-form" id="chatForm" autocomplete="off">
-      <textarea
-        id="chatInput"
-        class="chat-input"
-        rows="1"
-        placeholder="Message HASSAI…"
-        enterkeyhint="send"
-        aria-label="Message"
-      ></textarea>
-      <button type="submit" class="chat-send" id="chatSend" aria-label="Send">
-        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-      </button>
-    </form>
-  </footer>
+    <footer class="chat-composer">
+      <form class="chat-form" id="chatForm" autocomplete="off">
+        <textarea
+          id="chatInput"
+          class="chat-input"
+          rows="1"
+          placeholder="Message HASSAI…"
+          enterkeyhint="send"
+          aria-label="Message"
+        ></textarea>
+        <button type="submit" class="chat-send" id="chatSend" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </form>
+    </footer>
   </div>
 
-  <script>
-    window.HASSAI_CHAT_LANG = (function () {
-      try {
-        var s = localStorage.getItem("hassai.language");
-        if (s === "ro" || s === "en") return s;
-      } catch (e) {}
-      return "en";
-    })();
-    var lang = window.HASSAI_CHAT_LANG;
-  </script>
-
-  <script>
-    (function () {
-      var s = document.createElement("script");
-      s.src = "static/js/chat.js?v=__CACHE_BUSTER__";
-      document.body.appendChild(s);
-    })();
-  </script>
+  <div class="hassai-build-stamp" id="hassaiBuildStamp" aria-hidden="true"></div>
+  <script>HASSAI_BOOT();</script>
 </body>
 </html>

@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.23-beta
+
+- **Fix Ingress cache hell:** CSS/JS load only after `/api/build` check; absolute URLs with ingress prefix; static files served with strict `no-store` headers
+- **Build stamp** bottom-left in chat — verify you see `v0.2.23-beta` (if not, add-on/container is still old)
+- Add-on UI should match direct `:8899` (same assets, no mixed old/new CSS)
+
 ## 0.2.22-beta
 
 - **Thinking UI (Cursor-style):** „Gândește” / pașii de tool apar într-un panou separat deasupra răspunsului, nu în același bubble

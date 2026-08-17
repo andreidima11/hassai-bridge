@@ -8,14 +8,50 @@
   <meta name="hassai-build" content="__CACHE_BUSTER__">
   <script>
     window.HASSAI_BUILD = "__CACHE_BUSTER__";
+    window.HASSAI_VERSION = "__VERSION__";
     window.HASSAI_BASE = (function () {
       var injected = "__INGRESS_PATH__".replace(/\/$/, "");
       if (injected && injected.indexOf("__") !== 0) return injected;
       var m = location.pathname.match(/^(.*?\/api\/hassio_ingress\/[^/]+)/);
       return m ? m[1] : "";
     })();
+    window.HASSAI_BOOT_SETTINGS = function (loadScripts) {
+      var base = window.HASSAI_BASE || "";
+      var build = window.HASSAI_BUILD || "";
+      function assetUrl(path) {
+        return base + path + "?v=" + encodeURIComponent(build);
+      }
+      function reloadWith(buildId) {
+        try {
+          var u = new URL(location.href);
+          if (u.searchParams.get("_b") === buildId) return false;
+          u.searchParams.set("_b", buildId);
+          location.replace(u.toString());
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+      function begin() {
+        var link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = assetUrl("/static/css/style.css");
+        document.head.appendChild(link);
+        loadScripts(assetUrl);
+      }
+      fetch(base + "/api/build", { cache: "no-store", credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d && d.build && d.build !== build) {
+            if (reloadWith(d.build)) return;
+            build = d.build;
+            window.HASSAI_BUILD = build;
+          }
+          begin();
+        })
+        .catch(begin);
+    };
   </script>
-  <link rel="stylesheet" href="static/css/style.css?v=__CACHE_BUSTER__">
 </head>
 <body>
 
@@ -944,17 +980,18 @@
     var b = document.getElementById("chatNavLink");
     if (a) a.setAttribute("href", home);
     if (b) b.setAttribute("href", home);
-    var v = "?v=__CACHE_BUSTER__";
-    function load(src) {
+    function load(fullUrl) {
       return new Promise(function (resolve, reject) {
         var s = document.createElement("script");
-        s.src = src + v;
+        s.src = fullUrl;
         s.onload = resolve;
         s.onerror = reject;
         document.body.appendChild(s);
       });
     }
-    load("static/js/i18n.js").then(function () { return load("static/js/app.js"); });
+    HASSAI_BOOT_SETTINGS(function (assetUrl) {
+      load(assetUrl("/static/js/i18n.js")).then(function () { return load(assetUrl("/static/js/app.js")); });
+    });
   })();
 </script>
 </body>
