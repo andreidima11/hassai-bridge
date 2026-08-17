@@ -503,13 +503,13 @@ function keepPagePinned() {
   } catch (_) { /* iframe parent blocked */ }
 }
 
-/** Keyboard overlap in px (0 when interactive-widget=resizes-content works). */
-function keyboardOffset() {
+/** Gap between layout viewport and visible bottom (browser chrome and/or keyboard). */
+function viewportBottomInset() {
   const layoutH = window.innerHeight || document.documentElement.clientHeight || 0;
   const vv = window.visualViewport;
   if (vv) {
     const visualBottom = vv.offsetTop + vv.height;
-    const buffer = ON_INGRESS ? 12 : 8;
+    const buffer = ON_INGRESS ? 12 : 6;
     return Math.max(0, Math.round(layoutH - visualBottom) + buffer);
   }
   const vk = navigator.virtualKeyboard;
@@ -554,9 +554,9 @@ function syncKeyboardLayout() {
   keepPagePinned();
   const composer = document.querySelector(".chat-composer");
   const focused = document.activeElement === inputEl;
-  const offset = focused ? keyboardOffset() : 0;
-  document.documentElement.style.setProperty("--kb-offset", `${offset}px`);
-  document.documentElement.style.setProperty("--kb-inset", `${offset}px`);
+  const inset = viewportBottomInset();
+  document.documentElement.style.setProperty("--kb-offset", `${inset}px`);
+  document.documentElement.style.setProperty("--kb-inset", `${inset}px`);
   if (composer) {
     document.documentElement.style.setProperty("--composer-space", `${composer.offsetHeight}px`);
   }
@@ -610,6 +610,11 @@ inputEl.addEventListener("blur", () => {
   }, 50);
 });
 window.addEventListener("scroll", keepPagePinned, { passive: true });
+window.addEventListener("resize", syncKeyboardLayout, { passive: true });
+window.addEventListener("orientationchange", () => {
+  setTimeout(syncKeyboardLayout, 80);
+  setTimeout(syncKeyboardLayout, 320);
+});
 window.visualViewport?.addEventListener("resize", syncKeyboardLayout);
 window.visualViewport?.addEventListener("scroll", () => {
   keepPagePinned();

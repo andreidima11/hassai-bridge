@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.20-beta
+
+- **Mobile browser:** chat bar stays above the browser bottom toolbar (Safari/Chrome), not only when the keyboard is open — uses `visualViewport` inset at all times
+- Chat shell uses `100dvh` so the layout tracks the visible viewport when browser chrome shows or hides
+
 ## 0.2.19-beta
 
 - **Fix:** chat crashed with `lang is not defined` when sending a message (missing variable declaration)
