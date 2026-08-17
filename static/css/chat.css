@@ -239,46 +239,54 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
 
 .chat-welcome {
   position: fixed;
-  top: 96px;
-  left: 16px;
-  right: 16px;
+  inset: 0;
+  bottom: calc(var(--composer-space, 92px) + var(--kb-inset, 0px));
   z-index: 5;
-  max-width: 560px;
-  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px 20px;
   text-align: center;
   pointer-events: none;
-  animation: chatIn 0.45s ease both;
+}
+
+.chat-welcome-aura {
+  position: absolute;
+  width: min(320px, 78vw);
+  height: min(320px, 78vw);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 45%, rgba(79, 140, 255, 0.2) 0%, transparent 62%),
+    radial-gradient(circle at 35% 60%, rgba(46, 204, 113, 0.06) 0%, transparent 55%);
+  animation: hassaiAura 5.5s ease-in-out infinite;
+  pointer-events: none;
 }
 
 .chat-welcome-title {
-  font-size: clamp(2.4rem, 6vw, 3.4rem);
+  position: relative;
+  font-size: clamp(2.6rem, 8vw, 3.6rem);
   font-weight: 800;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  margin-bottom: 12px;
+  margin: 0;
   background: linear-gradient(90deg, #e8ebff 0%, #9cc0ff 48%, #5f97ff 100%);
+  background-size: 200% 100%;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+  animation: chatIn 0.55s ease both, hassaiTitleGlow 6s ease-in-out infinite;
 }
 
 .chat-welcome-text {
+  position: relative;
+  margin: 0;
+  max-width: 360px;
   color: var(--muted);
   font-size: 1rem;
   line-height: 1.55;
-}
-
-.chat-welcome-note {
-  margin-top: 14px;
-  font-size: 0.82rem;
-  color: #8fb4ff;
-}
-
-.chat-version {
-  margin-top: 10px;
-  font-size: 0.78rem;
-  letter-spacing: 0.06em;
-  color: #8b90a4;
+  animation: chatIn 0.55s ease 0.12s both;
 }
 
 .chat-messages {
@@ -453,6 +461,22 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
   to { opacity: 1; transform: translateY(0); }
 }
 
+@keyframes hassaiAura {
+  0%, 100% { opacity: 0.45; transform: scale(0.96); }
+  50% { opacity: 0.85; transform: scale(1.04); }
+}
+
+@keyframes hassaiTitleGlow {
+  0%, 100% {
+    background-position: 0% 50%;
+    filter: drop-shadow(0 0 0 transparent);
+  }
+  50% {
+    background-position: 100% 50%;
+    filter: drop-shadow(0 0 18px rgba(79, 140, 255, 0.22));
+  }
+}
+
 /* ── Composer ── */
 .chat-composer {
   position: fixed;
@@ -538,7 +562,6 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
   .msg { max-width: 100%; }
   .chat-settings { top: 20px; right: 16px; }
   .chat-sidebar-toggle { top: 20px; left: 16px; }
-  .chat-welcome { top: 80px; }
   .chat-composer { padding: 8px 12px max(16px, env(safe-area-inset-bottom)); }
   .chat-form { padding-left: 14px; border-radius: 18px; }
 }

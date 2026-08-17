@@ -833,7 +833,8 @@ formEl.addEventListener("submit", async (e) => {
   try {
     await bootIdentity();
   } catch (_) {
-    startNewChat({ focus: false });
+    startNewChat({ focus: false, ephemeral: true });
+    bootDone = true;
     try {
       const info = await fetch(API + "/api/settings/info").then((r) => r.json());
       if (info && info.build) ensureFreshBuild(info.build);
@@ -848,18 +849,6 @@ formEl.addEventListener("submit", async (e) => {
     const info = await fetch(API + "/api/settings/info").then((r) => r.json());
     if (info && info.build) ensureFreshBuild(info.build);
     if (info && info.language) setChatLang(info.language);
-    const el = document.getElementById("haStatus");
-    if (!el) return;
-    const ha = info && info.home_assistant;
-    if (!ha) return;
-    el.hidden = false;
-    if (ha.connected) {
-      el.textContent = tr("haOk");
-    } else if (ha.available) {
-      el.textContent = tr("haToken", { detail: ha.detail || "unknown" });
-    } else {
-      el.textContent = tr("haOff");
-    }
   } catch (_) {
     /* ignore */
   }
