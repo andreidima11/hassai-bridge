@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.18-beta
+
+- **Keyboard (mobile):** chat composer stays above the keyboard using `interactive-widget=resizes-content` plus `visualViewport` fallback — works better in HA sidebar / Ingress iframes
+- **Settings footer:** shows app version and Home Assistant connection status (connected / unreachable / standalone)
+
 ## 0.2.17-beta
 
 - **Ships a fresh GHCR image** — 0.2.16 had no prebuilt pull, so many installs kept the old 0.2.15 container (only HTML tweaks visible). Update to this version to get Lovelace WebSocket, fresh chat, keyboard fix, and welcome UI

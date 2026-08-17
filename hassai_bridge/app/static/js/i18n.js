@@ -424,6 +424,11 @@ const TRANSLATIONS = {
     'info.refresh': 'Reîmprospătează',
     'info.restartServer': 'Restart server',
 
+    // App footer
+    'footer.haConnected': 'Conectat la Home Assistant',
+    'footer.haDisconnected': 'Home Assistant indisponibil',
+    'footer.haStandalone': 'Standalone (fără add-on HA)',
+
     // How to Connect
     'htc.title': 'Cum te conectezi',
     'htc.prev': '‹ Înapoi',
