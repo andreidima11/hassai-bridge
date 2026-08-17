@@ -38,9 +38,13 @@ from services.memory_engine import (
     extract_memories_from_conversation,
 )
 from services.web_scraper import search_and_fetch
+from services import homeassistant as ha_api
 
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
+
+_HA_TOOL_NAMES = {"ha_list_entities", "ha_get_state", "ha_call_service"}
+_INTERNAL_TOOLS = {"search_web", "run_skill"} | _HA_TOOL_NAMES
 
 # ── Start time for /uptime command ──
 _cmd_start_time = time.time()
@@ -939,11 +943,12 @@ async def chat_completions(request: Request):
     cfg = load_config()
     search_enabled = cfg["searxng"].get("enabled", False)
 
-    # Build effective tools list: client tools + search_web + skills
+    # Build effective tools list: client tools + search_web + skills + HA
     all_tools = list(tools or []) if tools else []
     if search_enabled:
         all_tools.append(_SEARCH_WEB_TOOL)
     all_tools.extend(_build_skill_tools())
+    all_tools.extend(ha_api.build_ha_tools())
     effective_tools = all_tools if all_tools else None
 
     # ── Slash command check ──
@@ -1026,6 +1031,9 @@ async def chat_completions(request: Request):
         system_parts.append(mem_ctx)
     if search_enabled:
         system_parts.append(_build_search_instruction(cfg))
+    ha_hint = ha_api.ha_system_hint()
+    if ha_hint:
+        system_parts.append(ha_hint)
     if system_parts:
         augmented.append({"role": "system", "content": "\n\n".join(system_parts)})
 
@@ -1076,8 +1084,7 @@ async def chat_completions(request: Request):
                 content={"error": {"message": "Provider request failed. Check server logs for details.", "type": "upstream_error"}},
             )
 
-        # ── Handle tool_calls (search_web, run_skill, or forward to client) ──
-        _INTERNAL_TOOLS = {"search_web", "run_skill"}
+        # ── Handle tool_calls (search_web, run_skill, HA, or forward to client) ──
         for _round in range(3):
             msg = result.get("choices", [{}])[0].get("message", {})
             tool_calls = msg.get("tool_calls") or []
@@ -1141,6 +1148,16 @@ async def chat_completions(request: Request):
                         ),
                     })
                     used_tool_names.add("run_skill")
+
+                elif fn_name in _HA_TOOL_NAMES:
+                    log.info(f"AI requested HA tool '{fn_name}' (round {_round + 1}): {args}")
+                    ha_result = await ha_api.run_ha_tool(fn_name, args)
+                    augmented.append({
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": f"[Home Assistant — {fn_name}]\n{ha_result}",
+                    })
+                    used_tool_names.add(fn_name)
 
             # Re-call without used tools to avoid loops
             # Use secondary provider if configured (cost reduction / faster processing)
@@ -1263,8 +1280,8 @@ async def chat_completions(request: Request):
             elif chunk.strip() == "data: [DONE]":
                 # Stream finished — handle accumulated tool_calls
                 if has_tool_calls and tc_accum:
-                    # Identify internal tool calls we handle (search_web, run_skill)
-                    internal_calls = {idx: td for idx, td in tc_accum.items() if td["name"] in ("search_web", "run_skill")}
+                    # Identify internal tool calls we handle (search_web, run_skill, HA)
+                    internal_calls = {idx: td for idx, td in tc_accum.items() if td["name"] in _INTERNAL_TOOLS}
 
                     if internal_calls:
                         # Build all tool_calls for the assistant message
@@ -1322,6 +1339,16 @@ async def chat_completions(request: Request):
                                     ),
                                 })
                                 used_tool_names.add("run_skill")
+
+                            elif td["name"] in _HA_TOOL_NAMES:
+                                log.info(f"AI requested HA tool '{td['name']}' (stream): {args}")
+                                ha_result = await ha_api.run_ha_tool(td["name"], args)
+                                augmented.append({
+                                    "role": "tool",
+                                    "tool_call_id": tc_id,
+                                    "content": f"[Home Assistant — {td['name']}]\n{ha_result}",
+                                })
+                                used_tool_names.add(td["name"])
 
                         # Re-stream without used tools
                         # Use secondary provider if configured (cost reduction / faster processing)

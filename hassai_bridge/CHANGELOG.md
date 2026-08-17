@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.3-beta
+
+- Chat gear inset from edges; redesigned composer with centered text
+- Add-on chat can control Home Assistant via Supervisor API tools
+  (`ha_list_entities`, `ha_get_state`, `ha_call_service`)
+
 ## 0.2.2-beta
 
 - Chat UI: removed top bar; settings gear only (top-right)
