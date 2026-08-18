@@ -9,6 +9,19 @@ const formEl = document.getElementById("chatForm");
 const inputEl = document.getElementById("chatInput");
 const sendEl = document.getElementById("chatSend");
 const mainEl = document.getElementById("chatMain");
+const scrollerEl = document.getElementById("chatScroller") || mainEl;
+
+function isNearBottom(el, px = 96) {
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight <= px;
+}
+
+function scrollChatToBottom(force = false) {
+  const el = scrollerEl;
+  if (!el) return;
+  if (!force && !isNearBottom(el)) return;
+  el.scrollTop = el.scrollHeight;
+}
 const sidebarEl = document.getElementById("chatSidebar");
 const backdropEl = document.getElementById("sidebarBackdrop");
 const sessionListEl = document.getElementById("chatSessionList");
@@ -275,7 +288,7 @@ function appendMessage(role, content, { error = false, streaming = false } = {})
   if (thinkingEl) wrap.appendChild(thinkingEl);
   wrap.appendChild(bubble);
   messagesEl.appendChild(wrap);
-  mainEl.scrollTop = mainEl.scrollHeight;
+  scrollChatToBottom(true);
   return { wrap, bubble, traceEl, thinkingEl };
 }
 
@@ -326,7 +339,7 @@ function applyActivity(traceEl, ev, opts = {}) {
   if (name === "think") {
     if (ev.status === "running") showThinkingPanel(thinkingEl, true);
     if (ev.status === "done") addThinkMs(thinkingEl, ev.ms);
-    if (!opts.quiet) mainEl.scrollTop = mainEl.scrollHeight;
+    if (!opts.quiet) scrollChatToBottom();
     return;
   }
 
@@ -357,7 +370,7 @@ function applyActivity(traceEl, ev, opts = {}) {
     skip +
     (ms ? `<span class="agent-ms">${escapeHtml(ms)}</span>` : "");
   if (thinkingEl) thinkingEl.classList.add("has-steps");
-  if (!opts.quiet) mainEl.scrollTop = mainEl.scrollHeight;
+  if (!opts.quiet) scrollChatToBottom();
 }
 
 function finishTrace(traceEl) {
@@ -646,7 +659,7 @@ async function completeNonStream(ui, userText) {
     throw new Error(tr("emptyReply"));
   }
   setBubbleText(ui.bubble, text);
-  mainEl.scrollTop = mainEl.scrollHeight;
+  scrollChatToBottom();
   return text;
 }
 
@@ -682,7 +695,7 @@ async function completeStream(ui, userText) {
         if (delta) {
           full += delta;
           setBubbleText(ui.bubble, full);
-          mainEl.scrollTop = mainEl.scrollHeight;
+          scrollChatToBottom();
         }
       } catch (_) {
         /* keepalive / partial JSON */

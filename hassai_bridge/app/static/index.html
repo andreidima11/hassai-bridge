@@ -32,6 +32,7 @@
     <button type="button" class="chat-sidebar-toggle" id="sidebarToggle" title="Chats" aria-label="Chats">
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
     </button>
+    <span class="hassai-build-stamp" id="hassaiBuildStamp" aria-hidden="true"></span>
     <a class="chat-settings" id="chatSettingsLink" href="__ASSET_PREFIX__/settings" title="Settings" aria-label="Settings">
       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
         <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 0 0-.48-.41h-3.84a.48.48 0 0 0-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 0 0-.59.22L2.74 8.87a.48.48 0 0 0 .12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.86 14.5a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.48.48 0 0 0-.12-.61l-2.03-1.58zM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2z"/>
@@ -56,7 +57,10 @@
         <h1 class="chat-welcome-title">HASSAI</h1>
         <p class="chat-welcome-text" id="chatWelcomeText">Your Home Assistant copilot.</p>
       </div>
-      <div class="chat-messages" id="chatMessages" hidden></div>
+      <div class="chat-scroller" id="chatScroller">
+        <div class="chat-messages" id="chatMessages" hidden></div>
+        <div class="chat-end" id="chatEnd" aria-hidden="true"></div>
+      </div>
     </main>
     <footer class="chat-composer">
       <form class="chat-form" id="chatForm" autocomplete="off">
@@ -74,8 +78,6 @@
       </form>
     </footer>
   </div>
-
-  <div class="hassai-build-stamp" id="hassaiBuildStamp" aria-hidden="true"></div>
   </div>
   <script src="__ASSET_PREFIX__/static/js/chat.js?v=__CACHE_BUSTER__"></script>
   <script>

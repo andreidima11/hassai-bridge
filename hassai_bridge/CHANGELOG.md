@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.32-beta
+
+- **Chat layout from vercel/chatbot:** messages scroll in an `absolute inset-0` pane; composer is `sticky` at the bottom of **our** column (not `fixed`, no iframe resize)
+- Restore scroll when a conversation is open; keep the message bar in the footer
+- Stamp moved into the header so it does not sit on the composer
+
 ## 0.2.31-beta
 
 - **Stop touching the Home Assistant iframe** (0.2.30 resized the parent panel and broke the UI)

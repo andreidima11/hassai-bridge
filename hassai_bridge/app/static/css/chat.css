@@ -27,10 +27,7 @@ html, body {
 [hidden] { display: none !important; }
 
 .hassai-build-stamp {
-  position: absolute;
-  left: 10px;
-  bottom: 8px;
-  z-index: 3;
+  justify-self: center;
   font-size: 0.62rem;
   letter-spacing: 0.04em;
   color: rgba(122, 126, 146, 0.5);
@@ -50,34 +47,35 @@ body.chat-app {
   height: 100%;
   min-height: 0;
   overflow: hidden;
-  touch-action: manipulation;
 }
 
+/* vercel/chatbot shell: column fills the frame; do not use 100dvh in an HA iframe */
 .app {
-  position: absolute;
-  inset: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+  height: 100%;
+  width: 100%;
   min-height: 0;
   overflow: hidden;
 }
 
 .app-chrome {
   flex: 0 0 auto;
-  display: flex;
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
   align-items: center;
-  justify-content: space-between;
   padding: 14px 16px 6px;
   z-index: 20;
 }
 
 .chat-shell {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+  position: relative;
+  flex: 1 1 0%;
   min-height: 0;
   width: 100%;
-  position: relative;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
@@ -252,23 +250,28 @@ a:hover { text-decoration: underline; }
   text-align: center;
 }
 
-/* ── Messages ── */
+/* ── Messages (vercel/chatbot: wrapper is relative flex-1; scroller is absolute inset-0) ── */
 .chat-main {
-  flex: 1;
+  position: relative;
+  flex: 1 1 0%;
   min-height: 0;
+}
+
+.chat-scroller {
+  position: absolute;
+  inset: 0;
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 24px 16px 12px;
-  padding-top: 12px;
-  padding-bottom: 12px;
   overscroll-behavior: contain;
   touch-action: pan-y;
-  position: relative;
+  padding: 12px 16px;
 }
 
-body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
-  overflow: hidden;
+.chat-end {
+  min-height: 24px;
+  min-width: 24px;
+  flex-shrink: 0;
 }
 
 .chat-welcome {
@@ -574,12 +577,12 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
 }
 
 .chat-composer {
-  position: relative;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   flex: 0 0 auto;
-  padding: 8px 20px;
-  padding-bottom: max(22px, env(safe-area-inset-bottom));
-  background: linear-gradient(180deg, transparent, rgba(13, 15, 20, 0.92) 32%);
-  z-index: 10;
+  padding: 8px 16px 12px;
+  background: var(--bg);
 }
 
 .chat-form {
@@ -653,6 +656,6 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
 @media (max-width: 560px) {
   .msg { max-width: 100%; }
   .app-chrome { padding: 12px 12px 4px; }
-  .chat-composer { padding: 8px 12px; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .chat-composer { padding: 8px 12px 12px; }
   .chat-form { padding-left: 14px; border-radius: 18px; }
 }
