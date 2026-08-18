@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.36-beta
+
+- Assistant messages render **markdown** (headings, lists, tables, links, code blocks with copy)
+- Same chat shell: messages still scroll, composer stays put
+
 ## 0.2.35-beta
 
 - Chat header: conversation control is a **chat-window icon** (top right), not a hamburger; settings gear stays on the left
