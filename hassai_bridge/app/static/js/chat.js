@@ -574,7 +574,6 @@ function keepPagePinned() {
   window.scrollTo(0, 0);
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
-  try { window.visualViewport?.scrollTo?.(0, 0); } catch (_) { /* ignore */ }
 }
 
 function lockAppHeight() {
@@ -582,93 +581,102 @@ function lockAppHeight() {
   if (!h) return;
   if (!window.__hassaiRestH || h > window.__hassaiRestH + 24) {
     window.__hassaiRestH = h;
-    document.documentElement.style.setProperty("--app-height", `${h}px`);
   }
 }
 
-/** Visible bottom, in iframe CSS pixels. Prefer parent visualViewport (HA + browser chrome). */
-function visualBottomPx() {
-  const bottoms = [];
-  const local = window.visualViewport;
-  if (local) bottoms.push(local.offsetTop + local.height);
-  bottoms.push(window.innerHeight || document.documentElement.clientHeight || 0);
+function composerHasFocus() {
+  return document.activeElement === inputEl;
+}
 
-  try {
-    const parentWin = window.parent && window.parent !== window ? window.parent : null;
-    const frame = window.frameElement;
-    const pvv = parentWin?.visualViewport;
-    if (parentWin && pvv) {
-      const frameTop = frame ? frame.getBoundingClientRect().top : 0;
-      bottoms.push(pvv.offsetTop + pvv.height - frameTop);
-    }
-  } catch (_) { /* ignore */ }
+function layoutHeightPx() {
+  return Math.max(
+    window.__hassaiRestH || 0,
+    window.innerHeight || 0,
+    document.documentElement.clientHeight || 0
+  );
+}
 
+/** Map parent/top visualViewport into iframe coordinates. Null if unavailable. */
+function mappedOuterVisualBottom() {
+  const read = (win) => {
+    if (!win || win === window) return null;
+    const vv = win.visualViewport;
+    if (!vv || !Number.isFinite(vv.height)) return null;
+    let frameTop = 0;
+    try {
+      const frame = window.frameElement;
+      if (frame) frameTop = frame.getBoundingClientRect().top;
+    } catch (_) { /* ignore */ }
+    const bottom = Math.round((vv.offsetTop || 0) + vv.height - frameTop);
+    return Number.isFinite(bottom) ? bottom : null;
+  };
   try {
-    const topWin = window.top && window.top !== window ? window.top : null;
-    const tvv = topWin?.visualViewport;
-    const frame = window.frameElement;
-    if (tvv && frame && topWin !== window.parent) {
-      const frameTop = frame.getBoundingClientRect().top;
-      bottoms.push(tvv.offsetTop + tvv.height - frameTop);
-    }
+    const parentBottom = read(window.parent);
+    if (parentBottom != null) return parentBottom;
   } catch (_) { /* ignore */ }
+  try {
+    return read(window.top);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Lift the in-flow composer by this many pixels.
+ * Parent visualViewport in HA iframes can be a tiny number — never Math.min() it unbounded.
+ */
+function keyboardInsetPx() {
+  const layoutH = layoutHeightPx();
+  if (!layoutH) return 0;
+  const focused = composerHasFocus();
+  const maxIdle = 96;
+  const maxKb = Math.round(layoutH * 0.62);
+
+  let visualBottom = layoutH;
+  const vv = window.visualViewport;
+  if (vv && Number.isFinite(vv.height)) {
+    visualBottom = Math.round((vv.offsetTop || 0) + vv.height);
+  }
+
+  const outerBottom = mappedOuterVisualBottom();
+  if (outerBottom != null) {
+    const implied = layoutH - outerBottom;
+    if (focused) {
+      if (outerBottom >= 80 && implied >= 0 && implied <= maxKb) {
+        visualBottom = Math.min(visualBottom, outerBottom);
+      }
+    } else if (implied > 0 && implied <= maxIdle && outerBottom >= layoutH * 0.75) {
+      visualBottom = Math.min(visualBottom, outerBottom);
+    }
+  }
 
   try {
     const vk = navigator.virtualKeyboard;
-    if (vk?.boundingRect?.height > 0) bottoms.push(vk.boundingRect.top);
-  } catch (_) { /* ignore */ }
-
-  const valid = bottoms.filter((n) => Number.isFinite(n) && n > 64);
-  return valid.length ? Math.min(...valid) : (window.innerHeight || 0);
-}
-
-function placeComposer() {
-  const composer = document.querySelector(".chat-composer");
-  if (!composer) return;
-  const height = composer.offsetHeight || 92;
-  const layoutH = window.innerHeight || document.documentElement.clientHeight || 0;
-  const visBottom = visualBottomPx();
-  const inset = Math.max(0, Math.round(layoutH - visBottom));
-  composer.style.top = "auto";
-  composer.style.bottom = `${inset}px`;
-  document.documentElement.style.setProperty("--kb-offset", `${inset}px`);
-  document.documentElement.style.setProperty("--composer-space", `${height}px`);
-}
-
-function pagePanPx() {
-  let pan = 0;
-  const vv = window.visualViewport;
-  if (vv) pan = Math.max(pan, Math.round(vv.offsetTop || 0));
-  try {
-    const frame = window.frameElement;
-    if (frame) {
-      const top = frame.getBoundingClientRect().top;
-      if (document.activeElement !== inputEl) window.__hassaiFrameTop = top;
-      else if (typeof window.__hassaiFrameTop === "number") {
-        pan = Math.max(pan, Math.round(window.__hassaiFrameTop - top));
+    if (focused && vk?.boundingRect?.height > 0) {
+      const top = Math.round(vk.boundingRect.top);
+      const implied = layoutH - top;
+      if (Number.isFinite(top) && top >= 80 && implied >= 0 && implied <= maxKb) {
+        visualBottom = Math.min(visualBottom, top);
       }
     }
   } catch (_) { /* ignore */ }
-  try {
-    const pvv = window.parent?.visualViewport;
-    if (pvv) pan = Math.max(pan, Math.round(pvv.offsetTop || 0));
-  } catch (_) { /* ignore */ }
-  return Math.max(0, pan);
-}
 
-function pinPage() {
-  const pin = document.getElementById("chatPin");
-  const pan = pagePanPx();
-  if (pin) pin.style.transform = pan ? `translateY(${pan}px)` : "";
+  visualBottom = Math.max(0, Math.min(layoutH, visualBottom));
+  let inset = Math.max(0, Math.round(layoutH - visualBottom));
+  if (!focused) {
+    inset = Math.min(inset, maxIdle);
+  } else {
+    inset = Math.min(inset, maxKb);
+    if (inset < 72) inset = Math.min(inset, maxIdle);
+  }
+  return inset;
 }
 
 function syncKeyboardLayout() {
   keepPagePinned();
   lockAppHeight();
-  pinPage();
-  placeComposer();
-  const focused = document.activeElement === inputEl;
-  document.body.classList.toggle("chat-kb-open", focused);
+  document.documentElement.style.setProperty("--kb-offset", `${keyboardInsetPx()}px`);
+  document.body.classList.toggle("chat-kb-open", composerHasFocus());
   if (welcomeEl && !welcomeEl.hidden && mainEl) mainEl.scrollTop = 0;
 }
 

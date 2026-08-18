@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.27-beta
+
+- **Fix chat layout (0.2.26 regression):** message bar stays at the bottom of the panel, not at the top / off-screen
+- **Fix chat scroll:** messages scroll again when a conversation is open
+- Composer is back in the page flow; keyboard only lifts the bar (clamped inset — HA iframe `visualViewport` can be a tiny number)
+
 ## 0.2.26-beta
 
 - **HA Companion app:** tapping the chat bar no longer pushes the whole page up. Logo/settings stay put; only the message bar lifts with the keyboard (cancels WebView pan)
