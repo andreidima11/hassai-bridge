@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
   <title>HASSAI Bridge — Settings</title>
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta name="hassai-build" content="__CACHE_BUSTER__">
@@ -15,47 +15,12 @@
       var m = location.pathname.match(/^(.*?\/api\/hassio_ingress\/[^/]+)/);
       return m ? m[1] : "";
     })();
-    window.HASSAI_BOOT_SETTINGS = function (loadScripts) {
-      var base = window.HASSAI_BASE || "";
-      var build = window.HASSAI_BUILD || "";
-      function assetUrl(path) {
-        return base + path + "?v=" + encodeURIComponent(build);
-      }
-      function reloadWith(buildId) {
-        try {
-          var u = new URL(location.href);
-          if (u.searchParams.get("_b") === buildId) return false;
-          u.searchParams.set("_b", buildId);
-          location.replace(u.toString());
-          return true;
-        } catch (e) {
-          return false;
-        }
-      }
-      function begin() {
-        var link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.href = assetUrl("/static/css/style.css");
-        document.head.appendChild(link);
-        loadScripts(assetUrl);
-      }
-      fetch(base + "/api/build", { cache: "no-store", credentials: "same-origin" })
-        .then(function (r) { return r.json(); })
-        .then(function (d) {
-          if (d && d.build && d.build !== build) {
-            if (reloadWith(d.build)) return;
-            build = d.build;
-            window.HASSAI_BUILD = build;
-          }
-          begin();
-        })
-        .catch(begin);
-    };
   </script>
+  <link rel="stylesheet" href="__ASSET_PREFIX__/static/css/style.css?v=__CACHE_BUSTER__">
 </head>
 <body>
 
-<a class="settings-chat" id="chatNavLink" href="./" title="Chat" aria-label="Chat"
+<a class="settings-chat" id="chatNavLink" href="__ASSET_PREFIX__/" title="Chat" aria-label="Chat"
    style="position:fixed;top:28px;right:28px;z-index:20;width:44px;height:44px;display:grid;place-items:center;border-radius:14px;color:#7a7e92;background:rgba(24,27,37,.85);border:1px solid #252836;text-decoration:none;box-sizing:border-box">
   <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
 </a>
@@ -973,25 +938,22 @@
 </footer>
 
 <div class="toast" id="toast"></div>
+<script src="__ASSET_PREFIX__/static/js/i18n.js?v=__CACHE_BUSTER__"></script>
+<script src="__ASSET_PREFIX__/static/js/app.js?v=__CACHE_BUSTER__"></script>
 <script>
   (function () {
-    var home = "./";
-    var a = document.getElementById("chatHomeLink");
-    var b = document.getElementById("chatNavLink");
-    if (a) a.setAttribute("href", home);
-    if (b) b.setAttribute("href", home);
-    function load(fullUrl) {
-      return new Promise(function (resolve, reject) {
-        var s = document.createElement("script");
-        s.src = fullUrl;
-        s.onload = resolve;
-        s.onerror = reject;
-        document.body.appendChild(s);
-      });
-    }
-    HASSAI_BOOT_SETTINGS(function (assetUrl) {
-      load(assetUrl("/static/js/i18n.js")).then(function () { return load(assetUrl("/static/js/app.js")); });
-    });
+    var base = window.HASSAI_BASE || "";
+    var build = window.HASSAI_BUILD || "";
+    fetch(base + "/api/build", { cache: "no-store", credentials: "same-origin" })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (!d || !d.build || d.build === build) return;
+        var u = new URL(location.href);
+        if (u.searchParams.get("_b") === d.build) return;
+        u.searchParams.set("_b", d.build);
+        location.replace(u.toString());
+      })
+      .catch(function () {});
   })();
 </script>
 </body>

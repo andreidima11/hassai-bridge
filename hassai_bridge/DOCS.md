@@ -21,7 +21,7 @@ The sidebar uses a **prebuilt image** (`ghcr.io/andreidima11/{arch}-hassai-bridg
 After an update:
 
 1. Add-on store → **⋮ → Check for updates**
-2. Update **HASSAI Bridge** to **0.2.23-beta** (or newer)
+2. Update **HASSAI Bridge** to **0.2.24-beta** (or newer)
 3. Restart the add-on
 
 If the UI still looks old after update: hard refresh once (Ctrl+Shift+R). Browser cache can hide new CSS/JS even when the container is new.
@@ -54,10 +54,10 @@ API key: in add-on **Settings → Users**, copy the key for the Home Assistant u
 
 ## Versioning
 
-The add-on `version` in `config.yaml` must match the root `/VERSION` file.
+The add-on `version` in `config.yaml` must match `hassai_bridge/app/VERSION`.
 Bump both (or run `bash scripts/sync_version.sh`) so Home Assistant shows an update in the add-on store.
 
-The add-on image is built from `hassai_bridge/app/` (vendored copy of the app).
+The add-on image is built from `hassai_bridge/app/`.
 `sync_version.sh` refreshes that copy. Do not git-clone `main` in the Dockerfile:
 Supervisor may cache that layer and ship an old UI version.
 

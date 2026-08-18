@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.24-beta
+
+- **Repo is add-on only** — app lives in `hassai_bridge/app/` (no separate root copy that could ship stale UI)
+- **Keyboard:** overlay only the message bar; the page/logo stay put (HA Ingress iframe included)
+- **No CSS flash** when switching Chat ↔ Settings — stylesheet loads in `<head>` immediately
+
 ## 0.2.23-beta
 
 - **Fix Ingress cache hell:** CSS/JS load only after `/api/build` check; absolute URLs with ingress prefix; static files served with strict `no-store` headers

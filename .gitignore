@@ -19,6 +19,14 @@ data/hassai.log
 data/skill_usage.json
 data/skills/generated/*.py
 !data/skills/generated/__init__.py
+hassai_bridge/app/data/config.json
+hassai_bridge/app/data/hassai.db
+hassai_bridge/app/data/hassai.db-wal
+hassai_bridge/app/data/hassai.db-shm
+hassai_bridge/app/data/hassai.log
+hassai_bridge/app/data/skill_usage.json
+hassai_bridge/app/data/skills/generated/*.py
+!hassai_bridge/app/data/skills/generated/__init__.py
 .restart_trigger
 
 # Generated launcher (created by install.sh)

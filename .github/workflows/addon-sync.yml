@@ -1,4 +1,4 @@
-name: addon-sync
+name: addon-version
 
 on:
   push:
@@ -6,9 +6,19 @@ on:
   pull_request:
 
 jobs:
-  vendor-matches-app:
+  version-match:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: hassai_bridge/app must match root app
-        run: bash scripts/check_addon_sync.sh
+      - name: config.yaml version must match app/VERSION
+        run: |
+          APP="$(tr -d '[:space:]' < hassai_bridge/app/VERSION)"
+          APP="${APP#v}"
+          CFG="$(sed -nE 's/^version: "(.*)"/\1/p' hassai_bridge/config.yaml | head -1)"
+          ARG="$(sed -nE 's/^ARG HASSAI_VERSION=//p' hassai_bridge/Dockerfile | head -1)"
+          if [[ "$APP" != "$CFG" || "$APP" != "$ARG" ]]; then
+            echo "Version mismatch: app=$APP config=$CFG dockerfile=$ARG" >&2
+            echo "Run: bash scripts/sync_version.sh" >&2
+            exit 1
+          fi
+          echo "Version OK: $APP"

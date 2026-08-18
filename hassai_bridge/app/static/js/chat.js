@@ -574,6 +574,7 @@ function keepPagePinned() {
   window.scrollTo(0, 0);
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
+  try { window.visualViewport?.scrollTo?.(0, 0); } catch (_) { /* ignore */ }
   try {
     if (window.parent && window.parent !== window) {
       window.parent.scrollTo(0, 0);
@@ -583,20 +584,33 @@ function keepPagePinned() {
   } catch (_) { /* iframe parent blocked */ }
 }
 
-/** Gap between layout viewport and visible bottom (browser chrome and/or keyboard). */
-function viewportBottomInset() {
-  const layoutH = window.innerHeight || document.documentElement.clientHeight || 0;
+function lockAppHeight() {
+  const h = window.innerHeight || document.documentElement.clientHeight || 0;
+  if (!h) return;
+  if (!window.__hassaiRestH || h > window.__hassaiRestH + 24) {
+    window.__hassaiRestH = h;
+    document.documentElement.style.setProperty("--app-height", `${h}px`);
+  }
+}
+
+function placeComposer() {
+  const composer = document.querySelector(".chat-composer");
+  const shell = document.getElementById("chatShell");
   const vv = window.visualViewport;
-  if (vv) {
-    const visualBottom = vv.offsetTop + vv.height;
-    const buffer = 6;
-    return Math.max(0, Math.round(layoutH - visualBottom) + buffer);
+  const layoutH = window.innerHeight || document.documentElement.clientHeight || 0;
+  const pan = vv ? Math.max(0, Math.round(vv.offsetTop)) : 0;
+  if (shell) shell.style.transform = pan ? `translateY(${pan}px)` : "";
+  if (!composer) return;
+  const height = composer.offsetHeight || 92;
+  let visualBottom = layoutH;
+  if (vv) visualBottom = vv.offsetTop + vv.height;
+  else {
+    const vk = navigator.virtualKeyboard;
+    if (vk?.boundingRect?.height > 0) visualBottom = vk.boundingRect.top;
   }
-  const vk = navigator.virtualKeyboard;
-  if (vk?.boundingRect?.height > 0) {
-    return Math.max(0, Math.round(layoutH - vk.boundingRect.top) + 8);
-  }
-  return 0;
+  composer.style.top = `${Math.max(0, Math.round(visualBottom - height))}px`;
+  composer.style.bottom = "auto";
+  document.documentElement.style.setProperty("--composer-space", `${height}px`);
 }
 
 let _parentOverflow = null;
@@ -632,14 +646,10 @@ function unlockParentScroll() {
 
 function syncKeyboardLayout() {
   keepPagePinned();
-  const composer = document.querySelector(".chat-composer");
+  lockAppHeight();
+  placeComposer();
   const focused = document.activeElement === inputEl;
-  const inset = viewportBottomInset();
-  document.documentElement.style.setProperty("--kb-offset", `${inset}px`);
-  document.documentElement.style.setProperty("--kb-inset", `${inset}px`);
-  if (composer) {
-    document.documentElement.style.setProperty("--composer-space", `${composer.offsetHeight}px`);
-  }
+  document.body.classList.toggle("chat-kb-open", focused);
   if (focused) lockParentScroll();
   else unlockParentScroll();
   if (welcomeEl && !welcomeEl.hidden && mainEl) mainEl.scrollTop = 0;
@@ -667,7 +677,7 @@ function stopKeyboardSync() {
 
 try {
   if (navigator.virtualKeyboard) {
-    navigator.virtualKeyboard.overlaysContent = false;
+    navigator.virtualKeyboard.overlaysContent = true;
     navigator.virtualKeyboard.addEventListener("geometrychange", syncKeyboardLayout);
   }
 } catch (_) { /* ignore */ }

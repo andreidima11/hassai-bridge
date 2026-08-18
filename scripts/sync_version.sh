@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Sync hassai_bridge version fields from the root VERSION file
-# and vendor app sources into the add-on build context.
+# Keep add-on config / Docker ARG in sync with hassai_bridge/app/VERSION.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-RAW="$(tr -d '[:space:]' < "$ROOT/VERSION")"
+VER_FILE="$ROOT/hassai_bridge/app/VERSION"
+RAW="$(tr -d '[:space:]' < "$VER_FILE")"
 RAW="${RAW#v}"
 
 if [[ ! "$RAW" =~ ^[0-9] ]]; then
@@ -16,7 +16,5 @@ sed -i -E "s/^(ARG HASSAI_VERSION=).*/\\1${RAW}/" "$ROOT/hassai_bridge/Dockerfil
 if grep -q 'HASSAI_VERSION:' "$ROOT/hassai_bridge/build.yaml"; then
   sed -i -E "s/^(  HASSAI_VERSION: ).*/\\1${RAW}/" "$ROOT/hassai_bridge/build.yaml"
 fi
-bash "$ROOT/scripts/sync_addon_app.sh"
 
-echo "Synced add-on to ${RAW} (app vendored into hassai_bridge/app)"
-echo "App UI will show v${RAW} via core.config.VERSION"
+echo "Add-on version synced to ${RAW}"

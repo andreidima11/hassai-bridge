@@ -280,10 +280,11 @@ def _render_html(filename: str, request: Request) -> HTMLResponse:
     """Serve an HTML page with cache-buster + HA Ingress prefix injected."""
     html = (STATIC_DIR / filename).read_text(encoding="utf-8")
     ingress = get_ingress_path(request)
+    prefix = (ingress or "").rstrip("/")
     html = (
         html.replace("__CACHE_BUSTER__", _CACHE_BUSTER)
-        .replace("__INGRESS_PATH__", ingress)
-        .replace("__ASSET_PREFIX__", ingress)
+        .replace("__INGRESS_PATH__", prefix)
+        .replace("__ASSET_PREFIX__", prefix)
         .replace("__VERSION__", VERSION)
     )
     return HTMLResponse(

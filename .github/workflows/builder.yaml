@@ -23,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: v
-        run: echo "version=$(tr -d '[:space:]' < VERSION | sed 's/^v//')" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(tr -d '[:space:]' < hassai_bridge/app/VERSION | sed 's/^v//')" >> "$GITHUB_OUTPUT"
 
   init:
     name: Initialize build
