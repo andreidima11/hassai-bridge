@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.34-beta
+
+- **Chat is React** (Vite), using the vercel/chatbot shell: `relative flex-1 min-h-0` + `absolute inset-0 overflow-y-auto` messages, sticky composer, `useScrollToBottom`
+- Built into static files at image build; Python still serves the API and Settings
+- No `100dvh`, no Home Assistant iframe resize
+
 ## 0.2.33-beta
 
 - **Chat UI from vercel/chatbot:** dark tokens, header 56px, overlay sidebar, greeting, user pills, assistant sparkles, sticky composer with arrow-up send

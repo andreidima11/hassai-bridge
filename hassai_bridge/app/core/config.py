@@ -17,15 +17,21 @@ def _static_build_id() -> str:
     """VERSION + hash of UI files — query-string cache buster for Ingress."""
     root = Path(__file__).parent.parent / "static"
     h = hashlib.sha256()
-    for name in (
-        "css/chat.css",
-        "js/chat.js",
+    files = [
+        "index.html",
+        "settings.html",
         "css/style.css",
         "js/app.js",
         "js/i18n.js",
-        "index.html",
-        "settings.html",
-    ):
+    ]
+    assets = root / "assets" / "chat"
+    if assets.is_dir():
+        files.extend(
+            str(p.relative_to(root))
+            for p in sorted(assets.rglob("*"))
+            if p.is_file()
+        )
+    for name in files:
         path = root / name
         if path.is_file():
             h.update(name.encode())

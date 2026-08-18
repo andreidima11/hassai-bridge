@@ -276,6 +276,16 @@ async def serve_static(asset_path: str):
     return FileResponse(file_path, headers=_NO_STORE_HEADERS)
 
 
+@app.get("/assets/{asset_path:path}")
+async def serve_vite_assets(asset_path: str):
+    """Vite chat bundle (relative ./assets/... from the Ingress index)."""
+    file_path = (STATIC_DIR / "assets" / asset_path).resolve()
+    static_root = (STATIC_DIR / "assets").resolve()
+    if not str(file_path).startswith(str(static_root)) or not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(file_path, headers=_NO_STORE_HEADERS)
+
+
 def _render_html(filename: str, request: Request) -> HTMLResponse:
     """Serve an HTML page with cache-buster + HA Ingress prefix injected."""
     html = (STATIC_DIR / filename).read_text(encoding="utf-8")
