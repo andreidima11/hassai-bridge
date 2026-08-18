@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.30-beta
+
+- **Rebuild chat layout from scratch** (keyboard kept pushing the HA header)
+- App fills **only the Ingress iframe** (`inset: 0`, `height: 100%`) — no `100vh` / `100dvh`
+- Toolbar is a real header in the column (not `position: fixed` / `absolute` on the viewport)
+- Messages scroll; composer stays in flex flow at the bottom of **our** panel
+- When the keyboard opens, shrink the **HA iframe** to the visible area (same-origin Ingress) so the HA header does not pan. Fallback: dock the composer under the toolbar
+
 ## 0.2.29-beta
 
 - **Keyboard / HA header:** `html`, `body` and `.chat-shell` use `height: 100dvh; max-height: 100dvh` so the panel tracks the mobile visual viewport when the keyboard opens or closes. Fallback `height: 100%` for older browsers.

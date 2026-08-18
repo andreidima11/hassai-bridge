@@ -21,7 +21,7 @@ The sidebar uses a **prebuilt image** (`ghcr.io/andreidima11/{arch}-hassai-bridg
 After an update:
 
 1. Add-on store → **⋮ → Check for updates**
-2. Update **HASSAI Bridge** to **0.2.29-beta** (or newer)
+2. Update **HASSAI Bridge** to **0.2.30-beta** (or newer)
 3. Restart the add-on
 
 If the UI still looks old after update: hard refresh once (Ctrl+Shift+R). Browser cache can hide new CSS/JS even when the container is new.

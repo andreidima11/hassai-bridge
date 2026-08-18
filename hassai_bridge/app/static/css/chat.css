@@ -20,9 +20,8 @@
 
 html, body {
   height: 100%;
-  height: 100dvh;
-  max-height: 100dvh;
   width: 100%;
+  overflow: hidden;
 }
 
 [hidden] { display: none !important; }
@@ -46,28 +45,44 @@ body.chat-app {
     radial-gradient(900px 500px at 100% 0%, rgba(46, 204, 113, 0.06), transparent 50%),
     var(--bg);
   color: var(--text);
-  display: flex;
-  flex-direction: column;
   position: relative;
   width: 100%;
   height: 100%;
-  height: 100dvh;
-  max-height: 100dvh;
   min-height: 0;
+  overflow: hidden;
   touch-action: manipulation;
+}
+
+.app {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-chrome {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 6px;
+  z-index: 20;
 }
 
 .chat-shell {
   flex: 1;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  height: 100%;
-  height: 100dvh;
-  max-height: 100dvh;
   min-height: 0;
+  width: 100%;
   position: relative;
   overflow: hidden;
+}
+
+body.chat-kb-dock .chat-composer {
+  order: -1;
 }
 
 a { color: var(--accent); text-decoration: none; }
@@ -75,12 +90,7 @@ a:hover { text-decoration: underline; }
 
 /* ── Floating settings gear ── */
 .chat-settings {
-  position: absolute;
-  top: 28px;
-  right: 28px;
-  left: auto;
-  inset-inline-start: auto;
-  inset-inline-end: 28px;
+  position: relative;
   z-index: 20;
   width: 44px;
   height: 44px;
@@ -108,9 +118,9 @@ a:hover { text-decoration: underline; }
 }
 
 .chat-sidebar-toggle {
-  position: absolute;
-  top: 28px;
-  left: 28px;
+  position: relative;
+  top: auto;
+  left: auto;
   z-index: 40;
   width: 44px;
   height: 44px;
@@ -176,7 +186,7 @@ a:hover { text-decoration: underline; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 48px 4px 8px;
+  margin: 8px 4px 8px;
 }
 
 .chat-sidebar-new {
@@ -254,7 +264,7 @@ a:hover { text-decoration: underline; }
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   padding: 24px 16px 12px;
-  padding-top: 72px;
+  padding-top: 12px;
   padding-bottom: 12px;
   overscroll-behavior: contain;
   touch-action: pan-y;
@@ -646,8 +656,7 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
 
 @media (max-width: 560px) {
   .msg { max-width: 100%; }
-  .chat-settings { top: 20px; right: 16px; }
-  .chat-sidebar-toggle { top: 20px; left: 16px; }
+  .app-chrome { padding: 12px 12px 4px; }
   .chat-composer { padding: 8px 12px; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
   .chat-form { padding-left: 14px; border-radius: 18px; }
 }
