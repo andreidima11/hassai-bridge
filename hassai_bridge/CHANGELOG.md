@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.28-beta
+
+- **Keyboard like Zigbee2MQTT:** do not overlay/pan the page. The iframe document can scroll, and the layout viewport **resizes** with the keyboard (`interactive-widget=resizes-content`) so the Home Assistant header stays put
+- Removed `overlays-content`, `visualViewport` parent math, and page `translateY` / `scrollTo(0,0)` hacks that pushed HA chrome or hid the chat bar
+
 ## 0.2.27-beta
 
 - **Fix chat layout (0.2.26 regression):** message bar stays at the bottom of the panel, not at the top / off-screen

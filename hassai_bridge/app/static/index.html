@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=overlays-content">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>HASSAI Bridge</title>
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <meta name="hassai-build" content="__CACHE_BUSTER__">
@@ -23,9 +23,6 @@
       return "en";
     })();
     var lang = window.HASSAI_CHAT_LANG;
-    try {
-      if (navigator.virtualKeyboard) navigator.virtualKeyboard.overlaysContent = true;
-    } catch (e) {}
   </script>
   <link rel="stylesheet" href="__ASSET_PREFIX__/static/css/chat.css?v=__CACHE_BUSTER__">
 </head>

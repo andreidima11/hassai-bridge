@@ -35,7 +35,6 @@ function syncGlobalLang(next) {
 }
 let bootDone = false;
 let panelHiddenAt = 0;
-let keyboardSyncRaf = 0;
 
 const I18N = {
   en: {
@@ -570,188 +569,14 @@ inputEl.addEventListener("keydown", (e) => {
   }
 });
 
-function keepPagePinned() {
-  window.scrollTo(0, 0);
-  document.documentElement.scrollTop = 0;
-  document.body.scrollTop = 0;
-}
-
-function lockAppHeight() {
-  const h = window.innerHeight || document.documentElement.clientHeight || 0;
-  if (!h) return;
-  if (!window.__hassaiRestH || h > window.__hassaiRestH + 24) {
-    window.__hassaiRestH = h;
-  }
-}
-
-function composerHasFocus() {
-  return document.activeElement === inputEl;
-}
-
-function layoutHeightPx() {
-  return Math.max(
-    window.__hassaiRestH || 0,
-    window.innerHeight || 0,
-    document.documentElement.clientHeight || 0
-  );
-}
-
-/** Map parent/top visualViewport into iframe coordinates. Null if unavailable. */
-function mappedOuterVisualBottom() {
-  const read = (win) => {
-    if (!win || win === window) return null;
-    const vv = win.visualViewport;
-    if (!vv || !Number.isFinite(vv.height)) return null;
-    let frameTop = 0;
-    try {
-      const frame = window.frameElement;
-      if (frame) frameTop = frame.getBoundingClientRect().top;
-    } catch (_) { /* ignore */ }
-    const bottom = Math.round((vv.offsetTop || 0) + vv.height - frameTop);
-    return Number.isFinite(bottom) ? bottom : null;
-  };
-  try {
-    const parentBottom = read(window.parent);
-    if (parentBottom != null) return parentBottom;
-  } catch (_) { /* ignore */ }
-  try {
-    return read(window.top);
-  } catch (_) {
-    return null;
-  }
-}
-
-/**
- * Lift the in-flow composer by this many pixels.
- * Parent visualViewport in HA iframes can be a tiny number — never Math.min() it unbounded.
- */
-function keyboardInsetPx() {
-  const layoutH = layoutHeightPx();
-  if (!layoutH) return 0;
-  const focused = composerHasFocus();
-  const maxIdle = 96;
-  const maxKb = Math.round(layoutH * 0.62);
-
-  let visualBottom = layoutH;
-  const vv = window.visualViewport;
-  if (vv && Number.isFinite(vv.height)) {
-    visualBottom = Math.round((vv.offsetTop || 0) + vv.height);
-  }
-
-  const outerBottom = mappedOuterVisualBottom();
-  if (outerBottom != null) {
-    const implied = layoutH - outerBottom;
-    if (focused) {
-      if (outerBottom >= 80 && implied >= 0 && implied <= maxKb) {
-        visualBottom = Math.min(visualBottom, outerBottom);
-      }
-    } else if (implied > 0 && implied <= maxIdle && outerBottom >= layoutH * 0.75) {
-      visualBottom = Math.min(visualBottom, outerBottom);
-    }
-  }
-
-  try {
-    const vk = navigator.virtualKeyboard;
-    if (focused && vk?.boundingRect?.height > 0) {
-      const top = Math.round(vk.boundingRect.top);
-      const implied = layoutH - top;
-      if (Number.isFinite(top) && top >= 80 && implied >= 0 && implied <= maxKb) {
-        visualBottom = Math.min(visualBottom, top);
-      }
-    }
-  } catch (_) { /* ignore */ }
-
-  visualBottom = Math.max(0, Math.min(layoutH, visualBottom));
-  let inset = Math.max(0, Math.round(layoutH - visualBottom));
-  if (!focused) {
-    inset = Math.min(inset, maxIdle);
-  } else {
-    inset = Math.min(inset, maxKb);
-    if (inset < 72) inset = Math.min(inset, maxIdle);
-  }
-  return inset;
-}
-
-function syncKeyboardLayout() {
-  keepPagePinned();
-  lockAppHeight();
-  document.documentElement.style.setProperty("--kb-offset", `${keyboardInsetPx()}px`);
-  document.body.classList.toggle("chat-kb-open", composerHasFocus());
-  if (welcomeEl && !welcomeEl.hidden && mainEl) mainEl.scrollTop = 0;
-}
-
-function startKeyboardSync() {
-  if (keyboardSyncRaf) return;
-  const tick = () => {
-    syncKeyboardLayout();
-    if (document.activeElement === inputEl) {
-      keyboardSyncRaf = requestAnimationFrame(tick);
-    } else {
-      keyboardSyncRaf = 0;
-    }
-  };
-  keyboardSyncRaf = requestAnimationFrame(tick);
-}
-
-function stopKeyboardSync() {
-  if (keyboardSyncRaf) {
-    cancelAnimationFrame(keyboardSyncRaf);
-    keyboardSyncRaf = 0;
-  }
-}
-
-try {
-  if (navigator.virtualKeyboard) {
-    navigator.virtualKeyboard.overlaysContent = true;
-    navigator.virtualKeyboard.addEventListener("geometrychange", syncKeyboardLayout);
-  }
-} catch (_) { /* ignore */ }
-
 inputEl.addEventListener("focus", () => {
-  keepPagePinned();
-  syncKeyboardLayout();
-  startKeyboardSync();
-  requestAnimationFrame(syncKeyboardLayout);
-  setTimeout(syncKeyboardLayout, 50);
-  setTimeout(syncKeyboardLayout, 280);
-  setTimeout(syncKeyboardLayout, 520);
+  requestAnimationFrame(() => {
+    inputEl.scrollIntoView({ block: "end", inline: "nearest" });
+  });
 });
-inputEl.addEventListener("blur", () => {
-  stopKeyboardSync();
-  setTimeout(syncKeyboardLayout, 50);
-});
-document.querySelector(".chat-composer")?.addEventListener("pointerdown", () => {
-  startKeyboardSync();
-  syncKeyboardLayout();
-}, { passive: true });
-window.addEventListener("scroll", keepPagePinned, { passive: true });
-window.addEventListener("resize", syncKeyboardLayout, { passive: true });
-window.addEventListener("orientationchange", () => {
-  window.__hassaiRestH = 0;
-  setTimeout(syncKeyboardLayout, 80);
-  setTimeout(syncKeyboardLayout, 320);
-});
-window.visualViewport?.addEventListener("resize", syncKeyboardLayout);
-window.visualViewport?.addEventListener("scroll", () => {
-  keepPagePinned();
-  syncKeyboardLayout();
-});
-try {
-  const pvv = window.parent?.visualViewport;
-  pvv?.addEventListener("resize", syncKeyboardLayout);
-  pvv?.addEventListener("scroll", syncKeyboardLayout);
-} catch (_) { /* ignore */ }
-try {
-  const tvv = window.top?.visualViewport;
-  if (tvv && tvv !== window.visualViewport && tvv !== window.parent?.visualViewport) {
-    tvv.addEventListener("resize", syncKeyboardLayout);
-    tvv.addEventListener("scroll", syncKeyboardLayout);
-  }
-} catch (_) { /* ignore */ }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
     panelHiddenAt = Date.now();
-    stopKeyboardSync();
     return;
   }
   onPanelReopen();
@@ -963,11 +788,7 @@ formEl.addEventListener("submit", async (e) => {
     const info = await fetch(API + "/api/settings/info").then((r) => r.json());
     if (info && info.build) ensureFreshBuild(info.build);
     if (info && info.language) setChatLang(info.language);
-  } catch (_) {
+    } catch (_) {
     /* ignore */
   }
-  syncKeyboardLayout();
 })();
-
-lockAppHeight();
-syncKeyboardLayout();
