@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.35-beta
+
+- Chat header: conversation control is a **chat-window icon** (top right), not a hamburger; settings gear stays on the left
+- Composer is a compact ChatGPT-style pill when empty or one line, and grows for longer text — same sticky bar / message scroller
+- Visual polish toward ChatGPT dark (flat surfaces, softer bubbles) without changing the working layout
+- Settings page uses the same header, chat-window icon, and color language
+
 ## 0.2.34-beta
 
 - **Chat is React** (Vite), using the vercel/chatbot shell: `relative flex-1 min-h-0` + `absolute inset-0 overflow-y-auto` messages, sticky composer, `useScrollToBottom`

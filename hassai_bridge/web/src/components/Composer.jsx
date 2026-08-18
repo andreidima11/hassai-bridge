@@ -1,25 +1,30 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUpIcon } from "./Icons.jsx";
 
 export function Composer({ value, onChange, onSubmit, disabled, placeholder }) {
   const ref = useRef(null);
+  const [tall, setTall] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "44px";
-    el.style.height = `${Math.min(Math.max(el.scrollHeight, 44), 160)}px`;
+    el.style.height = "0px";
+    const next = Math.min(Math.max(el.scrollHeight, 24), 160);
+    el.style.height = `${next}px`;
+    setTall(next > 28);
   }, [value]);
 
   return (
-    <div className="sticky bottom-0 z-[1] mx-auto flex w-full max-w-4xl gap-2 bg-background px-2 pb-3 md:px-4 md:pb-4">
+    <div className="sticky bottom-0 z-[1] mx-auto flex w-full max-w-4xl bg-background px-3 pb-3 md:px-4 md:pb-4">
       <form
-        className="flex w-full flex-col rounded-2xl border border-border/30 bg-card/70 shadow-composer transition-shadow duration-300 focus-within:shadow-composer-focus"
+        className={`flex w-full gap-2 overflow-hidden border border-white/[0.08] bg-composer pl-4 pr-1.5 shadow-composer transition-[border-radius] duration-200 focus-within:border-white/15 ${
+          tall ? "items-end rounded-3xl py-2" : "items-center rounded-full py-1"
+        }`}
         onSubmit={onSubmit}
       >
         <textarea
           ref={ref}
-          className="block w-full resize-none bg-transparent px-4 pb-1.5 pt-3.5 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/35"
+          className="block max-h-40 min-h-6 w-full flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground/50"
           enterKeyHint="send"
           placeholder={placeholder}
           rows={1}
@@ -32,15 +37,13 @@ export function Composer({ value, onChange, onSubmit, disabled, placeholder }) {
             }
           }}
         />
-        <div className="flex items-center justify-end px-2 pb-2 pt-1">
-          <button
-            className="grid size-7 place-items-center rounded-xl bg-foreground text-background transition hover:opacity-85 active:scale-95 disabled:cursor-not-allowed disabled:bg-muted disabled:text-muted-foreground/25"
-            disabled={disabled || !value.trim()}
-            type="submit"
-          >
-            <ArrowUpIcon />
-          </button>
-        </div>
+        <button
+          className="mb-0 grid size-8 shrink-0 place-items-center rounded-full bg-white text-black transition hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:bg-white/15 disabled:text-white/35"
+          disabled={disabled || !value.trim()}
+          type="submit"
+        >
+          <ArrowUpIcon />
+        </button>
       </form>
     </div>
   );

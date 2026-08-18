@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./components/Composer.jsx";
-import { GearIcon, MenuIcon } from "./components/Icons.jsx";
+import { ChatWindowIcon, GearIcon } from "./components/Icons.jsx";
 import { Messages } from "./components/Messages.jsx";
 import { Sidebar } from "./components/Sidebar.jsx";
 import {
@@ -323,24 +323,25 @@ export default function App() {
       />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sidebar">
-        <header className="sticky top-0 flex h-14 shrink-0 items-center gap-2 bg-sidebar px-3">
-          <button
-            className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"
-            type="button"
-            onClick={() => setSidebarOpen((v) => !v)}
-            aria-label={t("chats")}
-          >
-            <MenuIcon />
-          </button>
-          <span className="flex-1 text-center text-[10px] tracking-wide text-muted-foreground/50">{stamp}</span>
+        <header className="sticky top-0 flex h-12 shrink-0 items-center gap-2 bg-sidebar px-2">
           <a
-            className="grid size-8 place-items-center rounded-lg text-muted-foreground hover:bg-white/5 hover:text-foreground"
+            className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
             href={settingsHref}
             aria-label={t("settings")}
             title={t("settings")}
           >
             <GearIcon />
           </a>
+          <span className="flex-1 text-center text-[11px] tracking-wide text-muted-foreground/40">{stamp}</span>
+          <button
+            className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
+            type="button"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-label={t("chats")}
+            title={t("chats")}
+          >
+            <ChatWindowIcon />
+          </button>
         </header>
 
         {/* vercel/chatbot ChatShell: relative flex min-h-0 flex-1 flex-col overflow-hidden */}
@@ -348,8 +349,8 @@ export default function App() {
           <Messages
             greeting={
               <div className="flex flex-col items-center px-4">
-                <div className="text-center text-2xl font-semibold tracking-tight text-foreground">{t("welcome")}</div>
-                <div className="mt-3 text-center text-sm text-muted-foreground/80">{t("welcomeHint")}</div>
+                <div className="text-center text-[28px] font-semibold tracking-tight text-foreground">{t("welcome")}</div>
+                <div className="mt-2 text-center text-[15px] text-muted-foreground">{t("welcomeHint")}</div>
               </div>
             }
             lang={lang}

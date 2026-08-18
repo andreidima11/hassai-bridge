@@ -10,7 +10,7 @@ export function Thinking({ thinking, lang }) {
     <div className="flex flex-col gap-2">
       <button
         type="button"
-        className="flex w-fit max-w-full items-center gap-2 bg-transparent p-0 text-left text-[13px] font-medium leading-[1.65] text-muted-foreground hover:text-foreground"
+        className="flex w-fit max-w-full items-center gap-2 bg-transparent p-0 text-left text-[14px] font-medium leading-7 text-muted-foreground hover:text-foreground"
         onClick={() => hasSteps && setOpen((v) => !v)}
       >
         <span className={`size-1.5 shrink-0 rounded-full ${thinking.active ? "animate-pulse bg-foreground" : "bg-muted-foreground/60"}`} />
@@ -18,7 +18,7 @@ export function Thinking({ thinking, lang }) {
         {hasSteps ? <span className={`opacity-50 transition-transform ${open ? "rotate-90" : ""}`}>›</span> : null}
       </button>
       {open && hasSteps ? (
-        <div className="max-h-[200px] overflow-y-auto rounded-lg border border-border/20 bg-muted/30 px-3 py-2">
+        <div className="max-h-[200px] overflow-y-auto rounded-xl bg-white/[0.04] px-3 py-2">
           {steps.map((step) => (
             <div key={step.id} className="flex min-w-0 items-baseline gap-2 text-[11px] leading-relaxed text-muted-foreground/80">
               <span

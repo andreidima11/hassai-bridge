@@ -260,7 +260,9 @@ async function loadSystemInfo() {
 
     const footerVer = document.getElementById('footerVersion');
     const footerHa = document.getElementById('footerHaStatus');
+    const topbarStamp = document.getElementById('topbarStamp');
     if (footerVer) footerVer.textContent = info.version ? `v${info.version}` : '—';
+    if (topbarStamp) topbarStamp.textContent = info.version ? `v${info.version}` : '';
     if (footerHa) {
       const ha = info.home_assistant || {};
       footerHa.className = '';

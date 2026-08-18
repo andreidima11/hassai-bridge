@@ -7,6 +7,7 @@ export default {
         background: "var(--background)",
         foreground: "var(--foreground)",
         card: "var(--card)",
+        composer: "var(--composer)",
         muted: "var(--muted)",
         "muted-foreground": "var(--muted-foreground)",
         secondary: "var(--secondary)",

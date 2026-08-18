@@ -17,7 +17,7 @@ export function Messages({ messages, lang, greeting }) {
         className="absolute inset-0 touch-pan-y overflow-y-auto"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
-        <div className="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-5 px-2 py-6 md:gap-7 md:px-4">
+        <div className="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-6 px-3 py-6 md:gap-8 md:px-4">
           {messages.map((message) => (
             <MessageBubble key={message.id} lang={lang} message={message} />
           ))}

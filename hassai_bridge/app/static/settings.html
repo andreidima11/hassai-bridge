@@ -20,13 +20,19 @@
 </head>
 <body>
 
-<a class="settings-chat" id="chatNavLink" href="__ASSET_PREFIX__/" title="Chat" aria-label="Chat"
-   style="position:fixed;top:28px;right:28px;z-index:20;width:44px;height:44px;display:grid;place-items:center;border-radius:14px;color:#7a7e92;background:rgba(24,27,37,.85);border:1px solid #252836;text-decoration:none;box-sizing:border-box">
-  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
-</a>
+<header class="app-topbar">
+  <span class="topbar-brand">HASSAI</span>
+  <span class="topbar-stamp" id="topbarStamp"></span>
+  <a class="icon-btn" id="chatNavLink" href="__ASSET_PREFIX__/" title="Chat" aria-label="Chat">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true">
+      <path stroke="currentColor" stroke-width="1.75" stroke-linejoin="round" d="M5 4.75h14A2.25 2.25 0 0 1 21.25 7v9A2.25 2.25 0 0 1 19 18.25H9.15L4.75 21.5V7A2.25 2.25 0 0 1 7 4.75H5z"/>
+      <path stroke="currentColor" stroke-width="1.75" stroke-linecap="round" d="M8.5 9.25h7M8.5 12.75h4.5"/>
+    </svg>
+  </a>
+</header>
 <select id="langSelect" style="display:none"><option value="en">EN</option><option value="ro">RO</option></select>
 
-<div class="container" style="padding-top:72px">
+<div class="container">
   <div class="tabs">
     <div class="tab active" data-panel="dashboard" data-i18n="tab.dashboard">Dashboard</div>
     <div class="tab" data-panel="statistics" data-i18n="tab.statistics">Statistics</div>
