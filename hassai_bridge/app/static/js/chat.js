@@ -575,13 +575,6 @@ function keepPagePinned() {
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
   try { window.visualViewport?.scrollTo?.(0, 0); } catch (_) { /* ignore */ }
-  try {
-    if (window.parent && window.parent !== window) {
-      window.parent.scrollTo(0, 0);
-      const se = window.parent.document.scrollingElement;
-      if (se) se.scrollTop = 0;
-    }
-  } catch (_) { /* iframe parent blocked */ }
 }
 
 function lockAppHeight() {
@@ -593,55 +586,53 @@ function lockAppHeight() {
   }
 }
 
+/** Visible bottom, in iframe CSS pixels. Prefer parent visualViewport (HA + browser chrome). */
+function visualBottomPx() {
+  const bottoms = [];
+  const local = window.visualViewport;
+  if (local) bottoms.push(local.offsetTop + local.height);
+  bottoms.push(window.innerHeight || document.documentElement.clientHeight || 0);
+
+  try {
+    const parentWin = window.parent && window.parent !== window ? window.parent : null;
+    const frame = window.frameElement;
+    const pvv = parentWin?.visualViewport;
+    if (parentWin && pvv) {
+      const frameTop = frame ? frame.getBoundingClientRect().top : 0;
+      bottoms.push(pvv.offsetTop + pvv.height - frameTop);
+    }
+  } catch (_) { /* ignore */ }
+
+  try {
+    const topWin = window.top && window.top !== window ? window.top : null;
+    const tvv = topWin?.visualViewport;
+    const frame = window.frameElement;
+    if (tvv && frame && topWin !== window.parent) {
+      const frameTop = frame.getBoundingClientRect().top;
+      bottoms.push(tvv.offsetTop + tvv.height - frameTop);
+    }
+  } catch (_) { /* ignore */ }
+
+  try {
+    const vk = navigator.virtualKeyboard;
+    if (vk?.boundingRect?.height > 0) bottoms.push(vk.boundingRect.top);
+  } catch (_) { /* ignore */ }
+
+  const valid = bottoms.filter((n) => Number.isFinite(n) && n > 64);
+  return valid.length ? Math.min(...valid) : (window.innerHeight || 0);
+}
+
 function placeComposer() {
   const composer = document.querySelector(".chat-composer");
-  const shell = document.getElementById("chatShell");
-  const vv = window.visualViewport;
-  const layoutH = window.innerHeight || document.documentElement.clientHeight || 0;
-  const pan = vv ? Math.max(0, Math.round(vv.offsetTop)) : 0;
-  if (shell) shell.style.transform = pan ? `translateY(${pan}px)` : "";
   if (!composer) return;
   const height = composer.offsetHeight || 92;
-  let visualBottom = layoutH;
-  if (vv) visualBottom = vv.offsetTop + vv.height;
-  else {
-    const vk = navigator.virtualKeyboard;
-    if (vk?.boundingRect?.height > 0) visualBottom = vk.boundingRect.top;
-  }
-  composer.style.top = `${Math.max(0, Math.round(visualBottom - height))}px`;
-  composer.style.bottom = "auto";
+  const layoutH = window.innerHeight || document.documentElement.clientHeight || 0;
+  const visBottom = visualBottomPx();
+  const inset = Math.max(0, Math.round(layoutH - visBottom));
+  composer.style.top = "auto";
+  composer.style.bottom = `${inset}px`;
+  document.documentElement.style.setProperty("--kb-offset", `${inset}px`);
   document.documentElement.style.setProperty("--composer-space", `${height}px`);
-}
-
-let _parentOverflow = null;
-function lockParentScroll() {
-  try {
-    if (_parentOverflow || !window.parent || window.parent === window) return;
-    const html = window.parent.document.documentElement;
-    const body = window.parent.document.body;
-    _parentOverflow = {
-      html: html.style.overflow,
-      body: body.style.overflow,
-      htmlOh: html.style.overscrollBehavior,
-    };
-    html.style.overflow = "hidden";
-    body.style.overflow = "hidden";
-    html.style.overscrollBehavior = "none";
-  } catch (_) { /* ignore */ }
-}
-
-function unlockParentScroll() {
-  try {
-    if (!_parentOverflow || !window.parent || window.parent === window) return;
-    const html = window.parent.document.documentElement;
-    const body = window.parent.document.body;
-    html.style.overflow = _parentOverflow.html;
-    body.style.overflow = _parentOverflow.body;
-    html.style.overscrollBehavior = _parentOverflow.htmlOh;
-    _parentOverflow = null;
-  } catch (_) {
-    _parentOverflow = null;
-  }
 }
 
 function syncKeyboardLayout() {
@@ -650,8 +641,6 @@ function syncKeyboardLayout() {
   placeComposer();
   const focused = document.activeElement === inputEl;
   document.body.classList.toggle("chat-kb-open", focused);
-  if (focused) lockParentScroll();
-  else unlockParentScroll();
   if (welcomeEl && !welcomeEl.hidden && mainEl) mainEl.scrollTop = 0;
 }
 
@@ -684,7 +673,6 @@ try {
 
 inputEl.addEventListener("focus", () => {
   keepPagePinned();
-  lockParentScroll();
   syncKeyboardLayout();
   startKeyboardSync();
   requestAnimationFrame(syncKeyboardLayout);
@@ -694,14 +682,16 @@ inputEl.addEventListener("focus", () => {
 });
 inputEl.addEventListener("blur", () => {
   stopKeyboardSync();
-  setTimeout(() => {
-    syncKeyboardLayout();
-    unlockParentScroll();
-  }, 50);
+  setTimeout(syncKeyboardLayout, 50);
 });
+document.querySelector(".chat-composer")?.addEventListener("pointerdown", () => {
+  startKeyboardSync();
+  syncKeyboardLayout();
+}, { passive: true });
 window.addEventListener("scroll", keepPagePinned, { passive: true });
 window.addEventListener("resize", syncKeyboardLayout, { passive: true });
 window.addEventListener("orientationchange", () => {
+  window.__hassaiRestH = 0;
   setTimeout(syncKeyboardLayout, 80);
   setTimeout(syncKeyboardLayout, 320);
 });
@@ -710,6 +700,18 @@ window.visualViewport?.addEventListener("scroll", () => {
   keepPagePinned();
   syncKeyboardLayout();
 });
+try {
+  const pvv = window.parent?.visualViewport;
+  pvv?.addEventListener("resize", syncKeyboardLayout);
+  pvv?.addEventListener("scroll", syncKeyboardLayout);
+} catch (_) { /* ignore */ }
+try {
+  const tvv = window.top?.visualViewport;
+  if (tvv && tvv !== window.visualViewport && tvv !== window.parent?.visualViewport) {
+    tvv.addEventListener("resize", syncKeyboardLayout);
+    tvv.addEventListener("scroll", syncKeyboardLayout);
+  }
+} catch (_) { /* ignore */ }
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
     panelHiddenAt = Date.now();
@@ -930,3 +932,6 @@ formEl.addEventListener("submit", async (e) => {
   }
   syncKeyboardLayout();
 })();
+
+lockAppHeight();
+syncKeyboardLayout();

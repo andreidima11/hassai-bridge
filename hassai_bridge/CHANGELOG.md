@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.25-beta
+
+- **HA in mobile browser:** chat bar sits above the browser toolbar (not under Safari/Chrome)
+- **Keyboard in Ingress:** bar lifts using the **parent** visual viewport (iframe `visualViewport` does not shrink in HA sidebar)
+
 ## 0.2.24-beta
 
 - **Repo is add-on only** — app lives in `hassai_bridge/app/` (no separate root copy that could ship stale UI)

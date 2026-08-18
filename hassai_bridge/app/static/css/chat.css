@@ -22,6 +22,9 @@ html, body {
   height: 100%;
   width: 100%;
   overflow: hidden;
+  position: fixed;
+  inset: 0;
+  overscroll-behavior: none;
 }
 
 [hidden] { display: none !important; }
@@ -567,12 +570,12 @@ body.chat-app:has(#chatWelcome:not([hidden])) .chat-main {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: var(--kb-offset, 0px);
   padding: 8px 20px;
   padding-bottom: max(22px, env(safe-area-inset-bottom));
   background: linear-gradient(180deg, transparent, rgba(13, 15, 20, 0.92) 32%);
   z-index: 100;
-  will-change: top;
+  will-change: bottom;
 }
 
 .chat-form {
