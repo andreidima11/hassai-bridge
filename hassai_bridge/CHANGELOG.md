@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.33-beta
+
+- **Chat UI from vercel/chatbot:** dark tokens, header 56px, overlay sidebar, greeting, user pills, assistant sparkles, sticky composer with arrow-up send
+- Messages still scroll in an `absolute inset-0` pane (no `100dvh`, no iframe resize)
+
 ## 0.2.32-beta
 
 - **Chat layout from vercel/chatbot:** messages scroll in an `absolute inset-0` pane; composer is `sticky` at the bottom of **our** column (not `fixed`, no iframe resize)

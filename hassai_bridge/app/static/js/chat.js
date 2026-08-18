@@ -61,7 +61,8 @@ const I18N = {
     haOk: "Connected to Home Assistant — you can ask about devices and control them here.",
     haToken: "Home Assistant token is present; Core ping failed ({detail}). Chat still works; retry in a moment.",
     haOff: "Not running as a Home Assistant add-on — HA admin tools are off.",
-    welcome: "Your Home Assistant copilot.",
+    welcome: "What can I help with?",
+    welcomeHint: "Ask about devices, dashboards, or Home Assistant.",
     placeholder: "Message HASSAI…",
     settings: "Settings",
     thinking: "Thinking",
@@ -101,7 +102,8 @@ const I18N = {
     haOk: "Conectat la Home Assistant — poți întreba despre dispozitive și le poți controla de aici.",
     haToken: "Token-ul Home Assistant e prezent; ping-ul către Core a eșuat ({detail}). Chat-ul merge; reîncearcă imediat.",
     haOff: "Nu rulează ca add-on Home Assistant — uneltele de admin HA sunt oprite.",
-    welcome: "Copilotul tău pentru Home Assistant.",
+    welcome: "Cu ce te pot ajuta?",
+    welcomeHint: "Întreabă despre dispozitive, dashboard-uri sau Home Assistant.",
     placeholder: "Mesaj către HASSAI…",
     settings: "Setări",
     thinking: "Gândește",
@@ -180,12 +182,17 @@ function applyChatI18n() {
   document.documentElement.lang = getChatLang();
   const title = document.getElementById("chatSidebarTitle");
   const neu = document.getElementById("newChatBtn");
+  const welcomeTitle = document.getElementById("chatWelcomeTitle");
   const welcomeText = document.getElementById("chatWelcomeText");
   const settings = document.getElementById("chatSettingsLink");
   const toggle = document.getElementById("sidebarToggle");
   if (title) title.textContent = tr("chats");
-  if (neu) neu.textContent = tr("newChat");
-  if (welcomeText) welcomeText.textContent = tr("welcome");
+  if (neu) {
+    neu.title = tr("newChat");
+    neu.setAttribute("aria-label", tr("newChat"));
+  }
+  if (welcomeTitle) welcomeTitle.textContent = tr("welcome");
+  if (welcomeText) welcomeText.textContent = tr("welcomeHint");
   if (inputEl) inputEl.placeholder = tr("placeholder");
   if (settings) {
     settings.title = tr("settings");
@@ -248,13 +255,19 @@ function appendMessage(role, content, { error = false, streaming = false } = {})
   const wrap = document.createElement("div");
   wrap.className = `msg msg-${role}${error ? " msg-error" : ""}${streaming ? " streaming" : ""}`;
 
-  const roleEl = document.createElement("div");
-  roleEl.className = "msg-role";
-  roleEl.textContent = role === "user" ? tr("you") : "HASSAI";
-
   let traceEl = null;
   let thinkingEl = null;
+  let col = wrap;
   if (role === "assistant") {
+    const avatar = document.createElement("div");
+    avatar.className = "msg-avatar";
+    avatar.innerHTML =
+      '<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2.5 0.5V0H3.5V0.5C3.5 1.60457 4.39543 2.5 5.5 2.5H6V3V3.5H5.5C4.39543 3.5 3.5 4.39543 3.5 5.5V6H3H2.5V5.5C2.5 4.39543 1.60457 3.5 0.5 3.5H0V3V2.5H0.5C1.60457 2.5 2.5 1.60457 2.5 0.5Z"/><path fill="currentColor" d="M14.5 4.5V5H13.5V4.5C13.5 3.94772 13.0523 3.5 12.5 3.5H12V3V2.5H12.5C13.0523 2.5 13.5 2.05228 13.5 1.5V1H14H14.5V1.5C14.5 2.05228 14.9477 2.5 15.5 2.5H16V3V3.5H15.5C14.9477 3.5 14.5 3.94772 14.5 4.5Z"/><path fill="currentColor" d="M8.40706 4.92939L8.5 4H9.5L9.59294 4.92939C9.82973 7.29734 11.7027 9.17027 14.0706 9.40706L15 9.5V10.5L14.0706 10.5929C11.7027 10.8297 9.82973 12.7027 9.59294 15.0706L9.5 16H8.5L8.40706 15.0706C8.17027 12.7027 6.29734 10.8297 3.92939 10.5929L3 10.5V9.5L3.92939 9.40706C6.29734 9.17027 8.17027 7.29734 8.40706 4.92939Z"/></svg>';
+    col = document.createElement("div");
+    col.className = "msg-col";
+    wrap.appendChild(avatar);
+    wrap.appendChild(col);
+
     thinkingEl = document.createElement("div");
     thinkingEl.className = "agent-thinking is-collapsed";
     thinkingEl.hidden = true;
@@ -277,16 +290,14 @@ function appendMessage(role, content, { error = false, streaming = false } = {})
 
     thinkingEl.appendChild(head);
     thinkingEl.appendChild(traceEl);
+    col.appendChild(thinkingEl);
   }
 
   const bubble = document.createElement("div");
   bubble.className = "msg-bubble msg-answer";
   bubble.textContent = content || "";
   if (role === "assistant" && !content) bubble.hidden = true;
-
-  wrap.appendChild(roleEl);
-  if (thinkingEl) wrap.appendChild(thinkingEl);
-  wrap.appendChild(bubble);
+  col.appendChild(bubble);
   messagesEl.appendChild(wrap);
   scrollChatToBottom(true);
   return { wrap, bubble, traceEl, thinkingEl };
@@ -567,10 +578,9 @@ function onPanelReopen() {
 }
 
 function autosize() {
-  inputEl.style.height = "24px";
-  const next = Math.min(Math.max(inputEl.scrollHeight, 24), 160);
+  inputEl.style.height = "44px";
+  const next = Math.min(Math.max(inputEl.scrollHeight, 44), 160);
   inputEl.style.height = next + "px";
-  formEl.style.alignItems = next > 28 ? "flex-end" : "center";
 }
 
 inputEl.addEventListener("input", autosize);
