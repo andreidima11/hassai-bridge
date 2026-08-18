@@ -30,6 +30,7 @@
   <link rel="stylesheet" href="__ASSET_PREFIX__/static/css/chat.css?v=__CACHE_BUSTER__">
 </head>
 <body class="chat-app">
+  <div class="chat-pin" id="chatPin">
   <button type="button" class="chat-sidebar-toggle" id="sidebarToggle" title="Chats" aria-label="Chats">
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
   </button>
@@ -59,23 +60,24 @@
       </div>
       <div class="chat-messages" id="chatMessages" hidden></div>
     </main>
-
-    <footer class="chat-composer">
-      <form class="chat-form" id="chatForm" autocomplete="off">
-        <textarea
-          id="chatInput"
-          class="chat-input"
-          rows="1"
-          placeholder="Message HASSAI…"
-          enterkeyhint="send"
-          aria-label="Message"
-        ></textarea>
-        <button type="submit" class="chat-send" id="chatSend" aria-label="Send">
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
-        </button>
-      </form>
-    </footer>
   </div>
+  </div>
+
+  <footer class="chat-composer">
+    <form class="chat-form" id="chatForm" autocomplete="off">
+      <textarea
+        id="chatInput"
+        class="chat-input"
+        rows="1"
+        placeholder="Message HASSAI…"
+        enterkeyhint="send"
+        aria-label="Message"
+      ></textarea>
+      <button type="submit" class="chat-send" id="chatSend" aria-label="Send">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </form>
+  </footer>
 
   <div class="hassai-build-stamp" id="hassaiBuildStamp" aria-hidden="true"></div>
   <script src="__ASSET_PREFIX__/static/js/chat.js?v=__CACHE_BUSTER__"></script>

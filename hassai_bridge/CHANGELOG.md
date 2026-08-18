@@ -1,5 +1,9 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.26-beta
+
+- **HA Companion app:** tapping the chat bar no longer pushes the whole page up. Logo/settings stay put; only the message bar lifts with the keyboard (cancels WebView pan)
+
 ## 0.2.25-beta
 
 - **HA in mobile browser:** chat bar sits above the browser toolbar (not under Safari/Chrome)

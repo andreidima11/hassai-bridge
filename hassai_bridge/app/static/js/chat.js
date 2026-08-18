@@ -635,9 +635,37 @@ function placeComposer() {
   document.documentElement.style.setProperty("--composer-space", `${height}px`);
 }
 
+function pagePanPx() {
+  let pan = 0;
+  const vv = window.visualViewport;
+  if (vv) pan = Math.max(pan, Math.round(vv.offsetTop || 0));
+  try {
+    const frame = window.frameElement;
+    if (frame) {
+      const top = frame.getBoundingClientRect().top;
+      if (document.activeElement !== inputEl) window.__hassaiFrameTop = top;
+      else if (typeof window.__hassaiFrameTop === "number") {
+        pan = Math.max(pan, Math.round(window.__hassaiFrameTop - top));
+      }
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    const pvv = window.parent?.visualViewport;
+    if (pvv) pan = Math.max(pan, Math.round(pvv.offsetTop || 0));
+  } catch (_) { /* ignore */ }
+  return Math.max(0, pan);
+}
+
+function pinPage() {
+  const pin = document.getElementById("chatPin");
+  const pan = pagePanPx();
+  if (pin) pin.style.transform = pan ? `translateY(${pan}px)` : "";
+}
+
 function syncKeyboardLayout() {
   keepPagePinned();
   lockAppHeight();
+  pinPage();
   placeComposer();
   const focused = document.activeElement === inputEl;
   document.body.classList.toggle("chat-kb-open", focused);

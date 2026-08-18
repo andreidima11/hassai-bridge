@@ -48,8 +48,7 @@ body.chat-app {
     radial-gradient(900px 500px at 100% 0%, rgba(46, 204, 113, 0.06), transparent 50%),
     var(--bg);
   color: var(--text);
-  display: flex;
-  flex-direction: column;
+  display: block;
   position: fixed;
   top: 0;
   left: 0;
@@ -60,6 +59,16 @@ body.chat-app {
   overflow: hidden;
   overscroll-behavior: none;
   touch-action: manipulation;
+}
+
+.chat-pin {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  will-change: transform;
 }
 
 .chat-shell {
