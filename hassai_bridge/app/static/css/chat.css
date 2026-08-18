@@ -81,10 +81,6 @@ body.chat-app {
   overflow: hidden;
 }
 
-body.chat-kb-dock .chat-composer {
-  order: -1;
-}
-
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 

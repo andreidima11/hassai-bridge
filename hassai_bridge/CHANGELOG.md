@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.31-beta
+
+- **Stop touching the Home Assistant iframe** (0.2.30 resized the parent panel and broke the UI)
+- Chat layout matches **Hyve**: header, `flex: 1` messages, composer at the bottom of **our** column — no `vh`/`dvh`, no parent `scrollTo` / iframe height hacks
+
 ## 0.2.30-beta
 
 - **Rebuild chat layout from scratch** (keyboard kept pushing the HA header)
