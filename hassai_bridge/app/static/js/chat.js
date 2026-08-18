@@ -569,11 +569,6 @@ inputEl.addEventListener("keydown", (e) => {
   }
 });
 
-inputEl.addEventListener("focus", () => {
-  requestAnimationFrame(() => {
-    inputEl.scrollIntoView({ block: "end", inline: "nearest" });
-  });
-});
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") {
     panelHiddenAt = Date.now();

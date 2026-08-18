@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.29-beta
+
+- **Keyboard / HA header:** `html`, `body` and `.chat-shell` use `height: 100dvh; max-height: 100dvh` so the panel tracks the mobile visual viewport when the keyboard opens or closes. Fallback `height: 100%` for older browsers.
+- Chat is a flex column: messages `flex: 1; min-height: 0; overflow-y: auto`, composer `flex: 0 0 auto` — no `position: fixed` on the shell
+- Gear / menu / sidebar are `absolute` inside the iframe, not `fixed` to the visual viewport
+- Removed `scrollIntoView` on focus (it can pan the parent Home Assistant page)
+
 ## 0.2.28-beta
 
 - **Keyboard like Zigbee2MQTT:** do not overlay/pan the page. The iframe document can scroll, and the layout viewport **resizes** with the keyboard (`interactive-widget=resizes-content`) so the Home Assistant header stays put
