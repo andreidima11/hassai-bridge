@@ -278,12 +278,13 @@ export default function App() {
   }, [refreshSessions]);
 
   useEffect(() => {
+    const shouldSkipReset = () => Date.now() < pickerGuardUntil.current;
     const onVis = () => {
       if (document.visibilityState === "hidden") {
         hiddenAt.current = Date.now();
         return;
       }
-      if (Date.now() < pickerGuardUntil.current) {
+      if (shouldSkipReset()) {
         hiddenAt.current = 0;
         return;
       }
@@ -297,8 +298,15 @@ export default function App() {
       if (messagesRef.current.length > 0 || attachmentsRef.current.length > 0 || input.trim()) return;
       startNewChat({ ephemeral: true });
     };
+    const onFocus = () => {
+      if (shouldSkipReset()) hiddenAt.current = 0;
+    };
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [busy, input, startNewChat]);
 
   const stopGeneration = useCallback(() => {
@@ -559,7 +567,7 @@ export default function App() {
             onPickerSettled={() => {
               window.setTimeout(() => {
                 pickerGuardUntil.current = 0;
-              }, 2500);
+              }, 10000);
             }}
             onProviderChange={changeProvider}
             onProviderModelChange={updateProviderModel}
