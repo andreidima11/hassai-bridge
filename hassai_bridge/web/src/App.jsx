@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Composer } from "./components/Composer.jsx";
+import { WelcomeHero } from "./components/WelcomeHero.jsx";
 import { ChatWindowIcon, GearIcon } from "./components/Icons.jsx";
 import { Messages } from "./components/Messages.jsx";
 import { Sidebar } from "./components/Sidebar.jsx";
@@ -400,12 +400,7 @@ export default function App() {
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <Messages
-            greeting={
-              <div className="flex flex-col items-center px-4">
-                <div className="text-center text-[28px] font-semibold tracking-tight text-foreground">{t("welcome")}</div>
-                <div className="mt-2 text-center text-[15px] text-muted-foreground">{t("welcomeHint")}</div>
-              </div>
-            }
+            greeting={<WelcomeHero hint={t("welcomeHint")} title={t("welcome")} />}
             lang={lang}
             messages={messages}
           />

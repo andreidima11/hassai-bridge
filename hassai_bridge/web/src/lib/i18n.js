@@ -99,7 +99,7 @@ const I18N = {
     untitled: "Conversație nouă",
     deleteConfirm: "Ștergi această conversație?",
     emptyReply: "Răspuns gol de la provider. Verifică Setări → URL, cheie API și model.",
-    welcome: "Cu ce te pot ajuta?",
+    welcome: "Cu ce te pot ajuta azi?",
     welcomeHint: "Întreabă despre dispozitive, dashboard-uri sau Home Assistant.",
     placeholder: "Mesaj către HASSAI…",
     stop: "Oprește",
