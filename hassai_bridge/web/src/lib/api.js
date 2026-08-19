@@ -24,6 +24,9 @@ export async function readError(resp) {
     const j = JSON.parse(errText);
     return j?.error?.message || j?.detail || `HTTP ${resp.status}`;
   } catch {
+    if (/^\s*</.test(errText) || /<!doctype/i.test(errText)) {
+      return `HTTP ${resp.status}: server returned HTML instead of JSON. Check provider URL and API key.`;
+    }
     return errText ? errText.slice(0, 240) : `HTTP ${resp.status}`;
   }
 }

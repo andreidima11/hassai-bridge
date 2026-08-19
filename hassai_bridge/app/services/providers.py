@@ -6,6 +6,7 @@ All providers use the OpenAI-compatible /v1/chat/completions format.
 """
 
 import re
+import json
 import httpx
 import asyncio
 import logging
@@ -47,7 +48,7 @@ PROVIDER_PRESETS = {
     },
     "grok": {
         "name": "Grok (xAI)",
-        "base_url": "https://api.x.ai",
+        "base_url": "https://api.x.ai/v1",
         "requires_key": True,
     },
     "deepseek": {
@@ -172,7 +173,10 @@ def get_secondary_provider_by_id(provider_id: str) -> dict | None:
 
 def _build_headers(provider: dict, *, extra: dict | None = None) -> dict:
     """Build request headers including auth if needed."""
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
     api_key = provider.get("api_key", "")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
@@ -188,7 +192,7 @@ def _normalize_base_url(raw: str) -> str:
     Strip known suffixes so we get the versioned base (e.g. https://api.x.ai/v1).
     """
     url = raw.rstrip("/")
-    url = re.sub(r"/(chat/completions|completions|responses|models|embeddings)$", "", url)
+    url = re.sub(r"/(chat/completions|completions|responses|models|embeddings|images/generations|images/edits)$", "", url)
     return url
 
 
@@ -275,8 +279,17 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
                 await asyncio.sleep(_RETRY_BACKOFF[attempt])
                 continue
             if resp.status_code >= 400:
-                log.error(f"Provider [{provider.get('name', '?')}] returned {resp.status_code}: {resp.text[:500]}")
-            resp.raise_for_status()
+                body = resp.text[:800]
+                from services.provider_errors import friendly_provider_error
+
+                log.error(
+                    "Provider [%s] returned %s: %s",
+                    provider.get("name", "?"),
+                    resp.status_code,
+                    body[:500],
+                )
+                msg = friendly_provider_error(resp.status_code, body, provider=provider, action="chat")
+                raise httpx.HTTPStatusError(msg, request=resp.request, response=resp)
             return resp.json()
         except httpx.TimeoutException as e:
             last_exc = e
@@ -329,12 +342,11 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
         async with client.stream("POST", url, json=payload, headers=headers, timeout=timeout) as resp:
             if resp.status_code >= 400:
                 body = (await resp.aread())[:800].decode("utf-8", "replace")
-                log.error("Provider [%s] stream %s: %s", provider.get("name", "?"), resp.status_code, body)
-                raise httpx.HTTPStatusError(
-                    f"{resp.status_code} {body[:300]}",
-                    request=resp.request,
-                    response=resp,
-                )
+                from services.provider_errors import friendly_provider_error
+
+                log.error("Provider [%s] stream %s: %s", provider.get("name", "?"), resp.status_code, body[:500])
+                msg = friendly_provider_error(resp.status_code, body, provider=provider, action="chat stream")
+                raise httpx.HTTPStatusError(msg, request=resp.request, response=resp)
             async for line in resp.aiter_lines():
                 if line.startswith("data: "):
                     yield line + "\n\n"
@@ -356,9 +368,33 @@ async def list_models(provider: dict | None = None) -> list[dict]:
 
     client = _get_client()
     resp = await client.get(url, headers=headers, timeout=15)
-    resp.raise_for_status()
-    data = resp.json()
+    body = resp.text
+    if resp.status_code >= 400:
+        from services.provider_errors import friendly_provider_error
+
+        raise httpx.HTTPStatusError(
+            friendly_provider_error(resp.status_code, body, provider=provider, action="model list"),
+            request=resp.request,
+            response=resp,
+        )
+    ctype = resp.headers.get("content-type", "")
+    if "json" not in ctype.lower() and looks_like_html_body(body):
+        from services.provider_errors import friendly_provider_error
+
+        raise ValueError(friendly_provider_error(resp.status_code, body, provider=provider, action="model list"))
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError as exc:
+        from services.provider_errors import friendly_provider_error
+
+        raise ValueError(friendly_provider_error(resp.status_code, body, provider=provider, action="model list")) from exc
     return normalize_model_list(data)
+
+
+def looks_like_html_body(text: str) -> bool:
+    from services.provider_errors import looks_like_html
+
+    return looks_like_html(text)
 
 
 def normalize_model_entry(entry) -> dict | None:
@@ -385,9 +421,15 @@ def normalize_model_list(payload) -> list[dict]:
     """Extract and dedupe model rows from assorted /v1/models response shapes."""
     raw = payload
     if isinstance(raw, dict):
-        raw = raw.get("data") or raw.get("models") or raw.get("result") or []
+        raw = (
+            raw.get("data")
+            or raw.get("models")
+            or raw.get("result")
+            or raw.get("items")
+            or []
+        )
         if isinstance(raw, dict):
-            raw = raw.get("data") or raw.get("models") or []
+            raw = raw.get("data") or raw.get("models") or raw.get("items") or []
     if not isinstance(raw, list):
         return []
 

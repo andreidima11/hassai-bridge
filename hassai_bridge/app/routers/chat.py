@@ -2259,12 +2259,15 @@ async def chat_completions(request: Request):
 
 
 async def _sse_error(message: str):
+    from services.provider_errors import sanitize_error_message
+
+    safe = sanitize_error_message(message)
     payload = json.dumps({
         "id": "hassai-error",
         "object": "chat.completion.chunk",
         "choices": [{
             "index": 0,
-            "delta": {"role": "assistant", "content": message},
+            "delta": {"role": "assistant", "content": safe},
             "finish_reason": "stop",
         }],
     })
