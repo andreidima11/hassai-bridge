@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.41-beta
+
+- **Thinking panel:** Vercel-style collapsible steps — no duplicate „Gândește”, live step label (e.g. „Dashboard · home”), timeline with spinner/check, auto-collapse after reply
+- Dedupe activity events from SSE + poll (fixes double step timing)
+
 ## 0.2.40-beta
 
 - **Fix `ha_delete_dashboard` / `ha_update_dashboard`:** Home Assistant requires `dashboard_id` (from `ha_list_dashboards`), not `url_path`
