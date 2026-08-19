@@ -44,6 +44,7 @@ class SettingsUpdate(BaseModel):
     performance: dict | None = None
     security: dict | None = None
     system_prompt: str | None = None
+    ha_agent_prompt: str | None = None
     knowledge_cutoff: str | None = None
     language: str | None = None
     active_provider: str | None = None
@@ -53,6 +54,12 @@ class SettingsUpdate(BaseModel):
 @router.get("/")
 async def get_settings():
     return load_config()
+
+
+@router.get("/ha-agent-prompt-default")
+async def ha_agent_prompt_default():
+    from services.entity_tools import DEFAULT_HA_AGENT_PROMPT
+    return {"prompt": DEFAULT_HA_AGENT_PROMPT}
 
 
 @router.put("/")
@@ -70,6 +77,8 @@ async def update_settings(data: SettingsUpdate):
         cfg.setdefault("security", {}).update(data.security)
     if data.system_prompt is not None:
         cfg["system_prompt"] = data.system_prompt
+    if data.ha_agent_prompt is not None:
+        cfg["ha_agent_prompt"] = data.ha_agent_prompt
     if data.knowledge_cutoff is not None:
         cfg["knowledge_cutoff"] = data.knowledge_cutoff
     if data.language is not None:

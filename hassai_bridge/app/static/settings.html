@@ -353,6 +353,15 @@
         <textarea id="systemPrompt" rows="4"></textarea>
       </div>
 
+      <div class="card">
+        <h2 data-i18n="settings.haAgentPrompt">Home Assistant agent prompt</h2>
+        <p class="card-muted" data-i18n="settings.haAgentPromptDesc">Operational instructions for entities, dashboards, and HA tools. Stored in English. Use {tools} for the live tool list. Leave empty to use the built-in default.</p>
+        <textarea id="haAgentPrompt" rows="12" spellcheck="false"></textarea>
+        <div class="btn-row" style="margin-top:10px">
+          <button type="button" class="btn btn-sm" onclick="resetHaAgentPrompt()" data-i18n="settings.haAgentPromptReset">Reset to default (English)</button>
+        </div>
+      </div>
+
       <div class="btn-row">
         <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
       </div>

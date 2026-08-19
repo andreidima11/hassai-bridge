@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.42-beta
+
+- **Entity tools v1:** improved `ha_list_entities` (all domains, pagination, sort, state filter), `ha_get_state` (full attributes, timestamps, capabilities), `ha_call_service` (changed states + optional verify), new `ha_list_services`
+- **`entity_tools.py`** + unit tests (filter, format, services index)
+- **Home Assistant agent prompt** configurable in Settings → General (English default, `{tools}` placeholder); separate from personality system prompt
+- Agent loop: primary provider for entity tools; do not repeat-skip verify reads (`ha_get_state`)
+
 ## 0.2.41-beta
 
 - **Thinking panel:** Vercel-style collapsible steps — no duplicate „Gândește”, live step label (e.g. „Dashboard · home”), timeline with spinner/check, auto-collapse after reply

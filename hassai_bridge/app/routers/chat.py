@@ -40,6 +40,7 @@ from services.memory_engine import (
 from services.web_scraper import search_and_fetch
 from services import homeassistant as ha_api
 from services import lovelace_tools as lt
+from services import entity_tools as et
 
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
@@ -90,7 +91,8 @@ def _tool_names(tool_calls: list[dict]) -> list[str]:
 
 
 def _recall_provider(tool_calls: list[dict], active: dict, secondary: dict | None) -> dict:
-    if any(name in lt.HA_LOVELACE_TOOLS for name in _tool_names(tool_calls)):
+    names = _tool_names(tool_calls)
+    if any(name in lt.HA_LOVELACE_TOOLS or name in et.HA_ENTITY_TOOLS for name in names):
         return active
     return secondary or active
 
@@ -98,6 +100,11 @@ def _recall_provider(tool_calls: list[dict], active: dict, secondary: dict | Non
 def _should_skip_repeated_tool(name: str, args: dict, fingerprints: list[str], fp: str) -> bool:
     if name in lt.HA_MUTATING_TOOLS:
         return False
+    if name in et.HA_ENTITY_TOOLS:
+        if name == "ha_get_state":
+            return False
+        if name == "ha_list_entities" and args.get("offset"):
+            return False
     if name == "ha_get_dashboard" and args.get("include_cards"):
         return False
     return fingerprints.count(fp) >= _AGENT_REPEAT_LIMIT
@@ -1378,7 +1385,7 @@ async def chat_completions(request: Request):
         system_parts.append(mem_ctx)
     if search_enabled:
         system_parts.append(_build_search_instruction(cfg))
-    ha_hint = ha_api.ha_system_hint()
+    ha_hint = ha_api.ha_system_hint(cfg)
     if ha_hint:
         system_parts.append(ha_hint)
     system_parts.append(_agentic_instruction())

@@ -1,0 +1,37 @@
+[
+  {
+    "entity_id": "light.living",
+    "state": "on",
+    "attributes": {"friendly_name": "Living Room", "brightness": 180},
+    "last_changed": "2026-01-01T10:00:00+00:00",
+    "last_updated": "2026-01-01T10:00:00+00:00"
+  },
+  {
+    "entity_id": "light.kitchen",
+    "state": "off",
+    "attributes": {"friendly_name": "Kitchen"},
+    "last_changed": "2026-01-01T09:00:00+00:00",
+    "last_updated": "2026-01-01T09:00:00+00:00"
+  },
+  {
+    "entity_id": "sensor.temp",
+    "state": "21.5",
+    "attributes": {"friendly_name": "Temperature", "unit_of_measurement": "°C"}
+  },
+  {
+    "entity_id": "update.bridge",
+    "state": "off",
+    "attributes": {"friendly_name": "Bridge Update"}
+  },
+  {
+    "entity_id": "climate.living",
+    "state": "heat",
+    "attributes": {
+      "friendly_name": "Living Thermostat",
+      "hvac_modes": ["off", "heat", "cool"],
+      "temperature": 21,
+      "min_temp": 16,
+      "max_temp": 28
+    }
+  }
+]

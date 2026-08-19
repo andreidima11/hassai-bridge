@@ -19,6 +19,7 @@ import httpx
 import yaml
 
 from . import lovelace_tools as lt
+from . import entity_tools as et
 
 _DASHBOARD_URL = {
     "type": "string",
@@ -34,11 +35,10 @@ _MAX_JSON = 14_000
 _HA_CONFIG = Path("/config")
 _ALLOWED_FILE_SUFFIXES = {".yaml", ".yml", ".json", ".txt", ".log", ".conf", ".cfg"}
 
-_DEFAULT_DOMAINS = (
-    "light", "switch", "climate", "cover", "fan", "lock", "media_player",
-    "vacuum", "scene", "script", "input_boolean", "input_button",
-    "binary_sensor", "sensor", "automation", "person", "device_tracker",
-)
+_DEFAULT_DOMAINS = et._LEGACY_DEFAULT_DOMAINS
+
+_STATES_CACHE: dict[str, Any] = {"ts": 0.0, "rows": None}
+_STATES_CACHE_TTL = 8.0
 
 
 def is_available() -> bool:
@@ -205,35 +205,71 @@ def _tool(name: str, spec: dict) -> dict:
 
 _TOOL_SPECS: dict[str, dict] = {
     "ha_list_entities": {
-        "description": "List Home Assistant entities (id, name, state). Filter by domain and/or search.",
+        "description": (
+            "List Home Assistant entities (entity_id, name, state, domain). "
+            "All domains included by default — use domain= or search= to narrow. "
+            "Use offset= for pagination."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "domain": {"type": "string", "description": "e.g. light, switch, climate, automation"},
+                "domain": {"type": "string", "description": "e.g. light, switch, climate, update"},
                 "search": {"type": "string", "description": "Substring on entity_id or friendly_name"},
-                "limit": {"type": "integer", "description": "Default 40, max 80"},
+                "state_filter": {"type": "string", "description": "Exact state value, e.g. on, off, unavailable"},
+                "limit": {"type": "integer", "description": "Default 40, max 120"},
+                "offset": {"type": "integer", "description": "Skip N matches for pagination"},
+                "sort": {"type": "string", "enum": ["entity_id", "name", "state"], "description": "Sort order"},
+                "include_all_domains": {
+                    "type": "boolean",
+                    "description": "Default true — list every domain, not only common ones",
+                },
             },
         },
     },
     "ha_get_state": {
-        "description": "Full state + attributes for one entity.",
+        "description": (
+            "Read one entity state and attributes. "
+            "Use full_attributes for climate/media_player; include_capabilities for service hints."
+        ),
         "parameters": {
             "type": "object",
-            "properties": {"entity_id": {"type": "string"}},
+            "properties": {
+                "entity_id": {"type": "string"},
+                "full_attributes": {"type": "boolean", "description": "Return all attributes (not capped)"},
+                "include_timestamps": {"type": "boolean", "description": "Include last_changed / last_updated"},
+                "include_capabilities": {"type": "boolean", "description": "Summarize controllable fields"},
+            },
             "required": ["entity_id"],
         },
     },
     "ha_call_service": {
-        "description": "Call a Home Assistant service (control devices, reload, etc.).",
+        "description": (
+            "Call a Home Assistant service. Use ha_list_services to discover valid domain.service names. "
+            "Pass entity_id here or entity_id: [list] inside data for multiple targets. "
+            "Set verify=true to read state after the call."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
                 "domain": {"type": "string"},
                 "service": {"type": "string"},
-                "entity_id": {"type": "string"},
+                "entity_id": {"type": "string", "description": "Single entity or omit and use data.entity_id list"},
                 "data": {"type": "object"},
+                "verify": {"type": "boolean", "description": "Run ha_get_state after a successful call"},
             },
             "required": ["domain", "service"],
+        },
+    },
+    "ha_list_services": {
+        "description": (
+            "List available Home Assistant services and common fields. "
+            "Pass domain=light (etc.) to narrow."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Optional domain filter"},
+            },
         },
     },
     "ha_system_info": {
@@ -578,30 +614,17 @@ _TOOL_SPECS: dict[str, dict] = {
 HA_TOOL_NAMES = set(_TOOL_SPECS)
 
 
-def ha_system_hint() -> str:
+def ha_system_hint(cfg: dict | None = None) -> str:
     if not is_available():
         return ""
-    names = ", ".join(sorted(HA_TOOL_NAMES))
-    return (
-        "You are the Home Assistant administrator copilot. Tools: "
-        f"{names}. "
-        "Chain tools in one turn until the job is done — do not stop after a single lookup. "
-        "Diagnose with ha_list_problems + ha_get_logs. "
-        "Dashboards (WebSocket, storage mode): ha_list_dashboards → ha_get_dashboard (summary) → "
-        "ha_create_dashboard / ha_upsert_view / ha_upsert_section / ha_upsert_card / ha_delete_card / ha_delete_view. "
-        "Dashboard metadata: ha_update_dashboard / ha_delete_dashboard (use dashboard_id from ha_list_dashboards). "
-        "Overview/default dashboard uses an empty url_path. A user 'page' is a view (view_path), not url_path. "
-        "Pass dashboard_url (/lovelace/foo or /dashboard-bar/baz) to resolve url_path and view_path. "
-        "Sections views store cards in sections[].cards — pass section_index or create_section=true. "
-        "Nested stack/grid cards: card_path like 2.1. "
-        "YAML dashboards: ha_append_card_yaml or ha_read_file / ha_write_file, then ha_reload what=lovelace confirm=true. "
-        "Lovelace resources: ha_list_lovelace_resources. "
-        "Avoid ha_save_dashboard unless replacing the entire config from a trusted source. "
-        "YAML / configuration.yaml: ha_read_file / ha_write_file then ha_check_config, then ha_reload if needed. "
-        "Mutating tools need confirm=true: set it when the user already asked you to make the change. "
-        "Do not wait for a second confirmation. "
-        "After YAML writes, reload or tell the user to restart if check_config requires it."
-    )
+    if cfg is None:
+        try:
+            from config import load_config
+            cfg = load_config()
+        except Exception:
+            cfg = {}
+    template = (cfg or {}).get("ha_agent_prompt")
+    return et.render_ha_agent_prompt(template or "", sorted(HA_TOOL_NAMES))
 
 
 # ── Dispatch ───────────────────────────────────────
@@ -641,40 +664,33 @@ def _dash_args(args: dict) -> dict:
     return lt.resolve_dashboard_args(args or {})
 
 
+async def _fetch_states_cached() -> list[dict]:
+    now = time.time()
+    cached = _STATES_CACHE.get("rows")
+    if cached is not None and (now - float(_STATES_CACHE.get("ts") or 0)) < _STATES_CACHE_TTL:
+        return cached
+    states = await _core("GET", "/states")
+    if not isinstance(states, list):
+        raise RuntimeError("unexpected states payload")
+    _STATES_CACHE["rows"] = states
+    _STATES_CACHE["ts"] = now
+    return states
+
+
 async def _list_entities(args: dict) -> str:
-    domain = (args.get("domain") or "").strip().lower()
-    search = (args.get("search") or "").strip().lower()
+    states = await _fetch_states_cached()
+    filtered = et.filter_states(states, args)
+    sorted_rows = et.sort_states(filtered, args.get("sort"))
     try:
         limit = int(args.get("limit") or 40)
     except (TypeError, ValueError):
         limit = 40
-    limit = max(1, min(limit, 80))
-
-    states = await _core("GET", "/states")
-    if not isinstance(states, list):
-        return "Error: unexpected states payload"
-
-    rows: list[str] = []
-    for st in states:
-        eid = st.get("entity_id") or ""
-        if domain and not eid.startswith(domain + "."):
-            continue
-        if not domain and not search:
-            d = eid.split(".", 1)[0]
-            if d not in _DEFAULT_DOMAINS:
-                continue
-        attrs = st.get("attributes") or {}
-        fname = str(attrs.get("friendly_name") or "")
-        if search and search not in eid.lower() and search not in fname.lower():
-            continue
-        area = attrs.get("area_id") or ""
-        rows.append(f"{eid}|{fname}|{st.get('state')}|{area}")
-        if len(rows) >= limit:
-            break
-
-    if not rows:
-        return "No matching entities."
-    return "entity_id|name|state|area\n" + "\n".join(rows)
+    try:
+        offset = int(args.get("offset") or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    page, total = et.paginate_states(sorted_rows, limit, offset)
+    return et.format_entity_list(page, total=total, offset=offset, limit=limit)
 
 
 async def _get_state(args: dict) -> str:
@@ -682,16 +698,7 @@ async def _get_state(args: dict) -> str:
     if not entity_id:
         return "Error: entity_id is required"
     state = await _core("GET", f"/states/{entity_id}")
-    eid = state.get("entity_id", "?")
-    attrs = state.get("attributes") or {}
-    name = attrs.get("friendly_name") or eid
-    lines = [f"entity_id: {eid}", f"name: {name}", f"state: {state.get('state')}"]
-    skip = {"friendly_name", "supported_features", "attribution"}
-    interesting = {k: v for k, v in attrs.items() if k not in skip}
-    if interesting:
-        items = list(interesting.items())[:24]
-        lines.append("attributes: " + ", ".join(f"{k}={v!r}" for k, v in items))
-    return "\n".join(lines)
+    return et.format_state_detail(state, args)
 
 
 async def _call_service(args: dict) -> str:
@@ -703,9 +710,35 @@ async def _call_service(args: dict) -> str:
     entity_id = (args.get("entity_id") or "").strip()
     if entity_id:
         data["entity_id"] = entity_id
-    await _core("POST", f"/services/{domain}/{service}", json_body=data)
+    result = await _core("POST", f"/services/{domain}/{service}", json_body=data)
     target = entity_id or data.get("entity_id") or "(no entity_id)"
-    return f"OK: called {domain}.{service} on {target}"
+    lines = [f"OK: called {domain}.{service} on {target}"]
+    if isinstance(result, list) and result:
+        changed = [
+            row.get("entity_id") for row in result if isinstance(row, dict) and row.get("entity_id")
+        ]
+        if changed:
+            preview = ", ".join(changed[:8])
+            if len(changed) > 8:
+                preview += f", … (+{len(changed) - 8})"
+            lines.append(f"changed: {preview}")
+    elif isinstance(result, dict) and result:
+        lines.append(_dump(result, max_chars=4000))
+    verify_id = entity_id or (
+        data.get("entity_id")[0]
+        if isinstance(data.get("entity_id"), list) and data.get("entity_id")
+        else (data.get("entity_id") if isinstance(data.get("entity_id"), str) else "")
+    )
+    if args.get("verify") and verify_id:
+        lines.append("verify:")
+        lines.append(await _get_state({"entity_id": verify_id, "include_capabilities": True}))
+    return "\n".join(lines)
+
+
+async def _list_services(args: dict) -> str:
+    services = await _core("GET", "/services")
+    domain = (args.get("domain") or "").strip().lower() or None
+    return et.format_services_index(services, domain)
 
 
 async def _system_info(_args: dict) -> str:
@@ -1260,6 +1293,7 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_list_entities": _list_entities,
     "ha_get_state": _get_state,
     "ha_call_service": _call_service,
+    "ha_list_services": _list_services,
     "ha_system_info": _system_info,
     "ha_get_logs": _get_logs,
     "ha_list_problems": _list_problems,
