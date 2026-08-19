@@ -59,11 +59,12 @@ export function ensureFreshBuild(serverBuild) {
   }
 }
 
-export function postChat(stream, userText, sessionId, traceId) {
+export function postChat(stream, userText, sessionId, traceId, signal) {
   return fetch(API + "/v1/chat/completions", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
+    signal,
     body: JSON.stringify({
       messages: [{ role: "user", content: userText }],
       stream,

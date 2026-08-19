@@ -46,6 +46,7 @@ export function Thinking({ thinking, lang, streaming = false }) {
   const steps = thinking.steps || [];
   const hasSteps = steps.length > 0;
   const isLive = Boolean(thinking.active || streaming);
+  const canToggle = isLive || hasSteps;
   const [open, setOpen] = useState(isLive || !thinking.collapsed);
   const [autoClosed, setAutoClosed] = useState(false);
 
@@ -81,11 +82,11 @@ export function Thinking({ thinking, lang, streaming = false }) {
       <button
         type="button"
         className="group flex w-fit max-w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default"
-        onClick={() => hasSteps && setOpen((value) => !value)}
-        disabled={!hasSteps}
-        aria-expanded={hasSteps ? open : undefined}
+        onClick={() => canToggle && setOpen((value) => !value)}
+        disabled={!canToggle}
+        aria-expanded={canToggle ? open : undefined}
       >
-        <ChevronIcon className={`mt-px shrink-0 transition-transform duration-200 ${open && hasSteps ? "rotate-180" : ""}`} />
+        <ChevronIcon className={`mt-px shrink-0 transition-transform duration-200 ${open && canToggle ? "rotate-180" : ""}`} />
         {isLive && !hasSteps ? (
           <span className="thinking-shimmer truncate">{headerLabel}</span>
         ) : (
@@ -97,11 +98,19 @@ export function Thinking({ thinking, lang, streaming = false }) {
           </span>
         ) : null}
       </button>
-      {open && hasSteps ? (
+      {open && canToggle ? (
         <div className="mt-0.5 ml-[7px] border-l border-white/10 pl-3.5">
-          {steps.map((step) => (
-            <StepRow key={step.id} lang={lang} step={step} />
-          ))}
+          {hasSteps ? (
+            steps.map((step) => <StepRow key={step.id} lang={lang} step={step} />)
+          ) : isLive ? (
+            <div className="flex items-center gap-2.5 py-1.5 text-[13px] text-muted-foreground">
+              <span
+                className="size-3.5 animate-spin rounded-full border-2 border-muted-foreground/25 border-t-foreground/90"
+                aria-hidden="true"
+              />
+              <span className="thinking-shimmer">{headerLabel}</span>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </div>

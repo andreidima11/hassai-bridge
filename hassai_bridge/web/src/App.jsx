@@ -26,8 +26,8 @@ function sessionTitle(row, lang) {
   return raw ? raw.slice(0, 56) : tr(lang, "untitled");
 }
 
-async function completeNonStream(userText, sessionId, traceId, onActivity) {
-  const resp = await postChat(false, userText, sessionId, traceId);
+async function completeNonStream(userText, sessionId, traceId, onActivity, signal) {
+  const resp = await postChat(false, userText, sessionId, traceId, signal);
   if (!resp.ok) throw new Error(await readError(resp));
   const data = await resp.json();
   if (Array.isArray(data.hassai_activity)) data.hassai_activity.forEach(onActivity);
@@ -36,8 +36,8 @@ async function completeNonStream(userText, sessionId, traceId, onActivity) {
   return text;
 }
 
-async function completeStream(userText, sessionId, traceId, onActivity, onDelta) {
-  const resp = await postChat(true, userText, sessionId, traceId);
+async function completeStream(userText, sessionId, traceId, onActivity, onDelta, signal) {
+  const resp = await postChat(true, userText, sessionId, traceId, signal);
   if (!resp.ok) throw new Error(await readError(resp));
   if (!resp.body) throw new Error("No stream body");
   const reader = resp.body.getReader();
@@ -45,6 +45,10 @@ async function completeStream(userText, sessionId, traceId, onActivity, onDelta)
   let buffer = "";
   let full = "";
   while (true) {
+    if (signal?.aborted) {
+      await reader.cancel().catch(() => {});
+      throw new DOMException("Aborted", "AbortError");
+    }
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
@@ -86,6 +90,8 @@ export default function App() {
   const sessionIdRef = useRef("");
   const bootDone = useRef(false);
   const hiddenAt = useRef(0);
+  const abortRef = useRef(null);
+  const stopPollRef = useRef(null);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -218,6 +224,29 @@ export default function App() {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [busy, startNewChat]);
 
+  const stopGeneration = useCallback(() => {
+    abortRef.current?.abort();
+    stopPollRef.current?.();
+    stopPollRef.current = null;
+    setBusy(false);
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (!m.streaming) return m;
+        const thinking = m.thinking || emptyThinking(t("thinking"));
+        const label = finishThinkingLabel(lang, thinking);
+        const content = m.content?.trim() ? m.content : t("stopped");
+        return {
+          ...m,
+          content,
+          streaming: false,
+          thinking: label
+            ? { ...thinking, active: false, collapsed: false, visible: true, label }
+            : { ...thinking, active: false, collapsed: false, visible: true },
+        };
+      }),
+    );
+  }, [lang, t]);
+
   const send = async (event) => {
     event.preventDefault();
     const text = input.trim();
@@ -251,6 +280,11 @@ export default function App() {
     setInput("");
     setBusy(true);
 
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+
     const seenActivity = new Set();
     const patchAssistant = (fn) => {
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
@@ -266,21 +300,24 @@ export default function App() {
       }));
     };
     const stopPoll = startActivityPoll(traceId, onActivity);
+    stopPollRef.current = stopPoll;
 
     try {
       let full = "";
       if (ON_INGRESS) {
-        full = await completeNonStream(text, sid, traceId, onActivity);
+        full = await completeNonStream(text, sid, traceId, onActivity, signal);
       } else {
         try {
           full = await completeStream(text, sid, traceId, onActivity, (delta) => {
             patchAssistant((m) => ({ ...m, content: delta }));
-          });
-        } catch {
+          }, signal);
+        } catch (err) {
+          if (err?.name === "AbortError") throw err;
           full = "";
         }
-        if (!full) full = await completeNonStream(text, sid, traceId, onActivity);
+        if (!full && !signal.aborted) full = await completeNonStream(text, sid, traceId, onActivity, signal);
       }
+      if (signal.aborted) return;
       patchAssistant((m) => {
         const thinking = m.thinking || emptyThinking(t("thinking"));
         const label = finishThinkingLabel(lang, thinking);
@@ -295,10 +332,13 @@ export default function App() {
       });
       refreshSessions().catch(() => {});
     } catch (err) {
+      if (err?.name === "AbortError" || signal.aborted) return;
       const msg = String(err.message || "") === "empty" ? t("emptyReply") : err.message || "Request failed";
       patchAssistant((m) => ({ ...m, content: msg, error: true, streaming: false }));
     } finally {
       stopPoll();
+      stopPollRef.current = null;
+      if (abortRef.current === controller) abortRef.current = null;
       setBusy(false);
     }
   };
@@ -362,10 +402,12 @@ export default function App() {
             messages={messages}
           />
           <Composer
-            disabled={busy}
+            busy={busy}
             placeholder={t("placeholder")}
+            stopLabel={t("stop")}
             value={input}
             onChange={setInput}
+            onStop={stopGeneration}
             onSubmit={send}
           />
         </div>

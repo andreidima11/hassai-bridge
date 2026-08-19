@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpIcon } from "./Icons.jsx";
+import { ArrowUpIcon, StopIcon } from "./Icons.jsx";
 
-export function Composer({ value, onChange, onSubmit, disabled, placeholder }) {
+export function Composer({ value, onChange, onSubmit, onStop, busy, placeholder, stopLabel }) {
   const ref = useRef(null);
   const [tall, setTall] = useState(false);
 
@@ -33,17 +33,30 @@ export function Composer({ value, onChange, onSubmit, disabled, placeholder }) {
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
+              if (busy) return;
               e.currentTarget.form?.requestSubmit();
             }
           }}
         />
-        <button
-          className="mb-0 grid size-8 shrink-0 place-items-center rounded-full bg-white text-black transition hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:bg-white/15 disabled:text-white/35"
-          disabled={disabled || !value.trim()}
-          type="submit"
-        >
-          <ArrowUpIcon />
-        </button>
+        {busy ? (
+          <button
+            className="mb-0 grid size-8 shrink-0 place-items-center rounded-full bg-white text-black transition hover:opacity-90 active:scale-95"
+            type="button"
+            aria-label={stopLabel}
+            title={stopLabel}
+            onClick={onStop}
+          >
+            <StopIcon />
+          </button>
+        ) : (
+          <button
+            className="mb-0 grid size-8 shrink-0 place-items-center rounded-full bg-white text-black transition hover:opacity-90 active:scale-95 disabled:cursor-not-allowed disabled:bg-white/15 disabled:text-white/35"
+            disabled={!value.trim()}
+            type="submit"
+          >
+            <ArrowUpIcon />
+          </button>
+        )}
       </form>
     </div>
   );
