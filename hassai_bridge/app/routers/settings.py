@@ -209,6 +209,8 @@ async def add_provider(data: dict):
     if not base_url:
         preset = PROVIDER_PRESETS.get(ptype, {})
         base_url = preset.get("base_url", "http://localhost:1234")
+    else:
+        base_url = providers.normalize_provider_base_url(base_url)
 
     # Generate a stable ID from type + name
     pid = f"{ptype}_{name.lower().replace(' ', '_').replace('-', '_')}"
@@ -251,6 +253,8 @@ async def update_provider(provider_id: str, data: dict):
             for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "eco_mode", "thinking_mode"):
                 if key in data:
                     p[key] = data[key]
+            if p.get("base_url"):
+                p["base_url"] = providers.normalize_provider_base_url(p["base_url"])
             save_config(cfg)
             return {"status": "ok", "provider": p}
     raise HTTPException(status_code=404, detail="Provider not found")
@@ -333,6 +337,8 @@ async def add_secondary_provider(data: dict):
     if not base_url:
         preset = PROVIDER_PRESETS.get(ptype, {})
         base_url = preset.get("base_url", "http://localhost:1234")
+    else:
+        base_url = providers.normalize_provider_base_url(base_url)
 
     pid = f"sec_{ptype}_{name.lower().replace(' ', '_').replace('-', '_')}"
     cfg = load_config()
@@ -368,6 +374,8 @@ async def update_secondary_provider(provider_id: str, data: dict):
             for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature"):
                 if key in data:
                     p[key] = data[key]
+            if p.get("base_url"):
+                p["base_url"] = providers.normalize_provider_base_url(p["base_url"])
             save_config(cfg)
             return {"status": "ok", "provider": p}
     raise HTTPException(status_code=404, detail="Secondary provider not found")
