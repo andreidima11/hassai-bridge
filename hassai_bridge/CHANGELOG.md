@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.55-beta
+
+### UI fixes
+- **Brain popover** — renders via portal above the entire chat UI (no longer clipped inside the composer bar)
+- **Welcome message** — removed stars/glow/shimmer; subtle text-only fade-in
+
 ## 0.2.54-beta
 
 ### Chat — provider quick settings
