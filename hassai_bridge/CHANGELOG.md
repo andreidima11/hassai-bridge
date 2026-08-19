@@ -1,5 +1,19 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.51-beta
+
+### Chat — thinking, welcome, images
+- **Gândește / Thinking** label (no more „puțin”); expand panel to read model **reasoning**
+- Reasoning no longer mixed into visible assistant reply text
+- **Welcome hero** — subtle space-themed animation on empty chat (stars, glow, shimmer)
+- **Image upload** — attach or paste up to 4 photos; vision/multimodal to provider; persisted in session history
+
+### Settings — memories UI
+- Fix text overflow in memory list; keywords shown as wrapping chips instead of one long line
+
+### Tests
+- 55 unit tests (incl. chat images / multimodal helpers)
+
 ## 0.2.50-beta
 
 ### UI — Home Assistant theme sync
