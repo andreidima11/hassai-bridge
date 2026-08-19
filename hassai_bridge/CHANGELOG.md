@@ -1,5 +1,54 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.47-beta
+
+### Phase 7 — integrations, statistics, location entities
+- **`ha_list_config_entries`**, **`ha_get_config_entry`**, **`ha_reload_config_entry`**
+- **`ha_list_statistic_ids`**, **`ha_get_statistics`** (recorder long-term stats)
+- **`ha_list_groups`**, **`ha_list_zones`**, **`ha_list_persons`**
+- Thinking labels EN/RO; unit tests for formatters
+
+## 0.2.46-beta
+
+### Phase 5 — floors
+- **`ha_list_floors`**, **`ha_create_floor`**, **`ha_update_floor`**
+- **`ha_create_area` / `ha_update_area`**: resolve `floor_name` via floor registry
+
+### Phase 6 — automations, scripts, scenes
+- **`ha_list_automations`**, **`ha_get_automation`**, **`ha_trigger_automation`**
+- **`ha_list_scripts`**, **`ha_run_script`**
+- **`ha_list_scenes`**, **`ha_activate_scene`**
+- Registry cache includes floors; thinking labels EN/RO
+
+## 0.2.45-beta
+
+- **Entity tools v4 (trace & Assist):** `ha_get_history`, `ha_get_logbook`, `ha_get_entity_source`, `ha_list_exposed_entities`, `ha_expose_entity`
+- History/logbook via Core REST with hours lookback; entity source requires a filter
+- Voice exposure: list and set Assist/Alexa/Google visibility (`confirm=true`)
+- Unit tests for history/logbook/source/expose formatters
+
+## 0.2.44-beta
+
+- **Entity tools v3 (areas, labels, devices):** `ha_create_area`, `ha_update_area`, `ha_list_labels`, `ha_create_label`, `ha_update_label`, `ha_update_device`
+- Label names resolve to `label_id` when assigning labels on entities, areas, or devices
+- Registry cache includes label registry; invalidates after mutating registry tools
+- Thinking UI labels (EN/RO) for new tools
+
+## 0.2.43-beta
+
+- **Entity tools v2 (registry):** `ha_list_entities` merges entity registry (area, device, disabled columns); filters by `area_name`, `device_id`, `include_disabled`
+- New tools: `ha_list_entity_registry`, `ha_get_entity_registry`, `ha_update_entity`, `ha_list_areas`, `ha_list_devices`, `ha_get_device`, `ha_set_state` (helpers only)
+- WebSocket registry bundle cached 30s; `ha_update_entity` resolves `area_name` via `ha_list_areas`
+- Agent loop: primary provider for registry mutating tools; thinking labels for entity registry tools
+- Unit tests for merge/filter/registry payload helpers
+
+## 0.2.42-beta
+
+- **Entity tools v1:** improved `ha_list_entities` (all domains, pagination, sort, state filter), `ha_get_state` (full attributes, timestamps, capabilities), `ha_call_service` (changed states + optional verify), new `ha_list_services`
+- **`entity_tools.py`** + unit tests (filter, format, services index)
+- **Home Assistant agent prompt** configurable in Settings → General (English default, `{tools}` placeholder); separate from personality system prompt
+- Agent loop: primary provider for entity tools; do not repeat-skip verify reads (`ha_get_state`)
+
 ## 0.2.41-beta
 
 - **Thinking panel:** Vercel-style collapsible steps — no duplicate „Gândește”, live step label (e.g. „Dashboard · home”), timeline with spinner/check, auto-collapse after reply

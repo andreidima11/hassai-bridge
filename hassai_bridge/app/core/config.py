@@ -105,6 +105,7 @@ DEFAULT_CONFIG = {
         "Use tools to inspect and change the home; keep going until the request is done. "
         "When you have memory context about the user, use it to personalize responses."
     ),
+    "ha_agent_prompt": "",
 }
 
 

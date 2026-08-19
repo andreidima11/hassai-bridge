@@ -1,0 +1,5 @@
+{
+  "light.kitchen": {"conversation": true},
+  "climate.living": {"conversation": true, "cloud.alexa": true},
+  "sensor.temp": {"cloud.google_assistant": true}
+}

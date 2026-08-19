@@ -1,0 +1,4 @@
+[
+  {"floor_id": "ground", "name": "Ground Floor", "level": 0, "icon": "mdi:home-floor-0"},
+  {"floor_id": "first", "name": "First Floor", "level": 1, "icon": "mdi:home-floor-1"}
+]

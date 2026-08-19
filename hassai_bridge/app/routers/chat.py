@@ -40,6 +40,7 @@ from services.memory_engine import (
 from services.web_scraper import search_and_fetch
 from services import homeassistant as ha_api
 from services import lovelace_tools as lt
+from services import entity_tools as et
 
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
@@ -90,7 +91,13 @@ def _tool_names(tool_calls: list[dict]) -> list[str]:
 
 
 def _recall_provider(tool_calls: list[dict], active: dict, secondary: dict | None) -> dict:
-    if any(name in lt.HA_LOVELACE_TOOLS for name in _tool_names(tool_calls)):
+    names = _tool_names(tool_calls)
+    if any(
+        name in lt.HA_LOVELACE_TOOLS
+        or name in et.HA_ENTITY_TOOLS
+        or name in et.HA_REGISTRY_MUTATING_TOOLS
+        for name in names
+    ):
         return active
     return secondary or active
 
@@ -98,6 +105,11 @@ def _recall_provider(tool_calls: list[dict], active: dict, secondary: dict | Non
 def _should_skip_repeated_tool(name: str, args: dict, fingerprints: list[str], fp: str) -> bool:
     if name in lt.HA_MUTATING_TOOLS:
         return False
+    if name in et.HA_ENTITY_TOOLS:
+        if name == "ha_get_state":
+            return False
+        if name == "ha_list_entities" and args.get("offset"):
+            return False
     if name == "ha_get_dashboard" and args.get("include_cards"):
         return False
     return fingerprints.count(fp) >= _AGENT_REPEAT_LIMIT
@@ -151,6 +163,60 @@ def _tool_detail(name: str, args: dict) -> str:
         call = f"{args.get('domain') or ''}.{args.get('service') or ''}".strip(".")
         entity = str(args.get("entity_id") or "").strip()
         return _clip_detail(" ".join(p for p in (call, entity) if p))
+    if name == "ha_update_entity":
+        bits = [
+            args.get("entity_id") or "",
+            args.get("name") or args.get("area_name") or args.get("area_id") or "",
+        ]
+        return _clip_detail(" · ".join(str(b) for b in bits if b))
+    if name == "ha_set_state":
+        return _clip_detail(f"{args.get('entity_id') or ''} → {args.get('state') or ''}".strip())
+    if name == "ha_get_entity_registry":
+        return _clip_detail(args.get("entity_id"))
+    if name == "ha_get_device":
+        return _clip_detail(args.get("device_id"))
+    if name == "ha_update_device":
+        bits = [
+            args.get("device_id") or "",
+            args.get("area_name") or args.get("area_id") or args.get("name_by_user") or "",
+        ]
+        return _clip_detail(" · ".join(str(b) for b in bits if b))
+    if name == "ha_create_area":
+        return _clip_detail(args.get("name"))
+    if name == "ha_update_area":
+        return _clip_detail(f"{args.get('area_id') or ''} {args.get('name') or ''}".strip())
+    if name == "ha_create_label":
+        return _clip_detail(args.get("name"))
+    if name == "ha_update_label":
+        return _clip_detail(f"{args.get('label_id') or ''} {args.get('name') or ''}".strip())
+    if name == "ha_get_history":
+        ids = args.get("entity_ids") if isinstance(args.get("entity_ids"), list) else []
+        preview = args.get("entity_id") or (", ".join(str(i) for i in ids[:2]) if ids else "")
+        hours = args.get("hours")
+        return _clip_detail(f"{preview} {hours}h".strip() if hours else preview)
+    if name == "ha_get_logbook":
+        bits = [args.get("entity_id") or "", f"{args.get('hours')}h" if args.get("hours") else ""]
+        return _clip_detail(" · ".join(str(b) for b in bits if b))
+    if name == "ha_get_entity_source":
+        return _clip_detail(args.get("entity_id") or args.get("search") or args.get("domain"))
+    if name == "ha_expose_entity":
+        ids = args.get("entity_ids") if isinstance(args.get("entity_ids"), list) else []
+        preview = args.get("entity_id") or (", ".join(str(i) for i in ids[:2]) if ids else "")
+        flag = "show" if args.get("should_expose") else "hide"
+        return _clip_detail(f"{flag} {preview}".strip())
+    if name in {"ha_trigger_automation", "ha_run_script", "ha_activate_scene"}:
+        return _clip_detail(args.get("entity_id"))
+    if name == "ha_create_floor":
+        return _clip_detail(args.get("name"))
+    if name == "ha_update_floor":
+        return _clip_detail(f"{args.get('floor_id') or ''} {args.get('name') or ''}".strip())
+    if name == "ha_get_config_entry":
+        return _clip_detail(args.get("entry_id"))
+    if name == "ha_reload_config_entry":
+        return _clip_detail(args.get("entry_id"))
+    if name == "ha_get_statistics":
+        sid = args.get("statistic_id") or args.get("entity_id") or ""
+        return _clip_detail(f"{sid} {args.get('period') or 'hour'}".strip())
     if name == "ha_upsert_card":
         card = args.get("card") if isinstance(args.get("card"), dict) else {}
         bits = [
@@ -1378,7 +1444,7 @@ async def chat_completions(request: Request):
         system_parts.append(mem_ctx)
     if search_enabled:
         system_parts.append(_build_search_instruction(cfg))
-    ha_hint = ha_api.ha_system_hint()
+    ha_hint = ha_api.ha_system_hint(cfg)
     if ha_hint:
         system_parts.append(ha_hint)
     system_parts.append(_agentic_instruction())

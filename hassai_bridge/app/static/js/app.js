@@ -551,6 +551,24 @@ async function loadUsageStats() {
 // SETTINGS
 // ══════════════════════════════════════════════════
 
+let _haAgentPromptDefault = '';
+
+async function loadHaAgentPromptDefault() {
+  if (_haAgentPromptDefault) return _haAgentPromptDefault;
+  try {
+    const data = await api('GET', '/api/settings/ha-agent-prompt-default');
+    _haAgentPromptDefault = data.prompt || '';
+  } catch {
+    _haAgentPromptDefault = '';
+  }
+  return _haAgentPromptDefault;
+}
+
+async function resetHaAgentPrompt() {
+  const def = await loadHaAgentPromptDefault();
+  document.getElementById('haAgentPrompt').value = def;
+}
+
 async function loadSettings() {
   try {
     const cfg = await api('GET', '/api/settings/');
@@ -602,6 +620,8 @@ async function loadSettings() {
 
     // System prompt
     document.getElementById('systemPrompt').value = cfg.system_prompt || '';
+    const haDefault = await loadHaAgentPromptDefault();
+    document.getElementById('haAgentPrompt').value = cfg.ha_agent_prompt || haDefault;
   } catch (e) {
     toast(t('toast.settingsError', { msg: e.message }), true);
   }
@@ -633,6 +653,12 @@ async function saveSettings() {
         parallel_page_fetch: document.getElementById('perfParallelFetch').checked,
       },
       system_prompt: document.getElementById('systemPrompt').value,
+      ha_agent_prompt: (() => {
+        const raw = document.getElementById('haAgentPrompt').value;
+        const def = _haAgentPromptDefault;
+        if (def && raw.trim() === def.trim()) return '';
+        return raw;
+      })(),
       knowledge_cutoff: document.getElementById('knowledgeCutoff').value,
       language: document.getElementById('settingsLang').value,
     });

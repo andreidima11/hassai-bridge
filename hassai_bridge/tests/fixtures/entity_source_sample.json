@@ -1,0 +1,5 @@
+{
+  "light.kitchen": {"domain": "shelly"},
+  "climate.living": {"domain": "nest"},
+  "sensor.temp": {"domain": "mqtt"}
+}
