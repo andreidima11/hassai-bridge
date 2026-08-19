@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.62-beta
+
+### Fix
+- **Mobile HA app** — photo attach in chat now works (label overlay picker, HEIC/`createImageBitmap` support, longer picker guard)
+
 ## 0.2.61-beta
 
 ### Feature
