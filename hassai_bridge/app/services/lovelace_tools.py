@@ -45,6 +45,11 @@ HA_MUTATING_TOOLS = frozenset({
     "ha_update_label",
     "ha_update_device",
     "ha_expose_entity",
+    "ha_create_floor",
+    "ha_update_floor",
+    "ha_trigger_automation",
+    "ha_run_script",
+    "ha_activate_scene",
     "ha_reload",
 })
 

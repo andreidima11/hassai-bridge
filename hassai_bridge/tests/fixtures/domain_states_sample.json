@@ -1,0 +1,28 @@
+[
+  {
+    "entity_id": "automation.morning",
+    "state": "on",
+    "attributes": {
+      "friendly_name": "Morning routine",
+      "mode": "single",
+      "last_triggered": "2026-08-19T07:00:00+00:00",
+      "id": "morning"
+    }
+  },
+  {
+    "entity_id": "script.goodnight",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "Goodnight",
+      "last_triggered": "2026-08-18T22:30:00+00:00"
+    }
+  },
+  {
+    "entity_id": "scene.movie",
+    "state": "unknown",
+    "attributes": {
+      "friendly_name": "Movie time",
+      "entity_id": ["light.living", "media_player.living"]
+    }
+  }
+]

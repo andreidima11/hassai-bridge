@@ -21,6 +21,8 @@ Entities (live state via REST):
 - If state is unavailable or unknown, diagnose before calling services
 - Trace: ha_get_history / ha_get_logbook for recent changes; ha_get_entity_source for integration
 - Voice/Assist: ha_list_exposed_entities → ha_expose_entity (confirm=true; assistant conversation by default)
+- Floors: ha_list_floors → ha_create_area with floor_name or ha_update_area
+- Automations/scripts/scenes: ha_list_automations / ha_list_scripts / ha_list_scenes → ha_trigger_automation / ha_run_script / ha_activate_scene (confirm=true)
 
 Dashboards (WebSocket, storage mode):
 - ha_list_dashboards → ha_get_dashboard (summary) → ha_upsert_view / ha_upsert_section / ha_upsert_card / ha_delete_card / ha_delete_view
@@ -50,6 +52,11 @@ HA_ENTITY_TOOLS = frozenset({
     "ha_get_logbook",
     "ha_get_entity_source",
     "ha_list_exposed_entities",
+    "ha_list_floors",
+    "ha_list_automations",
+    "ha_get_automation",
+    "ha_list_scripts",
+    "ha_list_scenes",
 })
 
 HA_REGISTRY_MUTATING_TOOLS = frozenset({
@@ -61,6 +68,11 @@ HA_REGISTRY_MUTATING_TOOLS = frozenset({
     "ha_update_label",
     "ha_update_device",
     "ha_expose_entity",
+    "ha_create_floor",
+    "ha_update_floor",
+    "ha_trigger_automation",
+    "ha_run_script",
+    "ha_activate_scene",
 })
 
 _STATE_SET_DOMAINS = frozenset({
@@ -373,6 +385,36 @@ def resolve_label_ids(
     return resolved
 
 
+def index_floors(floors: list[dict]) -> tuple[dict[str, str], dict[str, str]]:
+    by_id: dict[str, str] = {}
+    by_name: dict[str, str] = {}
+    for row in floors:
+        if not isinstance(row, dict):
+            continue
+        floor_id = str(row.get("floor_id") or row.get("id") or "").strip()
+        name = str(row.get("name") or "").strip()
+        if floor_id:
+            by_id[floor_id] = name or floor_id
+        if name:
+            by_name[name.lower()] = floor_id
+    return by_id, by_name
+
+
+def resolve_floor_id(
+    floor_names: dict[str, str],
+    *,
+    floor_id: str | None = None,
+    floor_name: str | None = None,
+) -> str | None:
+    raw_id = (floor_id or "").strip()
+    if raw_id:
+        return raw_id
+    name = (floor_name or "").strip().lower()
+    if name and name in floor_names:
+        return floor_names[name]
+    return None
+
+
 def merge_entities(
     states: list[dict],
     registry: dict[str, dict],
@@ -647,13 +689,24 @@ def build_entity_update_payload(
     return payload
 
 
-def build_area_create_payload(args: dict, label_name_index: dict[str, str] | None = None) -> dict[str, Any]:
+def build_area_create_payload(
+    args: dict,
+    label_name_index: dict[str, str] | None = None,
+    floor_name_index: dict[str, str] | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {"name": (args.get("name") or "").strip()}
     if not payload["name"]:
         return {}
-    for key in ("icon", "picture", "floor_id"):
+    for key in ("icon", "picture"):
         if args.get(key) is not None:
             payload[key] = args.get(key)
+    floor_id = resolve_floor_id(
+        floor_name_index or {},
+        floor_id=args.get("floor_id"),
+        floor_name=args.get("floor_name"),
+    )
+    if args.get("floor_id") is not None or args.get("floor_name") is not None:
+        payload["floor_id"] = floor_id
     if args.get("labels") is not None:
         resolved = resolve_label_ids(label_name_index or {}, args.get("labels"))
         payload["labels"] = resolved if resolved is not None else args.get("labels")
@@ -663,15 +716,23 @@ def build_area_create_payload(args: dict, label_name_index: dict[str, str] | Non
 def build_area_update_payload(
     args: dict,
     label_name_index: dict[str, str] | None = None,
+    floor_name_index: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     area_id = (args.get("area_id") or "").strip()
     if not area_id:
         return {}
     payload["area_id"] = area_id
-    for key in ("name", "icon", "picture", "floor_id"):
+    for key in ("name", "icon", "picture"):
         if args.get(key) is not None:
             payload[key] = args.get(key)
+    floor_id = resolve_floor_id(
+        floor_name_index or {},
+        floor_id=args.get("floor_id"),
+        floor_name=args.get("floor_name"),
+    )
+    if args.get("floor_id") is not None or args.get("floor_name") is not None:
+        payload["floor_id"] = floor_id
     if args.get("labels") is not None:
         resolved = resolve_label_ids(label_name_index or {}, args.get("labels"))
         payload["labels"] = resolved if resolved is not None else args.get("labels")
@@ -727,6 +788,128 @@ def build_label_update_payload(args: dict) -> dict[str, Any]:
         if args.get(key) is not None:
             payload[key] = args.get(key)
     return payload
+
+
+def build_floor_create_payload(args: dict) -> dict[str, Any]:
+    payload: dict[str, Any] = {"name": (args.get("name") or "").strip()}
+    if not payload["name"]:
+        return {}
+    for key in ("icon",):
+        if args.get(key) is not None:
+            payload[key] = args.get(key)
+    if args.get("level") is not None:
+        try:
+            payload["level"] = int(args.get("level"))
+        except (TypeError, ValueError):
+            payload["level"] = args.get("level")
+    return payload
+
+
+def build_floor_update_payload(args: dict) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    floor_id = (args.get("floor_id") or "").strip()
+    if not floor_id:
+        return {}
+    payload["floor_id"] = floor_id
+    for key in ("name", "icon"):
+        if args.get(key) is not None:
+            payload[key] = args.get(key)
+    if args.get("level") is not None:
+        try:
+            payload["level"] = int(args.get("level"))
+        except (TypeError, ValueError):
+            payload["level"] = args.get("level")
+    return payload
+
+
+def format_floor_list(floors: list[dict]) -> str:
+    if not floors:
+        return "No floors."
+    lines = ["floor_id|name|level|icon"]
+    for row in sorted(floors, key=lambda r: str(r.get("name") or "")):
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"{row.get('floor_id') or row.get('id') or '?'}|{row.get('name') or ''}|{row.get('level') if row.get('level') is not None else ''}|{row.get('icon') or ''}"
+        )
+    return "\n".join(lines)
+
+
+def format_automation_row(st: dict) -> str:
+    attrs = st.get("attributes") or {}
+    name = str(attrs.get("friendly_name") or st.get("entity_id") or "")
+    mode = str(attrs.get("mode") or "")
+    last = str(attrs.get("last_triggered") or "")
+    return f"{st.get('entity_id')}|{name}|{st.get('state')}|{mode}|{last}"
+
+
+def format_automation_list(states: list[dict], *, total: int, offset: int, limit: int) -> str:
+    if not states and total == 0:
+        return "No matching automations."
+    lines = ["entity_id|name|state|mode|last_triggered"]
+    lines.extend(format_automation_row(st) for st in states)
+    end = offset + len(states)
+    footer = f"showing {offset + 1}-{end} of {total}"
+    if end < total:
+        footer += f" — use offset={end} for more"
+    lines.append(footer)
+    return "\n".join(lines)
+
+
+def format_script_row(st: dict) -> str:
+    attrs = st.get("attributes") or {}
+    name = str(attrs.get("friendly_name") or st.get("entity_id") or "")
+    last = str(attrs.get("last_triggered") or "")
+    return f"{st.get('entity_id')}|{name}|{st.get('state')}|{last}"
+
+
+def format_script_list(states: list[dict], *, total: int, offset: int, limit: int) -> str:
+    if not states and total == 0:
+        return "No matching scripts."
+    lines = ["entity_id|name|state|last_triggered"]
+    lines.extend(format_script_row(st) for st in states)
+    end = offset + len(states)
+    footer = f"showing {offset + 1}-{end} of {total}"
+    if end < total:
+        footer += f" — use offset={end} for more"
+    lines.append(footer)
+    return "\n".join(lines)
+
+
+def format_scene_row(st: dict) -> str:
+    attrs = st.get("attributes") or {}
+    name = str(attrs.get("friendly_name") or st.get("entity_id") or "")
+    entities = attrs.get("entity_id") or []
+    count = len(entities) if isinstance(entities, list) else 0
+    return f"{st.get('entity_id')}|{name}|{count} entities"
+
+
+def format_scene_list(states: list[dict], *, total: int, offset: int, limit: int) -> str:
+    if not states and total == 0:
+        return "No matching scenes."
+    lines = ["entity_id|name|entities"]
+    lines.extend(format_scene_row(st) for st in states)
+    end = offset + len(states)
+    footer = f"showing {offset + 1}-{end} of {total}"
+    if end < total:
+        footer += f" — use offset={end} for more"
+    lines.append(footer)
+    return "\n".join(lines)
+
+
+def format_automation_detail(state: dict) -> str:
+    body = format_state_detail(
+        state,
+        {"include_timestamps": True, "full_attributes": False, "include_capabilities": False},
+    )
+    attrs = state.get("attributes") or {}
+    extra: list[str] = []
+    for key in ("id", "mode", "current", "max", "last_triggered"):
+        if attrs.get(key) is not None:
+            extra.append(f"{key}: {attrs.get(key)}")
+    if extra:
+        body += "\nautomation: " + "; ".join(extra)
+    return body
 
 
 def can_set_state(entity_id: str) -> bool:

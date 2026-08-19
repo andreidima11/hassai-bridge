@@ -47,6 +47,7 @@ _REGISTRY_CACHE: dict[str, Any] = {
     "areas": None,
     "devices": None,
     "labels": None,
+    "floors": None,
 }
 _REGISTRY_CACHE_TTL = 30.0
 
@@ -362,6 +363,7 @@ _TOOL_SPECS: dict[str, dict] = {
                 "name": {"type": "string"},
                 "icon": {"type": "string"},
                 "floor_id": {"type": "string"},
+                "floor_name": {"type": "string", "description": "Resolve floor via ha_list_floors"},
                 "labels": {"type": "array", "items": {"type": "string"}, "description": "label_id or name"},
                 "confirm": {"type": "boolean"},
             },
@@ -369,13 +371,15 @@ _TOOL_SPECS: dict[str, dict] = {
         },
     },
     "ha_update_area": {
-        "description": "Update area metadata (rename, icon, labels). confirm=true required.",
+        "description": "Update area metadata (rename, icon, labels, floor). confirm=true required.",
         "parameters": {
             "type": "object",
             "properties": {
                 "area_id": {"type": "string"},
                 "name": {"type": "string"},
                 "icon": {"type": "string"},
+                "floor_id": {"type": "string"},
+                "floor_name": {"type": "string"},
                 "labels": {"type": "array", "items": {"type": "string"}},
                 "confirm": {"type": "boolean"},
             },
@@ -548,6 +552,114 @@ _TOOL_SPECS: dict[str, dict] = {
                 "confirm": {"type": "boolean"},
             },
             "required": ["should_expose", "confirm"],
+        },
+    },
+    "ha_list_floors": {
+        "description": "List Home Assistant floors (building levels). Use floor_id/floor_name in ha_create_area.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    "ha_create_floor": {
+        "description": "Create a floor level. confirm=true required.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "level": {"type": "integer", "description": "Numeric level, e.g. 0=ground, 1=first"},
+                "icon": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["name", "confirm"],
+        },
+    },
+    "ha_update_floor": {
+        "description": "Update floor metadata. confirm=true required.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "floor_id": {"type": "string"},
+                "name": {"type": "string"},
+                "level": {"type": "integer"},
+                "icon": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["floor_id", "confirm"],
+        },
+    },
+    "ha_list_automations": {
+        "description": "List automation.* entities with mode and last_triggered.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string"},
+                "state_filter": {"type": "string", "description": "on or off"},
+                "limit": {"type": "integer"},
+                "offset": {"type": "integer"},
+            },
+        },
+    },
+    "ha_get_automation": {
+        "description": "Get one automation entity state and attributes.",
+        "parameters": {
+            "type": "object",
+            "properties": {"entity_id": {"type": "string"}},
+            "required": ["entity_id"],
+        },
+    },
+    "ha_trigger_automation": {
+        "description": "Trigger an automation entity. confirm=true required.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "skip_condition": {"type": "boolean"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["entity_id", "confirm"],
+        },
+    },
+    "ha_list_scripts": {
+        "description": "List script.* entities.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string"},
+                "limit": {"type": "integer"},
+                "offset": {"type": "integer"},
+            },
+        },
+    },
+    "ha_run_script": {
+        "description": "Run a script entity (script.turn_on). confirm=true required.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "variables": {"type": "object"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["entity_id", "confirm"],
+        },
+    },
+    "ha_list_scenes": {
+        "description": "List scene.* entities and entity counts.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string"},
+                "limit": {"type": "integer"},
+                "offset": {"type": "integer"},
+            },
+        },
+    },
+    "ha_activate_scene": {
+        "description": "Activate a scene (scene.turn_on). confirm=true required.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["entity_id", "confirm"],
         },
     },
     "ha_system_info": {
@@ -958,7 +1070,7 @@ async def _fetch_states_cached() -> list[dict]:
     return states
 
 
-async def _fetch_registry_bundle() -> tuple[list[dict], list[dict], list[dict], list[dict]]:
+async def _fetch_registry_bundle() -> tuple[list[dict], list[dict], list[dict], list[dict], list[dict]]:
     now = time.time()
     if (
         _REGISTRY_CACHE.get("entities") is not None
@@ -969,6 +1081,7 @@ async def _fetch_registry_bundle() -> tuple[list[dict], list[dict], list[dict], 
             _REGISTRY_CACHE["areas"],
             _REGISTRY_CACHE["devices"],
             _REGISTRY_CACHE["labels"],
+            _REGISTRY_CACHE["floors"],
         )
     entities = await _ws_call({"type": "config/entity_registry/list"})
     areas = await _ws_call({"type": "config/area_registry/list"})
@@ -978,6 +1091,11 @@ async def _fetch_registry_bundle() -> tuple[list[dict], list[dict], list[dict], 
     except Exception as e:
         log.warning("Label registry unavailable: %s", e)
         labels = []
+    try:
+        floors = await _ws_call({"type": "config/floor_registry/list"})
+    except Exception as e:
+        log.warning("Floor registry unavailable: %s", e)
+        floors = []
     if not isinstance(entities, list):
         entities = []
     if not isinstance(areas, list):
@@ -986,12 +1104,15 @@ async def _fetch_registry_bundle() -> tuple[list[dict], list[dict], list[dict], 
         devices = []
     if not isinstance(labels, list):
         labels = []
+    if not isinstance(floors, list):
+        floors = []
     _REGISTRY_CACHE["entities"] = entities
     _REGISTRY_CACHE["areas"] = areas
     _REGISTRY_CACHE["devices"] = devices
     _REGISTRY_CACHE["labels"] = labels
+    _REGISTRY_CACHE["floors"] = floors
     _REGISTRY_CACHE["ts"] = now
-    return entities, areas, devices, labels
+    return entities, areas, devices, labels, floors
 
 
 def _invalidate_registry_cache() -> None:
@@ -999,7 +1120,7 @@ def _invalidate_registry_cache() -> None:
 
 
 async def _registry_indexes() -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
-    entities, areas, devices, labels = await _fetch_registry_bundle()
+    entities, areas, devices, labels, *_ = await _fetch_registry_bundle()
     area_labels, area_names = et.index_areas(areas)
     device_labels, device_names = et.index_devices(devices)
     _label_labels, label_names = et.index_labels(labels)
@@ -1020,7 +1141,7 @@ async def _list_entities(args: dict) -> str:
 
     if use_registry and is_available():
         try:
-            entities, areas, devices, _labels = await _fetch_registry_bundle()
+            entities, areas, devices, _labels, *_ = await _fetch_registry_bundle()
             area_labels, area_names = et.index_areas(areas)
             device_labels, _device_names = et.index_devices(devices)
             merged = et.merge_entities(
@@ -1091,7 +1212,7 @@ async def _list_services(args: dict) -> str:
 
 
 async def _list_entity_registry(args: dict) -> str:
-    entities, areas, _devices, _labels = await _fetch_registry_bundle()
+    entities, areas, _devices, _labels, *_ = await _fetch_registry_bundle()
     area_labels, _area_names = et.index_areas(areas)
     filtered = et.filter_registry_entries(entities, args)
     return et.format_registry_list(filtered, area_labels)
@@ -1101,7 +1222,7 @@ async def _get_entity_registry(args: dict) -> str:
     entity_id = (args.get("entity_id") or "").strip()
     if not entity_id:
         return "Error: entity_id is required"
-    entities, areas, devices, _labels = await _fetch_registry_bundle()
+    entities, areas, devices, _labels, *_ = await _fetch_registry_bundle()
     area_labels, _area_names = et.index_areas(areas)
     device_labels, _device_names = et.index_devices(devices)
     reg = et.registry_by_entity_id(entities).get(entity_id)
@@ -1122,7 +1243,7 @@ async def _update_entity(args: dict) -> str:
     entity_id = (args.get("entity_id") or "").strip()
     if not entity_id:
         return "Error: entity_id is required"
-    _entities, areas, _devices, labels = await _fetch_registry_bundle()
+    _entities, areas, _devices, labels, *_ = await _fetch_registry_bundle()
     _area_labels, area_names = et.index_areas(areas)
     _label_labels, label_names = et.index_labels(labels)
     changes = et.build_entity_update_payload(args, area_names, label_names)
@@ -1140,16 +1261,17 @@ async def _update_entity(args: dict) -> str:
 
 
 async def _list_areas(_args: dict) -> str:
-    _entities, areas, _devices, _labels = await _fetch_registry_bundle()
+    _entities, areas, _devices, _labels, *_ = await _fetch_registry_bundle()
     return et.format_area_list(areas)
 
 
 async def _create_area(args: dict) -> str:
     if msg := _require_confirm(args):
         return msg
-    _entities, _areas, _devices, labels = await _fetch_registry_bundle()
+    _entities, _areas, _devices, labels, floors = await _fetch_registry_bundle()
     _label_labels, label_names = et.index_labels(labels)
-    payload = et.build_area_create_payload(args, label_names)
+    _floor_labels, floor_names = et.index_floors(floors)
+    payload = et.build_area_create_payload(args, label_names, floor_names)
     if not payload.get("name"):
         return "Error: name is required"
     result = await _ws_call({"type": "config/area_registry/create", **payload})
@@ -1161,13 +1283,14 @@ async def _create_area(args: dict) -> str:
 async def _update_area(args: dict) -> str:
     if msg := _require_confirm(args):
         return msg
-    _entities, _areas, _devices, labels = await _fetch_registry_bundle()
+    _entities, _areas, _devices, labels, floors = await _fetch_registry_bundle()
     _label_labels, label_names = et.index_labels(labels)
-    payload = et.build_area_update_payload(args, label_names)
+    _floor_labels, floor_names = et.index_floors(floors)
+    payload = et.build_area_update_payload(args, label_names, floor_names)
     if not payload.get("area_id"):
         return "Error: area_id is required"
     if len(payload) <= 1:
-        return "Error: provide at least one of name, icon, labels"
+        return "Error: provide at least one of name, icon, labels, floor_id, floor_name"
     area_id = payload.pop("area_id")
     result = await _ws_call({"type": "config/area_registry/update", "area_id": area_id, **payload})
     name = result.get("name") if isinstance(result, dict) else area_id
@@ -1176,7 +1299,7 @@ async def _update_area(args: dict) -> str:
 
 
 async def _list_labels(_args: dict) -> str:
-    _entities, _areas, _devices, labels = await _fetch_registry_bundle()
+    _entities, _areas, _devices, labels, *_ = await _fetch_registry_bundle()
     return et.format_label_list(labels)
 
 
@@ -1208,7 +1331,7 @@ async def _update_label(args: dict) -> str:
 
 
 async def _list_devices(args: dict) -> str:
-    _entities, areas, devices, _labels = await _fetch_registry_bundle()
+    _entities, areas, devices, _labels, *_ = await _fetch_registry_bundle()
     area_labels, _area_names = et.index_areas(areas)
     search = (args.get("search") or "").strip().lower()
     if search:
@@ -1229,7 +1352,7 @@ async def _get_device(args: dict) -> str:
     device_id = (args.get("device_id") or "").strip()
     if not device_id:
         return "Error: device_id is required"
-    entities, areas, devices, _labels = await _fetch_registry_bundle()
+    entities, areas, devices, _labels, *_ = await _fetch_registry_bundle()
     area_labels, _area_names = et.index_areas(areas)
     device = next((row for row in devices if isinstance(row, dict) and row.get("id") == device_id), None)
     if not device:
@@ -1241,7 +1364,7 @@ async def _get_device(args: dict) -> str:
 async def _update_device(args: dict) -> str:
     if msg := _require_confirm(args):
         return msg
-    _entities, areas, _devices, labels = await _fetch_registry_bundle()
+    _entities, areas, _devices, labels, *_ = await _fetch_registry_bundle()
     _area_labels, area_names = et.index_areas(areas)
     _label_labels, label_names = et.index_labels(labels)
     payload = et.build_device_update_payload(args, area_names, label_names)
@@ -1361,6 +1484,115 @@ async def _expose_entity(args: dict) -> str:
         preview += f", … (+{len(payload['entity_ids']) - 6})"
     assistants = ", ".join(payload["assistants"])
     return f"OK: {action} {preview} for {assistants}"
+
+
+async def _list_domain_states(args: dict, domain: str, formatter) -> str:
+    states = await _fetch_states_cached()
+    query = dict(args or {})
+    query["domain"] = domain
+    filtered = et.filter_states(states, query)
+    sorted_rows = et.sort_states(filtered, args.get("sort"))
+    try:
+        limit = int(args.get("limit") or 40)
+    except (TypeError, ValueError):
+        limit = 40
+    try:
+        offset = int(args.get("offset") or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    page, total = et.paginate_states(sorted_rows, limit, offset)
+    return formatter(page, total=total, offset=offset, limit=limit)
+
+
+async def _list_floors(_args: dict) -> str:
+    _entities, _areas, _devices, _labels, floors = await _fetch_registry_bundle()
+    return et.format_floor_list(floors)
+
+
+async def _create_floor(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    payload = et.build_floor_create_payload(args)
+    if not payload.get("name"):
+        return "Error: name is required"
+    result = await _ws_call({"type": "config/floor_registry/create", **payload})
+    floor_id = result.get("floor_id") if isinstance(result, dict) else "?"
+    _invalidate_registry_cache()
+    return f"OK: created floor {payload['name']} (floor_id={floor_id})"
+
+
+async def _update_floor(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    payload = et.build_floor_update_payload(args)
+    if not payload.get("floor_id"):
+        return "Error: floor_id is required"
+    if len(payload) <= 1:
+        return "Error: provide at least one of name, level, icon"
+    floor_id = payload.pop("floor_id")
+    result = await _ws_call({"type": "config/floor_registry/update", "floor_id": floor_id, **payload})
+    name = result.get("name") if isinstance(result, dict) else floor_id
+    _invalidate_registry_cache()
+    return f"OK: updated floor {name} (floor_id={floor_id})"
+
+
+async def _list_automations(args: dict) -> str:
+    return await _list_domain_states(args, "automation", et.format_automation_list)
+
+
+async def _get_automation(args: dict) -> str:
+    entity_id = (args.get("entity_id") or "").strip()
+    if not entity_id:
+        return "Error: entity_id is required"
+    if not entity_id.startswith("automation."):
+        return "Error: entity_id must be an automation.* entity"
+    state = await _core("GET", f"/states/{entity_id}")
+    return et.format_automation_detail(state)
+
+
+async def _trigger_automation(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    entity_id = (args.get("entity_id") or "").strip()
+    if not entity_id:
+        return "Error: entity_id is required"
+    data: dict[str, Any] = {"entity_id": entity_id}
+    if args.get("skip_condition") is True:
+        data["skip_condition"] = True
+    await _core("POST", "/services/automation/trigger", json_body=data)
+    return f"OK: triggered {entity_id}"
+
+
+async def _list_scripts(args: dict) -> str:
+    return await _list_domain_states(args, "script", et.format_script_list)
+
+
+async def _run_script(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    entity_id = (args.get("entity_id") or "").strip()
+    if not entity_id:
+        return "Error: entity_id is required"
+    data: dict[str, Any] = {"entity_id": entity_id}
+    variables = args.get("variables")
+    if isinstance(variables, dict) and variables:
+        data.update(variables)
+    await _core("POST", "/services/script/turn_on", json_body=data)
+    return f"OK: ran script {entity_id}"
+
+
+async def _list_scenes(args: dict) -> str:
+    return await _list_domain_states(args, "scene", et.format_scene_list)
+
+
+async def _activate_scene(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    entity_id = (args.get("entity_id") or "").strip()
+    if not entity_id:
+        return "Error: entity_id is required"
+    await _core("POST", "/services/scene/turn_on", json_body={"entity_id": entity_id})
+    return f"OK: activated scene {entity_id}"
 
 
 async def _system_info(_args: dict) -> str:
@@ -1934,6 +2166,16 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_get_entity_source": _get_entity_source,
     "ha_list_exposed_entities": _list_exposed_entities,
     "ha_expose_entity": _expose_entity,
+    "ha_list_floors": _list_floors,
+    "ha_create_floor": _create_floor,
+    "ha_update_floor": _update_floor,
+    "ha_list_automations": _list_automations,
+    "ha_get_automation": _get_automation,
+    "ha_trigger_automation": _trigger_automation,
+    "ha_list_scripts": _list_scripts,
+    "ha_run_script": _run_script,
+    "ha_list_scenes": _list_scenes,
+    "ha_activate_scene": _activate_scene,
     "ha_system_info": _system_info,
     "ha_get_logs": _get_logs,
     "ha_list_problems": _list_problems,

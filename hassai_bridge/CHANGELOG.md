@@ -1,5 +1,17 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.46-beta
+
+### Phase 5 — floors
+- **`ha_list_floors`**, **`ha_create_floor`**, **`ha_update_floor`**
+- **`ha_create_area` / `ha_update_area`**: resolve `floor_name` via floor registry
+
+### Phase 6 — automations, scripts, scenes
+- **`ha_list_automations`**, **`ha_get_automation`**, **`ha_trigger_automation`**
+- **`ha_list_scripts`**, **`ha_run_script`**
+- **`ha_list_scenes`**, **`ha_activate_scene`**
+- Registry cache includes floors; thinking labels EN/RO
+
 ## 0.2.45-beta
 
 - **Entity tools v4 (trace & Assist):** `ha_get_history`, `ha_get_logbook`, `ha_get_entity_source`, `ha_list_exposed_entities`, `ha_expose_entity`

@@ -233,3 +233,38 @@ def test_build_expose_entity_payload():
     assert payload["entity_ids"] == ["light.a", "Lights"]
     assert payload["should_expose"] is True
     assert payload["assistants"] == ["conversation"]
+
+
+def test_index_floors_and_area_floor_name():
+    floors = load("floors_sample.json")
+    _floor_labels, floor_names = et.index_floors(floors)
+    assert et.resolve_floor_id(floor_names, floor_name="First Floor") == "first"
+    payload = et.build_area_create_payload({"name": "Office", "floor_name": "Ground Floor"}, {}, floor_names)
+    assert payload["floor_id"] == "ground"
+
+
+def test_format_floor_list():
+    text = et.format_floor_list(load("floors_sample.json"))
+    assert "floor_id|name|level|icon" in text
+    assert "ground|Ground Floor" in text
+
+
+def test_format_automation_and_script_lists():
+    states = load("domain_states_sample.json")
+    automations = et.filter_states(states, {"domain": "automation"})
+    scripts = et.filter_states(states, {"domain": "script"})
+    scenes = et.filter_states(states, {"domain": "scene"})
+    auto_text = et.format_automation_list(automations, total=len(automations), offset=0, limit=10)
+    script_text = et.format_script_list(scripts, total=len(scripts), offset=0, limit=10)
+    scene_text = et.format_scene_list(scenes, total=len(scenes), offset=0, limit=10)
+    assert "automation.morning" in auto_text
+    assert "script.goodnight" in script_text
+    assert "scene.movie" in scene_text
+    assert "2 entities" in scene_text
+
+
+def test_format_automation_detail():
+    states = load("domain_states_sample.json")
+    text = et.format_automation_detail(states[0])
+    assert "automation.morning" in text
+    assert "automation:" in text
