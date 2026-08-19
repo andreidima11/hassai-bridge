@@ -23,6 +23,8 @@ Entities (live state via REST):
 - Voice/Assist: ha_list_exposed_entities → ha_expose_entity (confirm=true; assistant conversation by default)
 - Floors: ha_list_floors → ha_create_area with floor_name or ha_update_area
 - Automations/scripts/scenes: ha_list_automations / ha_list_scripts / ha_list_scenes → ha_trigger_automation / ha_run_script / ha_activate_scene (confirm=true)
+- Integrations: ha_list_config_entries → ha_get_config_entry; ha_reload_config_entry (confirm=true) after fixing YAML
+- Long-term sensors: ha_list_statistic_ids → ha_get_statistics; groups/zones/persons: ha_list_groups / ha_list_zones / ha_list_persons
 
 Dashboards (WebSocket, storage mode):
 - ha_list_dashboards → ha_get_dashboard (summary) → ha_upsert_view / ha_upsert_section / ha_upsert_card / ha_delete_card / ha_delete_view
@@ -57,6 +59,13 @@ HA_ENTITY_TOOLS = frozenset({
     "ha_get_automation",
     "ha_list_scripts",
     "ha_list_scenes",
+    "ha_list_config_entries",
+    "ha_get_config_entry",
+    "ha_list_statistic_ids",
+    "ha_get_statistics",
+    "ha_list_groups",
+    "ha_list_zones",
+    "ha_list_persons",
 })
 
 HA_REGISTRY_MUTATING_TOOLS = frozenset({
@@ -73,6 +82,7 @@ HA_REGISTRY_MUTATING_TOOLS = frozenset({
     "ha_trigger_automation",
     "ha_run_script",
     "ha_activate_scene",
+    "ha_reload_config_entry",
 })
 
 _STATE_SET_DOMAINS = frozenset({
@@ -912,6 +922,185 @@ def format_automation_detail(state: dict) -> str:
     return body
 
 
+_STATISTICS_PERIODS = frozenset({"5minute", "hour", "day", "week", "month"})
+
+
+def normalize_statistics_period(raw: Any) -> str:
+    period = str(raw or "hour").strip().lower()
+    return period if period in _STATISTICS_PERIODS else "hour"
+
+
+def normalize_config_entries(raw: Any) -> list[dict]:
+    if isinstance(raw, list):
+        return [row for row in raw if isinstance(row, dict)]
+    if isinstance(raw, dict):
+        return [raw]
+    return []
+
+
+def filter_config_entries(entries: list[dict], args: dict, *, limit: int = 80) -> list[dict]:
+    domain = str(args.get("domain") or "").strip().lower()
+    search = str(args.get("search") or "").strip().lower()
+    rows: list[dict] = []
+    for row in entries:
+        row_domain = str(row.get("domain") or "").lower()
+        if domain and row_domain != domain:
+            continue
+        label = " ".join(
+            str(row.get(key) or "")
+            for key in ("entry_id", "domain", "title", "state", "source")
+        ).lower()
+        if search and search not in label:
+            continue
+        rows.append(row)
+        if len(rows) >= limit:
+            break
+    return sorted(rows, key=lambda r: (str(r.get("domain") or ""), str(r.get("title") or "")))
+
+
+def format_config_entry_list(entries: list[dict]) -> str:
+    if not entries:
+        return "No matching config entries."
+    lines = ["entry_id|domain|title|state|source"]
+    for row in entries:
+        lines.append(
+            f"{row.get('entry_id') or '?'}|{row.get('domain') or ''}|{row.get('title') or ''}|{row.get('state') or ''}|{row.get('source') or ''}"
+        )
+    return "\n".join(lines)
+
+
+def format_config_entry_detail(entry: dict) -> str:
+    lines = [
+        f"entry_id: {entry.get('entry_id') or '?'}",
+        f"domain: {entry.get('domain') or '?'}",
+        f"title: {entry.get('title') or ''}",
+        f"state: {entry.get('state') or '?'}",
+        f"source: {entry.get('source') or ''}",
+    ]
+    if entry.get("reason"):
+        lines.append(f"reason: {entry.get('reason')}")
+    if entry.get("disabled_by"):
+        lines.append(f"disabled_by: {entry.get('disabled_by')}")
+    if entry.get("pref_disable_new_entities") is not None:
+        lines.append(f"pref_disable_new_entities: {entry.get('pref_disable_new_entities')}")
+    return "\n".join(lines)
+
+
+def filter_statistic_ids(rows: list[Any], args: dict, *, limit: int = 120) -> list[str]:
+    search = str(args.get("search") or "").strip().lower()
+    out: list[str] = []
+    for row in rows:
+        sid = ""
+        if isinstance(row, dict):
+            sid = str(row.get("statistic_id") or row.get("id") or "")
+        else:
+            sid = str(row or "")
+        if not sid:
+            continue
+        if search and search not in sid.lower():
+            continue
+        out.append(sid)
+        if len(out) >= limit:
+            break
+    return sorted(out)
+
+
+def format_statistic_id_list(ids: list[str]) -> str:
+    if not ids:
+        return "No matching statistic ids."
+    lines = ["statistic_id"]
+    lines.extend(ids)
+    if len(ids) >= 120:
+        lines.append("… truncated")
+    return "\n".join(lines)
+
+
+def format_statistics_response(payload: Any, statistic_ids: list[str], *, max_rows: int = 24) -> str:
+    if not isinstance(payload, dict) or not payload:
+        return "No statistics for the requested period."
+    lines: list[str] = []
+    for sid in statistic_ids:
+        block = payload.get(sid)
+        if not isinstance(block, list) or not block:
+            lines.append(f"{sid}: (no data — try ha_list_statistic_ids or a longer period)")
+            continue
+        lines.append(f"{sid} ({len(block)} points, showing last {min(len(block), max_rows)}):")
+        for row in block[-max_rows:]:
+            if not isinstance(row, dict):
+                continue
+            start = row.get("start") or row.get("start_time") or "?"
+            parts = []
+            for key in ("mean", "min", "max", "sum", "state"):
+                if row.get(key) is not None:
+                    parts.append(f"{key}={row.get(key)}")
+            lines.append(f"  {start}: " + (", ".join(parts) if parts else json.dumps(row, default=str)[:120]))
+    return "\n".join(lines)
+
+
+def format_group_row(st: dict) -> str:
+    attrs = st.get("attributes") or {}
+    name = str(attrs.get("friendly_name") or st.get("entity_id") or "")
+    members = attrs.get("entity_id") or []
+    count = len(members) if isinstance(members, list) else 0
+    return f"{st.get('entity_id')}|{name}|{count} members"
+
+
+def format_group_list(states: list[dict], *, total: int, offset: int, limit: int) -> str:
+    if not states and total == 0:
+        return "No matching groups."
+    lines = ["entity_id|name|members"]
+    lines.extend(format_group_row(st) for st in states)
+    end = offset + len(states)
+    footer = f"showing {offset + 1}-{end} of {total}"
+    if end < total:
+        footer += f" — use offset={end} for more"
+    lines.append(footer)
+    return "\n".join(lines)
+
+
+def format_zone_row(st: dict) -> str:
+    attrs = st.get("attributes") or {}
+    name = str(attrs.get("friendly_name") or st.get("entity_id") or "")
+    radius = attrs.get("radius")
+    passive = attrs.get("passive")
+    return f"{st.get('entity_id')}|{name}|{st.get('state')}|radius={radius}|passive={passive}"
+
+
+def format_zone_list(states: list[dict], *, total: int, offset: int, limit: int) -> str:
+    if not states and total == 0:
+        return "No matching zones."
+    lines = ["entity_id|name|state|radius|passive"]
+    lines.extend(format_zone_row(st) for st in states)
+    end = offset + len(states)
+    footer = f"showing {offset + 1}-{end} of {total}"
+    if end < total:
+        footer += f" — use offset={end} for more"
+    lines.append(footer)
+    return "\n".join(lines)
+
+
+def format_person_row(st: dict) -> str:
+    attrs = st.get("attributes") or {}
+    name = str(attrs.get("friendly_name") or st.get("entity_id") or "")
+    user_id = str(attrs.get("user_id") or "")
+    devices = attrs.get("device_trackers") or attrs.get("source") or []
+    count = len(devices) if isinstance(devices, list) else 0
+    return f"{st.get('entity_id')}|{name}|{st.get('state')}|trackers={count}|user_id={user_id}"
+
+
+def format_person_list(states: list[dict], *, total: int, offset: int, limit: int) -> str:
+    if not states and total == 0:
+        return "No matching persons."
+    lines = ["entity_id|name|state|trackers|user_id"]
+    lines.extend(format_person_row(st) for st in states)
+    end = offset + len(states)
+    footer = f"showing {offset + 1}-{end} of {total}"
+    if end < total:
+        footer += f" — use offset={end} for more"
+    lines.append(footer)
+    return "\n".join(lines)
+
+
 def can_set_state(entity_id: str) -> bool:
     return domain_of(entity_id) in _STATE_SET_DOMAINS
 
@@ -1075,6 +1264,10 @@ def entity_error_hint(tool_name: str, message: str) -> str | None:
         return "Use ha_call_service for lights, switches, climate, and other device entities."
     if tool_name in {"ha_get_history", "ha_get_logbook"} and "filter_entity_id" in lower:
         return "Pass entity_id or entity_ids."
+    if tool_name == "ha_get_statistics" and ("recorder" in lower or "statistic" in lower):
+        return "Use ha_list_statistic_ids to find valid statistic_id values."
+    if tool_name == "ha_get_config_entry" and ("not found" in lower or "404" in lower):
+        return "Use ha_list_config_entries to find entry_id."
     if "not found" in lower or "404" in lower:
         return "Use ha_list_entities or ha_list_entity_registry to find the correct entity_id."
     if "area" in lower and "unknown" in lower:

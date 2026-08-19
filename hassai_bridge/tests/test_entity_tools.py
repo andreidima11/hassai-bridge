@@ -268,3 +268,61 @@ def test_format_automation_detail():
     text = et.format_automation_detail(states[0])
     assert "automation.morning" in text
     assert "automation:" in text
+
+
+def test_filter_config_entries():
+    entries = et.filter_config_entries(load("config_entries_sample.json"), {"domain": "mqtt"})
+    text = et.format_config_entry_list(entries)
+    assert "abc123|mqtt|MQTT Broker" in text
+    assert "shelly" not in text
+
+
+def test_format_config_entry_detail():
+    entry = load("config_entries_sample.json")[1]
+    text = et.format_config_entry_detail(entry)
+    assert "setup_error" in text
+    assert "cannot_connect" in text
+
+
+def test_filter_statistic_ids_and_format_statistics():
+    ids = et.filter_statistic_ids(
+        [{"statistic_id": "sensor.temperature"}, {"statistic_id": "sensor.humidity"}],
+        {"search": "temp"},
+    )
+    text = et.format_statistic_id_list(ids)
+    assert "sensor.temperature" in text
+    assert "sensor.humidity" not in text
+    stats_text = et.format_statistics_response(
+        load("statistics_sample.json"),
+        ["sensor.temperature"],
+        max_rows=10,
+    )
+    assert "mean=21.5" in stats_text
+
+
+def test_format_group_zone_person_lists():
+    states = load("domain_states_sample.json")
+    group_states = [
+        {
+            "entity_id": "group.lights",
+            "state": "on",
+            "attributes": {"friendly_name": "All lights", "entity_id": ["light.a", "light.b"]},
+        }
+    ]
+    zone_states = [
+        {
+            "entity_id": "zone.home",
+            "state": "0",
+            "attributes": {"friendly_name": "Home", "radius": 100, "passive": False},
+        }
+    ]
+    person_states = [
+        {
+            "entity_id": "person.john",
+            "state": "home",
+            "attributes": {"friendly_name": "John", "user_id": "uid1", "device_trackers": ["device_tracker.phone"]},
+        }
+    ]
+    assert "2 members" in et.format_group_list(group_states, total=1, offset=0, limit=10)
+    assert "zone.home" in et.format_zone_list(zone_states, total=1, offset=0, limit=10)
+    assert "person.john" in et.format_person_list(person_states, total=1, offset=0, limit=10)

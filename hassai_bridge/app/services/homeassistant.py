@@ -662,6 +662,95 @@ _TOOL_SPECS: dict[str, dict] = {
             "required": ["entity_id", "confirm"],
         },
     },
+    "ha_list_config_entries": {
+        "description": "List Home Assistant integrations (config entries). Filter by domain or search.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string", "description": "Integration domain, e.g. mqtt, shelly"},
+                "search": {"type": "string"},
+            },
+        },
+    },
+    "ha_get_config_entry": {
+        "description": "Get one integration config entry by entry_id from ha_list_config_entries.",
+        "parameters": {
+            "type": "object",
+            "properties": {"entry_id": {"type": "string"}},
+            "required": ["entry_id"],
+        },
+    },
+    "ha_reload_config_entry": {
+        "description": "Reload an integration config entry. confirm=true required.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entry_id": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["entry_id", "confirm"],
+        },
+    },
+    "ha_list_statistic_ids": {
+        "description": "List long-term statistic ids (usually sensor.*). Use before ha_get_statistics.",
+        "parameters": {
+            "type": "object",
+            "properties": {"search": {"type": "string"}},
+        },
+    },
+    "ha_get_statistics": {
+        "description": (
+            "Long-term statistics for sensors (recorder). "
+            "Pass statistic_id or entity_id; period hour/day/week/month."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "statistic_id": {"type": "string"},
+                "statistic_ids": {"type": "array", "items": {"type": "string"}},
+                "entity_id": {"type": "string", "description": "Alias for statistic_id when they match"},
+                "hours": {"type": "integer", "description": "Lookback (default 24, max 720)"},
+                "period": {
+                    "type": "string",
+                    "enum": ["5minute", "hour", "day", "week", "month"],
+                    "description": "Default hour",
+                },
+            },
+        },
+    },
+    "ha_list_groups": {
+        "description": "List group.* entities and member counts.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string"},
+                "limit": {"type": "integer"},
+                "offset": {"type": "integer"},
+            },
+        },
+    },
+    "ha_list_zones": {
+        "description": "List zone.* entities (geofences).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string"},
+                "limit": {"type": "integer"},
+                "offset": {"type": "integer"},
+            },
+        },
+    },
+    "ha_list_persons": {
+        "description": "List person.* entities linked to HA users and device trackers.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string"},
+                "limit": {"type": "integer"},
+                "offset": {"type": "integer"},
+            },
+        },
+    },
     "ha_system_info": {
         "description": "HA Core + Supervisor + host summary (version, unhealthy, add-ons).",
         "parameters": {"type": "object", "properties": {}},
@@ -1595,6 +1684,90 @@ async def _activate_scene(args: dict) -> str:
     return f"OK: activated scene {entity_id}"
 
 
+async def _list_config_entries(args: dict) -> str:
+    payload: dict[str, Any] = {"type": "config_entries/get"}
+    domain = (args.get("domain") or "").strip()
+    if domain:
+        payload["domain"] = domain
+    result = await _ws_call(payload)
+    entries = et.filter_config_entries(et.normalize_config_entries(result), args)
+    return et.format_config_entry_list(entries)
+
+
+async def _get_config_entry(args: dict) -> str:
+    entry_id = (args.get("entry_id") or "").strip()
+    if not entry_id:
+        return "Error: entry_id is required"
+    result = await _ws_call({"type": "config_entries/get_single", "entry_id": entry_id})
+    if not isinstance(result, dict):
+        return f"Error: no config entry with id {entry_id}"
+    return et.format_config_entry_detail(result)
+
+
+async def _reload_config_entry(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    entry_id = (args.get("entry_id") or "").strip()
+    if not entry_id:
+        return "Error: entry_id is required"
+    await _core("POST", f"/config/config_entries/entry/{entry_id}/reload")
+    return f"OK: reloaded config entry {entry_id}"
+
+
+async def _list_statistic_ids(args: dict) -> str:
+    result = await _ws_call({"type": "recorder/list_statistic_ids"})
+    rows = result if isinstance(result, list) else []
+    ids = et.filter_statistic_ids(rows, args)
+    return et.format_statistic_id_list(ids)
+
+
+async def _get_statistics(args: dict) -> str:
+    ids: list[str] = []
+    raw_ids = args.get("statistic_ids")
+    if isinstance(raw_ids, list):
+        ids.extend(str(item or "").strip() for item in raw_ids if str(item or "").strip())
+    stat_id = (args.get("statistic_id") or args.get("entity_id") or "").strip()
+    if stat_id:
+        ids.append(stat_id)
+    ids = ids[:5]
+    if not ids:
+        return "Error: statistic_id, statistic_ids, or entity_id is required"
+    try:
+        hours = int(args.get("hours") or 24)
+    except (TypeError, ValueError):
+        hours = 24
+    hours = max(1, min(hours, 720))
+    period = et.normalize_statistics_period(args.get("period"))
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(hours=hours)
+    payload: dict[str, Any] = {
+        "type": "recorder/statistics_during_period",
+        "start_time": start.isoformat(),
+        "end_time": end.isoformat(),
+        "statistic_ids": ids,
+        "period": period,
+    }
+    result = await _ws_call(payload)
+    try:
+        limit = int(args.get("limit") or 24)
+    except (TypeError, ValueError):
+        limit = 24
+    limit = max(3, min(limit, 60))
+    return et.format_statistics_response(result, ids, max_rows=limit)
+
+
+async def _list_groups(args: dict) -> str:
+    return await _list_domain_states(args, "group", et.format_group_list)
+
+
+async def _list_zones(args: dict) -> str:
+    return await _list_domain_states(args, "zone", et.format_zone_list)
+
+
+async def _list_persons(args: dict) -> str:
+    return await _list_domain_states(args, "person", et.format_person_list)
+
+
 async def _system_info(_args: dict) -> str:
     out: dict[str, Any] = {}
     try:
@@ -2176,6 +2349,14 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_run_script": _run_script,
     "ha_list_scenes": _list_scenes,
     "ha_activate_scene": _activate_scene,
+    "ha_list_config_entries": _list_config_entries,
+    "ha_get_config_entry": _get_config_entry,
+    "ha_reload_config_entry": _reload_config_entry,
+    "ha_list_statistic_ids": _list_statistic_ids,
+    "ha_get_statistics": _get_statistics,
+    "ha_list_groups": _list_groups,
+    "ha_list_zones": _list_zones,
+    "ha_list_persons": _list_persons,
     "ha_system_info": _system_info,
     "ha_get_logs": _get_logs,
     "ha_list_problems": _list_problems,

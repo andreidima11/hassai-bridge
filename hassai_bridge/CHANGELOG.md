@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.47-beta
+
+### Phase 7 — integrations, statistics, location entities
+- **`ha_list_config_entries`**, **`ha_get_config_entry`**, **`ha_reload_config_entry`**
+- **`ha_list_statistic_ids`**, **`ha_get_statistics`** (recorder long-term stats)
+- **`ha_list_groups`**, **`ha_list_zones`**, **`ha_list_persons`**
+- Thinking labels EN/RO; unit tests for formatters
+
 ## 0.2.46-beta
 
 ### Phase 5 — floors

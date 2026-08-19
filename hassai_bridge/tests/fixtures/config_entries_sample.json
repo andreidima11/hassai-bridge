@@ -1,0 +1,17 @@
+[
+  {
+    "entry_id": "abc123",
+    "domain": "mqtt",
+    "title": "MQTT Broker",
+    "state": "loaded",
+    "source": "user"
+  },
+  {
+    "entry_id": "def456",
+    "domain": "shelly",
+    "title": "Shelly",
+    "state": "setup_error",
+    "source": "discovery",
+    "reason": "cannot_connect"
+  }
+]

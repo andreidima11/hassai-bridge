@@ -50,6 +50,7 @@ HA_MUTATING_TOOLS = frozenset({
     "ha_trigger_automation",
     "ha_run_script",
     "ha_activate_scene",
+    "ha_reload_config_entry",
     "ha_reload",
 })
 

@@ -210,6 +210,13 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(args.get("name"))
     if name == "ha_update_floor":
         return _clip_detail(f"{args.get('floor_id') or ''} {args.get('name') or ''}".strip())
+    if name == "ha_get_config_entry":
+        return _clip_detail(args.get("entry_id"))
+    if name == "ha_reload_config_entry":
+        return _clip_detail(args.get("entry_id"))
+    if name == "ha_get_statistics":
+        sid = args.get("statistic_id") or args.get("entity_id") or ""
+        return _clip_detail(f"{sid} {args.get('period') or 'hour'}".strip())
     if name == "ha_upsert_card":
         card = args.get("card") if isinstance(args.get("card"), dict) else {}
         bits = [
