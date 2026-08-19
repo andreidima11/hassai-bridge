@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.61-beta
+
+### Feature
+- **Brain popover** — switch active AI provider from chat (alongside model and thinking mode)
+
 ## 0.2.60-beta
 
 ### Fix
