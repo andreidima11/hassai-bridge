@@ -79,6 +79,9 @@ document.querySelectorAll('.settings-tab').forEach(stab => {
     parent.querySelectorAll('.settings-subpanel').forEach(p => p.classList.remove('active'));
     stab.classList.add('active');
     document.getElementById(stab.dataset.stab).classList.add('active');
+    if (stab.dataset.stab === 'stab-stats-model' && _cachedUsageStats) {
+      requestAnimationFrame(() => _renderUsageCharts(_cachedUsageStats));
+    }
     if (stab.dataset.stab === 'stab-stats-server') {
       requestAnimationFrame(fitServerOverviewValues);
     }
@@ -377,10 +380,20 @@ const CHART_COLORS = [
   '#fd79a8', '#6c5ce7', '#00b894', '#fdcb6e',
 ];
 
+function _chartParentWidth(canvas, fallback = 300) {
+  const parent = canvas?.parentElement;
+  if (!parent) return fallback;
+  const w = parent.clientWidth;
+  if (w > 0) return w;
+  // Hidden subpanels report 0 width — fall back to canvas markup/default size.
+  return canvas.width || fallback;
+}
+
 function _drawPieChart(canvas, data, colors) {
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  const size = Math.min(canvas.parentElement.clientWidth - 40, 280);
+  const size = Math.max(120, Math.min(_chartParentWidth(canvas) - 40, 280));
   canvas.width = size * dpr;
   canvas.height = size * dpr;
   canvas.style.width = size + 'px';
@@ -395,7 +408,9 @@ function _drawPieChart(canvas, data, colors) {
     ctx.fillText(t('stats.noData'), size / 2, size / 2);
     return;
   }
-  const cx = size / 2, cy = size / 2, r = (size / 2) - 10;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = Math.max(1, (size / 2) - 10);
   let startAngle = -Math.PI / 2;
 
   data.forEach((d, i) => {
@@ -429,9 +444,10 @@ function _drawPieChart(canvas, data, colors) {
 }
 
 function _drawBarChart(canvas, labels, values, color) {
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  const w = canvas.parentElement.clientWidth - 44;
+  const w = Math.max(200, _chartParentWidth(canvas, 800) - 44);
   const h = 180;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
@@ -516,6 +532,22 @@ function _formatMs(ms) {
   return ms + 'ms';
 }
 
+let _cachedUsageStats = null;
+
+function _renderUsageCharts(stats) {
+  const provData = stats.by_provider.map(p => ({ label: p.provider_name || p.provider_id, value: p.requests }));
+  _drawPieChart(document.getElementById('chartProvider'), provData, CHART_COLORS);
+  _buildLegend(document.getElementById('chartProviderLegend'), provData, CHART_COLORS);
+
+  const modelData = stats.by_model.map(m => ({ label: m.model, value: m.requests }));
+  _drawPieChart(document.getElementById('chartModel'), modelData, CHART_COLORS);
+  _buildLegend(document.getElementById('chartModelLegend'), modelData, CHART_COLORS);
+
+  const dailyLabels = stats.daily.map(d => d.day);
+  const dailyValues = stats.daily.map(d => d.requests);
+  _drawBarChart(document.getElementById('chartDaily'), dailyLabels, dailyValues, '#4f8cff');
+}
+
 async function loadUsageStats() {
   const days = parseInt(document.getElementById('statsPeriod').value) || 30;
   try {
@@ -552,20 +584,8 @@ async function loadUsageStats() {
     document.getElementById('statsCacheHit').textContent = _formatNumber(kv.hit_tokens || 0);
     document.getElementById('statsCacheMiss').textContent = _formatNumber(kv.miss_tokens || 0);
 
-    // Pie chart - by provider
-    const provData = stats.by_provider.map(p => ({ label: p.provider_name || p.provider_id, value: p.requests }));
-    _drawPieChart(document.getElementById('chartProvider'), provData, CHART_COLORS);
-    _buildLegend(document.getElementById('chartProviderLegend'), provData, CHART_COLORS);
-
-    // Pie chart - by model
-    const modelData = stats.by_model.map(m => ({ label: m.model, value: m.requests }));
-    _drawPieChart(document.getElementById('chartModel'), modelData, CHART_COLORS);
-    _buildLegend(document.getElementById('chartModelLegend'), modelData, CHART_COLORS);
-
-    // Daily bar chart
-    const dailyLabels = stats.daily.map(d => d.day);
-    const dailyValues = stats.daily.map(d => d.requests);
-    _drawBarChart(document.getElementById('chartDaily'), dailyLabels, dailyValues, '#4f8cff');
+    _cachedUsageStats = stats;
+    _renderUsageCharts(stats);
 
     // Provider detail table
     document.getElementById('statsProviderTable').innerHTML = stats.by_provider.length
