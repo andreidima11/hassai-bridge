@@ -30,6 +30,13 @@ def has_images(content: Any) -> bool:
     return any(isinstance(part, dict) and part.get("type") == "image_url" for part in content)
 
 
+def messages_have_images(messages: list[dict] | None) -> bool:
+    for msg in messages or []:
+        if has_images(msg.get("content")):
+            return True
+    return False
+
+
 def content_size(content: Any) -> int:
     if isinstance(content, str):
         return len(content)

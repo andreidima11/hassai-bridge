@@ -547,6 +547,11 @@ async function loadUsageStats() {
     document.getElementById('statsSecondaryRequests').textContent = _formatNumber(sec.requests || 0);
     document.getElementById('statsSecondaryTokens').textContent = _formatNumber(sec.tokens || 0);
 
+    // KV cache stats (DeepSeek)
+    const kv = stats.kv_cache || {};
+    document.getElementById('statsCacheHit').textContent = _formatNumber(kv.hit_tokens || 0);
+    document.getElementById('statsCacheMiss').textContent = _formatNumber(kv.miss_tokens || 0);
+
     // Pie chart - by provider
     const provData = stats.by_provider.map(p => ({ label: p.provider_name || p.provider_id, value: p.requests }));
     _drawPieChart(document.getElementById('chartProvider'), provData, CHART_COLORS);
@@ -848,6 +853,8 @@ function renderProvidersList() {
     const activeClass = isActive ? ' provider-active' : '';
     const secProv = p.secondary_provider ? _allSecondaryProviders.find(x => x.id === p.secondary_provider) : null;
     const secLabel = secProv ? `<span class="provider-secondary-badge">${t('settings.secondaryShort')}: ${escapeHtml(secProv.name)}</span>` : '';
+    const visProv = p.vision_provider ? _allSecondaryProviders.find(x => x.id === p.vision_provider) : null;
+    const visLabel = visProv ? `<span class="provider-secondary-badge">${t('settings.visionShort')}: ${escapeHtml(visProv.name)}</span>` : '';
     return `
       <div class="provider-item${activeClass}">
         <div class="provider-info">
@@ -855,6 +862,7 @@ function renderProvidersList() {
             ${isActive ? '✅ ' : ''}${escapeHtml(p.name)}
             <span class="provider-type-badge">${escapeHtml(typeLabel)}</span>
             ${secLabel}
+            ${visLabel}
           </div>
           <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
         </div>
@@ -870,6 +878,14 @@ function renderProvidersList() {
 function _populateSecondarySelect(excludeId) {
   const sel = document.getElementById('provSecondary');
   sel.innerHTML = `<option value="">${t('settings.noSecondary')}</option>`;
+  for (const p of _allSecondaryProviders) {
+    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
+  }
+}
+
+function _populateVisionSelect() {
+  const sel = document.getElementById('provVision');
+  sel.innerHTML = `<option value="">${t('settings.noVision')}</option>`;
   for (const p of _allSecondaryProviders) {
     sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
   }
@@ -891,6 +907,8 @@ function openAddProvider() {
   _populateSecondarySelect(null);
   document.getElementById('provSecondary').value = '';
   updateProviderCapabilitySections(document.getElementById('provType').value);
+  _populateVisionSelect();
+  document.getElementById('provVision').value = '';
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   document.getElementById('provTestSection').style.display = 'none';
   document.getElementById('provTestResult').style.display = 'none';
@@ -919,6 +937,8 @@ function editProvider(id) {
   const thinkingEl = document.getElementById('provThinkingMode');
   if (thinkingEl) thinkingEl.value = p.thinking_mode || 'auto';
   updateProviderCapabilitySections(p.type || 'local');
+  _populateVisionSelect();
+  document.getElementById('provVision').value = p.vision_provider || '';
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   document.getElementById('provTestSection').style.display = '';
   document.getElementById('provTestResult').style.display = 'none';
@@ -983,6 +1003,7 @@ async function saveProvider() {
     system_prompt: document.getElementById('provSystemPrompt').value.trim(),
     secondary_provider: document.getElementById('provSecondary').value || '',
     thinking_mode: document.getElementById('provThinkingMode')?.value || 'auto',
+    vision_provider: document.getElementById('provVision').value || '',
     eco_mode: document.getElementById('provEcoMode').checked,
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }

@@ -5,9 +5,23 @@ from services import provider_capabilities as pc
 
 
 def test_preset_capabilities_deepseek_only():
-    assert "thinking" in pc.preset_capabilities("deepseek")
+    caps = pc.preset_capabilities("deepseek")
+    assert "thinking" in caps
+    assert "kv_cache" in caps
     assert pc.preset_capabilities("openai") == {}
     assert pc.preset_capabilities("local") == {}
+
+
+def test_kv_cache_helpers():
+    provider = {"type": "deepseek"}
+    assert pc.supports_kv_cache(provider) is True
+    assert pc.kv_context_budget(provider) == 98000
+    hit, miss = pc.cache_tokens_from_usage(
+        provider,
+        {"prompt_cache_hit_tokens": 100, "prompt_cache_miss_tokens": 50},
+    )
+    assert hit == 100
+    assert miss == 50
 
 
 def test_provider_chat_capabilities_uses_provider_default():

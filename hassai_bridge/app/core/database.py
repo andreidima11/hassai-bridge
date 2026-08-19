@@ -160,6 +160,8 @@ def init_db():
                 search_used INTEGER NOT NULL DEFAULT 0,
                 eco_mode INTEGER NOT NULL DEFAULT 0,
                 secondary_used INTEGER NOT NULL DEFAULT 0,
+                cache_hit_tokens INTEGER NOT NULL DEFAULT 0,
+                cache_miss_tokens INTEGER NOT NULL DEFAULT 0,
                 created_at REAL NOT NULL
             )
         """)
@@ -213,6 +215,14 @@ def init_db():
                 conv_cols = [r[1] for r in conn.execute("PRAGMA table_info(conversations)").fetchall()]
                 if "meta" not in conv_cols:
                     conn.execute("ALTER TABLE conversations ADD COLUMN meta TEXT NOT NULL DEFAULT ''")
+            if row["version"] < 5:
+                for col in ("cache_hit_tokens", "cache_miss_tokens"):
+                    try:
+                        conn.execute(
+                            f"ALTER TABLE usage_stats ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                        )
+                    except sqlite3.OperationalError:
+                        pass
             conn.execute(
                 "UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1",
                 (DB_SCHEMA_VERSION, time.time()),
@@ -651,18 +661,21 @@ def clear_conversation(user_id):
 def add_usage_stat(user_id, provider_id, provider_name="", provider_type="",
                    model="", tokens_prompt=0, tokens_completion=0, tokens_total=0,
                    response_time_ms=0, stream=False, search_used=False,
-                   eco_mode=False, secondary_used=False):
+                   eco_mode=False, secondary_used=False,
+                   cache_hit_tokens=0, cache_miss_tokens=0):
     with get_db() as conn:
         conn.execute(
             """INSERT INTO usage_stats
                (user_id, provider_id, provider_name, provider_type, model,
                 tokens_prompt, tokens_completion, tokens_total,
-                response_time_ms, stream, search_used, eco_mode, secondary_used, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                response_time_ms, stream, search_used, eco_mode, secondary_used,
+                cache_hit_tokens, cache_miss_tokens, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, provider_id, provider_name, provider_type, model,
              tokens_prompt, tokens_completion, tokens_total,
              response_time_ms, 1 if stream else 0, 1 if search_used else 0,
              1 if eco_mode else 0, 1 if secondary_used else 0,
+             cache_hit_tokens, cache_miss_tokens,
              time.time()),
         )
 
@@ -777,6 +790,13 @@ def get_usage_stats(days=30):
             (cutoff,)
         ).fetchone()["total"]
 
+        cache_row = conn.execute(
+            """SELECT COALESCE(SUM(cache_hit_tokens),0) as hit,
+                      COALESCE(SUM(cache_miss_tokens),0) as miss
+               FROM usage_stats WHERE created_at >= ?""",
+            (cutoff,),
+        ).fetchone()
+
     return {
         "period_days": days,
         "total_requests": total,
@@ -802,6 +822,10 @@ def get_usage_stats(days=30):
         "secondary": {
             "requests": secondary_count,
             "tokens": secondary_tokens,
+        },
+        "kv_cache": {
+            "hit_tokens": cache_row["hit"],
+            "miss_tokens": cache_row["miss"],
         },
     }
 

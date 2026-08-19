@@ -5,6 +5,7 @@ from __future__ import annotations
 from services import deepseek as ds
 
 THINKING = "thinking"
+KV_CACHE = "kv_cache"
 
 
 def preset_capabilities(provider_type: str) -> dict:
@@ -15,6 +16,9 @@ def preset_capabilities(provider_type: str) -> dict:
                 "modes": list(ds.THINKING_MODES),
                 "default": "auto",
                 "label": "thinking",
+            },
+            KV_CACHE: {
+                "context_budget": 98000,
             },
         }
     return {}
@@ -34,6 +38,26 @@ def provider_chat_capabilities(provider: dict | None) -> dict:
 
 def supports_thinking(provider: dict | None) -> bool:
     return THINKING in provider_chat_capabilities(provider)
+
+
+def supports_kv_cache(provider: dict | None) -> bool:
+    return KV_CACHE in provider_chat_capabilities(provider)
+
+
+def kv_context_budget(provider: dict | None) -> int:
+    caps = provider_chat_capabilities(provider)
+    kv = caps.get(KV_CACHE) or {}
+    return int(kv.get("context_budget") or 98000)
+
+
+def cache_tokens_from_usage(provider: dict | None, usage: dict | None) -> tuple[int, int]:
+    if not isinstance(provider, dict) or not isinstance(usage, dict):
+        return 0, 0
+    if provider.get("type") == "deepseek":
+        hit = int(usage.get("prompt_cache_hit_tokens") or 0)
+        miss = int(usage.get("prompt_cache_miss_tokens") or 0)
+        return hit, miss
+    return 0, 0
 
 
 def resolve_thinking(

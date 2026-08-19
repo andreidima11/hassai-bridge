@@ -63,6 +63,25 @@ PROVIDER_PRESETS = {
 }
 
 
+_VISION_MODEL_HINTS = re.compile(
+    r"gpt-4o|gpt-4-turbo|gpt-4-vision|gpt-4\.1|claude-3|claude-sonnet|claude-opus|gemini|llava|vision|"
+    r"qwen.*vl|pixtral|glm-4v|internvl|moondream|minicpm-v",
+    re.I,
+)
+
+
+def provider_supports_vision(provider: dict | None) -> bool:
+    if not isinstance(provider, dict):
+        return False
+    flag = provider.get("supports_vision")
+    if flag is True:
+        return True
+    if flag is False:
+        return False
+    model = str(provider.get("model") or "").strip()
+    return bool(model and _VISION_MODEL_HINTS.search(model))
+
+
 def get_active_provider() -> dict:
     """Get the currently active provider config."""
     cfg = load_config()
@@ -115,6 +134,31 @@ def get_secondary_provider(primary: dict | None = None) -> dict | None:
     if not sec_id:
         return None
     return get_secondary_provider_by_id(sec_id)
+
+
+def get_vision_provider(primary: dict | None = None) -> dict | None:
+    """Get the dedicated vision provider for the given (or active) primary."""
+    if primary is None:
+        primary = get_active_provider()
+    vision_id = primary.get("vision_provider", "")
+    if not vision_id:
+        return None
+    return get_secondary_provider_by_id(vision_id)
+
+
+def resolve_image_provider(primary: dict | None = None, secondary: dict | None = None) -> dict | None:
+    """Pick provider for image requests when the primary model lacks vision.
+
+    Priority: dedicated vision provider, then auxiliary (secondary) provider.
+    """
+    if primary is None:
+        primary = get_active_provider()
+    vision = get_vision_provider(primary)
+    if vision:
+        return vision
+    if secondary is None:
+        secondary = get_secondary_provider(primary)
+    return secondary
 
 
 def get_secondary_provider_by_id(provider_id: str) -> dict | None:
