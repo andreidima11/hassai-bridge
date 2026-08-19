@@ -17,6 +17,8 @@ from typing import Any, Callable, Awaitable
 
 import httpx
 
+from . import lovelace_tools as lt
+
 log = logging.getLogger("hassai.ha")
 
 _SUPERVISOR = "http://supervisor"
@@ -283,6 +285,7 @@ _TOOL_SPECS: dict[str, dict] = {
                         "core", "automations", "scripts", "scenes", "template",
                         "themes", "groups", "input_boolean", "input_number",
                         "input_select", "input_text", "input_datetime", "persons",
+                        "lovelace",
                     ],
                     "description": "What to reload. 'core' = homeassistant.reload_core_config",
                 },
@@ -292,28 +295,96 @@ _TOOL_SPECS: dict[str, dict] = {
         },
     },
     "ha_list_dashboards": {
-        "description": "List Lovelace dashboards (url_path, title, mode: storage or yaml).",
+        "description": (
+            "List Lovelace dashboards (url_path, title, mode: storage or yaml). "
+            "Includes the default Overview dashboard (empty url_path)."
+        ),
         "parameters": {"type": "object", "properties": {}},
     },
     "ha_get_dashboard": {
         "description": (
-            "Get Lovelace dashboard JSON (views + cards) via HA WebSocket. "
-            "Omit url_path for the default Overview dashboard. "
-            "YAML-mode dashboards cannot be edited with save/upsert — use ha_read_file / ha_write_file."
+            "Inspect a Lovelace dashboard. Returns a compact summary by default. "
+            "Overview/default uses an empty url_path. "
+            "Use view_path for a page/view (not the dashboard url_path). "
+            "YAML dashboards: use ha_read_file / ha_write_file instead of save/upsert."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "url_path": {"type": "string", "description": "Dashboard url_path, or empty for default"},
+                "url_path": {"type": "string", "description": "Dashboard url_path; empty = Overview/default"},
                 "view_index": {"type": "integer"},
-                "view_title": {"type": "string"},
+                "view_path": {"type": "string", "description": "View page path (e.g. kitchen)"},
+                "view_title": {"type": "string", "description": "Substring match on view title/path"},
+                "include_cards": {"type": "boolean", "description": "List card summaries in the response"},
+                "full": {"type": "boolean", "description": "Return raw JSON instead of summary (large)"},
+                "force": {"type": "boolean", "description": "Force reload for YAML dashboards"},
             },
+        },
+    },
+    "ha_create_dashboard": {
+        "description": (
+            "Create a new storage-mode Lovelace dashboard (sidebar entry). "
+            "url_path must contain a hyphen (HA rule), e.g. energy-home. "
+            "Optionally seeds one empty sections view."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url_path": {"type": "string"},
+                "title": {"type": "string"},
+                "icon": {"type": "string", "description": "mdi:... icon"},
+                "show_in_sidebar": {"type": "boolean"},
+                "require_admin": {"type": "boolean"},
+                "initial_view_title": {"type": "string", "description": "First view title (default Home)"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["url_path", "title", "confirm"],
+        },
+    },
+    "ha_upsert_view": {
+        "description": (
+            "Add or replace a dashboard view/page (storage mode). "
+            "Default view type is sections. Provide view object or title/path."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url_path": {"type": "string"},
+                "view_index": {"type": "integer", "description": "Replace this view index"},
+                "view_path": {"type": "string", "description": "Replace view with this path, or set path on create"},
+                "view_title": {"type": "string"},
+                "title": {"type": "string"},
+                "path": {"type": "string"},
+                "view_type": {"type": "string", "description": "sections (default), masonry, panel, sidebar"},
+                "icon": {"type": "string"},
+                "view": {"type": "object", "description": "Full view JSON to insert/replace"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["confirm"],
+        },
+    },
+    "ha_upsert_section": {
+        "description": "Add or replace a section on a sections-type view (storage mode).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url_path": {"type": "string"},
+                "view_index": {"type": "integer"},
+                "view_path": {"type": "string"},
+                "view_title": {"type": "string"},
+                "section_index": {"type": "integer", "description": "Replace section; omit to append"},
+                "title": {"type": "string", "description": "Optional heading card for a new section"},
+                "section": {"type": "object"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["confirm"],
         },
     },
     "ha_save_dashboard": {
         "description": (
             "Save a full Lovelace dashboard config (storage mode only). "
-            "Pass the complete config object (views array). YAML dashboards must be edited via ha_write_file."
+            "Prefer ha_upsert_view / ha_upsert_card for small edits. "
+            "Never pass truncated JSON from ha_get_dashboard."
         ),
         "parameters": {
             "type": "object",
@@ -328,15 +399,20 @@ _TOOL_SPECS: dict[str, dict] = {
     "ha_upsert_card": {
         "description": (
             "Add or replace one card on a Lovelace view (storage mode). "
-            "If card_index is omitted, the card is appended. "
-            "If set, that card is replaced."
+            "Sections views store cards under sections[].cards — use section_index. "
+            "view_path selects the page/view; url_path selects the dashboard. "
+            "If card_index is omitted, the card is appended."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "url_path": {"type": "string"},
+                "url_path": {"type": "string", "description": "Dashboard url_path; empty = Overview"},
                 "view_index": {"type": "integer"},
+                "view_path": {"type": "string", "description": "View page path"},
                 "view_title": {"type": "string"},
+                "section_index": {"type": "integer", "description": "Sections view: target section"},
+                "section_title": {"type": "string"},
+                "create_section": {"type": "boolean", "description": "Create a section if needed"},
                 "card_index": {"type": "integer", "description": "Replace this card; omit to append"},
                 "card": {"type": "object", "description": "Lovelace card JSON (must include type)"},
                 "confirm": {"type": "boolean"},
@@ -345,13 +421,16 @@ _TOOL_SPECS: dict[str, dict] = {
         },
     },
     "ha_delete_card": {
-        "description": "Delete one card from a Lovelace view (storage mode).",
+        "description": "Delete one card from a Lovelace view or section (storage mode).",
         "parameters": {
             "type": "object",
             "properties": {
                 "url_path": {"type": "string"},
                 "view_index": {"type": "integer"},
+                "view_path": {"type": "string"},
                 "view_title": {"type": "string"},
+                "section_index": {"type": "integer"},
+                "section_title": {"type": "string"},
                 "card_index": {"type": "integer"},
                 "confirm": {"type": "boolean"},
             },
@@ -407,9 +486,12 @@ def ha_system_hint() -> str:
         f"{names}. "
         "Chain tools in one turn until the job is done — do not stop after a single lookup. "
         "Diagnose with ha_list_problems + ha_get_logs. "
-        "Dashboards (WebSocket API): ha_list_dashboards → ha_get_dashboard → "
-        "ha_upsert_card / ha_delete_card / ha_save_dashboard (storage mode only). "
-        "YAML dashboards: ha_read_file / ha_write_file on ui-lovelace.yaml or dashboards/*.yaml. "
+        "Dashboards (WebSocket, storage mode): ha_list_dashboards → ha_get_dashboard (summary) → "
+        "ha_create_dashboard / ha_upsert_view / ha_upsert_section / ha_upsert_card / ha_delete_card. "
+        "Overview/default dashboard uses an empty url_path. A user 'page' is a view (view_path), not url_path. "
+        "Sections views store cards in sections[].cards — pass section_index or create_section=true. "
+        "YAML dashboards: ha_read_file / ha_write_file, then ha_reload what=lovelace confirm=true. "
+        "Avoid ha_save_dashboard unless replacing the entire config from a trusted source. "
         "YAML / configuration.yaml: ha_read_file / ha_write_file then ha_check_config, then ha_reload if needed. "
         "Mutating tools need confirm=true: set it when the user already asked you to make the change. "
         "Do not wait for a second confirmation. "
@@ -428,8 +510,12 @@ async def run_ha_tool(name: str, args: dict) -> str:
     except Exception as e:
         log.error("HA tool %s failed: %s", name, e)
         msg = str(e)
+        hint = lt.dashboard_error_hint(name, msg)
+        if hint:
+            return f"Error: {msg}. {hint}"
         if ("404" in msg or "not_found" in msg.lower()) and name in {
             "ha_list_dashboards", "ha_get_dashboard", "ha_save_dashboard",
+            "ha_create_dashboard", "ha_upsert_view", "ha_upsert_section",
             "ha_upsert_card", "ha_delete_card",
         }:
             return (
@@ -613,6 +699,7 @@ _RELOAD_MAP = {
     "input_text": ("input_text", "reload"),
     "input_datetime": ("input_datetime", "reload"),
     "persons": ("person", "reload"),
+    "lovelace": ("lovelace", "reload"),
 }
 
 
@@ -628,73 +715,191 @@ async def _reload(args: dict) -> str:
     return f"OK: reloaded {what} ({domain}.{service})"
 
 
-def _ws_url_path(url_path: str | None) -> str | None:
-    path = (url_path or "").strip().strip("/")
-    return path or None
-
-
-def _normalize_lovelace_config(result: Any) -> dict:
-    if isinstance(result, dict):
-        if "views" in result:
-            return result
-        if isinstance(result.get("config"), dict):
-            return result["config"]
-    if isinstance(result, list):
-        return {"views": result}
-    raise RuntimeError("unexpected Lovelace config payload from Home Assistant")
+async def _dashboard_mode(url_path: str | None) -> str:
+    ws_path = lt.ws_url_path(url_path)
+    if ws_path is None:
+        ui_lovelace = _HA_CONFIG / "ui-lovelace.yaml"
+        if ui_lovelace.is_file():
+            return "yaml"
+        return "storage"
+    rows = await _ws_call({"type": "lovelace/dashboards/list"})
+    if isinstance(rows, list):
+        for row in rows:
+            if isinstance(row, dict) and row.get("url_path") == ws_path:
+                return str(row.get("mode") or "storage")
+    return "storage"
 
 
 async def _list_dashboards(_args: dict) -> str:
-    data = await _ws_call({"type": "lovelace/dashboards/list"})
-    return _dump(data)
+    rows = await _ws_call({"type": "lovelace/dashboards/list"})
+    dashboards: list[dict[str, Any]] = []
+    if isinstance(rows, list):
+        dashboards.extend(row for row in rows if isinstance(row, dict))
+
+    overview_mode = await _dashboard_mode(None)
+    overview: dict[str, Any] = {
+        "title": "Overview",
+        "url_path": "",
+        "mode": overview_mode,
+        "builtin": True,
+    }
+    if overview_mode == "yaml" and (_HA_CONFIG / "ui-lovelace.yaml").is_file():
+        overview["config_file"] = "ui-lovelace.yaml"
+
+    lines = ["Built-in dashboards:", lt.dump_json(overview, max_chars=2000)]
+    if dashboards:
+        lines.append("")
+        lines.append("Additional dashboards:")
+        lines.append(lt.dump_json(dashboards, max_chars=10_000))
+    else:
+        lines.append("")
+        lines.append("Additional dashboards: none")
+    lines.append("")
+    lines.append("Notes: empty url_path = Overview/default. User 'pages' are views (view_path), not url_path.")
+    return "\n".join(lines)
 
 
-async def _load_dashboard(url_path: str | None) -> dict:
-    payload: dict[str, Any] = {"type": "lovelace/config"}
-    ws_path = _ws_url_path(url_path)
+async def _load_dashboard(url_path: str | None, *, force: bool = False) -> dict:
+    mode = await _dashboard_mode(url_path)
+    if mode == "yaml":
+        raise RuntimeError(
+            "dashboard is YAML mode; use ha_read_file / ha_write_file on ui-lovelace.yaml or dashboards/*.yaml"
+        )
+    payload: dict[str, Any] = {"type": "lovelace/config", "force": bool(force)}
+    ws_path = lt.ws_url_path(url_path)
     if ws_path:
         payload["url_path"] = ws_path
     result = await _ws_call(payload)
-    return _normalize_lovelace_config(result)
+    return lt.normalize_lovelace_config(result)
 
 
 async def _save_dashboard_config(url_path: str | None, config: dict) -> None:
+    mode = await _dashboard_mode(url_path)
+    if mode == "yaml":
+        raise RuntimeError(
+            "dashboard is YAML mode; use ha_read_file / ha_write_file, then ha_reload what=lovelace"
+        )
     payload: dict[str, Any] = {
         "type": "lovelace/config/save",
         "config": config,
     }
-    ws_path = _ws_url_path(url_path)
+    ws_path = lt.ws_url_path(url_path)
     if ws_path:
         payload["url_path"] = ws_path
     await _ws_call(payload)
 
 
-def _pick_view(cfg: dict, args: dict) -> tuple[int, dict]:
-    views = cfg.get("views")
-    if not isinstance(views, list) or not views:
-        raise RuntimeError("dashboard has no views")
-    if args.get("view_index") is not None:
-        idx = int(args["view_index"])
-        if idx < 0 or idx >= len(views):
-            raise RuntimeError(f"view_index {idx} out of range 0..{len(views)-1}")
-        return idx, views[idx]
-    title = (args.get("view_title") or "").strip().lower()
-    if title:
-        for i, view in enumerate(views):
-            vt = str((view or {}).get("title") or (view or {}).get("path") or "").lower()
-            if title in vt:
-                return i, view
-        raise RuntimeError(f"no view matching title '{title}'")
-    return 0, views[0]
-
-
 async def _get_dashboard(args: dict) -> str:
     url_path = args.get("url_path")
+    mode = await _dashboard_mode(url_path)
+    if mode == "yaml":
+        ui = _HA_CONFIG / "ui-lovelace.yaml"
+        if lt.ws_url_path(url_path) is None and ui.is_file():
+            return await _read_file({"path": "ui-lovelace.yaml"})
+        return (
+            "Error: dashboard is YAML mode. "
+            "Use ha_read_file on ui-lovelace.yaml or dashboards/<name>.yaml."
+        )
+
+    cfg = await _load_dashboard(url_path, force=bool(args.get("force")))
+    if args.get("full") is True:
+        if args.get("view_index") is not None or args.get("view_title") or args.get("view_path"):
+            idx, view = lt.pick_view(cfg, args)
+            return lt.dump_json(
+                {"url_path": url_path or "(default)", "view_index": idx, "view": view},
+                max_chars=40_000,
+            )
+        return lt.dump_json({"url_path": url_path or "(default)", "config": cfg}, max_chars=40_000)
+
+    if args.get("view_index") is not None or args.get("view_title") or args.get("view_path"):
+        idx, view = lt.pick_view(cfg, args)
+        include_cards = bool(args.get("include_cards"))
+        body = lt.summarize_view(view, idx, include_cards=include_cards)
+        label = lt._view_path(view, idx)
+        dash = lt.ws_url_path(url_path)
+        open_hint = f"/lovelace/{label}" if dash is None else f"/dashboard-{dash}/{label}"
+        return (
+            f"dashboard: {url_path or '(default)'}\n"
+            f"mode: {mode}\n"
+            f"{body}\n"
+            f"open: {open_hint}"
+        )
+
+    return lt.summarize_dashboard(
+        url_path,
+        cfg,
+        mode=mode,
+        include_cards=bool(args.get("include_cards")),
+    )
+
+
+async def _create_dashboard(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    url_path = lt.ws_url_path(args.get("url_path"))
+    title = (args.get("title") or "").strip()
+    if not url_path:
+        return "Error: url_path is required"
+    if not title:
+        return "Error: title is required"
+    if "-" not in url_path:
+        return "Error: url_path must contain a hyphen (Home Assistant rule), e.g. energy-home"
+
+    payload: dict[str, Any] = {
+        "type": "lovelace/dashboards/create",
+        "url_path": url_path,
+        "title": title,
+    }
+    if args.get("icon"):
+        payload["icon"] = args["icon"]
+    if args.get("show_in_sidebar") is not None:
+        payload["show_in_sidebar"] = bool(args["show_in_sidebar"])
+    if args.get("require_admin") is not None:
+        payload["require_admin"] = bool(args["require_admin"])
+
+    result = await _ws_call(payload)
+    initial_title = (args.get("initial_view_title") or "Home").strip() or "Home"
+    seed = {
+        "views": [
+            {
+                "title": initial_title,
+                "path": "home",
+                "type": "sections",
+                "sections": [{"type": "grid", "cards": []}],
+            }
+        ]
+    }
+    await _save_dashboard_config(url_path, seed)
+    dash_id = (result or {}).get("id") if isinstance(result, dict) else "?"
+    return (
+        f"OK: created dashboard '{title}' url_path={url_path} id={dash_id}. "
+        f"Open /dashboard-{url_path}/home — use ha_upsert_card with view_path=home."
+    )
+
+
+async def _upsert_view(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    url_path = args.get("url_path")
     cfg = await _load_dashboard(url_path)
-    if args.get("view_index") is not None or args.get("view_title"):
-        idx, view = _pick_view(cfg, args)
-        return _dump({"url_path": url_path or "(default)", "view_index": idx, "view": view})
-    return _dump({"url_path": url_path or "(default)", "config": cfg})
+    idx, view, action = lt.upsert_view_in_config(cfg, args)
+    await _save_dashboard_config(url_path, cfg)
+    path = lt._view_path(view, idx)
+    dash = lt.ws_url_path(url_path)
+    open_hint = f"/lovelace/{path}" if dash is None else f"/dashboard-{dash}/{path}"
+    return f"OK: {action} ({lt._view_label(view, idx)}). Open {open_hint}"
+
+
+async def _upsert_section(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    url_path = args.get("url_path")
+    cfg = await _load_dashboard(url_path)
+    vidx, view = lt.pick_view(cfg, args)
+    sidx, _section, action = lt.upsert_section_in_view(view, args)
+    cfg["views"][vidx] = view
+    await _save_dashboard_config(url_path, cfg)
+    return f"OK: {action} on view {vidx} ({lt._view_label(view, vidx)}) section {sidx}"
 
 
 async def _save_dashboard(args: dict) -> str:
@@ -717,8 +922,9 @@ async def _upsert_card(args: dict) -> str:
         return "Error: card must be an object with type"
     url_path = args.get("url_path")
     cfg = await _load_dashboard(url_path)
-    idx, view = _pick_view(cfg, args)
-    cards = list(view.get("cards") or [])
+    vidx, view = lt.pick_view(cfg, args)
+    container = lt.card_container(view, args, create_section=bool(args.get("create_section")))
+    cards = list(container.cards)
     if args.get("card_index") is None:
         cards.append(card)
         action = f"appended card #{len(cards)-1}"
@@ -728,10 +934,15 @@ async def _upsert_card(args: dict) -> str:
             return f"Error: card_index {cidx} out of range 0..{len(cards)-1}"
         cards[cidx] = card
         action = f"replaced card #{cidx}"
-    view["cards"] = cards
-    cfg["views"][idx] = view
+    container.write_back(cards)
+    cfg["views"][vidx] = view
     await _save_dashboard_config(url_path, cfg)
-    return f"OK: {action} on view {idx} ({view.get('title') or view.get('path') or idx})"
+
+    where = f"view {vidx} ({lt._view_label(view, vidx)})"
+    if container.kind == "sections":
+        where += f" section {container.section_index}"
+    verify = lt.summarize_view(view, vidx, include_cards=True)
+    return f"OK: {action} on {where}\n{verify}"
 
 
 async def _delete_card(args: dict) -> str:
@@ -739,17 +950,21 @@ async def _delete_card(args: dict) -> str:
         return msg
     url_path = args.get("url_path")
     cfg = await _load_dashboard(url_path)
-    idx, view = _pick_view(cfg, args)
-    cards = list(view.get("cards") or [])
+    vidx, view = lt.pick_view(cfg, args)
+    container = lt.card_container(view, args)
+    cards = list(container.cards)
     cidx = int(args.get("card_index"))
     if cidx < 0 or cidx >= len(cards):
         return f"Error: card_index {cidx} out of range 0..{len(cards)-1}"
     removed = cards.pop(cidx)
-    view["cards"] = cards
-    cfg["views"][idx] = view
+    container.write_back(cards)
+    cfg["views"][vidx] = view
     await _save_dashboard_config(url_path, cfg)
     rtype = (removed or {}).get("type", "?")
-    return f"OK: deleted card #{cidx} (type={rtype}) from view {idx}"
+    where = f"view {vidx} ({lt._view_label(view, vidx)})"
+    if container.kind == "sections":
+        where += f" section {container.section_index}"
+    return f"OK: deleted card #{cidx} (type={rtype}) from {where}"
 
 
 async def _list_files(args: dict) -> str:
@@ -824,6 +1039,9 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_reload": _reload,
     "ha_list_dashboards": _list_dashboards,
     "ha_get_dashboard": _get_dashboard,
+    "ha_create_dashboard": _create_dashboard,
+    "ha_upsert_view": _upsert_view,
+    "ha_upsert_section": _upsert_section,
     "ha_save_dashboard": _save_dashboard,
     "ha_upsert_card": _upsert_card,
     "ha_delete_card": _delete_card,

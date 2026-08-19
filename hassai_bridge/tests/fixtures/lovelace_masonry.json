@@ -1,0 +1,12 @@
+{
+  "views": [
+    {
+      "title": "Legacy",
+      "path": "legacy",
+      "type": "masonry",
+      "cards": [
+        {"type": "entities", "entities": ["light.old"]}
+      ]
+    }
+  ]
+}

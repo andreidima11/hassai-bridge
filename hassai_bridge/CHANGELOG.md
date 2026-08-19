@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.37-beta
+
+- **Lovelace tools fixed for modern HA:** card edits target `sections[].cards` on sections views (not dead `view.cards`)
+- New tools: `ha_create_dashboard`, `ha_upsert_view`, `ha_upsert_section`
+- `ha_get_dashboard` returns a compact summary; `view_path` distinguishes pages from dashboard `url_path`
+- `ha_list_dashboards` includes Overview; YAML-mode errors and `ha_reload lovelace` are clearer
+- Unit tests for Lovelace helpers (fixtures, no live HA)
+
 ## 0.2.36-beta
 
 - Assistant messages render **markdown** (headings, lists, tables, links, code blocks with copy)
