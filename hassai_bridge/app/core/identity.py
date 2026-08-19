@@ -157,3 +157,48 @@ def list_profiles() -> list[dict]:
             "source": prof.get("source") or row.get("source") or "manual",
         })
     return sorted(by_name.values(), key=lambda r: r["username"].lower())
+
+
+def get_profile(username: str) -> dict | None:
+    username = (username or "").strip()
+    if not username:
+        return None
+    for row in list_profiles():
+        if row.get("username") == username:
+            return row
+    return None
+
+
+def resolve_display_name(username: str, request: Request | None = None) -> str:
+    """Best display name for a Bridge user (ingress headers, then stored profile)."""
+    username = (username or "").strip()
+    if not username or username in ("default", "webui"):
+        return ""
+
+    if request is not None:
+        profile = ensure_from_request(request)
+        if profile and profile.get("username") == username:
+            name = (profile.get("display_name") or "").strip()
+            if name and name not in ("default", "webui"):
+                return name
+
+    prof = get_profile(username)
+    if prof:
+        name = (prof.get("display_name") or prof.get("username") or "").strip()
+        if name and name not in ("default", "webui"):
+            return name
+
+    if not username.startswith("ha_"):
+        return username.replace("_", " ")
+    return ""
+
+
+def user_context_for_prompt(username: str, request: Request | None = None) -> str:
+    display = resolve_display_name(username, request)
+    if not display:
+        return ""
+    return (
+        "[User]\n"
+        f"You are assisting {display} (Home Assistant user). "
+        "Use their name naturally when appropriate, in the same language they write in."
+    )

@@ -1530,10 +1530,16 @@ async def chat_completions(request: Request):
 
     mem_ctx = build_memory_context(memories, user_id=user_id, message=last_user_msg)
 
+    from core.identity import user_context_for_prompt
+
+    user_ctx = user_context_for_prompt(user_id, request)
+
     # 3) Merge all system content into ONE system message (saves per-message overhead on local LLMs)
     system_parts = []
     if system_prompt:
         system_parts.append(system_prompt)
+    if user_ctx:
+        system_parts.append(user_ctx)
     if mem_ctx:
         system_parts.append(mem_ctx)
     if search_enabled:
