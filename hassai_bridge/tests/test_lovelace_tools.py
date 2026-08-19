@@ -157,3 +157,16 @@ def test_append_card_to_yaml_sections():
     assert "appended card" in action
     cards = updated["views"][0]["sections"][0]["cards"]
     assert cards[-1]["entity"] == "sensor.new"
+
+
+def test_match_dashboard_by_id_and_url_path():
+    rows = [
+        {"id": "abc123", "url_path": "test-dashboard", "title": "Test", "mode": "storage"},
+        {"id": "def456", "url_path": "energy-home", "title": "Energy", "mode": "storage"},
+    ]
+    by_id = lt.match_dashboard(rows, {"dashboard_id": "abc123"})
+    assert by_id["url_path"] == "test-dashboard"
+    by_path = lt.match_dashboard(rows, {"url_path": "test_dashboard"})
+    assert by_path["id"] == "abc123"
+    by_title = lt.match_dashboard(rows, {"title": "Energy"})
+    assert by_title["url_path"] == "energy-home"

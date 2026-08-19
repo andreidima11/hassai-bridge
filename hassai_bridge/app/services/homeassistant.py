@@ -474,30 +474,42 @@ _TOOL_SPECS: dict[str, dict] = {
     "ha_update_dashboard": {
         "description": (
             "Update storage-mode dashboard metadata (title, icon, sidebar visibility). "
-            "Does not edit views/cards — use ha_upsert_view / ha_upsert_card."
+            "Uses dashboard_id from ha_list_dashboards (url_path/title also accepted)."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "url_path": {"type": "string", "description": "Required; not for Overview/default"},
-                "title": {"type": "string"},
+                "dashboard_id": {
+                    "type": "string",
+                    "description": "Preferred id from ha_list_dashboards",
+                },
+                "url_path": {"type": "string", "description": "Alternative to dashboard_id"},
+                "title": {"type": "string", "description": "New dashboard title"},
                 "icon": {"type": "string"},
                 "show_in_sidebar": {"type": "boolean"},
                 "require_admin": {"type": "boolean"},
                 "confirm": {"type": "boolean"},
             },
-            "required": ["url_path", "confirm"],
+            "required": ["confirm"],
         },
     },
     "ha_delete_dashboard": {
-        "description": "Delete a storage-mode Lovelace dashboard (not Overview/default).",
+        "description": (
+            "Delete a storage-mode Lovelace dashboard (not Overview/default). "
+            "Requires dashboard_id from ha_list_dashboards (url_path/title also accepted)."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "url_path": {"type": "string"},
+                "dashboard_id": {
+                    "type": "string",
+                    "description": "Preferred id from ha_list_dashboards",
+                },
+                "url_path": {"type": "string", "description": "Alternative to dashboard_id"},
+                "title": {"type": "string", "description": "Find dashboard by title"},
                 "confirm": {"type": "boolean"},
             },
-            "required": ["url_path", "confirm"],
+            "required": ["confirm"],
         },
     },
     "ha_list_lovelace_resources": {
@@ -577,7 +589,7 @@ def ha_system_hint() -> str:
         "Diagnose with ha_list_problems + ha_get_logs. "
         "Dashboards (WebSocket, storage mode): ha_list_dashboards → ha_get_dashboard (summary) → "
         "ha_create_dashboard / ha_upsert_view / ha_upsert_section / ha_upsert_card / ha_delete_card / ha_delete_view. "
-        "Dashboard metadata: ha_update_dashboard / ha_delete_dashboard. "
+        "Dashboard metadata: ha_update_dashboard / ha_delete_dashboard (use dashboard_id from ha_list_dashboards). "
         "Overview/default dashboard uses an empty url_path. A user 'page' is a view (view_path), not url_path. "
         "Pass dashboard_url (/lovelace/foo or /dashboard-bar/baz) to resolve url_path and view_path. "
         "Sections views store cards in sections[].cards — pass section_index or create_section=true. "
@@ -864,7 +876,10 @@ async def _list_dashboards(_args: dict) -> str:
         lines.append("")
         lines.append("Additional dashboards: none")
     lines.append("")
-    lines.append("Notes: empty url_path = Overview/default. User 'pages' are views (view_path), not url_path.")
+    lines.append(
+        "Notes: empty url_path = Overview/default. User 'pages' are views (view_path), not url_path. "
+        "Each dashboard row includes id — use it for ha_update_dashboard / ha_delete_dashboard."
+    )
     return "\n".join(lines)
 
 
@@ -1084,13 +1099,33 @@ async def _delete_view(args: dict) -> str:
     return f"OK: {action}. Was open at {open_hint}"
 
 
+async def _find_dashboard(args: dict) -> dict:
+    rows = await _ws_call({"type": "lovelace/dashboards/list"})
+    if not isinstance(rows, list):
+        raise RuntimeError("unexpected dashboards list payload")
+    return lt.match_dashboard(rows, args)
+
+
 async def _update_dashboard(args: dict) -> str:
     if msg := _require_confirm(args):
         return msg
-    url_path = lt.ws_url_path(args.get("url_path"))
-    if not url_path:
-        return "Error: url_path is required (Overview/default metadata cannot be updated this way)"
-    payload: dict[str, Any] = {"type": "lovelace/dashboards/update", "url_path": url_path}
+    lookup = {
+        key: args[key]
+        for key in ("dashboard_id", "url_path")
+        if args.get(key) not in (None, "")
+    }
+    if not lookup:
+        return "Error: provide dashboard_id or url_path (from ha_list_dashboards)"
+    row = await _find_dashboard(lookup)
+    dashboard_id = row.get("id")
+    if not dashboard_id:
+        return "Error: matched dashboard has no id"
+    if str(row.get("mode") or "") == "yaml":
+        return "Error: YAML dashboards cannot be updated with this tool"
+    payload: dict[str, Any] = {
+        "type": "lovelace/dashboards/update",
+        "dashboard_id": dashboard_id,
+    }
     changed = False
     for key in ("title", "icon", "show_in_sidebar", "require_admin"):
         if args.get(key) is not None:
@@ -1099,17 +1134,22 @@ async def _update_dashboard(args: dict) -> str:
     if not changed:
         return "Error: provide at least one of title, icon, show_in_sidebar, require_admin"
     await _ws_call(payload)
-    return f"OK: updated dashboard {url_path}"
+    url_path = row.get("url_path") or "?"
+    return f"OK: updated dashboard {url_path} (id={dashboard_id})"
 
 
 async def _delete_dashboard(args: dict) -> str:
     if msg := _require_confirm(args):
         return msg
-    url_path = lt.ws_url_path(args.get("url_path"))
-    if not url_path:
-        return "Error: cannot delete the default Overview dashboard"
-    await _ws_call({"type": "lovelace/dashboards/delete", "url_path": url_path})
-    return f"OK: deleted dashboard {url_path}"
+    row = await _find_dashboard(args)
+    dashboard_id = row.get("id")
+    if not dashboard_id:
+        return "Error: matched dashboard has no id"
+    if str(row.get("mode") or "") == "yaml":
+        return "Error: YAML dashboards cannot be deleted with this tool"
+    url_path = row.get("url_path") or "?"
+    await _ws_call({"type": "lovelace/dashboards/delete", "dashboard_id": dashboard_id})
+    return f"OK: deleted dashboard {url_path} (id={dashboard_id})"
 
 
 async def _list_lovelace_resources(_args: dict) -> str:
