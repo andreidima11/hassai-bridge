@@ -1,5 +1,14 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.49-beta
+
+### Automation tools & chat thinking UX
+- **`ha_delete_automation`**, **`ha_delete_script`**, **`ha_delete_scene`** — remove via HA config API
+- **`ha_get_automation`** — search by name + triggers/conditions/actions summary for explain questions
+- Agent steered to stop tool loops on read-only explain requests
+- **Thought briefly** rows between tool steps (EN/RO), like Cursor
+- 52 unit tests
+
 ## 0.2.48-beta
 
 ### Chat UX — Stop & thinking
