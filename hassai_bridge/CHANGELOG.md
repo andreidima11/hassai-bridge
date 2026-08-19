@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.56-beta
+
+### Fixes
+- **Grok/provider errors** — HTML error pages (Cloudflare, bad URL) no longer appear as chat replies; show a clear message instead
+- **Fetch Models** — after loading, shows a full dropdown list (input hid all but the first model)
+
 ## 0.2.55-beta
 
 ### UI fixes
