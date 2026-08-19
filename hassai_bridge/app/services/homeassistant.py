@@ -16,8 +16,14 @@ from pathlib import Path
 from typing import Any, Callable, Awaitable
 
 import httpx
+import yaml
 
 from . import lovelace_tools as lt
+
+_DASHBOARD_URL = {
+    "type": "string",
+    "description": "Optional HA URL (/lovelace/kitchen or /dashboard-energy/home) to fill url_path/view_path",
+}
 
 log = logging.getLogger("hassai.ha")
 
@@ -312,6 +318,7 @@ _TOOL_SPECS: dict[str, dict] = {
             "type": "object",
             "properties": {
                 "url_path": {"type": "string", "description": "Dashboard url_path; empty = Overview/default"},
+                "dashboard_url": _DASHBOARD_URL,
                 "view_index": {"type": "integer"},
                 "view_path": {"type": "string", "description": "View page path (e.g. kitchen)"},
                 "view_title": {"type": "string", "description": "Substring match on view title/path"},
@@ -350,6 +357,7 @@ _TOOL_SPECS: dict[str, dict] = {
             "type": "object",
             "properties": {
                 "url_path": {"type": "string"},
+                "dashboard_url": _DASHBOARD_URL,
                 "view_index": {"type": "integer", "description": "Replace this view index"},
                 "view_path": {"type": "string", "description": "Replace view with this path, or set path on create"},
                 "view_title": {"type": "string"},
@@ -369,6 +377,7 @@ _TOOL_SPECS: dict[str, dict] = {
             "type": "object",
             "properties": {
                 "url_path": {"type": "string"},
+                "dashboard_url": _DASHBOARD_URL,
                 "view_index": {"type": "integer"},
                 "view_path": {"type": "string"},
                 "view_title": {"type": "string"},
@@ -407,6 +416,7 @@ _TOOL_SPECS: dict[str, dict] = {
             "type": "object",
             "properties": {
                 "url_path": {"type": "string", "description": "Dashboard url_path; empty = Overview"},
+                "dashboard_url": _DASHBOARD_URL,
                 "view_index": {"type": "integer"},
                 "view_path": {"type": "string", "description": "View page path"},
                 "view_title": {"type": "string"},
@@ -430,6 +440,7 @@ _TOOL_SPECS: dict[str, dict] = {
             "type": "object",
             "properties": {
                 "url_path": {"type": "string"},
+                "dashboard_url": _DASHBOARD_URL,
                 "view_index": {"type": "integer"},
                 "view_path": {"type": "string"},
                 "view_title": {"type": "string"},
@@ -440,6 +451,79 @@ _TOOL_SPECS: dict[str, dict] = {
                 "confirm": {"type": "boolean"},
             },
             "required": ["confirm"],
+        },
+    },
+    "ha_delete_view": {
+        "description": (
+            "Delete a view/page from a storage-mode dashboard. "
+            "Cannot delete the last remaining view."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url_path": {"type": "string"},
+                "dashboard_url": _DASHBOARD_URL,
+                "view_index": {"type": "integer"},
+                "view_path": {"type": "string"},
+                "view_title": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["confirm"],
+        },
+    },
+    "ha_update_dashboard": {
+        "description": (
+            "Update storage-mode dashboard metadata (title, icon, sidebar visibility). "
+            "Does not edit views/cards — use ha_upsert_view / ha_upsert_card."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url_path": {"type": "string", "description": "Required; not for Overview/default"},
+                "title": {"type": "string"},
+                "icon": {"type": "string"},
+                "show_in_sidebar": {"type": "boolean"},
+                "require_admin": {"type": "boolean"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["url_path", "confirm"],
+        },
+    },
+    "ha_delete_dashboard": {
+        "description": "Delete a storage-mode Lovelace dashboard (not Overview/default).",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url_path": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["url_path", "confirm"],
+        },
+    },
+    "ha_list_lovelace_resources": {
+        "description": "List Lovelace JS/CSS resources registered in Home Assistant.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    "ha_append_card_yaml": {
+        "description": (
+            "Append a card to a YAML-mode dashboard (ui-lovelace.yaml or dashboards/*.yaml). "
+            "Then ha_reload what=lovelace confirm=true."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url_path": {"type": "string", "description": "Empty = Overview/ui-lovelace.yaml"},
+                "dashboard_url": _DASHBOARD_URL,
+                "view_index": {"type": "integer"},
+                "view_path": {"type": "string"},
+                "view_title": {"type": "string"},
+                "section_index": {"type": "integer"},
+                "section_title": {"type": "string"},
+                "create_section": {"type": "boolean"},
+                "card": {"type": "object", "description": "Lovelace card JSON (must include type)"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["card", "confirm"],
         },
     },
     "ha_list_files": {
@@ -492,11 +576,14 @@ def ha_system_hint() -> str:
         "Chain tools in one turn until the job is done — do not stop after a single lookup. "
         "Diagnose with ha_list_problems + ha_get_logs. "
         "Dashboards (WebSocket, storage mode): ha_list_dashboards → ha_get_dashboard (summary) → "
-        "ha_create_dashboard / ha_upsert_view / ha_upsert_section / ha_upsert_card / ha_delete_card. "
+        "ha_create_dashboard / ha_upsert_view / ha_upsert_section / ha_upsert_card / ha_delete_card / ha_delete_view. "
+        "Dashboard metadata: ha_update_dashboard / ha_delete_dashboard. "
         "Overview/default dashboard uses an empty url_path. A user 'page' is a view (view_path), not url_path. "
+        "Pass dashboard_url (/lovelace/foo or /dashboard-bar/baz) to resolve url_path and view_path. "
         "Sections views store cards in sections[].cards — pass section_index or create_section=true. "
         "Nested stack/grid cards: card_path like 2.1. "
-        "YAML dashboards: ha_read_file / ha_write_file, then ha_reload what=lovelace confirm=true. "
+        "YAML dashboards: ha_append_card_yaml or ha_read_file / ha_write_file, then ha_reload what=lovelace confirm=true. "
+        "Lovelace resources: ha_list_lovelace_resources. "
         "Avoid ha_save_dashboard unless replacing the entire config from a trusted source. "
         "YAML / configuration.yaml: ha_read_file / ha_write_file then ha_check_config, then ha_reload if needed. "
         "Mutating tools need confirm=true: set it when the user already asked you to make the change. "
@@ -522,7 +609,8 @@ async def run_ha_tool(name: str, args: dict) -> str:
         if ("404" in msg or "not_found" in msg.lower()) and name in {
             "ha_list_dashboards", "ha_get_dashboard", "ha_save_dashboard",
             "ha_create_dashboard", "ha_upsert_view", "ha_upsert_section",
-            "ha_upsert_card", "ha_delete_card",
+            "ha_upsert_card", "ha_delete_card", "ha_delete_view",
+            "ha_update_dashboard", "ha_delete_dashboard", "ha_append_card_yaml",
         }:
             return (
                 f"Error: {msg}. "
@@ -535,6 +623,10 @@ def _require_confirm(args: dict) -> str | None:
     if args.get("confirm") is True:
         return None
     return "Refused: set confirm=true after the user explicitly agrees."
+
+
+def _dash_args(args: dict) -> dict:
+    return lt.resolve_dashboard_args(args or {})
 
 
 async def _list_entities(args: dict) -> str:
@@ -765,6 +857,9 @@ async def _list_dashboards(_args: dict) -> str:
         enriched.append(item)
     dashboards = enriched
     if dashboards:
+        lines.append("")
+        lines.append("Additional dashboards:")
+        lines.append(lt.dump_json(dashboards, max_chars=10_000))
     else:
         lines.append("")
         lines.append("Additional dashboards: none")
@@ -804,6 +899,7 @@ async def _save_dashboard_config(url_path: str | None, config: dict) -> None:
 
 
 async def _get_dashboard(args: dict) -> str:
+    args = _dash_args(args)
     url_path = args.get("url_path")
     mode = await _dashboard_mode(url_path)
     if mode == "yaml":
@@ -895,6 +991,7 @@ async def _create_dashboard(args: dict) -> str:
 async def _upsert_view(args: dict) -> str:
     if msg := _require_confirm(args):
         return msg
+    args = _dash_args(args)
     url_path = args.get("url_path")
     cfg = await _load_dashboard(url_path)
     idx, view, action = lt.upsert_view_in_config(cfg, args)
@@ -908,6 +1005,7 @@ async def _upsert_view(args: dict) -> str:
 async def _upsert_section(args: dict) -> str:
     if msg := _require_confirm(args):
         return msg
+    args = _dash_args(args)
     url_path = args.get("url_path")
     cfg = await _load_dashboard(url_path)
     vidx, view = lt.pick_view(cfg, args)
@@ -932,6 +1030,7 @@ async def _save_dashboard(args: dict) -> str:
 async def _upsert_card(args: dict) -> str:
     if msg := _require_confirm(args):
         return msg
+    args = _dash_args(args)
     card = args.get("card")
     if not isinstance(card, dict) or not card.get("type"):
         return "Error: card must be an object with type"
@@ -958,6 +1057,7 @@ async def _upsert_card(args: dict) -> str:
 async def _delete_card(args: dict) -> str:
     if msg := _require_confirm(args):
         return msg
+    args = _dash_args(args)
     if args.get("card_index") is None and not (args.get("card_path") or "").strip():
         return "Error: card_index or card_path is required"
     url_path = args.get("url_path")
@@ -968,6 +1068,89 @@ async def _delete_card(args: dict) -> str:
     await _save_dashboard_config(url_path, cfg)
     where = f"view {vidx} ({lt._view_label(view, vidx)})"
     return f"OK: {action} from {where}"
+
+
+async def _delete_view(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    args = _dash_args(args)
+    url_path = args.get("url_path")
+    cfg = await _load_dashboard(url_path)
+    idx, view, action = lt.delete_view_in_config(cfg, args)
+    await _save_dashboard_config(url_path, cfg)
+    dash = lt.ws_url_path(url_path)
+    path = lt._view_path(view, idx)
+    open_hint = f"/lovelace/{path}" if dash is None else f"/dashboard-{dash}/{path}"
+    return f"OK: {action}. Was open at {open_hint}"
+
+
+async def _update_dashboard(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    url_path = lt.ws_url_path(args.get("url_path"))
+    if not url_path:
+        return "Error: url_path is required (Overview/default metadata cannot be updated this way)"
+    payload: dict[str, Any] = {"type": "lovelace/dashboards/update", "url_path": url_path}
+    changed = False
+    for key in ("title", "icon", "show_in_sidebar", "require_admin"):
+        if args.get(key) is not None:
+            payload[key] = args[key]
+            changed = True
+    if not changed:
+        return "Error: provide at least one of title, icon, show_in_sidebar, require_admin"
+    await _ws_call(payload)
+    return f"OK: updated dashboard {url_path}"
+
+
+async def _delete_dashboard(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    url_path = lt.ws_url_path(args.get("url_path"))
+    if not url_path:
+        return "Error: cannot delete the default Overview dashboard"
+    await _ws_call({"type": "lovelace/dashboards/delete", "url_path": url_path})
+    return f"OK: deleted dashboard {url_path}"
+
+
+async def _list_lovelace_resources(_args: dict) -> str:
+    rows = await _ws_call({"type": "lovelace/resources/list"})
+    if not isinstance(rows, list) or not rows:
+        return "No Lovelace resources."
+    return lt.dump_json(rows, max_chars=12_000)
+
+
+async def _append_card_yaml(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    args = _dash_args(args)
+    card = args.get("card")
+    if not isinstance(card, dict) or not card.get("type"):
+        return "Error: card must be an object with type"
+    url_path = args.get("url_path")
+    rel = lt.yaml_dashboard_file(url_path)
+    if not rel:
+        return "Error: could not resolve YAML file path"
+    path = _safe_config_path(rel)
+    if not path.is_file():
+        return f"Error: not found: {rel}"
+    text = path.read_text(encoding="utf-8", errors="replace")
+    data = yaml.safe_load(text)
+    updated, action = lt.append_card_to_yaml(data, args, card)
+    new_text = yaml.safe_dump(
+        updated,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+    )
+    path.write_text(new_text, encoding="utf-8")
+    dash = lt.ws_url_path(url_path)
+    vpath = (args.get("view_path") or "home").strip() or "home"
+    open_hint = f"/lovelace/{vpath}" if dash is None else f"/dashboard-{dash}/{vpath}"
+    return (
+        f"OK: {action} in {rel}\n"
+        f"open: {open_hint}\n"
+        "Run ha_reload what=lovelace confirm=true."
+    )
 
 
 async def _list_files(args: dict) -> str:
@@ -1051,6 +1234,11 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_save_dashboard": _save_dashboard,
     "ha_upsert_card": _upsert_card,
     "ha_delete_card": _delete_card,
+    "ha_delete_view": _delete_view,
+    "ha_update_dashboard": _update_dashboard,
+    "ha_delete_dashboard": _delete_dashboard,
+    "ha_list_lovelace_resources": _list_lovelace_resources,
+    "ha_append_card_yaml": _append_card_yaml,
     "ha_list_files": _list_files,
     "ha_read_file": _read_file,
     "ha_write_file": _write_file,

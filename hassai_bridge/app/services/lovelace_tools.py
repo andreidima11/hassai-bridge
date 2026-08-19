@@ -17,6 +17,11 @@ HA_LOVELACE_TOOLS = frozenset({
     "ha_upsert_section",
     "ha_upsert_card",
     "ha_delete_card",
+    "ha_delete_view",
+    "ha_update_dashboard",
+    "ha_delete_dashboard",
+    "ha_append_card_yaml",
+    "ha_list_lovelace_resources",
 })
 HA_MUTATING_TOOLS = frozenset({
     "ha_save_dashboard",
@@ -25,6 +30,10 @@ HA_MUTATING_TOOLS = frozenset({
     "ha_upsert_section",
     "ha_upsert_card",
     "ha_delete_card",
+    "ha_delete_view",
+    "ha_update_dashboard",
+    "ha_delete_dashboard",
+    "ha_append_card_yaml",
     "ha_write_file",
     "ha_apply_fix",
     "ha_call_service",
@@ -404,6 +413,53 @@ def upsert_section_in_view(view: dict, args: dict) -> tuple[int, dict, str]:
     return sidx, new_section, f"created section {sidx}"
 
 
+def resolve_dashboard_args(args: dict) -> dict:
+    """Merge dashboard_url (/lovelace/foo or /dashboard-bar/baz) into url_path/view_path."""
+    merged = dict(args or {})
+    raw_url = (merged.get("dashboard_url") or merged.get("ha_url") or "").strip()
+    if not raw_url:
+        return merged
+    parsed = parse_lovelace_url(raw_url)
+    if not merged.get("url_path") and parsed.get("url_path") is not None:
+        merged["url_path"] = parsed["url_path"] or ""
+    if not merged.get("view_path") and parsed.get("view_path"):
+        merged["view_path"] = parsed["view_path"]
+    if not merged.get("view_title") and parsed.get("view_path") and not merged.get("view_path"):
+        merged["view_path"] = parsed["view_path"]
+    return merged
+
+
+def append_card_to_yaml(data: Any, args: dict, card: dict) -> tuple[Any, str]:
+    """Append a card into a parsed YAML Lovelace config."""
+    if not isinstance(data, dict):
+        raise RuntimeError("YAML root must be a mapping with a views list")
+    cfg = data
+    views = cfg.get("views")
+    if not isinstance(views, list) or not views:
+        raise RuntimeError("YAML has no views")
+    idx, view = pick_view(cfg, args)
+    container = card_container(view, args, create_section=bool(args.get("create_section")))
+    cards = list(container.cards)
+    cards.append(card)
+    container.write_back(cards)
+    cfg["views"][idx] = view
+    label = _view_label(view, idx)
+    return cfg, f"appended card #{len(cards)-1} on view {idx} ({label})"
+
+
+def delete_view_in_config(cfg: dict, args: dict) -> tuple[int, dict, str]:
+    views = cfg.get("views")
+    if not isinstance(views, list) or not views:
+        raise RuntimeError("dashboard has no views")
+    if len(views) <= 1:
+        raise RuntimeError("cannot delete the last remaining view on a dashboard")
+    idx, view = pick_view(cfg, args)
+    label = _view_label(view, idx)
+    views.pop(idx)
+    cfg["views"] = views
+    return idx, view, f"deleted view {idx} ({label})"
+
+
 def dump_json(obj: Any, max_chars: int = 14_000) -> str:
     text = json.dumps(obj, ensure_ascii=False, indent=2, default=str)
     if len(text) > max_chars:
@@ -536,8 +592,8 @@ def dashboard_error_hint(tool_name: str, message: str) -> str | None:
     lower = message.lower()
     if any(token in lower for token in ("storage mode", "yaml mode", "not in storage", "yaml only")):
         return (
-            "This dashboard is YAML mode. Edit the YAML file with ha_read_file / ha_write_file, "
-            "then reload Lovelace (ha_reload what=lovelace confirm=true)."
+            "This dashboard is YAML mode. Use ha_append_card_yaml, ha_read_file / ha_write_file, "
+            "then ha_reload what=lovelace confirm=true."
         )
     if "strategy" in lower:
         return "Strategy dashboards cannot be edited with card tools."

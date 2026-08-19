@@ -117,3 +117,43 @@ def test_nested_card_path_replace():
 def test_yaml_dashboard_file():
     assert lt.yaml_dashboard_file(None) == "ui-lovelace.yaml"
     assert lt.yaml_dashboard_file("energy-home") == "dashboards/energy-home.yaml"
+
+
+def test_resolve_dashboard_args():
+    merged = lt.resolve_dashboard_args({
+        "dashboard_url": "/dashboard-energy/home",
+        "card": {"type": "tile"},
+    })
+    assert merged["url_path"] == "energy"
+    assert merged["view_path"] == "home"
+    assert merged["card"]["type"] == "tile"
+
+
+def test_delete_view_in_config():
+    cfg = load("lovelace_sections.json")
+    cfg["views"].append({
+        "title": "Lights",
+        "path": "lights",
+        "type": "sections",
+        "sections": [{"type": "grid", "cards": []}],
+    })
+    assert len(cfg["views"]) == 2
+    idx, view, action = lt.delete_view_in_config(cfg, {"view_path": "lights"})
+    assert "deleted view" in action
+    assert len(cfg["views"]) == 1
+    assert view["path"] == "lights"
+
+
+def test_delete_last_view_raises():
+    cfg = {"views": [{"title": "Only", "path": "only", "type": "sections", "sections": []}]}
+    with pytest.raises(RuntimeError, match="last remaining view"):
+        lt.delete_view_in_config(cfg, {"view_path": "only"})
+
+
+def test_append_card_to_yaml_sections():
+    cfg = load("lovelace_sections.json")
+    card = {"type": "tile", "entity": "sensor.new"}
+    updated, action = lt.append_card_to_yaml(cfg, {"view_path": "home", "section_index": 0}, card)
+    assert "appended card" in action
+    cards = updated["views"][0]["sections"][0]["cards"]
+    assert cards[-1]["entity"] == "sensor.new"

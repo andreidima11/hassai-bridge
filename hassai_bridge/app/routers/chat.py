@@ -109,6 +109,19 @@ def _maybe_extend_tool_rounds(tool_calls: list[dict], round_idx: int, round_limi
     return round_limit
 
 
+def _agent_incomplete_notice(tool_names: list[str]) -> str:
+    unique = sorted({n for n in tool_names if n})
+    preview = ", ".join(unique[:4])
+    if len(unique) > 4:
+        preview += ", …"
+    detail = f" ({preview})" if preview else ""
+    return (
+        "\n\n---\n"
+        "I ran out of agent steps before finishing all requested actions"
+        f"{detail}. Ask me to continue and I will pick up where I left off."
+    )
+
+
 def _parse_tool_args(raw) -> dict:
     if isinstance(raw, dict):
         return raw
@@ -158,6 +171,20 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(args.get("title") or args.get("view_path") or args.get("path") or args.get("view_title"))
     if name == "ha_create_dashboard":
         return _clip_detail(f"{args.get('title') or ''} {args.get('url_path') or ''}".strip())
+    if name == "ha_delete_view":
+        return _clip_detail(args.get("view_path") or args.get("view_title") or args.get("view_index"))
+    if name == "ha_update_dashboard":
+        return _clip_detail(f"{args.get('url_path') or ''} {args.get('title') or ''}".strip())
+    if name == "ha_delete_dashboard":
+        return _clip_detail(args.get("url_path"))
+    if name == "ha_append_card_yaml":
+        card = args.get("card") if isinstance(args.get("card"), dict) else {}
+        bits = [
+            args.get("dashboard_url") or args.get("url_path") or "Overview",
+            args.get("view_path") or args.get("view_title") or "",
+            card.get("type") or "",
+        ]
+        return _clip_detail(" · ".join(str(b) for b in bits if b))
     if name == "ha_get_dashboard":
         bits = [
             args.get("url_path") or "Overview",
@@ -1425,7 +1452,8 @@ async def chat_completions(request: Request):
         fingerprints: list[str] = []
         max_rounds = _agent_max_rounds(cfg)
         round_limit = max_rounds
-        for _round in range(round_limit):
+        _round = 0
+        while _round < round_limit:
             msg = result.get("choices", [{}])[0].get("message", {})
             tool_calls = msg.get("tool_calls") or []
             if not tool_calls:
@@ -1476,9 +1504,15 @@ async def chat_completions(request: Request):
                     content={"error": {"message": "Provider request failed during tool loop.", "type": "upstream_error"}},
                 )
             await emit_think(think_id, "done", think_t0)
+            _round += 1
 
         # If final result still has non-internal tool_calls, forward to client
         final_msg = result.get("choices", [{}])[0].get("message", {})
+        pending_internal = [
+            (tc.get("function") or {}).get("name")
+            for tc in (final_msg.get("tool_calls") or [])
+            if (tc.get("function") or {}).get("name") in _INTERNAL_TOOLS
+        ]
         if final_msg.get("tool_calls"):
             remaining = [tc for tc in final_msg["tool_calls"] if tc.get("function", {}).get("name") not in _INTERNAL_TOOLS]
             if remaining:
@@ -1491,6 +1525,10 @@ async def chat_completions(request: Request):
                 del final_msg["tool_calls"]
 
         assistant_content = final_msg.get("content", "") or ""
+        if pending_internal:
+            notice = _agent_incomplete_notice(pending_internal)
+            assistant_content = (assistant_content + notice).strip()
+            result["choices"][0]["message"]["content"] = assistant_content
 
         # Strip any legacy <<SEARCH>> markers from content
         if assistant_content and _SEARCH_MARKER_STRIP.search(assistant_content):
@@ -1638,6 +1676,23 @@ async def chat_completions(request: Request):
                     break
 
                 if rounds_left <= 0:
+                    pending = [
+                        td["name"] for td in tc_accum.values()
+                        if td.get("name") in _INTERNAL_TOOLS
+                    ]
+                    if pending:
+                        notice = _agent_incomplete_notice(pending)
+                        full_response += notice
+                        notice_payload = json.dumps({
+                            "id": "hassai-incomplete",
+                            "object": "chat.completion.chunk",
+                            "choices": [{
+                                "index": 0,
+                                "delta": {"role": "assistant", "content": notice},
+                                "finish_reason": None,
+                            }],
+                        })
+                        yield f"data: {notice_payload}\n\n"
                     yield "data: [DONE]\n\n"
                     break
 
