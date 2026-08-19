@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.60-beta
+
+### Fix
+- **Mobile chat** — sidebar and settings buttons no longer overlap conversation bubbles (header is in layout flow)
+
 ## 0.2.59-beta
 
 ### UI
