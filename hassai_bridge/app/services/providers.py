@@ -151,6 +151,45 @@ def get_vision_provider(primary: dict | None = None) -> dict | None:
     return get_secondary_provider_by_id(vision_id)
 
 
+def get_image_generation_provider(primary: dict | None = None) -> dict | None:
+    """Get the dedicated image-generation provider for the given (or active) primary."""
+    if primary is None:
+        primary = get_active_provider()
+    gen_id = primary.get("image_generation_provider", "")
+    if not gen_id:
+        return None
+    return get_secondary_provider_by_id(gen_id)
+
+
+def find_global_image_generation_secondary() -> dict | None:
+    """First configured secondary provider that supports image generation."""
+    from services import provider_capabilities as pc
+
+    cfg = load_config()
+    for provider in cfg.get("secondary_providers", []):
+        if pc.supports_image_generation(provider):
+            return provider
+    return None
+
+
+def resolve_image_generation_provider(primary: dict | None = None) -> dict | None:
+    """Pick provider for the generate_image tool.
+
+    Priority: active Grok (or other capable primary), dedicated Image Gen LLM,
+    then any global Grok secondary configured for generation.
+    """
+    from services import provider_capabilities as pc
+
+    if primary is None:
+        primary = get_active_provider()
+    if pc.supports_image_generation(primary):
+        return primary
+    dedicated = get_image_generation_provider(primary)
+    if dedicated and pc.supports_image_generation(dedicated):
+        return dedicated
+    return find_global_image_generation_secondary()
+
+
 def find_global_vision_secondary() -> dict | None:
     """First configured secondary provider that supports chat vision."""
     cfg = load_config()

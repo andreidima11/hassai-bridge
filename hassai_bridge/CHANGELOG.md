@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.66-beta
+
+### Feature
+- **Image Generation LLM** — per primary provider, assign a Grok secondary for `generate_image` (e.g. DeepSeek chat + Grok Imagine for image creation)
+
 ## 0.2.65-beta
 
 ### Fix

@@ -914,6 +914,8 @@ function renderProvidersList() {
     const secLabel = secProv ? `<span class="provider-secondary-badge">${t('settings.secondaryShort')}: ${escapeHtml(secProv.name)}</span>` : '';
     const visProv = p.vision_provider ? _allSecondaryProviders.find(x => x.id === p.vision_provider) : null;
     const visLabel = visProv ? `<span class="provider-secondary-badge">${t('settings.visionShort')}: ${escapeHtml(visProv.name)}</span>` : '';
+    const imgProv = p.image_generation_provider ? _allSecondaryProviders.find(x => x.id === p.image_generation_provider) : null;
+    const imgLabel = imgProv ? `<span class="provider-secondary-badge">${t('settings.imageGenShort')}: ${escapeHtml(imgProv.name)}</span>` : '';
     return `
       <div class="provider-item${activeClass}">
         <div class="provider-info">
@@ -922,6 +924,7 @@ function renderProvidersList() {
             <span class="provider-type-badge">${escapeHtml(typeLabel)}</span>
             ${secLabel}
             ${visLabel}
+            ${imgLabel}
           </div>
           <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
         </div>
@@ -950,6 +953,15 @@ function _populateVisionSelect() {
   }
 }
 
+function _populateImageGenSelect() {
+  const sel = document.getElementById('provImageGen');
+  sel.innerHTML = `<option value="">${t('settings.noImageGen')}</option>`;
+  for (const p of _allSecondaryProviders) {
+    if (p.type !== 'grok') continue;
+    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (Grok)</option>`;
+  }
+}
+
 function openAddProvider() {
   _editingProviderId = null;
   document.getElementById('providerFormTitle').textContent = t('settings.addProvider');
@@ -968,6 +980,8 @@ function openAddProvider() {
   updateProviderCapabilitySections(document.getElementById('provType').value);
   _populateVisionSelect();
   document.getElementById('provVision').value = '';
+  _populateImageGenSelect();
+  document.getElementById('provImageGen').value = '';
   const provPicker = document.getElementById('provModelPicker');
   _resetModelPicker(document.getElementById('provModel'), 'provModelPicker');
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
@@ -1000,6 +1014,8 @@ function editProvider(id) {
   updateProviderCapabilitySections(p.type || 'local');
   _populateVisionSelect();
   document.getElementById('provVision').value = p.vision_provider || '';
+  _populateImageGenSelect();
+  document.getElementById('provImageGen').value = p.image_generation_provider || '';
   _resetModelPicker(document.getElementById('provModel'), 'provModelPicker');
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   document.getElementById('provTestSection').style.display = '';
@@ -1066,6 +1082,7 @@ async function saveProvider() {
     secondary_provider: document.getElementById('provSecondary').value || '',
     thinking_mode: document.getElementById('provThinkingMode')?.value || 'auto',
     vision_provider: document.getElementById('provVision').value || '',
+    image_generation_provider: document.getElementById('provImageGen').value || '',
     eco_mode: document.getElementById('provEcoMode').checked,
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
