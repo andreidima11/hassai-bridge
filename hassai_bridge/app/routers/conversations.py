@@ -69,6 +69,8 @@ async def me(request: Request):
             "provider_id": active.get("id", ""),
             "provider_type": active.get("type", ""),
             "provider_name": active.get("name", ""),
+            "model": active.get("model", ""),
+            "thinking_mode": active.get("thinking_mode") or "auto",
             "capabilities": provider_chat_capabilities(active),
         },
     }

@@ -328,7 +328,7 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
 
 
 async def list_models(provider: dict | None = None) -> list[dict]:
-    """List available models from a provider."""
+    """List available models from a provider (normalized id + name)."""
     if provider is None:
         provider = get_active_provider()
 
@@ -339,7 +339,52 @@ async def list_models(provider: dict | None = None) -> list[dict]:
     resp = await client.get(url, headers=headers, timeout=15)
     resp.raise_for_status()
     data = resp.json()
-    return data.get("data", [])
+    return normalize_model_list(data)
+
+
+def normalize_model_entry(entry) -> dict | None:
+    """Normalize OpenAI / Ollama / vendor-specific model list entries."""
+    if isinstance(entry, str):
+        mid = entry.strip()
+        return {"id": mid, "name": mid} if mid else None
+    if not isinstance(entry, dict):
+        return None
+    mid = str(
+        entry.get("id")
+        or entry.get("model")
+        or entry.get("name")
+        or entry.get("model_name")
+        or ""
+    ).strip()
+    if not mid:
+        return None
+    name = str(entry.get("name") or entry.get("display_name") or mid).strip()
+    return {"id": mid, "name": name}
+
+
+def normalize_model_list(payload) -> list[dict]:
+    """Extract and dedupe model rows from assorted /v1/models response shapes."""
+    raw = payload
+    if isinstance(raw, dict):
+        raw = raw.get("data") or raw.get("models") or raw.get("result") or []
+        if isinstance(raw, dict):
+            raw = raw.get("data") or raw.get("models") or []
+    if not isinstance(raw, list):
+        return []
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in raw:
+        norm = normalize_model_entry(item)
+        if not norm:
+            continue
+        key = norm["id"].casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(norm)
+    out.sort(key=lambda row: row["id"].lower())
+    return out
 
 
 async def health_check(provider: dict | None = None) -> bool:
