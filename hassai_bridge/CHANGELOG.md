@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.59-beta
+
+### UI
+- **Settings** — «Înapoi la chat» button in the top bar returns to the chat home
+- **Chat sidebar** — «Șterge toate conversațiile» deletes all sessions for the current user (with confirmation)
+
 ## 0.2.58-beta
 
 ### Fix
