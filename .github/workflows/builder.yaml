@@ -23,7 +23,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - id: v
-        run: echo "version=$(tr -d '[:space:]' < hassai_bridge/app/VERSION | sed 's/^v//')" >> "$GITHUB_OUTPUT"
+        run: |
+          file_ver="$(tr -d '[:space:]' < hassai_bridge/app/VERSION | sed 's/^v//')"
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            tag_ver="${{ github.event.release.tag_name }}"
+            if [[ "$file_ver" != "$tag_ver" ]]; then
+              echo "::error::VERSION file ($file_ver) does not match release tag ($tag_ver). Bump hassai_bridge/app/VERSION and run scripts/sync_version.sh before creating the release."
+              exit 1
+            fi
+          fi
+          echo "version=$file_ver" >> "$GITHUB_OUTPUT"
 
   init:
     name: Initialize build
