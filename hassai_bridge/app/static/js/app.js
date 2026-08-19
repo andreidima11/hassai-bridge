@@ -930,7 +930,7 @@ function openAddProvider() {
   _populateVisionSelect();
   document.getElementById('provVision').value = '';
   const provPicker = document.getElementById('provModelPicker');
-  if (provPicker) { provPicker.innerHTML = ''; provPicker.style.display = 'none'; }
+  _resetModelPicker(document.getElementById('provModel'), 'provModelPicker');
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   document.getElementById('provTestSection').style.display = 'none';
   document.getElementById('provTestResult').style.display = 'none';
@@ -961,6 +961,7 @@ function editProvider(id) {
   updateProviderCapabilitySections(p.type || 'local');
   _populateVisionSelect();
   document.getElementById('provVision').value = p.vision_provider || '';
+  _resetModelPicker(document.getElementById('provModel'), 'provModelPicker');
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   document.getElementById('provTestSection').style.display = '';
   document.getElementById('provTestResult').style.display = 'none';
@@ -1086,6 +1087,15 @@ function _modelEntryId(model) {
   return String(model?.id || model?.model || model?.name || '').trim();
 }
 
+function _resetModelPicker(modelInput, pickerId) {
+  const picker = document.getElementById(pickerId);
+  if (picker) {
+    picker.innerHTML = '';
+    picker.style.display = 'none';
+  }
+  if (modelInput) modelInput.style.display = '';
+}
+
 function _populateModelPicker(models, modelInput, pickerId) {
   const picker = document.getElementById(pickerId);
   if (!picker || !modelInput) return;
@@ -1096,14 +1106,17 @@ function _populateModelPicker(models, modelInput, pickerId) {
     return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
   }).filter(Boolean);
   picker.innerHTML = rows.join('');
-  picker.style.display = rows.length ? '' : 'none';
-  picker.onchange = () => {
-    modelInput.value = picker.value;
-  };
   if (!rows.length) {
+    picker.style.display = 'none';
+    modelInput.style.display = '';
     toast(t('settings.noModelsFound'), true);
     return;
   }
+  picker.style.display = 'block';
+  modelInput.style.display = 'none';
+  picker.onchange = () => {
+    modelInput.value = picker.value;
+  };
   const ids = (models || []).map(_modelEntryId).filter(Boolean);
   const current = modelInput.value.trim();
   if (current && ids.includes(current)) {
@@ -1215,6 +1228,7 @@ function openAddSecondaryProvider() {
   document.getElementById('secProvTemperature').value = 0.7;
   document.getElementById('secProvTestSection').style.display = 'none';
   document.getElementById('secProvTestResult').style.display = 'none';
+  _resetModelPicker(document.getElementById('secProvModel'), 'secProvModelPicker');
   onSecProvTypeChange();
   document.getElementById('providersMain').style.display = 'none';
   document.getElementById('secProviderPage').style.display = '';
@@ -1235,6 +1249,7 @@ function editSecondaryProvider(id) {
   document.getElementById('secProvTemperature').value = p.temperature ?? 0.7;
   document.getElementById('secProvTestSection').style.display = '';
   document.getElementById('secProvTestResult').style.display = 'none';
+  _resetModelPicker(document.getElementById('secProvModel'), 'secProvModelPicker');
   onSecProvTypeChange();
   document.getElementById('providersMain').style.display = 'none';
   document.getElementById('secProviderPage').style.display = '';
