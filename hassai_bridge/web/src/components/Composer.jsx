@@ -25,6 +25,7 @@ export function Composer({
   thinkingMode = "auto",
   onThinkingModeChange,
   onProviderModelChange,
+  onProviderChange,
   lang = "en",
   onPickerOpen,
   onPickerSettled,
@@ -161,6 +162,7 @@ export function Composer({
             providerName={providerName}
             thinkingMode={thinkingMode}
             onModelChange={onProviderModelChange}
+            onProviderChange={onProviderChange}
             onThinkingModeChange={onThinkingModeChange}
           />
           {busy ? (
