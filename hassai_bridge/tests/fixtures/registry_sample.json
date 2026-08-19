@@ -1,0 +1,52 @@
+{
+  "areas": [
+    {"area_id": "living_room", "name": "Living Room"},
+    {"area_id": "kitchen", "name": "Kitchen"}
+  ],
+  "devices": [
+    {
+      "id": "dev-light-living",
+      "name": "Living Light",
+      "name_by_user": "Living ceiling",
+      "area_id": "living_room",
+      "manufacturer": "Philips",
+      "model": "Hue"
+    },
+    {
+      "id": "dev-light-kitchen",
+      "name": "Kitchen Light",
+      "area_id": "kitchen",
+      "manufacturer": "Shelly",
+      "model": "1PM"
+    }
+  ],
+  "entities": [
+    {
+      "entity_id": "light.living",
+      "name": "Living ceiling",
+      "platform": "hue",
+      "area_id": "living_room",
+      "device_id": "dev-light-living"
+    },
+    {
+      "entity_id": "light.kitchen",
+      "name": "Kitchen main",
+      "platform": "shelly",
+      "area_id": "kitchen",
+      "device_id": "dev-light-kitchen"
+    },
+    {
+      "entity_id": "climate.living",
+      "name": "Living Thermostat",
+      "platform": "nest",
+      "area_id": "living_room",
+      "device_id": "dev-light-living"
+    },
+    {
+      "entity_id": "input_boolean.test",
+      "name": "Test helper",
+      "platform": "input_boolean",
+      "disabled_by": "user"
+    }
+  ]
+}

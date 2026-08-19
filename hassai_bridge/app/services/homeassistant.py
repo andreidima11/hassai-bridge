@@ -39,6 +39,8 @@ _DEFAULT_DOMAINS = et._LEGACY_DEFAULT_DOMAINS
 
 _STATES_CACHE: dict[str, Any] = {"ts": 0.0, "rows": None}
 _STATES_CACHE_TTL = 8.0
+_REGISTRY_CACHE: dict[str, Any] = {"ts": 0.0, "entities": None, "areas": None, "devices": None}
+_REGISTRY_CACHE_TTL = 30.0
 
 
 def is_available() -> bool:
@@ -223,6 +225,15 @@ _TOOL_SPECS: dict[str, dict] = {
                     "type": "boolean",
                     "description": "Default true — list every domain, not only common ones",
                 },
+                "area_id": {"type": "string", "description": "Filter by entity registry area_id"},
+                "area_name": {"type": "string", "description": "Substring match on area name"},
+                "device_id": {"type": "string", "description": "Filter by device_id"},
+                "include_disabled": {"type": "boolean", "description": "Include disabled registry entries"},
+                "include_hidden": {"type": "boolean"},
+                "include_registry": {
+                    "type": "boolean",
+                    "description": "Merge entity registry for area/device/name columns (default true)",
+                },
             },
         },
     },
@@ -270,6 +281,88 @@ _TOOL_SPECS: dict[str, dict] = {
             "properties": {
                 "domain": {"type": "string", "description": "Optional domain filter"},
             },
+        },
+    },
+    "ha_list_entity_registry": {
+        "description": (
+            "List entity registry entries (official names, areas, devices, disabled/hidden). "
+            "Use before ha_update_entity."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "domain": {"type": "string"},
+                "search": {"type": "string"},
+                "area_id": {"type": "string"},
+                "include_disabled": {"type": "boolean"},
+            },
+        },
+    },
+    "ha_get_entity_registry": {
+        "description": "Get one entity registry entry by entity_id.",
+        "parameters": {
+            "type": "object",
+            "properties": {"entity_id": {"type": "string"}},
+            "required": ["entity_id"],
+        },
+    },
+    "ha_update_entity": {
+        "description": (
+            "Update entity registry metadata: rename, move to area, icon, disable/hide. "
+            "Use ha_list_areas for area_id. confirm=true required."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "name": {"type": "string", "description": "Display name"},
+                "new_entity_id": {"type": "string", "description": "Rename entity_id"},
+                "area_id": {"type": "string"},
+                "area_name": {"type": "string", "description": "Resolve area by name"},
+                "icon": {"type": "string"},
+                "labels": {"type": "array", "items": {"type": "string"}},
+                "disabled": {"type": "boolean", "description": "true=disable, false=enable"},
+                "hidden": {"type": "boolean", "description": "true=hide, false=show"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["entity_id", "confirm"],
+        },
+    },
+    "ha_list_areas": {
+        "description": "List Home Assistant areas (rooms). Use area_id in ha_update_entity / filters.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    "ha_list_devices": {
+        "description": "List Home Assistant devices with area, manufacturer, and model.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "search": {"type": "string", "description": "Substring on name/manufacturer/model"},
+            },
+        },
+    },
+    "ha_get_device": {
+        "description": "Get one device and its entity_ids by device_id.",
+        "parameters": {
+            "type": "object",
+            "properties": {"device_id": {"type": "string"}},
+            "required": ["device_id"],
+        },
+    },
+    "ha_set_state": {
+        "description": (
+            "Set state/attributes on helper entities only (input_*, counter, timer, schedule). "
+            "For lights/switches/climate use ha_call_service. confirm=true required."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "state": {"type": "string"},
+                "attributes": {"type": "object"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["entity_id", "state", "confirm"],
         },
     },
     "ha_system_info": {
@@ -641,6 +734,9 @@ async def run_ha_tool(name: str, args: dict) -> str:
         hint = lt.dashboard_error_hint(name, msg)
         if hint:
             return f"Error: {msg}. {hint}"
+        hint = et.entity_error_hint(name, msg)
+        if hint:
+            return f"Error: {msg}. {hint}"
         if ("404" in msg or "not_found" in msg.lower()) and name in {
             "ha_list_dashboards", "ha_get_dashboard", "ha_save_dashboard",
             "ha_create_dashboard", "ha_upsert_view", "ha_upsert_section",
@@ -677,10 +773,43 @@ async def _fetch_states_cached() -> list[dict]:
     return states
 
 
+async def _fetch_registry_bundle() -> tuple[list[dict], list[dict], list[dict]]:
+    now = time.time()
+    if (
+        _REGISTRY_CACHE.get("entities") is not None
+        and (now - float(_REGISTRY_CACHE.get("ts") or 0)) < _REGISTRY_CACHE_TTL
+    ):
+        return (
+            _REGISTRY_CACHE["entities"],
+            _REGISTRY_CACHE["areas"],
+            _REGISTRY_CACHE["devices"],
+        )
+    entities = await _ws_call({"type": "config/entity_registry/list"})
+    areas = await _ws_call({"type": "config/area_registry/list"})
+    devices = await _ws_call({"type": "config/device_registry/list"})
+    if not isinstance(entities, list):
+        entities = []
+    if not isinstance(areas, list):
+        areas = []
+    if not isinstance(devices, list):
+        devices = []
+    _REGISTRY_CACHE["entities"] = entities
+    _REGISTRY_CACHE["areas"] = areas
+    _REGISTRY_CACHE["devices"] = devices
+    _REGISTRY_CACHE["ts"] = now
+    return entities, areas, devices
+
+
+async def _registry_indexes() -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
+    entities, areas, devices = await _fetch_registry_bundle()
+    area_labels, area_names = et.index_areas(areas)
+    device_labels, device_names = et.index_devices(devices)
+    return area_labels, area_names, device_labels, device_names
+
+
 async def _list_entities(args: dict) -> str:
     states = await _fetch_states_cached()
-    filtered = et.filter_states(states, args)
-    sorted_rows = et.sort_states(filtered, args.get("sort"))
+    use_registry = args.get("include_registry") is not False
     try:
         limit = int(args.get("limit") or 40)
     except (TypeError, ValueError):
@@ -689,6 +818,27 @@ async def _list_entities(args: dict) -> str:
         offset = int(args.get("offset") or 0)
     except (TypeError, ValueError):
         offset = 0
+
+    if use_registry and is_available():
+        try:
+            entities, areas, devices = await _fetch_registry_bundle()
+            area_labels, area_names = et.index_areas(areas)
+            device_labels, _device_names = et.index_devices(devices)
+            merged = et.merge_entities(
+                states,
+                et.registry_by_entity_id(entities),
+                area_labels,
+                device_labels,
+            )
+            filtered = et.filter_enriched(merged, args)
+            sorted_rows = et.sort_enriched(filtered, args.get("sort"))
+            page, total = et.paginate_states(sorted_rows, limit, offset)
+            return et.format_enriched_list(page, total=total, offset=offset, limit=limit)
+        except Exception as e:
+            log.warning("Registry merge failed, falling back to states-only list: %s", e)
+
+    filtered = et.filter_states(states, args)
+    sorted_rows = et.sort_states(filtered, args.get("sort"))
     page, total = et.paginate_states(sorted_rows, limit, offset)
     return et.format_entity_list(page, total=total, offset=offset, limit=limit)
 
@@ -739,6 +889,114 @@ async def _list_services(args: dict) -> str:
     services = await _core("GET", "/services")
     domain = (args.get("domain") or "").strip().lower() or None
     return et.format_services_index(services, domain)
+
+
+async def _list_entity_registry(args: dict) -> str:
+    entities, areas, devices = await _fetch_registry_bundle()
+    area_labels, _area_names = et.index_areas(areas)
+    filtered = et.filter_registry_entries(entities, args)
+    return et.format_registry_list(filtered, area_labels)
+
+
+async def _get_entity_registry(args: dict) -> str:
+    entity_id = (args.get("entity_id") or "").strip()
+    if not entity_id:
+        return "Error: entity_id is required"
+    entities, areas, devices = await _fetch_registry_bundle()
+    area_labels, _area_names = et.index_areas(areas)
+    device_labels, _device_names = et.index_devices(devices)
+    reg = et.registry_by_entity_id(entities).get(entity_id)
+    if not reg:
+        return f"Error: no registry entry for {entity_id}"
+    body = et.format_registry_entry(reg, area_labels, device_labels)
+    try:
+        state = await _core("GET", f"/states/{entity_id}")
+        body += "\n\nlive state:\n" + et.format_state_detail(state, {"include_capabilities": True})
+    except Exception:
+        pass
+    return body
+
+
+async def _update_entity(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    entity_id = (args.get("entity_id") or "").strip()
+    if not entity_id:
+        return "Error: entity_id is required"
+    _entities, areas, _devices = await _fetch_registry_bundle()
+    _area_labels, area_names = et.index_areas(areas)
+    changes = et.build_entity_update_payload(args, area_names)
+    if not changes:
+        return "Error: provide at least one of name, new_entity_id, area_id, area_name, icon, labels, disabled, hidden"
+    payload: dict[str, Any] = {"type": "config/entity_registry/update", "entity_id": entity_id, **changes}
+    result = await _ws_call(payload)
+    new_id = entity_id
+    if isinstance(result, dict) and result.get("entity_id"):
+        new_id = str(result["entity_id"])
+    elif changes.get("new_entity_id"):
+        new_id = str(changes["new_entity_id"])
+    _REGISTRY_CACHE["ts"] = 0.0
+    return f"OK: updated entity registry entry {entity_id} → {new_id}"
+
+
+async def _list_areas(_args: dict) -> str:
+    _entities, areas, _devices = await _fetch_registry_bundle()
+    return et.format_area_list(areas)
+
+
+async def _list_devices(args: dict) -> str:
+    _entities, areas, devices = await _fetch_registry_bundle()
+    area_labels, _area_names = et.index_areas(areas)
+    search = (args.get("search") or "").strip().lower()
+    if search:
+        devices = [
+            row
+            for row in devices
+            if isinstance(row, dict)
+            and search
+            in " ".join(
+                str(row.get(key) or "")
+                for key in ("name", "name_by_user", "manufacturer", "model", "id")
+            ).lower()
+        ]
+    return et.format_device_list(devices, area_labels)
+
+
+async def _get_device(args: dict) -> str:
+    device_id = (args.get("device_id") or "").strip()
+    if not device_id:
+        return "Error: device_id is required"
+    entities, areas, devices = await _fetch_registry_bundle()
+    area_labels, _area_names = et.index_areas(areas)
+    device = next((row for row in devices if isinstance(row, dict) and row.get("id") == device_id), None)
+    if not device:
+        return f"Error: no device with id {device_id}"
+    linked = [row for row in entities if isinstance(row, dict) and row.get("device_id") == device_id]
+    return et.format_device_detail(device, area_labels, linked)
+
+
+async def _set_state(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    entity_id = (args.get("entity_id") or "").strip()
+    state = args.get("state")
+    if not entity_id:
+        return "Error: entity_id is required"
+    if state is None:
+        return "Error: state is required"
+    if not et.can_set_state(entity_id):
+        return (
+            f"Error: ha_set_state is not allowed for {et.domain_of(entity_id)} entities. "
+            "Use ha_call_service instead."
+        )
+    body: dict[str, Any] = {"state": str(state)}
+    attrs = args.get("attributes")
+    if isinstance(attrs, dict) and attrs:
+        body["attributes"] = attrs
+    await _core("POST", f"/states/{entity_id}", json_body=body)
+    _STATES_CACHE["ts"] = 0.0
+    verify = await _get_state({"entity_id": entity_id, "include_timestamps": True})
+    return f"OK: set state on {entity_id}\n{verify}"
 
 
 async def _system_info(_args: dict) -> str:
@@ -1294,6 +1552,13 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_get_state": _get_state,
     "ha_call_service": _call_service,
     "ha_list_services": _list_services,
+    "ha_list_entity_registry": _list_entity_registry,
+    "ha_get_entity_registry": _get_entity_registry,
+    "ha_update_entity": _update_entity,
+    "ha_list_areas": _list_areas,
+    "ha_list_devices": _list_devices,
+    "ha_get_device": _get_device,
+    "ha_set_state": _set_state,
     "ha_system_info": _system_info,
     "ha_get_logs": _get_logs,
     "ha_list_problems": _list_problems,

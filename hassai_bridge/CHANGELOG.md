@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.43-beta
+
+- **Entity tools v2 (registry):** `ha_list_entities` merges entity registry (area, device, disabled columns); filters by `area_name`, `device_id`, `include_disabled`
+- New tools: `ha_list_entity_registry`, `ha_get_entity_registry`, `ha_update_entity`, `ha_list_areas`, `ha_list_devices`, `ha_get_device`, `ha_set_state` (helpers only)
+- WebSocket registry bundle cached 30s; `ha_update_entity` resolves `area_name` via `ha_list_areas`
+- Agent loop: primary provider for registry mutating tools; thinking labels for entity registry tools
+- Unit tests for merge/filter/registry payload helpers
+
 ## 0.2.42-beta
 
 - **Entity tools v1:** improved `ha_list_entities` (all domains, pagination, sort, state filter), `ha_get_state` (full attributes, timestamps, capabilities), `ha_call_service` (changed states + optional verify), new `ha_list_services`

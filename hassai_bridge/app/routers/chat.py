@@ -92,7 +92,12 @@ def _tool_names(tool_calls: list[dict]) -> list[str]:
 
 def _recall_provider(tool_calls: list[dict], active: dict, secondary: dict | None) -> dict:
     names = _tool_names(tool_calls)
-    if any(name in lt.HA_LOVELACE_TOOLS or name in et.HA_ENTITY_TOOLS for name in names):
+    if any(
+        name in lt.HA_LOVELACE_TOOLS
+        or name in et.HA_ENTITY_TOOLS
+        or name in et.HA_REGISTRY_MUTATING_TOOLS
+        for name in names
+    ):
         return active
     return secondary or active
 
@@ -158,6 +163,18 @@ def _tool_detail(name: str, args: dict) -> str:
         call = f"{args.get('domain') or ''}.{args.get('service') or ''}".strip(".")
         entity = str(args.get("entity_id") or "").strip()
         return _clip_detail(" ".join(p for p in (call, entity) if p))
+    if name == "ha_update_entity":
+        bits = [
+            args.get("entity_id") or "",
+            args.get("name") or args.get("area_name") or args.get("area_id") or "",
+        ]
+        return _clip_detail(" · ".join(str(b) for b in bits if b))
+    if name == "ha_set_state":
+        return _clip_detail(f"{args.get('entity_id') or ''} → {args.get('state') or ''}".strip())
+    if name == "ha_get_entity_registry":
+        return _clip_detail(args.get("entity_id"))
+    if name == "ha_get_device":
+        return _clip_detail(args.get("device_id"))
     if name == "ha_upsert_card":
         card = args.get("card") if isinstance(args.get("card"), dict) else {}
         bits = [

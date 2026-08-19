@@ -79,3 +79,74 @@ def test_render_ha_agent_prompt_default():
     out = et.render_ha_agent_prompt("", ["ha_call_service"])
     assert "ha_call_service" in out
     assert "Entities" in out
+
+
+def _registry_bundle():
+    data = load("registry_sample.json")
+    area_labels, area_names = et.index_areas(data["areas"])
+    device_labels, _device_names = et.index_devices(data["devices"])
+    registry = et.registry_by_entity_id(data["entities"])
+    return data, area_labels, area_names, device_labels, registry
+
+
+def test_merge_entities_and_filter_by_area():
+    states = load("states_sample.json")
+    data, area_labels, area_names, device_labels, registry = _registry_bundle()
+    merged = et.merge_entities(states, registry, area_labels, device_labels)
+    rows = et.filter_enriched(merged, {"area_name": "kitchen"})
+    assert len(rows) == 1
+    assert rows[0]["entity_id"] == "light.kitchen"
+    assert rows[0]["area_name"] == "Kitchen"
+
+
+def test_filter_enriched_excludes_disabled_by_default():
+    states = load("states_sample.json")
+    data, area_labels, _area_names, device_labels, registry = _registry_bundle()
+    merged = et.merge_entities(states, registry, area_labels, device_labels)
+    rows = et.filter_enriched(merged, {"domain": "input_boolean"})
+    assert rows == []
+    rows = et.filter_enriched(merged, {"domain": "input_boolean", "include_disabled": True})
+    assert len(rows) == 1
+    assert rows[0]["entity_id"] == "input_boolean.test"
+
+
+def test_format_enriched_list_columns():
+    states = load("states_sample.json")
+    data, area_labels, _area_names, device_labels, registry = _registry_bundle()
+    merged = et.merge_entities(states, registry, area_labels, device_labels)
+    filtered = et.filter_enriched(merged, {"domain": "light"})
+    page, total = et.paginate_states(filtered, limit=10, offset=0)
+    text = et.format_enriched_list(page, total=total, offset=0, limit=10)
+    assert "entity_id|name|state|area|device|disabled" in text
+    assert "light.living" in text
+    assert "Living Room" in text
+
+
+def test_resolve_area_id_by_name():
+    _data, _labels, area_names, _device_labels, _registry = _registry_bundle()
+    assert et.resolve_area_id(area_names, area_name="Kitchen") == "kitchen"
+    assert et.resolve_area_id(area_names, area_id="living_room") == "living_room"
+
+
+def test_build_entity_update_payload():
+    _data, _labels, area_names, _device_labels, _registry = _registry_bundle()
+    payload = et.build_entity_update_payload(
+        {"name": "New name", "area_name": "Kitchen", "disabled": False},
+        area_names,
+    )
+    assert payload["name"] == "New name"
+    assert payload["area_id"] == "kitchen"
+    assert payload["disabled_by"] is None
+
+
+def test_can_set_state_helpers_only():
+    assert et.can_set_state("input_boolean.test") is True
+    assert et.can_set_state("light.kitchen") is False
+
+
+def test_filter_registry_entries():
+    data, area_labels, _area_names, _device_labels, _registry = _registry_bundle()
+    rows = et.filter_registry_entries(data["entities"], {"search": "kitchen"})
+    text = et.format_registry_list(rows, area_labels)
+    assert "light.kitchen" in text
+    assert "Kitchen" in text

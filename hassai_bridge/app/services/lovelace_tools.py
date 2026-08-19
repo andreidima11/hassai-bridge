@@ -37,6 +37,8 @@ HA_MUTATING_TOOLS = frozenset({
     "ha_write_file",
     "ha_apply_fix",
     "ha_call_service",
+    "ha_update_entity",
+    "ha_set_state",
     "ha_reload",
 })
 
