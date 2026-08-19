@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.41-beta
+
+- **Thinking panel:** Vercel-style collapsible steps — no duplicate „Gândește”, live step label (e.g. „Dashboard · home”), timeline with spinner/check, auto-collapse after reply
+- Dedupe activity events from SSE + poll (fixes double step timing)
+
 ## 0.2.39-beta
 
 - New Lovelace tools: `ha_delete_view`, `ha_update_dashboard`, `ha_delete_dashboard`, `ha_list_lovelace_resources`, `ha_append_card_yaml`
