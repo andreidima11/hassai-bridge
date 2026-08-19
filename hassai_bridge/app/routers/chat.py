@@ -93,7 +93,15 @@ def _tool_names(tool_calls: list[dict]) -> list[str]:
     return names
 
 
-def _recall_provider(tool_calls: list[dict], active: dict, secondary: dict | None) -> dict:
+def _recall_provider(
+    tool_calls: list[dict],
+    active: dict,
+    secondary: dict | None,
+    *,
+    keep_on_primary: bool = False,
+) -> dict:
+    if keep_on_primary:
+        return active
     names = _tool_names(tool_calls)
     if any(
         name in lt.HA_LOVELACE_TOOLS
@@ -103,6 +111,24 @@ def _recall_provider(tool_calls: list[dict], active: dict, secondary: dict | Non
     ):
         return active
     return secondary or active
+
+
+def _vision_required_error(cfg: dict) -> JSONResponse:
+    lang = cfg.get("language") or "en"
+    if lang == "ro":
+        message = (
+            "Providerul activ nu suportă imagini. Alege un model vision "
+            "(ex. gpt-4o-mini) la providerul principal — nu folosim providerul secundar pentru poze."
+        )
+    else:
+        message = (
+            "The active provider/model does not support images. Choose a vision-capable model "
+            "on the primary provider — images are not routed to the secondary provider."
+        )
+    return JSONResponse(
+        status_code=400,
+        content={"error": {"message": message, "type": "invalid_request_error"}},
+    )
 
 
 def _should_skip_repeated_tool(name: str, args: dict, fingerprints: list[str], fp: str) -> bool:
@@ -1584,6 +1610,11 @@ async def chat_completions(request: Request):
     max_ctx = active.get("max_tokens", 2048) * 3  # rough context budget
     augmented = _trim_messages(augmented, max_ctx)
 
+    request_has_images = cc.messages_have_images(augmented)
+    if request_has_images and not providers.provider_supports_vision(active):
+        _trace_done(trace_id)
+        return _vision_required_error(cfg)
+
     # Log prompt size for optimization tracking
     _prompt_tokens = sum(_estimate_tokens(m.get("content")) for m in augmented)
     log.info(f"Prompt: {len(augmented)} msgs, ~{_prompt_tokens} tokens (budget {max_ctx})")
@@ -1667,7 +1698,9 @@ async def chat_completions(request: Request):
                 ):
                     _search_used = True
 
-                re_provider = _recall_provider(internal_calls, active, secondary)
+                re_provider = _recall_provider(
+                    internal_calls, active, secondary, keep_on_primary=request_has_images,
+                )
                 if secondary and re_provider is secondary:
                     _secondary_used_for_recall = True
                 last = _round >= round_limit - 1
@@ -1944,7 +1977,9 @@ async def chat_completions(request: Request):
                     yield part
 
                 await _check_trace(trace_id)
-                re_provider = _recall_provider(internal_tcs, active, secondary)
+                re_provider = _recall_provider(
+                    internal_tcs, active, secondary, keep_on_primary=request_has_images,
+                )
                 if secondary and re_provider is secondary:
                     secondary_used = True
                 if any(name in lt.HA_MUTATING_TOOLS for name in _tool_names(internal_tcs)) and rounds_left <= 1:

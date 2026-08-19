@@ -42,3 +42,44 @@ def test_sanitize_does_not_crash_on_multimodal():
     cleaned = _sanitize_message_roles(messages)
     assert cleaned[0]["role"] == "user"
     assert isinstance(cleaned[0]["content"], list)
+
+
+def test_messages_have_images():
+    assert cc.messages_have_images([]) is False
+    assert cc.messages_have_images([{"role": "user", "content": "hello"}]) is False
+    assert cc.messages_have_images([
+        {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,YQ=="}}]},
+    ]) is True
+
+
+def test_provider_supports_vision():
+    from services import providers as prov
+
+    assert prov.provider_supports_vision({"model": "gpt-4o-mini"}) is True
+    assert prov.provider_supports_vision({"model": "claude-3-5-sonnet"}) is True
+    assert prov.provider_supports_vision({"model": "llama-3.1-8b"}) is False
+    assert prov.provider_supports_vision({"model": "gpt-4o-mini", "supports_vision": False}) is False
+    assert prov.provider_supports_vision({"model": "llama-3.1-8b", "supports_vision": True}) is True
+
+
+def test_recall_provider_stays_on_primary_when_images():
+    from routers.chat import _recall_provider
+
+    active = {"id": "primary", "model": "llama-3.1-8b"}
+    secondary = {"id": "secondary", "model": "gpt-4o-mini"}
+    tool_calls = [{"function": {"name": "web_search"}}]
+
+    assert _recall_provider(tool_calls, active, secondary)["id"] == "secondary"
+    assert _recall_provider(tool_calls, active, secondary, keep_on_primary=True)["id"] == "primary"
+
+
+def test_vision_required_error_localized():
+    from routers.chat import _vision_required_error
+
+    en = _vision_required_error({"language": "en"})
+    assert en.status_code == 400
+    assert "secondary provider" in en.body.decode()
+
+    ro = _vision_required_error({"language": "ro"})
+    assert ro.status_code == 400
+    assert "providerul secundar" in ro.body.decode().lower()

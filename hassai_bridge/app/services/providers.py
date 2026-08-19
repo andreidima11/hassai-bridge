@@ -63,6 +63,25 @@ PROVIDER_PRESETS = {
 }
 
 
+_VISION_MODEL_HINTS = re.compile(
+    r"gpt-4o|gpt-4-turbo|gpt-4-vision|gpt-4\.1|claude-3|claude-sonnet|claude-opus|gemini|llava|vision|"
+    r"qwen.*vl|pixtral|glm-4v|internvl|moondream|minicpm-v",
+    re.I,
+)
+
+
+def provider_supports_vision(provider: dict | None) -> bool:
+    if not isinstance(provider, dict):
+        return False
+    flag = provider.get("supports_vision")
+    if flag is True:
+        return True
+    if flag is False:
+        return False
+    model = str(provider.get("model") or "").strip()
+    return bool(model and _VISION_MODEL_HINTS.search(model))
+
+
 def get_active_provider() -> dict:
     """Get the currently active provider config."""
     cfg = load_config()
