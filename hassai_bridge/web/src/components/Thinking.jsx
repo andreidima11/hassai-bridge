@@ -47,15 +47,8 @@ export function Thinking({ thinking, lang, streaming = false }) {
   const hasSteps = steps.length > 0;
   const isLive = Boolean(thinking.active || streaming);
   const canToggle = isLive || hasSteps;
-  const [open, setOpen] = useState(isLive || !thinking.collapsed);
+  const [open, setOpen] = useState(false);
   const [autoClosed, setAutoClosed] = useState(false);
-
-  useEffect(() => {
-    if (isLive) {
-      setOpen(true);
-      setAutoClosed(false);
-    }
-  }, [isLive]);
 
   useEffect(() => {
     if (!isLive && hasSteps && open && !autoClosed) {

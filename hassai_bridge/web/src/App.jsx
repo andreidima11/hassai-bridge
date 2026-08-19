@@ -245,8 +245,8 @@ export default function App() {
           content,
           streaming: false,
           thinking: label
-            ? { ...thinking, active: false, collapsed: false, visible: true, label }
-            : { ...thinking, active: false, collapsed: false, visible: true },
+            ? { ...thinking, active: false, collapsed: true, visible: true, label }
+            : { ...thinking, active: false, collapsed: true, visible: true },
         };
       }),
     );
