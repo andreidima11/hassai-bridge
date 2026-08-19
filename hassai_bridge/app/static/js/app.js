@@ -117,6 +117,42 @@ function escapeHtml(s) {
   return d.innerHTML;
 }
 
+function formatMemKeywords(keywords) {
+  const raw = String(keywords || '').trim();
+  if (!raw || raw === '-') return '';
+  const parts = raw.split(',').map((part) => part.trim()).filter(Boolean);
+  if (!parts.length) return '';
+  const shown = parts.slice(0, 10);
+  const extra = parts.length - shown.length;
+  let html = shown.map((part) => `<span class="mem-kw">${escapeHtml(part)}</span>`).join('');
+  if (extra > 0) html += `<span class="mem-kw mem-kw-more">+${extra}</span>`;
+  return `<div class="mem-keywords" title="${escapeHtml(raw)}">${html}</div>`;
+}
+
+function renderMemoryItem(m, checkboxClass, deleteButtonHtml = '') {
+  const stars = '★'.repeat(m.importance) + '☆'.repeat(5 - m.importance);
+  const date = new Date(m.created_at * 1000).toLocaleDateString(currentLang === 'ro' ? 'ro-RO' : 'en-US');
+  const accessed = m.access_count > 0 ? t('status.accessed', { count: m.access_count }) : t('status.notAccessed');
+  return `
+      <div class="mem-item" data-cat="${m.category}">
+        <input type="checkbox" class="${checkboxClass}" value="${m.id}" onclick="${checkboxClass === 'mem-cb' ? 'updateMemBulkBar()' : 'updateMemTabBulkBar()'}" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;margin-top:2px">
+        <div class="mem-content">
+          <div class="mem-head">
+            <span class="mem-badge cat-${m.category}">${catLabel(m.category)}</span>
+            <span class="importance-stars" title="${m.importance}/5">${stars}</span>
+          </div>
+          <div class="mem-body">${escapeHtml(m.content)}</div>
+          ${formatMemKeywords(m.keywords)}
+          <div class="mem-meta">
+            <span>${date}</span>
+            <span>${accessed}</span>
+            <span class="mem-source">${escapeHtml(m.source || 'auto')}</span>
+          </div>
+        </div>
+        ${deleteButtonHtml}
+      </div>`;
+}
+
 // ══════════════════════════════════════════════════
 // INFO TAB
 // ══════════════════════════════════════════════════
@@ -1510,27 +1546,11 @@ function renderMemories(memories) {
     updateMemBulkBar();
     return;
   }
-  list.innerHTML = memories.map(m => {
-    const stars = '★'.repeat(m.importance) + '☆'.repeat(5 - m.importance);
-    const date = new Date(m.created_at * 1000).toLocaleDateString(currentLang === 'ro' ? 'ro-RO' : 'en-US');
-    const accessed = m.access_count > 0 ? t('status.accessed', { count: m.access_count }) : t('status.notAccessed');
-    return `
-      <div class="mem-item" data-cat="${m.category}">
-        <input type="checkbox" class="mem-cb" value="${m.id}" onclick="updateMemBulkBar()" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;margin-top:2px">
-        <div class="mem-content">
-          <span class="mem-badge cat-${m.category}">${catLabel(m.category)}</span>
-          <span class="importance-stars" title="${m.importance}/5">${stars}</span>
-          <div style="margin-top:6px">${escapeHtml(m.content)}</div>
-          <div class="mem-meta">
-            <span>${date}</span>
-            <span>${accessed}</span>
-            <span>${escapeHtml(m.keywords || '-')}</span>
-            <span>${m.source}</span>
-          </div>
-        </div>
-        <button class="btn btn-danger btn-sm" onclick="deleteMemory(${m.id})">${t('users.delete')}</button>
-      </div>`;
-  }).join('');
+  list.innerHTML = memories.map(m => renderMemoryItem(
+    m,
+    'mem-cb',
+    `<button class="btn btn-danger btn-sm" onclick="deleteMemory(${m.id})">${t('users.delete')}</button>`,
+  )).join('');
   updateMemBulkBar();
 }
 
@@ -1734,26 +1754,7 @@ function renderMemTabItems(memories) {
   if (_memTabPage < 1) _memTabPage = 1;
   const start = (_memTabPage - 1) * _memTabPerPage;
   const page = memories.slice(start, start + _memTabPerPage);
-  list.innerHTML = page.map(m => {
-    const stars = '★'.repeat(m.importance) + '☆'.repeat(5 - m.importance);
-    const date = new Date(m.created_at * 1000).toLocaleDateString(currentLang === 'ro' ? 'ro-RO' : 'en-US');
-    const accessed = m.access_count > 0 ? t('status.accessed', { count: m.access_count }) : t('status.notAccessed');
-    return `
-      <div class="mem-item" data-cat="${m.category}">
-        <input type="checkbox" class="mem-tab-cb" value="${m.id}" onclick="updateMemTabBulkBar()" style="width:18px;height:18px;cursor:pointer;flex-shrink:0;margin-top:2px">
-        <div class="mem-content">
-          <span class="mem-badge cat-${m.category}">${catLabel(m.category)}</span>
-          <span class="importance-stars" title="${m.importance}/5">${stars}</span>
-          <div style="margin-top:6px">${escapeHtml(m.content)}</div>
-          <div class="mem-meta">
-            <span>${date}</span>
-            <span>${accessed}</span>
-            <span>${escapeHtml(m.keywords || '-')}</span>
-            <span>${m.source}</span>
-          </div>
-        </div>
-      </div>`;
-  }).join('');
+  list.innerHTML = page.map(m => renderMemoryItem(m, 'mem-tab-cb')).join('');
   // Pagination controls
   if (totalPages > 1) {
     let pag = `<button onclick="memTabGoPage(${_memTabPage - 1})" ${_memTabPage === 1 ? 'disabled' : ''}>&lsaquo;</button>`;

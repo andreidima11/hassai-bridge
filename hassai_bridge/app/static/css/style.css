@@ -234,16 +234,23 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .user-actions{display:flex;gap:6px;flex-shrink:0}
 
 /* ════════════ MEMORY TAB ════════════ */
-.mem-list{margin-top:12px}
+.mem-list{margin-top:12px;max-width:100%;overflow-x:hidden}
 .mem-pagination{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:16px;margin-bottom:8px}
 .mem-pagination button{min-width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;font-size:.82rem;transition:all .2s}
 .mem-pagination button:hover{border-color:var(--accent);color:var(--accent)}
 .mem-pagination button.active{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 .mem-pagination button:disabled{opacity:.4;cursor:default}
-.mem-item{display:flex;align-items:flex-start;gap:12px;padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:all .2s}
+.mem-item{display:flex;align-items:flex-start;gap:12px;padding:14px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;transition:all .2s;min-width:0;max-width:100%}
 .mem-item:hover{border-color:rgba(255,255,255,.16);background:var(--accent-glow)}
-.mem-content{flex:1;font-size:.88rem;line-height:1.45}
-.mem-meta{font-size:.73rem;color:var(--muted);margin-top:6px;display:flex;gap:12px;flex-wrap:wrap}
+.mem-content{flex:1;min-width:0;max-width:100%;font-size:.88rem;line-height:1.45;overflow:hidden}
+.mem-head{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.mem-body{margin-top:6px;overflow-wrap:anywhere;word-break:break-word;white-space:pre-wrap}
+.mem-keywords{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;max-width:100%}
+.mem-kw{display:inline-block;max-width:100%;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.06);font-size:.68rem;line-height:1.35;color:var(--muted);overflow-wrap:anywhere;word-break:break-word}
+.mem-kw-more{background:rgba(255,255,255,.04);font-style:italic}
+.mem-meta{font-size:.73rem;color:var(--muted);margin-top:8px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;max-width:100%}
+.mem-meta span{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+.mem-source{flex-shrink:0}
 .mem-badge{font-size:.7rem;padding:2px 8px;border-radius:10px;font-weight:600}
 .cat-personal_info{background:rgba(155,89,182,.2);color:#bb8fce}
 .cat-preferences{background:rgba(52,152,219,.2);color:#5dade2}
