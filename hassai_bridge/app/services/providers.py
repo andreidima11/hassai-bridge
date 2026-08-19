@@ -161,6 +161,34 @@ def resolve_image_provider(primary: dict | None = None, secondary: dict | None =
     return secondary
 
 
+def normalize_vision_mode(value: str | None, default: str = "direct") -> str:
+    from services.vision_relay import normalize_vision_mode as _norm
+
+    return _norm(value, default=default)
+
+
+async def relay_image_analysis(
+    vision_provider: dict,
+    *,
+    user_text: str = "",
+    image_content,
+) -> str:
+    """Run a one-shot vision call and return factual image description for relay mode."""
+    from services.vision_relay import build_relay_vision_messages
+
+    messages = build_relay_vision_messages(user_text=user_text, image_content=image_content)
+    if not any(
+        isinstance(p, dict) and p.get("type") == "image_url"
+        for p in messages[-1].get("content", [])
+        if isinstance(messages[-1].get("content"), list)
+    ):
+        return ""
+
+    result = await chat_completion(messages, provider=vision_provider, tools=None)
+    msg = result.get("choices", [{}])[0].get("message", {})
+    return str(msg.get("content") or "").strip()
+
+
 def get_secondary_provider_by_id(provider_id: str) -> dict | None:
     """Get a specific secondary provider by ID."""
     cfg = load_config()

@@ -73,8 +73,18 @@ def test_recall_provider_uses_image_provider_when_set():
     assert _recall_provider(tool_calls, active, secondary)["id"] == "secondary"
     assert _recall_provider(tool_calls, active, secondary, image_provider=vision)["id"] == "vision"
     assert _recall_provider(
+        tool_calls, active, secondary, image_provider=vision, vision_direct=False,
+    )["id"] == "secondary"
+    assert _recall_provider(
         [{"function": {"name": "ha_call_service"}}], active, secondary, image_provider=vision,
     )["id"] == "vision"
+
+
+def test_normalize_vision_mode_provider():
+    from services import providers as prov
+
+    assert prov.normalize_vision_mode("relay") == "relay"
+    assert prov.normalize_vision_mode(None, default="direct") == "direct"
 
 
 def test_resolve_image_provider(monkeypatch):

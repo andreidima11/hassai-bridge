@@ -822,6 +822,16 @@ function providerTypeCapabilities(ptype) {
   return _providerPresets[ptype]?.capabilities || {};
 }
 
+function updateVisionModeSection() {
+  const section = document.getElementById('provVisionModeSection');
+  if (!section) return;
+  const hasVisionFallback = !!(
+    document.getElementById('provVision')?.value ||
+    document.getElementById('provSecondary')?.value
+  );
+  section.style.display = hasVisionFallback ? '' : 'none';
+}
+
 function updateProviderCapabilitySections(ptype) {
   const thinkingSection = document.getElementById('provThinkingSection');
   if (thinkingSection) {
@@ -929,6 +939,8 @@ function openAddProvider() {
   updateProviderCapabilitySections(document.getElementById('provType').value);
   _populateVisionSelect();
   document.getElementById('provVision').value = '';
+  document.getElementById('provVisionMode').value = 'direct';
+  updateVisionModeSection();
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   document.getElementById('provTestSection').style.display = 'none';
   document.getElementById('provTestResult').style.display = 'none';
@@ -959,6 +971,8 @@ function editProvider(id) {
   updateProviderCapabilitySections(p.type || 'local');
   _populateVisionSelect();
   document.getElementById('provVision').value = p.vision_provider || '';
+  document.getElementById('provVisionMode').value = p.vision_mode || 'direct';
+  updateVisionModeSection();
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   document.getElementById('provTestSection').style.display = '';
   document.getElementById('provTestResult').style.display = 'none';
@@ -1024,6 +1038,7 @@ async function saveProvider() {
     secondary_provider: document.getElementById('provSecondary').value || '',
     thinking_mode: document.getElementById('provThinkingMode')?.value || 'auto',
     vision_provider: document.getElementById('provVision').value || '',
+    vision_mode: document.getElementById('provVisionMode')?.value || 'direct',
     eco_mode: document.getElementById('provEcoMode').checked,
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }

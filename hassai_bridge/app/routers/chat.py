@@ -44,6 +44,7 @@ from services import lovelace_tools as lt
 from services import entity_tools as et
 from services import chat_content as cc
 from services import chat_media as cm
+from services import vision_relay as vr
 
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
@@ -109,8 +110,9 @@ def _recall_provider(
     secondary: dict | None,
     *,
     image_provider: dict | None = None,
+    vision_direct: bool = True,
 ) -> dict:
-    if image_provider is not None:
+    if image_provider is not None and vision_direct:
         return image_provider
     names = _tool_names(tool_calls)
     if any(
@@ -1676,17 +1678,49 @@ async def chat_completions(request: Request):
     request_has_images = cc.messages_have_images(augmented)
     image_provider: dict | None = None
     chat_provider = active
+    vision_direct = True
+    _vision_relay_used = False
     if request_has_images and not providers.provider_supports_vision(active):
         image_provider = providers.resolve_image_provider(active, secondary)
         if not image_provider:
             _trace_done(trace_id)
             return _vision_required_error(cfg)
-        chat_provider = image_provider
-        log.info(
-            "[%s] Routing image request to %s (primary lacks vision)",
-            user_id,
-            chat_provider.get("name", "?"),
-        )
+        vision_mode = providers.normalize_vision_mode(active.get("vision_mode"))
+        if vision_mode == "relay":
+            vision_direct = False
+            _vision_relay_used = True
+            chat_provider = active
+            user_text, image_content = vr.last_user_image_message(augmented)
+            try:
+                analysis = await providers.relay_image_analysis(
+                    image_provider,
+                    user_text=user_text,
+                    image_content=image_content,
+                )
+            except Exception as e:
+                log.error("[%s] Vision relay failed via %s: %s", user_id, image_provider.get("name", "?"), e)
+                _trace_done(trace_id)
+                return JSONResponse(
+                    status_code=502,
+                    content={"error": {"message": "Vision analysis failed. Check server logs.", "type": "upstream_error"}},
+                )
+            if not analysis:
+                analysis = "(Vision model returned no description.)"
+            augmented = vr.apply_vision_relay(augmented, analysis)
+            log.info(
+                "[%s] Vision relay: %s chars via %s → primary %s",
+                user_id,
+                len(analysis),
+                image_provider.get("name", "?"),
+                active.get("name", "?"),
+            )
+        else:
+            chat_provider = image_provider
+            log.info(
+                "[%s] Routing image request to %s (primary lacks vision, direct mode)",
+                user_id,
+                chat_provider.get("name", "?"),
+            )
 
     # Log prompt size for optimization tracking
     _prompt_tokens = sum(_estimate_tokens(m.get("content")) for m in augmented)
@@ -1782,11 +1816,13 @@ async def chat_completions(request: Request):
                     _search_used = True
 
                 re_provider = _recall_provider(
-                    internal_calls, active, secondary, image_provider=image_provider,
+                    internal_calls, active, secondary,
+                    image_provider=image_provider,
+                    vision_direct=vision_direct,
                 )
                 if secondary and re_provider is secondary:
                     _secondary_used_for_recall = True
-                elif image_provider and re_provider is image_provider:
+                elif image_provider and re_provider is image_provider and vision_direct:
                     _secondary_used_for_recall = True
                 last = _round >= round_limit - 1
                 think_id = f"think-{_round + 1}"
@@ -1867,9 +1903,11 @@ async def chat_completions(request: Request):
             usage = result.get("usage", {})
             stat_prov = (
                 image_provider
-                if _image_provider_used
+                if _image_provider_used and vision_direct
                 else (secondary if _secondary_used_for_recall and secondary else active)
             )
+            if _vision_relay_used and image_provider:
+                stat_prov = active
             cache_hit, cache_miss = pc.cache_tokens_from_usage(stat_prov, usage)
             add_usage_stat(
                 user_id=user_id, provider_id=stat_prov.get("id", ""),
@@ -2082,11 +2120,13 @@ async def chat_completions(request: Request):
 
                 await _check_trace(trace_id)
                 re_provider = _recall_provider(
-                    internal_tcs, active, secondary, image_provider=image_provider,
+                    internal_tcs, active, secondary,
+                    image_provider=image_provider,
+                    vision_direct=vision_direct,
                 )
                 if secondary and re_provider is secondary:
                     secondary_used = True
-                elif image_provider and re_provider is image_provider:
+                elif image_provider and re_provider is image_provider and vision_direct:
                     secondary_used = True
                 stream_call_provider = re_provider
                 if any(name in lt.HA_MUTATING_TOOLS for name in _tool_names(internal_tcs)) and rounds_left <= 1:
@@ -2117,9 +2157,11 @@ async def chat_completions(request: Request):
             try:
                 stat_prov = (
                     image_provider
-                    if _image_provider_used
+                    if _image_provider_used and vision_direct
                     else (secondary if secondary_used and secondary else active)
                 )
+                if _vision_relay_used and image_provider:
+                    stat_prov = active
                 add_usage_stat(
                     user_id=user_id, provider_id=stat_prov.get("id", ""),
                     provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
