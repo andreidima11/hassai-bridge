@@ -208,6 +208,9 @@ export default function App() {
             role: m.role,
             content: m.content || "",
             thinking: label ? next : emptyThinking(t("thinking")),
+            ...(Array.isArray(m.attachments) && m.attachments.length
+              ? { attachments: mapStoredAttachments(m.attachments) }
+              : {}),
           });
         } else {
           const content = m.content === "(image)" ? "" : m.content || "";

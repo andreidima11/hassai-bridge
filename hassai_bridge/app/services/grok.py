@@ -1,9 +1,11 @@
-"""Grok (x.ai) reasoning, prompt cache, and request helpers."""
+"""Grok (x.ai) reasoning, prompt cache, image generation, and request helpers."""
 
 from __future__ import annotations
 
+import base64
 import re
 
+from services import chat_media as cm
 from services import deepseek as ds
 
 THINKING_MODES = ds.THINKING_MODES
@@ -118,3 +120,109 @@ def grok_conv_header(session_id: str | None) -> dict[str, str]:
     if not sid:
         return {}
     return {"x-grok-conv-id": sid[:128]}
+
+
+def default_image_model(provider: dict | None) -> str:
+    if isinstance(provider, dict):
+        configured = str(provider.get("image_model") or "").strip()
+        if configured:
+            return configured
+    return "grok-imagine-image-2.0"
+
+
+async def generate_image(
+    provider: dict,
+    prompt: str,
+    *,
+    model: str | None = None,
+    n: int = 1,
+    user_id: str = "",
+    session_id: str | None = None,
+) -> dict:
+    """Generate images via x.ai /v1/images/generations.
+
+    Returns {"text": str, "attachments": list[dict], "model": str}.
+    """
+    from logging import getLogger
+
+    from services import provider_capabilities as pc
+    from services import providers as prov
+
+    log = getLogger("hassai.providers")
+    if not is_grok_provider(provider):
+        raise ValueError("image generation requires a Grok provider")
+    if not pc.supports_image_generation(provider):
+        raise ValueError("image generation is not enabled for this provider")
+
+    clean_prompt = " ".join(str(prompt or "").split())[:4000]
+    if not clean_prompt:
+        raise ValueError("empty image prompt")
+
+    used_model = str(model or default_image_model(provider)).strip() or default_image_model(provider)
+    count = max(1, min(4, int(n or 1)))
+
+    url = prov._build_url(provider, "/v1/images/generations")
+    headers = prov._build_headers(provider)
+    payload = {
+        "model": used_model,
+        "prompt": clean_prompt,
+        "n": count,
+        "response_format": "url",
+    }
+    timeout = provider.get("timeout", 120)
+    client = prov._get_client()
+    resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
+    if resp.status_code >= 400:
+        log.error(
+            "Grok image generation failed (%s): %s",
+            resp.status_code,
+            resp.text[:500],
+        )
+    resp.raise_for_status()
+    data = resp.json()
+
+    attachments: list[dict] = []
+    public_urls: list[str] = []
+    for idx, item in enumerate(data.get("data") or []):
+        if not isinstance(item, dict):
+            continue
+        raw: bytes | None = None
+        mime = "image/png"
+        if item.get("b64_json"):
+            try:
+                raw = base64.b64decode(str(item["b64_json"]), validate=True)
+            except (ValueError, base64.binascii.Error):
+                raw = None
+        elif item.get("url"):
+            image_url = str(item["url"]).strip()
+            if image_url:
+                try:
+                    img_resp = await client.get(image_url, timeout=60)
+                    img_resp.raise_for_status()
+                    raw = img_resp.content
+                    mime = str(img_resp.headers.get("content-type") or "image/png").split(";")[0].strip()
+                except Exception as exc:
+                    log.warning("Failed to download generated image %s: %s", idx + 1, exc)
+                    public_urls.append(image_url)
+                    continue
+        if not raw:
+            continue
+        try:
+            att = cm.persist_image_bytes(user_id, raw, mime, name=f"generated-{idx + 1}")
+        except ValueError as exc:
+            log.warning("Failed to persist generated image %s: %s", idx + 1, exc)
+            continue
+        attachments.append(att)
+        public_urls.append(cm.attachment_public_url(att["id"], session_id or ""))
+
+    if not public_urls:
+        raise ValueError("image generation returned no usable images")
+
+    lines = [
+        "[Generated image — show each image in your reply using markdown: ![description](url)]",
+        f"Prompt: {clean_prompt}",
+        f"Model: {used_model}",
+    ]
+    for i, image_url in enumerate(public_urls, start=1):
+        lines.append(f"Image {i}: {image_url}")
+    return {"text": "\n".join(lines), "attachments": attachments, "model": used_model}

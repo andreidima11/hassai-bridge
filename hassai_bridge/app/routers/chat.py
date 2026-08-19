@@ -49,7 +49,7 @@ log = logging.getLogger("hassai.chat")
 router = APIRouter()
 
 _HA_TOOL_NAMES = ha_api.HA_TOOL_NAMES
-_INTERNAL_TOOLS = {"search_web", "run_skill"} | _HA_TOOL_NAMES
+_INTERNAL_TOOLS = {"search_web", "run_skill", "generate_image"} | _HA_TOOL_NAMES
 
 # Identical tool+args this many times → skip and tell the model to move on.
 _AGENT_REPEAT_LIMIT = 2
@@ -113,6 +113,8 @@ def _recall_provider(
     if image_provider is not None:
         return image_provider
     names = _tool_names(tool_calls)
+    if any(name == "generate_image" for name in names):
+        return active
     if any(
         name in lt.HA_LOVELACE_TOOLS
         or name in et.HA_ENTITY_TOOLS
@@ -196,6 +198,8 @@ def _tool_detail(name: str, args: dict) -> str:
     args = args or {}
     if name == "search_web":
         return _clip_detail(args.get("query"))
+    if name == "generate_image":
+        return _clip_detail(args.get("prompt"))
     if name == "run_skill":
         return _clip_detail(args.get("skill_name"))
     if name == "ha_call_service":
@@ -418,16 +422,34 @@ def _compact_activity(events: list | None) -> list[dict]:
     return out
 
 
-def _activity_meta(trace_id: str, events: list | None = None) -> dict | None:
+def _activity_meta(
+    trace_id: str,
+    events: list | None = None,
+    attachments: list | None = None,
+) -> dict | None:
     merged = list(events or [])
     if trace_id and trace_id in _traces:
         stored = _traces[trace_id].get("events") or []
         if stored:
             merged = list(stored)
     compact = _compact_activity(merged)
-    if not compact:
-        return None
-    return {"activity": compact}
+    meta: dict = {}
+    if compact:
+        meta["activity"] = compact
+    if attachments:
+        meta["attachments"] = attachments
+    return meta or None
+
+
+def _markdown_for_generated_attachments(attachments: list[dict], session_id: str | None = None) -> str:
+    parts: list[str] = []
+    for att in attachments or []:
+        att_id = str(att.get("id") or "").strip()
+        if not att_id:
+            continue
+        url = cm.attachment_public_url(att_id, session_id or "")
+        parts.append(f"![Generated image]({url})")
+    return "\n\n".join(parts)
 
 
 def _trace_done(trace_id: str) -> None:
@@ -465,7 +487,16 @@ async def _fire_activity(on_event, event: dict) -> None:
         await result
 
 
-async def _invoke_internal_tool(fn_name: str, args: dict, *, search_enabled: bool) -> tuple[str, bool]:
+async def _invoke_internal_tool(
+    fn_name: str,
+    args: dict,
+    *,
+    search_enabled: bool,
+    provider: dict | None = None,
+    user_id: str = "",
+    session_id: str | None = None,
+    generated_attachments: list | None = None,
+) -> tuple[str, bool]:
     """Run one bridge-handled tool. Returns (result_text, search_used)."""
     if fn_name == "search_web" and search_enabled:
         query = (args.get("query") or "").strip()[:200]
@@ -483,6 +514,36 @@ async def _invoke_internal_tool(fn_name: str, args: dict, *, search_enabled: boo
             + (search_ctx or "No results found."),
             True,
         )
+
+    if fn_name == "generate_image":
+        if not provider or not pc.supports_image_generation(provider):
+            return "Error: image generation is not available for the active provider.", False
+        prompt = (args.get("prompt") or "").strip()
+        if not prompt:
+            return "Error: empty image prompt.", False
+        try:
+            n = int(args.get("n") or 1)
+        except (TypeError, ValueError):
+            n = 1
+        model = (args.get("model") or "").strip() or None
+        log.info("AI requested image generation: %s", _clip_detail(prompt, 80))
+        try:
+            from services import grok as gk
+
+            result = await gk.generate_image(
+                provider,
+                prompt,
+                model=model,
+                n=n,
+                user_id=user_id,
+                session_id=session_id,
+            )
+        except Exception as e:
+            log.error("Image generation failed: %s", e)
+            return f"Error: image generation failed — {e}", False
+        if generated_attachments is not None and result.get("attachments"):
+            generated_attachments.extend(result["attachments"])
+        return result.get("text") or "Image generated.", False
 
     if fn_name == "run_skill":
         skill_name = (args.get("skill_name") or "").strip()
@@ -512,6 +573,10 @@ async def _append_internal_tool_results(
     fingerprints: list[str],
     on_event=None,
     trace_id: str = "",
+    provider: dict | None = None,
+    user_id: str = "",
+    session_id: str | None = None,
+    generated_attachments: list | None = None,
 ) -> bool:
     """Append tool-role messages for internal calls. Returns search_used."""
     search_used = False
@@ -543,7 +608,13 @@ async def _append_internal_tool_results(
         else:
             fingerprints.append(fp)
             content, used_search = await _invoke_internal_tool(
-                fn_name, args, search_enabled=search_enabled
+                fn_name,
+                args,
+                search_enabled=search_enabled,
+                provider=provider,
+                user_id=user_id,
+                session_id=session_id,
+                generated_attachments=generated_attachments,
             )
             search_used = search_used or used_search
             await _fire_activity(on_event, {
@@ -1517,6 +1588,9 @@ async def chat_completions(request: Request):
         all_tools.append(_SEARCH_WEB_TOOL)
     all_tools.extend(_build_skill_tools())
     all_tools.extend(ha_api.build_ha_tools())
+    active = get_active_provider()
+    if pc.supports_image_generation(active):
+        all_tools.append(pc.build_image_generation_tool(active))
     effective_tools = all_tools if all_tools else None
 
     # ── Slash command check ──
@@ -1565,7 +1639,6 @@ async def chat_completions(request: Request):
         return JSONResponse(content=_command_response_openai(cmd_result, model))
 
     # ── Build augmented message list ──
-    active = get_active_provider()
     log.info(f"[{user_id}] Request: \"{last_user_msg[:80]}\" (provider={active.get('name','?')}, stream={stream})")
     augmented: list[dict] = []
 
@@ -1747,6 +1820,7 @@ async def chat_completions(request: Request):
         # Agentic loop: keep tools available and continue until the model
         # stops calling them (or we hit the round cap).
         fingerprints: list[str] = []
+        generated_attachments: list[dict] = []
         max_rounds = _agent_max_rounds(cfg)
         round_limit = max_rounds
         _round = 0
@@ -1779,6 +1853,10 @@ async def chat_completions(request: Request):
                     fingerprints=fingerprints,
                     on_event=on_activity,
                     trace_id=trace_id,
+                    provider=active,
+                    user_id=user_id,
+                    session_id=session_id,
+                    generated_attachments=generated_attachments,
                 ):
                     _search_used = True
 
@@ -1842,6 +1920,14 @@ async def chat_completions(request: Request):
                 del final_msg["tool_calls"]
 
         assistant_content = final_msg.get("content", "") or ""
+        image_markdown = _markdown_for_generated_attachments(generated_attachments, session_id)
+        if image_markdown and image_markdown not in assistant_content:
+            assistant_content = (
+                f"{assistant_content}\n\n{image_markdown}".strip()
+                if assistant_content
+                else image_markdown
+            )
+            result["choices"][0]["message"]["content"] = assistant_content
         if pending_internal:
             notice = _agent_incomplete_notice(pending_internal)
             assistant_content = (assistant_content + notice).strip()
@@ -1853,14 +1939,15 @@ async def chat_completions(request: Request):
             result["choices"][0]["message"]["content"] = assistant_content
 
         # Save & extract memories
-        if assistant_content:
+        if assistant_content or generated_attachments:
             add_conversation_message(
                 user_id, "assistant", assistant_content,
                 session_id=session_id,
-                meta=_activity_meta(trace_id, activity_events),
+                meta=_activity_meta(trace_id, activity_events, generated_attachments),
             )
-            all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
-            asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
+            if assistant_content:
+                all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
+                asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
 
         # Track usage statistics
         _elapsed_ms = int((time.time() - _req_start) * 1000)
@@ -1902,6 +1989,7 @@ async def chat_completions(request: Request):
         nonlocal augmented
         full_response = ""
         fingerprints: list[str] = []
+        generated_attachments: list[dict] = []
         search_used = False
         secondary_used = _image_provider_used
         rounds_left = _agent_max_rounds(cfg)
@@ -2071,6 +2159,7 @@ async def chat_completions(request: Request):
                 if think_reasoning and pc.needs_reasoning_in_tool_loop(stream_call_provider):
                     assistant_turn["reasoning_content"] = think_reasoning
                 augmented.append(assistant_turn)
+                prev_generated = len(generated_attachments)
                 if await _append_internal_tool_results(
                     augmented,
                     internal_tcs,
@@ -2078,8 +2167,18 @@ async def chat_completions(request: Request):
                     fingerprints=fingerprints,
                     on_event=on_stream_activity,
                     trace_id=trace_id,
+                    provider=active,
+                    user_id=user_id,
+                    session_id=session_id,
+                    generated_attachments=generated_attachments,
                 ):
                     search_used = True
+                new_generated = generated_attachments[prev_generated:]
+                if new_generated:
+                    image_md = _markdown_for_generated_attachments(new_generated, session_id)
+                    if image_md:
+                        full_response += (("\n\n" if full_response else "") + image_md)
+                        yield _sse_content_delta(image_md)
                 async for part in flush_activity():
                     yield part
 
@@ -2106,15 +2205,16 @@ async def chat_completions(request: Request):
                     cache_conv_id=session_id,
                 )
 
-            if full_response:
+            if full_response or generated_attachments:
                 clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
                 add_conversation_message(
                     user_id, "assistant", clean_response,
                     session_id=session_id,
-                    meta=_activity_meta(trace_id),
+                    meta=_activity_meta(trace_id, attachments=generated_attachments),
                 )
-                all_msgs = messages + [{"role": "assistant", "content": clean_response}]
-                asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
+                if clean_response:
+                    all_msgs = messages + [{"role": "assistant", "content": clean_response}]
+                    asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
 
             _stream_elapsed = int((time.time() - _req_start) * 1000)
             log.info(f"[{user_id}] Stream response: {len(full_response)} chars, {_stream_elapsed}ms, search={search_used}")
@@ -2170,6 +2270,19 @@ async def _sse_error(message: str):
     })
     yield f"data: {payload}\n\n"
     yield "data: [DONE]\n\n"
+
+
+def _sse_content_delta(content: str) -> str:
+    payload = json.dumps({
+        "id": f"hassai-img-{int(time.time())}",
+        "object": "chat.completion.chunk",
+        "choices": [{
+            "index": 0,
+            "delta": {"role": "assistant", "content": content},
+            "finish_reason": None,
+        }],
+    })
+    return f"data: {payload}\n\n"
 
 
 # Per-user extraction locks to prevent concurrent duplicate extractions (#6)

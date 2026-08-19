@@ -43,6 +43,18 @@ export function MessageBubble({ message, lang }) {
           {message.thinking?.visible ? (
             <Thinking thinking={message.thinking} lang={lang} streaming={Boolean(message.streaming)} />
           ) : null}
+          {Array.isArray(message.attachments) && message.attachments.length ? (
+            <div className="flex max-w-full flex-wrap gap-2">
+              {message.attachments.map((img) => (
+                <img
+                  key={img.id || img.url || img.previewUrl}
+                  alt=""
+                  className="max-h-80 max-w-full rounded-xl border border-white/10 object-cover"
+                  src={img.previewUrl || img.url || img.dataUrl}
+                />
+              ))}
+            </div>
+          ) : null}
           {message.content ? (
             <MarkdownBody
               copiedLabel={tr(lang, "copied")}

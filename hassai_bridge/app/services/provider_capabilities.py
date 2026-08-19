@@ -66,6 +66,54 @@ def supports_kv_cache(provider: dict | None) -> bool:
     return KV_CACHE in provider_chat_capabilities(provider)
 
 
+def supports_image_generation(provider: dict | None) -> bool:
+    return IMAGE_GENERATION in provider_chat_capabilities(provider)
+
+
+def image_generation_models(provider: dict | None) -> list[str]:
+    caps = provider_chat_capabilities(provider)
+    ig = caps.get(IMAGE_GENERATION) or {}
+    models = ig.get("models") or []
+    return [str(m) for m in models if m]
+
+
+def build_image_generation_tool(provider: dict | None) -> dict:
+    models = image_generation_models(provider) or ["grok-imagine-image-2.0"]
+    default_model = gk.default_image_model(provider if isinstance(provider, dict) else None)
+    return {
+        "type": "function",
+        "function": {
+            "name": "generate_image",
+            "description": (
+                "Generate a new image from a detailed text prompt using Grok Imagine. "
+                "Use when the user asks to create, draw, design, or visualize something. "
+                "Do not use for editing an uploaded photo unless the user explicitly asks to generate a new image."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Detailed visual description of the image to create.",
+                    },
+                    "n": {
+                        "type": "integer",
+                        "description": "Number of images to generate (1-4). Default 1.",
+                        "minimum": 1,
+                        "maximum": 4,
+                    },
+                    "model": {
+                        "type": "string",
+                        "enum": models,
+                        "description": f"Imagine model to use. Default: {default_model}.",
+                    },
+                },
+                "required": ["prompt"],
+            },
+        },
+    }
+
+
 def kv_context_budget(provider: dict | None) -> int:
     caps = provider_chat_capabilities(provider)
     kv = caps.get(KV_CACHE) or {}
