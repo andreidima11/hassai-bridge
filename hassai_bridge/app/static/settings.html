@@ -429,7 +429,7 @@
           <div class="modal-section">
             <h3 data-i18n="settings.secondaryProvider">Secondary Provider</h3>
             <p class="card-muted hint" data-i18n="settings.secondaryProviderDesc">Optional. Select a secondary provider to handle tool call re-processing (cost reduction / faster processing) and memory operations for this provider.</p>
-            <select id="provSecondary">
+            <select id="provSecondary" onchange="updateVisionModeSection()">
               <option value="" data-i18n="settings.noSecondary">— None —</option>
             </select>
           </div>
@@ -446,8 +446,16 @@
           <div class="modal-section">
             <h3 data-i18n="settings.visionProvider">Vision LLM</h3>
             <p class="card-muted hint" data-i18n="settings.visionProviderDesc">Optional. When the primary model cannot handle images, requests with photos are routed here first. If unset, the auxiliary (secondary) provider is used instead.</p>
-            <select id="provVision">
+            <select id="provVision" onchange="updateVisionModeSection()">
               <option value="" data-i18n="settings.noVision">— None —</option>
+            </select>
+          </div>
+          <div class="modal-section" id="provVisionModeSection" style="display:none">
+            <h3 data-i18n="settings.visionMode">Image handling</h3>
+            <p class="card-muted hint" data-i18n="settings.visionModeDesc">How a separate vision model is used when the primary cannot see images.</p>
+            <select id="provVisionMode">
+              <option value="direct" data-i18n="settings.visionModeDirect">Direct — Vision model answers</option>
+              <option value="relay" data-i18n="settings.visionModeRelay">Relay — Vision describes, primary answers</option>
             </select>
           </div>
           <div class="modal-section">
