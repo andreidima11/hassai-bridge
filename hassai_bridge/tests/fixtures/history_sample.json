@@ -1,0 +1,14 @@
+[
+  [
+    {
+      "entity_id": "light.kitchen",
+      "state": "off",
+      "last_changed": "2026-08-19T10:00:00+00:00"
+    },
+    {
+      "entity_id": "light.kitchen",
+      "state": "on",
+      "last_changed": "2026-08-19T12:30:00+00:00"
+    }
+  ]
+]

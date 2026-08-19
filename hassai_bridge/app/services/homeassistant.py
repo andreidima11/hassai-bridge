@@ -12,8 +12,10 @@ import json
 import logging
 import os
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Awaitable
+from urllib.parse import urlencode
 
 import httpx
 import yaml
@@ -171,6 +173,20 @@ async def list_ha_people() -> list[dict]:
 
 async def _core(method: str, path: str, **kwargs) -> Any:
     return await _http(method, f"{_SUPERVISOR}/core/api{path}", **kwargs)
+
+
+async def _core_query(path: str, params: dict[str, Any]) -> Any:
+    clean: dict[str, Any] = {}
+    for key, value in params.items():
+        if value is None or value is False:
+            continue
+        if value is True or value == "":
+            clean[key] = ""
+        else:
+            clean[key] = value
+    qs = urlencode(clean, doseq=True)
+    suffix = f"?{qs}" if qs else ""
+    return await _core("GET", f"{path}{suffix}")
 
 
 async def _supervisor(method: str, path: str, **kwargs) -> Any:
@@ -449,6 +465,89 @@ _TOOL_SPECS: dict[str, dict] = {
                 "confirm": {"type": "boolean"},
             },
             "required": ["entity_id", "state", "confirm"],
+        },
+    },
+    "ha_get_history": {
+        "description": (
+            "State change history for one or more entities (REST). "
+            "Use after automations or to verify toggles. Pass entity_id or entity_ids."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "entity_ids": {"type": "array", "items": {"type": "string"}},
+                "hours": {"type": "integer", "description": "Lookback window (default 24, max 168)"},
+                "limit": {"type": "integer", "description": "Max state rows per entity (default 40)"},
+                "significant_changes_only": {"type": "boolean"},
+            },
+        },
+    },
+    "ha_get_logbook": {
+        "description": (
+            "Logbook entries (who changed what). Optional entity_id filter. "
+            "Good for tracing automations and user actions."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "hours": {"type": "integer", "description": "Lookback window (default 24, max 168)"},
+                "limit": {"type": "integer", "description": "Max rows (default 60)"},
+            },
+        },
+    },
+    "ha_get_entity_source": {
+        "description": (
+            "Which integration owns an entity (entity/source WebSocket). "
+            "Requires entity_id, search, or domain — never call without a filter."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "domain": {"type": "string", "description": "Entity domain or source integration"},
+                "search": {"type": "string", "description": "Substring on entity_id or source"},
+            },
+        },
+    },
+    "ha_list_exposed_entities": {
+        "description": (
+            "List entities exposed to voice assistants (Assist/Alexa/Google). "
+            "Optional assistant=conversation filter."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "assistant": {
+                    "type": "string",
+                    "enum": ["conversation", "cloud.alexa", "cloud.google_assistant"],
+                },
+                "search": {"type": "string"},
+            },
+        },
+    },
+    "ha_expose_entity": {
+        "description": (
+            "Expose or hide entities for voice assistants. "
+            "Default assistant is conversation (Assist). confirm=true required."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "entity_ids": {"type": "array", "items": {"type": "string"}},
+                "should_expose": {"type": "boolean"},
+                "assistants": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": ["conversation", "cloud.alexa", "cloud.google_assistant"],
+                    },
+                },
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["should_expose", "confirm"],
         },
     },
     "ha_system_info": {
@@ -1184,6 +1283,86 @@ async def _set_state(args: dict) -> str:
     return f"OK: set state on {entity_id}\n{verify}"
 
 
+async def _get_history(args: dict) -> str:
+    entity_ids = et.parse_entity_id_args(args)
+    if not entity_ids:
+        return "Error: entity_id or entity_ids is required"
+    hours = et.clamp_hours(args.get("hours"))
+    try:
+        limit = int(args.get("limit") or 40)
+    except (TypeError, ValueError):
+        limit = 40
+    limit = max(5, min(limit, 120))
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(hours=hours)
+    params: dict[str, Any] = {
+        "filter_entity_id": ",".join(entity_ids),
+        "end_time": end.isoformat(),
+        "minimal_response": True,
+        "no_attributes": True,
+    }
+    if args.get("significant_changes_only"):
+        params["significant_changes_only"] = True
+    payload = await _core_query(f"/history/period/{start.isoformat()}", params)
+    return et.format_history_response(payload, entity_ids, max_rows=limit)
+
+
+async def _get_logbook(args: dict) -> str:
+    entity_id = str(args.get("entity_id") or "").strip()
+    hours = et.clamp_hours(args.get("hours"))
+    try:
+        limit = int(args.get("limit") or 60)
+    except (TypeError, ValueError):
+        limit = 60
+    limit = max(5, min(limit, 120))
+    start = datetime.now(timezone.utc) - timedelta(hours=hours)
+    days = max(1, (hours + 23) // 24)
+    params: dict[str, Any] = {"period": days}
+    if entity_id:
+        params["entity"] = entity_id
+    payload = await _core_query(f"/logbook/{start.isoformat()}", params)
+    if not isinstance(payload, list):
+        return "No logbook entries."
+    return et.format_logbook_entries(payload, max_rows=limit)
+
+
+async def _get_entity_source(args: dict) -> str:
+    if not any(args.get(k) for k in ("entity_id", "search", "domain")):
+        return "Error: pass entity_id, search, or domain to narrow (full source list is too large)"
+    result = await _ws_call({"type": "entity/source"})
+    if not isinstance(result, dict):
+        return "No entity sources."
+    rows = et.filter_entity_sources(result, args)
+    return et.format_entity_source_list(rows)
+
+
+async def _list_exposed_entities(args: dict) -> str:
+    result = await _ws_call({"type": "homeassistant/expose_entity/list"})
+    exposed: dict[str, Any] = {}
+    if isinstance(result, dict):
+        raw = result.get("exposed_entities")
+        exposed = raw if isinstance(raw, dict) else result
+    if not isinstance(exposed, dict):
+        exposed = {}
+    rows = et.filter_exposed_entities(exposed, args)
+    return et.format_exposed_entity_list(rows)
+
+
+async def _expose_entity(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    payload = et.build_expose_entity_payload(args)
+    if not payload:
+        return "Error: entity_id/entity_ids and should_expose are required"
+    await _ws_call({"type": "homeassistant/expose_entity", **payload})
+    action = "exposed" if payload["should_expose"] else "hidden"
+    preview = ", ".join(payload["entity_ids"][:6])
+    if len(payload["entity_ids"]) > 6:
+        preview += f", … (+{len(payload['entity_ids']) - 6})"
+    assistants = ", ".join(payload["assistants"])
+    return f"OK: {action} {preview} for {assistants}"
+
+
 async def _system_info(_args: dict) -> str:
     out: dict[str, Any] = {}
     try:
@@ -1750,6 +1929,11 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_get_device": _get_device,
     "ha_update_device": _update_device,
     "ha_set_state": _set_state,
+    "ha_get_history": _get_history,
+    "ha_get_logbook": _get_logbook,
+    "ha_get_entity_source": _get_entity_source,
+    "ha_list_exposed_entities": _list_exposed_entities,
+    "ha_expose_entity": _expose_entity,
     "ha_system_info": _system_info,
     "ha_get_logs": _get_logs,
     "ha_list_problems": _list_problems,

@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.45-beta
+
+- **Entity tools v4 (trace & Assist):** `ha_get_history`, `ha_get_logbook`, `ha_get_entity_source`, `ha_list_exposed_entities`, `ha_expose_entity`
+- History/logbook via Core REST with hours lookback; entity source requires a filter
+- Voice exposure: list and set Assist/Alexa/Google visibility (`confirm=true`)
+- Unit tests for history/logbook/source/expose formatters
+
 ## 0.2.44-beta
 
 - **Entity tools v3 (areas, labels, devices):** `ha_create_area`, `ha_update_area`, `ha_list_labels`, `ha_create_label`, `ha_update_label`, `ha_update_device`

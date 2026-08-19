@@ -187,3 +187,49 @@ def test_filter_registry_entries():
     text = et.format_registry_list(rows, area_labels)
     assert "light.kitchen" in text
     assert "Kitchen" in text
+
+
+def test_parse_entity_id_args_dedupes():
+    ids = et.parse_entity_id_args({"entity_id": "light.a", "entity_ids": ["light.a", "light.b"]})
+    assert ids == ["light.a", "light.b"]
+
+
+def test_format_history_response():
+    payload = load("history_sample.json")
+    text = et.format_history_response(payload, ["light.kitchen"], max_rows=10)
+    assert "light.kitchen" in text
+    assert "on" in text
+    assert "off" in text
+
+
+def test_format_logbook_entries():
+    entries = load("logbook_sample.json")
+    text = et.format_logbook_entries(entries, max_rows=10)
+    assert "light.kitchen" in text
+    assert "turned on" in text
+
+
+def test_filter_entity_sources():
+    sources = load("entity_source_sample.json")
+    rows = et.filter_entity_sources(sources, {"entity_id": "light.kitchen"})
+    text = et.format_entity_source_list(rows)
+    assert "light.kitchen|shelly" in text
+
+
+def test_filter_exposed_entities():
+    exposed = load("exposed_sample.json")
+    rows = et.filter_exposed_entities(exposed, {"assistant": "conversation"})
+    text = et.format_exposed_entity_list(rows)
+    assert "light.kitchen|conversation" in text
+    assert "climate.living" in text
+    assert "sensor.temp" not in text
+    assert len(rows) == 2
+
+
+def test_build_expose_entity_payload():
+    payload = et.build_expose_entity_payload(
+        {"entity_ids": ["light.a", "Lights"], "should_expose": True, "assistants": ["conversation"]}
+    )
+    assert payload["entity_ids"] == ["light.a", "Lights"]
+    assert payload["should_expose"] is True
+    assert payload["assistants"] == ["conversation"]

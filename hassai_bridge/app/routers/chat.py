@@ -189,6 +189,21 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(args.get("name"))
     if name == "ha_update_label":
         return _clip_detail(f"{args.get('label_id') or ''} {args.get('name') or ''}".strip())
+    if name == "ha_get_history":
+        ids = args.get("entity_ids") if isinstance(args.get("entity_ids"), list) else []
+        preview = args.get("entity_id") or (", ".join(str(i) for i in ids[:2]) if ids else "")
+        hours = args.get("hours")
+        return _clip_detail(f"{preview} {hours}h".strip() if hours else preview)
+    if name == "ha_get_logbook":
+        bits = [args.get("entity_id") or "", f"{args.get('hours')}h" if args.get("hours") else ""]
+        return _clip_detail(" · ".join(str(b) for b in bits if b))
+    if name == "ha_get_entity_source":
+        return _clip_detail(args.get("entity_id") or args.get("search") or args.get("domain"))
+    if name == "ha_expose_entity":
+        ids = args.get("entity_ids") if isinstance(args.get("entity_ids"), list) else []
+        preview = args.get("entity_id") or (", ".join(str(i) for i in ids[:2]) if ids else "")
+        flag = "show" if args.get("should_expose") else "hide"
+        return _clip_detail(f"{flag} {preview}".strip())
     if name == "ha_upsert_card":
         card = args.get("card") if isinstance(args.get("card"), dict) else {}
         bits = [

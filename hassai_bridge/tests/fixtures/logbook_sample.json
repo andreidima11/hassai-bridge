@@ -1,0 +1,16 @@
+[
+  {
+    "when": "2026-08-19T12:30:00+00:00",
+    "entity_id": "light.kitchen",
+    "name": "Kitchen",
+    "message": "turned on",
+    "domain": "light"
+  },
+  {
+    "when": "2026-08-19T10:00:00+00:00",
+    "entity_id": "automation.morning",
+    "name": "Morning",
+    "message": "triggered",
+    "domain": "automation"
+  }
+]

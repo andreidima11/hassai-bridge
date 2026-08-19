@@ -19,6 +19,8 @@ Entities (live state via REST):
 - Act: ha_list_services(domain=…) → ha_call_service → ha_get_state to verify
 - area_id in registry, not state.attributes — use ha_list_areas for room names
 - If state is unavailable or unknown, diagnose before calling services
+- Trace: ha_get_history / ha_get_logbook for recent changes; ha_get_entity_source for integration
+- Voice/Assist: ha_list_exposed_entities → ha_expose_entity (confirm=true; assistant conversation by default)
 
 Dashboards (WebSocket, storage mode):
 - ha_list_dashboards → ha_get_dashboard (summary) → ha_upsert_view / ha_upsert_section / ha_upsert_card / ha_delete_card / ha_delete_view
@@ -44,6 +46,10 @@ HA_ENTITY_TOOLS = frozenset({
     "ha_list_devices",
     "ha_get_device",
     "ha_list_labels",
+    "ha_get_history",
+    "ha_get_logbook",
+    "ha_get_entity_source",
+    "ha_list_exposed_entities",
 })
 
 HA_REGISTRY_MUTATING_TOOLS = frozenset({
@@ -54,6 +60,7 @@ HA_REGISTRY_MUTATING_TOOLS = frozenset({
     "ha_create_label",
     "ha_update_label",
     "ha_update_device",
+    "ha_expose_entity",
 })
 
 _STATE_SET_DOMAINS = frozenset({
@@ -726,10 +733,165 @@ def can_set_state(entity_id: str) -> bool:
     return domain_of(entity_id) in _STATE_SET_DOMAINS
 
 
+def parse_entity_id_args(args: dict, *, max_ids: int = 8) -> list[str]:
+    raw_ids = args.get("entity_ids")
+    ids: list[str] = []
+    if isinstance(raw_ids, list):
+        ids.extend(str(item or "").strip() for item in raw_ids if str(item or "").strip())
+    single = str(args.get("entity_id") or "").strip()
+    if single:
+        ids.append(single)
+    if not ids:
+        csv = str(args.get("filter_entity_id") or "").strip()
+        if csv:
+            ids.extend(part.strip() for part in csv.split(",") if part.strip())
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for eid in ids:
+        key = eid.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(eid)
+    return deduped[:max_ids]
+
+
+def clamp_hours(raw: Any, *, default: int = 24, max_hours: int = 168) -> int:
+    try:
+        value = int(raw if raw is not None else default)
+    except (TypeError, ValueError):
+        value = default
+    return max(1, min(value, max_hours))
+
+
+def format_history_rows(entity_id: str, rows: list[dict], *, max_rows: int = 40) -> list[str]:
+    lines: list[str] = []
+    if not rows:
+        lines.append(f"{entity_id}: (no history)")
+        return lines
+    lines.append(f"{entity_id} ({len(rows)} states, showing last {min(len(rows), max_rows)}):")
+    for row in rows[-max_rows:]:
+        if not isinstance(row, dict):
+            continue
+        state_val = row.get("state")
+        when = row.get("last_changed") or row.get("last_updated") or "?"
+        lines.append(f"  {when} → {state_val}")
+    return lines
+
+
+def format_history_response(payload: Any, entity_ids: list[str], *, max_rows: int = 40) -> str:
+    if not isinstance(payload, list) or not payload:
+        return "No history entries."
+    lines: list[str] = []
+    for idx, block in enumerate(payload):
+        eid = entity_ids[idx] if idx < len(entity_ids) else f"entity_{idx + 1}"
+        rows = block if isinstance(block, list) else []
+        lines.extend(format_history_rows(eid, rows, max_rows=max_rows))
+    return "\n".join(lines)
+
+
+def format_logbook_entries(entries: list[dict], *, max_rows: int = 60) -> str:
+    if not entries:
+        return "No logbook entries."
+    lines = ["when|entity|message"]
+    for row in entries[:max_rows]:
+        if not isinstance(row, dict):
+            continue
+        when = str(row.get("when") or row.get("timestamp") or "")
+        eid = str(row.get("entity_id") or "")
+        message = str(row.get("message") or row.get("name") or "")
+        lines.append(f"{when}|{eid}|{message}")
+    if len(entries) > max_rows:
+        lines.append(f"… showing {max_rows} of {len(entries)}")
+    return "\n".join(lines)
+
+
+def filter_entity_sources(sources: dict[str, dict], args: dict, *, limit: int = 80) -> list[tuple[str, dict]]:
+    entity_id = str(args.get("entity_id") or "").strip().lower()
+    domain = str(args.get("domain") or "").strip().lower()
+    search = str(args.get("search") or "").strip().lower()
+    rows: list[tuple[str, dict]] = []
+    for eid, info in sorted(sources.items()):
+        if not isinstance(info, dict):
+            continue
+        if entity_id and eid.lower() != entity_id:
+            continue
+        src_domain = str(info.get("domain") or info.get("platform") or "").lower()
+        if domain and src_domain != domain and not eid.lower().startswith(domain + "."):
+            continue
+        label = f"{eid} {src_domain}".lower()
+        if search and search not in label:
+            continue
+        rows.append((eid, info))
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def format_entity_source_list(rows: list[tuple[str, dict]]) -> str:
+    if not rows:
+        return "No matching entity sources."
+    lines = ["entity_id|source"]
+    for eid, info in rows:
+        src = str(info.get("domain") or info.get("platform") or info.get("source") or "?")
+        config_entry = info.get("config_entry")
+        if config_entry:
+            src = f"{src} (entry={config_entry})"
+        lines.append(f"{eid}|{src}")
+    return "\n".join(lines)
+
+
+def filter_exposed_entities(data: dict[str, dict], args: dict, *, limit: int = 120) -> list[tuple[str, list[str]]]:
+    assistant = str(args.get("assistant") or "").strip()
+    search = str(args.get("search") or "").strip().lower()
+    rows: list[tuple[str, list[str]]] = []
+    for eid, exposed_to in sorted(data.items()):
+        if not isinstance(exposed_to, dict):
+            continue
+        assistants = sorted(key for key, enabled in exposed_to.items() if enabled)
+        if assistant and assistant not in assistants:
+            continue
+        if search and search not in eid.lower():
+            continue
+        rows.append((eid, assistants))
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def format_exposed_entity_list(rows: list[tuple[str, list[str]]]) -> str:
+    if not rows:
+        return "No exposed entities."
+    lines = ["entity_id|assistants"]
+    for eid, assistants in rows:
+        lines.append(f"{eid}|{','.join(assistants)}")
+    return "\n".join(lines)
+
+
+def build_expose_entity_payload(args: dict) -> dict[str, Any]:
+    entity_ids = parse_entity_id_args(args, max_ids=20)
+    if not entity_ids:
+        return {}
+    assistants = args.get("assistants")
+    if isinstance(assistants, list) and assistants:
+        assistant_list = [str(a).strip() for a in assistants if str(a).strip()]
+    else:
+        assistant_list = ["conversation"]
+    if args.get("should_expose") is None:
+        return {}
+    return {
+        "entity_ids": entity_ids,
+        "assistants": assistant_list,
+        "should_expose": bool(args.get("should_expose")),
+    }
+
+
 def entity_error_hint(tool_name: str, message: str) -> str | None:
     lower = message.lower()
     if tool_name == "ha_set_state" and "not allowed" in lower:
         return "Use ha_call_service for lights, switches, climate, and other device entities."
+    if tool_name in {"ha_get_history", "ha_get_logbook"} and "filter_entity_id" in lower:
+        return "Pass entity_id or entity_ids."
     if "not found" in lower or "404" in lower:
         return "Use ha_list_entities or ha_list_entity_registry to find the correct entity_id."
     if "area" in lower and "unknown" in lower:

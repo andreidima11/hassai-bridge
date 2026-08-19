@@ -44,6 +44,7 @@ HA_MUTATING_TOOLS = frozenset({
     "ha_create_label",
     "ha_update_label",
     "ha_update_device",
+    "ha_expose_entity",
     "ha_reload",
 })
 
