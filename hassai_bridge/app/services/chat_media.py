@@ -110,3 +110,86 @@ def persist_image_bytes(user_id: str, raw: bytes, mime: str = "image/png", *, na
     if name:
         out["name"] = str(name)[:120]
     return out
+
+
+def _normalize_upload(raw: bytes, *, filename: str = "", content_type: str = "") -> tuple[bytes, str]:
+    """Resize/compress uploads; convert to JPEG when possible (incl. HEIC on server)."""
+    if not raw:
+        raise ValueError("empty file")
+    if len(raw) > MAX_BYTES * 3:
+        raise ValueError("image too large")
+
+    ctype = str(content_type or "").split(";", 1)[0].strip().lower()
+    name = str(filename or "").lower()
+    if not ctype or ctype == "application/octet-stream":
+        if name.endswith(".png"):
+            ctype = "image/png"
+        elif name.endswith(".webp"):
+            ctype = "image/webp"
+        elif name.endswith(".gif"):
+            ctype = "image/gif"
+        elif name.endswith((".heic", ".heif")):
+            ctype = "image/heic"
+        else:
+            ctype = "image/jpeg"
+
+    try:
+        from PIL import Image
+    except ImportError:
+        if ctype in _ALLOWED_MIME and len(raw) <= MAX_BYTES:
+            return raw, ctype
+        raise ValueError("unsupported image type") from None
+
+    try:
+        import pillow_heif  # optional HEIC support
+
+        pillow_heif.register_heif_opener()
+    except ImportError:
+        pass
+
+    import io
+
+    try:
+        img = Image.open(io.BytesIO(raw))
+        if getattr(img, "is_animated", False):
+            buf = io.BytesIO()
+            img.save(buf, format="GIF")
+            out = buf.getvalue()
+            if len(out) > MAX_BYTES:
+                raise ValueError("image too large")
+            return out, "image/gif"
+        if img.mode not in ("RGB", "RGBA"):
+            img = img.convert("RGBA" if ctype == "image/png" else "RGB")
+        max_dim = 1280
+        w, h = img.size
+        scale = min(1.0, max_dim / max(w, h, 1))
+        if scale < 1.0:
+            img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.LANCZOS)
+        out_mime = "image/png" if ctype == "image/png" else "image/jpeg"
+        buf = io.BytesIO()
+        if out_mime == "image/png":
+            img.save(buf, format="PNG", optimize=True)
+        else:
+            if img.mode == "RGBA":
+                bg = Image.new("RGB", img.size, (0, 0, 0))
+                bg.paste(img, mask=img.split()[3])
+                img = bg
+            img.save(buf, format="JPEG", quality=82, optimize=True)
+            out_mime = "image/jpeg"
+        out = buf.getvalue()
+        if len(out) > MAX_BYTES:
+            raise ValueError("image too large")
+        return out, out_mime
+    except ValueError:
+        raise
+    except Exception as exc:
+        if ctype in _ALLOWED_MIME and len(raw) <= MAX_BYTES:
+            return raw, ctype
+        raise ValueError("unsupported image type") from exc
+
+
+def save_uploaded_file(user_id: str, raw: bytes, *, filename: str = "", content_type: str = "") -> dict:
+    """Process and persist one chat upload; returns attachment metadata."""
+    processed, mime = _normalize_upload(raw, filename=filename, content_type=content_type)
+    name = str(filename or "")[:120]
+    return persist_image_bytes(user_id, processed, mime, name=name)

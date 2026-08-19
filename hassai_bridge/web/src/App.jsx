@@ -18,7 +18,7 @@ import {
 } from "./lib/api.js";
 import { syncHaTheme } from "./lib/theme.js";
 import { finishThinkingLabel, persistLang, readStoredLang, tr } from "./lib/i18n.js";
-import { canSendMessage } from "./lib/images.js";
+import { canSendMessage, clearDraftAttachments, persistDraftAttachments, readDraftAttachments } from "./lib/images.js";
 import { applyActivity, emptyThinking } from "./lib/thinking.js";
 import {
   defaultThinkingMode,
@@ -107,7 +107,7 @@ export default function App() {
   const [lang, setLang] = useState(readStoredLang);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [input, setInput] = useState("");
-  const [attachments, setAttachments] = useState([]);
+  const [attachments, setAttachments] = useState(() => readDraftAttachments());
   const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -140,6 +140,7 @@ export default function App() {
 
   useEffect(() => {
     attachmentsRef.current = attachments;
+    persistDraftAttachments(attachments);
   }, [attachments]);
 
   const t = useCallback((key, params) => tr(lang, key, params), [lang]);
@@ -179,6 +180,7 @@ export default function App() {
       }
       setMessages([]);
       setAttachments([]);
+      clearDraftAttachments();
       setSidebarOpen(false);
     },
     [user.username],
@@ -295,17 +297,23 @@ export default function App() {
       const hiddenMs = hiddenAt.current > 0 ? Date.now() - hiddenAt.current : 0;
       hiddenAt.current = 0;
       if (hiddenMs > 0 && hiddenMs < 3000) return;
-      if (messagesRef.current.length > 0 || attachmentsRef.current.length > 0 || input.trim()) return;
+      if (messagesRef.current.length > 0 || attachmentsRef.current.length > 0 || readDraftAttachments().length > 0 || input.trim()) return;
       startNewChat({ ephemeral: true });
     };
     const onFocus = () => {
       if (shouldSkipReset()) hiddenAt.current = 0;
     };
+    const onPageShow = () => {
+      const drafts = readDraftAttachments();
+      if (drafts.length) setAttachments(drafts);
+    };
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("focus", onFocus);
+    window.addEventListener("pageshow", onPageShow);
     return () => {
       document.removeEventListener("visibilitychange", onVis);
       window.removeEventListener("focus", onFocus);
+      window.removeEventListener("pageshow", onPageShow);
     };
   }, [busy, input, startNewChat]);
 
@@ -374,6 +382,7 @@ export default function App() {
     ]);
     setInput("");
     setAttachments([]);
+    clearDraftAttachments();
     setBusy(true);
 
     abortRef.current?.abort();

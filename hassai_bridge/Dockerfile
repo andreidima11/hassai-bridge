@@ -23,7 +23,7 @@ COPY --from=web /src/app/static/index.html /opt/hassai-bridge/static/index.html
 COPY --from=web /src/app/static/assets /opt/hassai-bridge/static/assets
 COPY run.sh /
 RUN chmod a+x /run.sh \
-    && apk add --no-cache ca-certificates \
+    && apk add --no-cache ca-certificates libheif libjpeg-turbo \
     && update-ca-certificates \
     && pip3 install --no-cache-dir --break-system-packages --upgrade pip \
     && pip3 install --no-cache-dir --break-system-packages \

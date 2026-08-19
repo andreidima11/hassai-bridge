@@ -1,6 +1,6 @@
 """Current-user identity and per-user conversations (HA Ingress scoped)."""
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 
 from core.identity import ensure_from_request, ensure_user, list_profiles
@@ -14,6 +14,8 @@ from database import (
 )
 from services import chat_content as cc
 from services import chat_media as cm
+
+MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 
 
 def _require_admin_key(request: Request):
@@ -117,6 +119,37 @@ async def chat_media(request: Request, attachment_id: str):
         ".gif": "image/gif",
     }.get(path.suffix.lower(), "application/octet-stream")
     return FileResponse(path, media_type=mime, filename=path.name)
+
+
+@router.post("/api/chat/upload")
+async def chat_upload(request: Request, file: UploadFile = File(...)):
+    """Upload a chat image via multipart form (reliable on HA mobile Ingress WebView)."""
+    user_id = _current_username(request)
+    raw = await file.read()
+    if not raw:
+        return JSONResponse(status_code=400, content={"error": "Empty file"})
+    if len(raw) > MAX_UPLOAD_BYTES:
+        return JSONResponse(status_code=413, content={"error": "File too large"})
+    try:
+        att = cm.save_uploaded_file(
+            user_id,
+            raw,
+            filename=file.filename or "",
+            content_type=file.content_type or "",
+        )
+    except ValueError as exc:
+        msg = str(exc)
+        code = 413 if "too large" in msg.lower() else 400
+        return JSONResponse(status_code=code, content={"error": msg})
+    data_url = cm.attachment_data_url(user_id, att)
+    public_url = cm.attachment_public_url(att["id"])
+    return {
+        "id": att["id"],
+        "mime": att.get("mime") or "image/jpeg",
+        "name": att.get("name") or file.filename or "image",
+        "url": public_url,
+        "dataUrl": data_url,
+    }
 
 
 @router.delete("/api/conversations/{session_id}")
