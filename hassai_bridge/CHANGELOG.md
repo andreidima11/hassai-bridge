@@ -1,5 +1,24 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.53-beta
+
+### DeepSeek — thinking, KV cache, stats
+- **Thinking mode** (Auto / Off / High / Max) driven by provider capabilities — 🧠 in chat composer + provider settings
+- **`reasoning_content`** preserved in agent tool loop for multi-round DeepSeek calls
+- **KV cache optimization** — stable vs volatile system prompt split; trim drops oldest turns only (no summary injection); ~98K context budget
+- **Cache metrics** — `cache_hit_tokens` / `cache_miss_tokens` stored in usage stats and shown in **Statistici → Model**
+
+### Chat — vision & mobile
+- **Vision LLM routing** when primary model lacks vision (dedicated vision provider or auxiliary fallback)
+- **Welcome glow** — wider effect, no hard clip at edges
+- **Mobile image attach** — HEIC support; file picker no longer drops selected photos
+
+### Settings / UI fixes
+- **Stats refresh** no longer crashes when on Server/Memory/Skills sub-tab (canvas negative radius)
+
+### Tests
+- 71 unit tests
+
 ## 0.2.52-beta
 
 ### Chat fixes & personalization
