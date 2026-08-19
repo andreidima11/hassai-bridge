@@ -164,12 +164,12 @@ def thinking_for_provider(thinking_cfg: dict | None, provider: dict) -> dict | N
     return thinking_cfg
 
 
-def apply_provider_payload_extras(payload: dict, provider: dict, thinking: dict | None) -> None:
+def apply_provider_payload_extras(payload: dict, provider: dict, thinking: dict | None, *, has_images: bool = False) -> None:
     ptype = provider.get("type", "")
     if ptype == "deepseek":
         ds.apply_thinking_payload(payload, thinking)
     elif ptype == "grok":
-        gk.apply_thinking_payload(payload, thinking, provider=provider)
+        gk.apply_thinking_payload(payload, thinking, provider=provider, has_images=has_images)
 
 
 def assistant_turn(provider: dict, message: dict) -> dict:

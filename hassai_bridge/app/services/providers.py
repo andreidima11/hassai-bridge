@@ -69,8 +69,6 @@ _VISION_MODEL_HINTS = re.compile(
     r"qwen.*vl|pixtral|glm-4v|internvl|moondream|minicpm-v",
     re.I,
 )
-_GROK_VISION_HINTS = re.compile(r"grok-2-vision|grok-vision|grok.*-vision", re.I)
-_GROK_TEXT_ONLY = re.compile(r"grok-4(?:\.\d+)?|grok-3|grok-code|grok-2$|grok-beta$", re.I)
 
 
 def provider_supports_vision(provider: dict | None) -> bool:
@@ -81,16 +79,12 @@ def provider_supports_vision(provider: dict | None) -> bool:
         return True
     if flag is False:
         return False
-    model = str(provider.get("model") or "").strip()
-    if not model:
-        return False
     if provider.get("type") == "grok":
-        if _GROK_TEXT_ONLY.search(model):
-            return False
-        if _GROK_VISION_HINTS.search(model):
-            return True
-        return False
-    return bool(_VISION_MODEL_HINTS.search(model))
+        # xAI Grok chat models (incl. grok-4 / grok-4.6) accept text + image input.
+        model = str(provider.get("model") or "").strip()
+        return bool(model)
+    model = str(provider.get("model") or "").strip()
+    return bool(model and _VISION_MODEL_HINTS.search(model))
 
 
 def get_active_provider() -> dict:
@@ -290,10 +284,16 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
     if temperature is not None and not _skip_temperature(provider, thinking):
         payload["temperature"] = temperature
 
+    from services import chat_content as cc
     from services import provider_capabilities as pc
 
     if thinking and pc.supports_thinking(provider):
-        pc.apply_provider_payload_extras(payload, provider, thinking)
+        pc.apply_provider_payload_extras(
+            payload,
+            provider,
+            thinking,
+            has_images=cc.messages_have_images(messages),
+        )
 
     client = _get_client()
     # Retry on transient errors (#20)
@@ -359,10 +359,16 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
     if temperature is not None and not _skip_temperature(provider, thinking):
         payload["temperature"] = temperature
 
+    from services import chat_content as cc
     from services import provider_capabilities as pc
 
     if thinking and pc.supports_thinking(provider):
-        pc.apply_provider_payload_extras(payload, provider, thinking)
+        pc.apply_provider_payload_extras(
+            payload,
+            provider,
+            thinking,
+            has_images=cc.messages_have_images(messages),
+        )
 
     client = _get_client()
     try:

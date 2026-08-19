@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.65-beta
+
+### Fix
+- **Grok + images** — Grok primary (grok-4 / grok-4.6) now handles uploaded photos directly instead of routing away; use low reasoning effort on multimodal requests; still skip `generate_image` when user attaches photos
+
 ## 0.2.64-beta
 
 ### Fix
