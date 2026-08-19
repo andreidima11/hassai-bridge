@@ -1,6 +1,20 @@
 import { PlusIcon } from "./Icons.jsx";
 
-export function Sidebar({ open, onClose, title, newLabel, emptyLabel, userLabel, sessions, sessionId, onNew, onOpen, onDelete }) {
+export function Sidebar({
+  open,
+  onClose,
+  title,
+  newLabel,
+  emptyLabel,
+  userLabel,
+  deleteAllLabel,
+  sessions,
+  sessionId,
+  onNew,
+  onOpen,
+  onDelete,
+  onDeleteAll,
+}) {
   return (
     <>
       <div
@@ -53,6 +67,17 @@ export function Sidebar({ open, onClose, title, newLabel, emptyLabel, userLabel,
             ))
           )}
         </div>
+        {sessions.length ? (
+          <div className="px-2 pb-2">
+            <button
+              className="w-full rounded-xl px-3 py-2 text-left text-[13px] text-destructive/80 transition hover:bg-destructive/10 hover:text-destructive"
+              type="button"
+              onClick={onDeleteAll}
+            >
+              {deleteAllLabel}
+            </button>
+          </div>
+        ) : null}
         <div className="px-5 py-3 text-[13px] text-sidebar-foreground/55">{userLabel}</div>
       </aside>
     </>

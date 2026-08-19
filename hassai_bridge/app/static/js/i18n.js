@@ -12,6 +12,7 @@ const TRANSLATIONS = {
     'tab.help': 'Help',
     'tab.logs': 'Logs',
     'nav.chat': 'Chat',
+    'nav.backToChat': '← Back to chat',
 
     // Info / Dashboard panel
     'info.serviceStatus': 'Service Status',
@@ -424,6 +425,7 @@ const TRANSLATIONS = {
     'tab.help': 'Ajutor',
     'tab.logs': 'Loguri',
     'nav.chat': 'Chat',
+    'nav.backToChat': '← Înapoi la chat',
 
     // Info / Dashboard panel
     'info.serviceStatus': 'Status servicii',

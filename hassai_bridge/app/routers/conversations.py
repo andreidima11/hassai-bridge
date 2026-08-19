@@ -8,6 +8,7 @@ from core.config import BUILD_ID
 from database import (
     create_conversation_session,
     delete_conversation_session,
+    clear_conversation,
     get_conversation_sessions,
     get_session_messages,
 )
@@ -123,3 +124,11 @@ async def delete_mine(request: Request, session_id: str):
     user_id = _current_username(request)
     delete_conversation_session(user_id, session_id)
     return {"status": "ok", "user_id": user_id, "session_id": session_id}
+
+
+@router.delete("/api/conversations")
+async def delete_all_mine(request: Request):
+    """Delete all conversation sessions for the current user."""
+    user_id = _current_username(request)
+    clear_conversation(user_id)
+    return {"status": "ok", "user_id": user_id}

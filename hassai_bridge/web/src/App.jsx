@@ -454,9 +454,19 @@ export default function App() {
     await refreshSessions();
   };
 
+  const deleteAllSessions = async () => {
+    if (!sessions.length) return;
+    if (!confirm(t("deleteAllConfirm"))) return;
+    await apiJson("/api/conversations", { method: "DELETE" });
+    startNewChat({ ephemeral: false });
+    await refreshSessions();
+    setSidebarOpen(false);
+  };
+
   return (
     <div className="flex h-full w-full overflow-hidden">
       <Sidebar
+        deleteAllLabel={t("deleteAllChats")}
         emptyLabel={t("noChats")}
         newLabel={t("newChat")}
         open={sidebarOpen}
@@ -466,6 +476,7 @@ export default function App() {
         userLabel={user.display_name || user.username || ""}
         onClose={() => setSidebarOpen(false)}
         onDelete={deleteSession}
+        onDeleteAll={deleteAllSessions}
         onNew={() => startNewChat()}
         onOpen={openSession}
       />
