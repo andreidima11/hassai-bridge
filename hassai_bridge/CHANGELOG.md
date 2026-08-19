@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.50-beta
+
+### UI — Home Assistant theme sync
+- Chat and settings colors match HA dark theme (`#111` / `#1c1c1c`)
+- Ingress reads parent HA CSS variables when available
+- Removed top header bars and center version stamp (chat + settings)
+- Floating icons: conversations top-left, settings top-right
+
 ## 0.2.49-beta
 
 ### Automation tools & chat thinking UX
