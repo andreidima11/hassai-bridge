@@ -27,7 +27,10 @@ function isAllowedImage(file) {
   const mime = resolveImageMime(file);
   if (ALLOWED_TYPES.has(mime)) return true;
   // Mobile pickers sometimes omit MIME type but still provide a decodable image.
-  return !mime && Boolean(file?.size);
+  if (!mime && Boolean(file?.size)) return true;
+  // HA Companion / Android content URIs often report application/octet-stream.
+  if (mime.startsWith("image/") && Boolean(file?.size)) return true;
+  return false;
 }
 
 function readFileAsDataUrl(file) {
@@ -65,6 +68,33 @@ async function compressDataUrl(dataUrl, mimeHint = "image/jpeg") {
   return canvas.toDataURL(mime, quality);
 }
 
+async function compressWithBitmap(file, mimeHint = "image/jpeg") {
+  if (typeof createImageBitmap !== "function") return null;
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return null;
+  }
+  try {
+    const maxDim = 1280;
+    const scale = Math.min(1, maxDim / Math.max(bitmap.width, bitmap.height, 1));
+    const width = Math.max(1, Math.round(bitmap.width * scale));
+    const height = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    const outMime = mimeHint === "image/png" ? "image/png" : "image/jpeg";
+    const quality = outMime === "image/jpeg" ? 0.82 : undefined;
+    return { dataUrl: canvas.toDataURL(outMime, quality), mime: outMime };
+  } finally {
+    bitmap.close?.();
+  }
+}
+
 export async function prepareImageFile(file) {
   if (!file || !isAllowedImage(file)) {
     throw new Error("unsupported");
@@ -73,10 +103,31 @@ export async function prepareImageFile(file) {
   if (file.size > MAX_IMAGE_BYTES * 2) {
     throw new Error("too_large");
   }
-  let dataUrl = await readFileAsDataUrl(file);
-  if (mime !== "image/gif") {
-    dataUrl = await compressDataUrl(dataUrl, mime === "image/png" ? "image/png" : "image/jpeg");
+
+  let dataUrl;
+  let outMime = mime.startsWith("image/") ? mime : "image/jpeg";
+
+  if (mime === "image/gif") {
+    dataUrl = await readFileAsDataUrl(file);
+  } else {
+    const bitmapResult = await compressWithBitmap(file, mime === "image/png" ? "image/png" : "image/jpeg");
+    if (bitmapResult) {
+      dataUrl = bitmapResult.dataUrl;
+      outMime = bitmapResult.mime;
+    } else {
+      dataUrl = await readFileAsDataUrl(file);
+      try {
+        dataUrl = await compressDataUrl(dataUrl, mime === "image/png" ? "image/png" : "image/jpeg");
+        outMime = mime === "image/png" ? "image/png" : "image/jpeg";
+      } catch {
+        // iOS / HA WebView often cannot decode HEIC via <img> — keep the picked file bytes.
+        if (mime !== "image/heic" && mime !== "image/heif") {
+          throw new Error("unsupported");
+        }
+      }
+    }
   }
+
   const approxBytes = Math.ceil((dataUrl.length - dataUrl.indexOf(",") - 1) * 0.75);
   if (approxBytes > MAX_IMAGE_BYTES) {
     throw new Error("too_large");
@@ -84,7 +135,7 @@ export async function prepareImageFile(file) {
   return {
     id: crypto.randomUUID?.() || String(Date.now()),
     name: file.name || "image",
-    mime: mime.startsWith("image/") ? mime : "image/jpeg",
+    mime: outMime,
     previewUrl: dataUrl,
     dataUrl,
   };

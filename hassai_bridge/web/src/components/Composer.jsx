@@ -30,8 +30,11 @@ export function Composer({
   onPickerOpen,
   onPickerSettled,
 }) {
+  const attachInputId = "hassai-chat-attach";
   const ref = useRef(null);
   const fileRef = useRef(null);
+  const pickingRef = useRef(false);
+  const processingRef = useRef(false);
   const [tall, setTall] = useState(false);
   const [attachError, setAttachError] = useState("");
 
@@ -45,9 +48,18 @@ export function Composer({
   }, [value, attachments]);
 
   const canSend = Boolean(value.trim()) || (attachments?.length || 0) > 0;
+  const attachDisabled = busy || (attachments?.length || 0) >= MAX_CHAT_IMAGES;
+
+  const finishPicking = () => {
+    pickingRef.current = false;
+    onPickerSettled?.();
+  };
 
   const addFiles = async (files) => {
-    if (!files?.length || !onAttachmentsChange) return;
+    if (!files?.length || !onAttachmentsChange) {
+      finishPicking();
+      return;
+    }
     setAttachError("");
     let added = 0;
     for (const file of files) {
@@ -67,7 +79,25 @@ export function Composer({
       }
     }
     if (added >= MAX_CHAT_IMAGES) setAttachError(maxImagesLabel);
-    onPickerSettled?.();
+    finishPicking();
+  };
+
+  const handleFileInput = async (event) => {
+    if (processingRef.current) return;
+    const input = event.currentTarget;
+    const picked = Array.from(input.files || []);
+    if (!picked.length) {
+      finishPicking();
+      input.value = "";
+      return;
+    }
+    processingRef.current = true;
+    try {
+      await addFiles(picked);
+    } finally {
+      processingRef.current = false;
+      input.value = "";
+    }
   };
 
   const removeAttachment = (id) => {
@@ -105,32 +135,30 @@ export function Composer({
           </div>
         ) : null}
         <div className={`flex w-full gap-2 ${tall ? "items-end" : "items-center"}`}>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              const picked = Array.from(e.target.files || []);
-              e.target.value = "";
-              if (picked.length) addFiles(picked);
-              else onPickerSettled?.();
-            }}
-          />
-          <button
-            type="button"
-            className="mb-0 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          <label
+            className={`relative mb-0 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground ${
+              attachDisabled ? "cursor-not-allowed opacity-40" : "cursor-pointer"
+            }`}
             aria-label={attachLabel}
             title={attachLabel}
-            disabled={busy || (attachments?.length || 0) >= MAX_CHAT_IMAGES}
             onClick={() => {
+              if (attachDisabled) return;
+              pickingRef.current = true;
               onPickerOpen?.();
-              fileRef.current?.click();
             }}
           >
             <ImageIcon />
-          </button>
+            <input
+              ref={fileRef}
+              id={attachInputId}
+              type="file"
+              accept="image/*"
+              multiple
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+              disabled={attachDisabled}
+              onChange={handleFileInput}
+            />
+          </label>
           <textarea
             ref={ref}
             className="block max-h-40 min-h-6 w-full flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground/50"
