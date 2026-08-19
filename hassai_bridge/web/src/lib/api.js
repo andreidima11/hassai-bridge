@@ -60,6 +60,9 @@ export function cancelChat(traceId) {
 
 export function postChat(stream, payload, sessionId, traceId, signal) {
   const content = typeof payload === "string" ? payload : buildUserContent(payload?.text, payload?.images);
+  if (content == null || content === "") {
+    return Promise.reject(new Error("empty message"));
+  }
   return fetch(API + "/v1/chat/completions", {
     method: "POST",
     credentials: "same-origin",

@@ -19,6 +19,7 @@ import {
 import { syncHaTheme } from "./lib/theme.js";
 import { finishThinkingLabel, persistLang, readStoredLang, tr } from "./lib/i18n.js";
 import { canSendMessage } from "./lib/images.js";
+import { applyActivity, emptyThinking } from "./lib/thinking.js";
 
 function sessionStoreKey(username) {
   return `hassai.chat.session.${username || "default"}`;
@@ -46,7 +47,11 @@ async function completeNonStream(payload, sessionId, traceId, onActivity, signal
   if (data.hassai_cancelled) throw new DOMException("Aborted", "AbortError");
   if (Array.isArray(data.hassai_activity)) data.hassai_activity.forEach(onActivity);
   const text = extractText(data);
-  if (!text) throw new Error("empty");
+  if (!text) {
+    const hasImages = Array.isArray(payload?.images) && payload.images.length > 0;
+    if (hasImages) return "";
+    throw new Error("empty");
+  }
   return text;
 }
 
@@ -108,6 +113,9 @@ export default function App() {
   const abortRef = useRef(null);
   const stopPollRef = useRef(null);
   const traceIdRef = useRef("");
+  const messagesRef = useRef([]);
+  const attachmentsRef = useRef([]);
+  const pickerOpenRef = useRef(false);
 
   useEffect(() => {
     syncHaTheme();
@@ -116,6 +124,14 @@ export default function App() {
   useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    attachmentsRef.current = attachments;
+  }, [attachments]);
 
   const t = useCallback((key, params) => tr(lang, key, params), [lang]);
   const settingsHref = `${window.HASSAI_BASE || ""}/settings`;
@@ -244,11 +260,24 @@ export default function App() {
         hiddenAt.current = Date.now();
         return;
       }
-      if (bootDone.current && !busy && hiddenAt.current > 0) startNewChat({ ephemeral: true });
+      if (pickerOpenRef.current) {
+        pickerOpenRef.current = false;
+        hiddenAt.current = 0;
+        return;
+      }
+      if (!bootDone.current || busy) {
+        hiddenAt.current = 0;
+        return;
+      }
+      const hiddenMs = hiddenAt.current > 0 ? Date.now() - hiddenAt.current : 0;
+      hiddenAt.current = 0;
+      if (hiddenMs > 0 && hiddenMs < 3000) return;
+      if (messagesRef.current.length > 0 || attachmentsRef.current.length > 0 || input.trim()) return;
+      startNewChat({ ephemeral: true });
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [busy, startNewChat]);
+  }, [busy, input, startNewChat]);
 
   const stopGeneration = useCallback(() => {
     const traceId = traceIdRef.current;
@@ -358,9 +387,10 @@ export default function App() {
       patchAssistant((m) => {
         const thinking = m.thinking || emptyThinking(t("thinking"));
         const label = finishThinkingLabel(lang, thinking);
+        const content = full?.trim() ? full : images.length ? t("emptyReply") : full;
         return {
           ...m,
-          content: full,
+          content,
           streaming: false,
           thinking: label
             ? { ...thinking, active: false, collapsed: true, visible: true, label }
@@ -444,6 +474,9 @@ export default function App() {
             value={input}
             onAttachmentsChange={setAttachments}
             onChange={setInput}
+            onPickerOpen={() => {
+              pickerOpenRef.current = true;
+            }}
             onStop={stopGeneration}
             onSubmit={send}
           />

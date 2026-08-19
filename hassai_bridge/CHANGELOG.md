@@ -1,5 +1,15 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.52-beta
+
+### Chat fixes & personalization
+- **HA user name** in system prompt — model knows who it's assisting (display name from Ingress/profile)
+- **Fix blank screen when sending images** — restored thinking imports; file picker no longer clears chat
+- **Welcome glow** — soft fade instead of hard clip on the left edge
+
+### Tests
+- 58 unit tests
+
 ## 0.2.51-beta
 
 ### Chat — thinking, welcome, images

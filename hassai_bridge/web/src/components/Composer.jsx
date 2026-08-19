@@ -17,6 +17,7 @@ export function Composer({
   imageTooLargeLabel,
   maxImagesLabel,
   unsupportedImageLabel,
+  onPickerOpen,
 }) {
   const ref = useRef(null);
   const fileRef = useRef(null);
@@ -112,7 +113,10 @@ export function Composer({
             aria-label={attachLabel}
             title={attachLabel}
             disabled={busy || (attachments?.length || 0) >= MAX_CHAT_IMAGES}
-            onClick={() => fileRef.current?.click()}
+            onClick={() => {
+              onPickerOpen?.();
+              fileRef.current?.click();
+            }}
           >
             <ImageIcon />
           </button>
