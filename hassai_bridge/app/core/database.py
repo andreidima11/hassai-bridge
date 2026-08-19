@@ -540,17 +540,25 @@ def get_conversation_history(user_id, limit=20, session_id: str | None = None):
     with get_db() as conn:
         if session_id:
             rows = conn.execute(
-                """SELECT role, content FROM conversations
+                """SELECT role, content, meta FROM conversations
                    WHERE user_id = ? AND session_id = ?
                    ORDER BY created_at DESC LIMIT ?""",
                 (user_id, session_id, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                "SELECT role, content FROM conversations WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                "SELECT role, content, meta FROM conversations WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
                 (user_id, limit),
             ).fetchall()
-    return list(reversed([dict(r) for r in rows]))
+    out = []
+    for r in reversed(rows):
+        item = {"role": r["role"], "content": r["content"]}
+        meta = _parse_message_meta(r["meta"])
+        attachments = meta.get("attachments")
+        if isinstance(attachments, list) and attachments:
+            item["attachments"] = attachments
+        out.append(item)
+    return out
 
 
 def get_conversation_sessions(user_id, limit=20):
@@ -604,6 +612,9 @@ def get_session_messages(user_id, session_id, limit=100):
         item = dict(r)
         meta = _parse_message_meta(item.pop("meta", ""))
         item["activity"] = meta.get("activity") if isinstance(meta.get("activity"), list) else []
+        attachments = meta.get("attachments")
+        if isinstance(attachments, list) and attachments:
+            item["attachments"] = attachments
         out.append(item)
     return out
 

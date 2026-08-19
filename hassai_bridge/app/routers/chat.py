@@ -41,6 +41,8 @@ from services.web_scraper import search_and_fetch
 from services import homeassistant as ha_api
 from services import lovelace_tools as lt
 from services import entity_tools as et
+from services import chat_content as cc
+from services import chat_media as cm
 
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
@@ -1129,18 +1131,9 @@ def _command_response_openai(content: str, model: str) -> dict:
     }
 
 
-def _estimate_tokens(text: str) -> int:
-    """Estimate token count using word-based heuristic.
-
-    ~1.3 tokens per word for English, ~1.5 for non-Latin (Romanian diacritics, CJK).
-    """
-    words = text.split()
-    if not words:
-        return 1
-    # Non-ASCII heavy text tends to tokenize into more tokens
-    non_ascii_ratio = sum(1 for c in text if ord(c) > 127) / max(len(text), 1)
-    multiplier = 1.5 if non_ascii_ratio > 0.1 else 1.3
-    return max(1, int(len(words) * multiplier))
+def _estimate_tokens(text) -> int:
+    """Estimate token count using word-based heuristic."""
+    return cc.estimate_tokens(text)
 
 
 def _sanitize_message_roles(messages: list[dict]) -> list[dict]:
@@ -1172,20 +1165,26 @@ def _sanitize_message_roles(messages: list[dict]) -> list[dict]:
     # Merge consecutive same-role messages and drop empty ones
     cleaned = []
     for m in other_msgs:
-        content = (m.get("content") or "").strip()
+        content = m.get("content")
         role = m.get("role", "user")
 
-        # Keep tool_calls messages even if content is empty
-        if not content and not m.get("tool_calls") and role != "tool":
+        if not cc.message_has_payload(m) and role != "tool":
             continue
 
-        if cleaned and cleaned[-1].get("role") == role and role != "tool":
-            # Merge with previous message of same role
-            prev_content = (cleaned[-1].get("content") or "").strip()
-            if content and prev_content:
-                cleaned[-1]["content"] = prev_content + "\n" + content
-            elif content:
-                cleaned[-1]["content"] = content
+        if (
+            cleaned
+            and cleaned[-1].get("role") == role
+            and role != "tool"
+            and isinstance(cleaned[-1].get("content"), str)
+            and isinstance(content, str)
+            and not cc.has_images(content)
+        ):
+            prev_content = cc.content_text(cleaned[-1].get("content"))
+            next_content = cc.content_text(content)
+            if next_content and prev_content:
+                cleaned[-1]["content"] = prev_content + "\n" + next_content
+            elif next_content:
+                cleaned[-1]["content"] = next_content
         else:
             cleaned.append(dict(m))
 
@@ -1202,13 +1201,13 @@ def _trim_messages(messages: list[dict], max_tokens: int) -> list[dict]:
     system_msgs = [m for m in messages if m.get("role") == "system"]
     other_msgs = [m for m in messages if m.get("role") != "system"]
 
-    system_tokens = sum(_estimate_tokens(m.get("content") or "") for m in system_msgs)
+    system_tokens = sum(_estimate_tokens(m.get("content")) for m in system_msgs)
     budget = max_tokens - system_tokens
     if budget <= 0:
         return system_msgs
 
     # First pass: total cost of all non-system messages
-    total_others = sum(_estimate_tokens(m.get("content") or "") for m in other_msgs)
+    total_others = sum(_estimate_tokens(m.get("content")) for m in other_msgs)
     if total_others <= budget:
         return system_msgs + other_msgs  # everything fits
 
@@ -1216,7 +1215,7 @@ def _trim_messages(messages: list[dict], max_tokens: int) -> list[dict]:
     kept_recent = []
     used = 0
     for msg in reversed(other_msgs):
-        cost = _estimate_tokens(msg.get("content") or "")
+        cost = _estimate_tokens(msg.get("content"))
         if used + cost > budget * 0.7:  # reserve 70% budget for recent messages
             break
         kept_recent.append(msg)
@@ -1229,7 +1228,7 @@ def _trim_messages(messages: list[dict], max_tokens: int) -> list[dict]:
         summary_parts = []
         for m in dropped:
             role = m.get("role", "user")
-            content = (m.get("content") or "")[:80].replace("\n", " ").strip()
+            content = cc.summary_snippet(m.get("content"))
             if content and role in ("user", "assistant"):
                 prefix = "U" if role == "user" else "A"
                 summary_parts.append(f"{prefix}: {content}")
@@ -1458,27 +1457,29 @@ async def chat_completions(request: Request):
     effective_tools = all_tools if all_tools else None
 
     # ── Slash command check ──
+    last_user_message: dict | None = None
     last_user_msg = ""
     for msg in reversed(messages):
         if msg.get("role") == "user":
-            last_user_msg = (msg.get("content") or "").strip()
+            last_user_message = msg
+            last_user_msg = cc.content_text(msg.get("content"))
             break
 
     # Authenticate when an API key is configured
     _validate_api_key(request)
 
     # ── Message size validation (#16) ──
-    total_size = sum(len(m.get("content") or "") for m in messages)
-    if total_size > 512_000:  # 500KB max
+    total_size = sum(cc.content_size(m.get("content")) for m in messages)
+    if total_size > 6_000_000:
         return JSONResponse(
             status_code=413,
-            content={"error": {"message": "Message content too large (max 500KB)", "type": "invalid_request_error"}},
+            content={"error": {"message": "Message content too large (max 6MB)", "type": "invalid_request_error"}},
         )
     for msg in messages:
-        if len(msg.get("content") or "") > 100_000:  # 100KB per message
+        if cc.content_size(msg.get("content")) > 2_000_000:
             return JSONResponse(
                 status_code=413,
-                content={"error": {"message": "Single message too large (max 100KB)", "type": "invalid_request_error"}},
+                content={"error": {"message": "Single message too large (max 2MB)", "type": "invalid_request_error"}},
             )
 
     cmd_result = await _handle_command(last_user_msg, user_id)
@@ -1549,15 +1550,21 @@ async def chat_completions(request: Request):
     incoming_roles = {m.get("role") for m in messages}
     has_incoming_history = "assistant" in incoming_roles and "user" in incoming_roles
     if history and not has_incoming_history:
-        augmented.extend(history)
+        augmented.extend(cc.row_to_message(row, user_id=user_id) for row in history)
 
     # 5) Current messages
     augmented.extend(messages)
 
+    user_attachments: list[dict] = []
+    if last_user_message is not None:
+        user_attachments = cm.persist_attachments_from_content(user_id, last_user_message.get("content"))
+
     # Save only the latest user turn. Clients (Web UI / Assist) may send a
     # full transcript; re-inserting every message would duplicate the thread.
-    if last_user_msg:
-        add_conversation_message(user_id, "user", last_user_msg, session_id=session_id)
+    if last_user_message is not None:
+        stored_text = last_user_msg or ("(image)" if user_attachments else "")
+        user_meta = {"attachments": user_attachments} if user_attachments else None
+        add_conversation_message(user_id, "user", stored_text, session_id=session_id, meta=user_meta)
 
     # ── Strip any <<SEARCH markers that leaked into stored assistant messages ──
     for m in augmented:
@@ -1572,7 +1579,7 @@ async def chat_completions(request: Request):
     augmented = _trim_messages(augmented, max_ctx)
 
     # Log prompt size for optimization tracking
-    _prompt_tokens = sum(_estimate_tokens(m.get("content") or "") for m in augmented)
+    _prompt_tokens = sum(_estimate_tokens(m.get("content")) for m in augmented)
     log.info(f"Prompt: {len(augmented)} msgs, ~{_prompt_tokens} tokens (budget {max_ctx})")
 
     # ── First LLM call ──

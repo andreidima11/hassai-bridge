@@ -7,12 +7,27 @@ export function MessageBubble({ message, lang }) {
   const isUser = message.role === "user";
 
   if (isUser) {
+    const images = Array.isArray(message.attachments) ? message.attachments : [];
     return (
       <div className="group/message w-full" data-role="user">
         <div className="flex flex-col items-end gap-2">
-          <div className="w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-[22px] bg-secondary px-5 py-2.5 text-[15px] leading-7 whitespace-pre-wrap">
-            {message.content}
-          </div>
+          {images.length ? (
+            <div className="flex max-w-[min(80%,56ch)] flex-wrap justify-end gap-2">
+              {images.map((img) => (
+                <img
+                  key={img.id || img.url || img.previewUrl}
+                  alt=""
+                  className="max-h-56 max-w-full rounded-[18px] border border-white/10 object-cover"
+                  src={img.previewUrl || img.url || img.dataUrl}
+                />
+              ))}
+            </div>
+          ) : null}
+          {message.content ? (
+            <div className="w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-[22px] bg-secondary px-5 py-2.5 text-[15px] leading-7 whitespace-pre-wrap">
+              {message.content}
+            </div>
+          ) : null}
         </div>
       </div>
     );

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Composer } from "./components/Composer.jsx";
 import { WelcomeHero } from "./components/WelcomeHero.jsx";
 import { ChatWindowIcon, GearIcon } from "./components/Icons.jsx";
 import { Messages } from "./components/Messages.jsx";
@@ -17,7 +18,7 @@ import {
 } from "./lib/api.js";
 import { syncHaTheme } from "./lib/theme.js";
 import { finishThinkingLabel, persistLang, readStoredLang, tr } from "./lib/i18n.js";
-import { applyActivity, emptyThinking } from "./lib/thinking.js";
+import { canSendMessage } from "./lib/images.js";
 
 function sessionStoreKey(username) {
   return `hassai.chat.session.${username || "default"}`;
@@ -28,8 +29,18 @@ function sessionTitle(row, lang) {
   return raw ? raw.slice(0, 56) : tr(lang, "untitled");
 }
 
-async function completeNonStream(userText, sessionId, traceId, onActivity, signal) {
-  const resp = await postChat(false, userText, sessionId, traceId, signal);
+function mapStoredAttachments(items) {
+  return (items || []).map((item) => ({
+    id: item.id,
+    mime: item.mime,
+    name: item.name || "",
+    previewUrl: apiUrl(item.url),
+    url: apiUrl(item.url),
+  }));
+}
+
+async function completeNonStream(payload, sessionId, traceId, onActivity, signal) {
+  const resp = await postChat(false, payload, sessionId, traceId, signal);
   if (!resp.ok) throw new Error(await readError(resp));
   const data = await resp.json();
   if (data.hassai_cancelled) throw new DOMException("Aborted", "AbortError");
@@ -39,8 +50,8 @@ async function completeNonStream(userText, sessionId, traceId, onActivity, signa
   return text;
 }
 
-async function completeStream(userText, sessionId, traceId, onActivity, onDelta, signal) {
-  const resp = await postChat(true, userText, sessionId, traceId, signal);
+async function completeStream(payload, sessionId, traceId, onActivity, onDelta, signal) {
+  const resp = await postChat(true, payload, sessionId, traceId, signal);
   if (!resp.ok) throw new Error(await readError(resp));
   if (!resp.body) throw new Error("No stream body");
   const reader = resp.body.getReader();
@@ -85,6 +96,7 @@ export default function App() {
   const [lang, setLang] = useState(readStoredLang);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState([]);
   const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState([]);
   const [sessions, setSessions] = useState([]);
@@ -141,6 +153,7 @@ export default function App() {
         }
       }
       setMessages([]);
+      setAttachments([]);
       setSidebarOpen(false);
     },
     [user.username],
@@ -172,10 +185,16 @@ export default function App() {
             thinking: label ? next : emptyThinking(t("thinking")),
           });
         } else {
-          msgs.push({ id: newId(), role: m.role, content: m.content || "" });
+          const content = m.content === "(image)" ? "" : m.content || "";
+          const row = { id: newId(), role: m.role, content };
+          if (m.role === "user" && Array.isArray(m.attachments) && m.attachments.length) {
+            row.attachments = mapStoredAttachments(m.attachments);
+          }
+          msgs.push(row);
         }
       }
       setMessages(msgs);
+      setAttachments([]);
       setSidebarOpen(false);
     },
     [user.username, lang, t],
@@ -259,7 +278,8 @@ export default function App() {
   const send = async (event) => {
     event.preventDefault();
     const text = input.trim();
-    if (!text || busy) return;
+    const images = attachments;
+    if (!canSendMessage(text, images) || busy) return;
     let sid = sessionIdRef.current;
     if (!sid) {
       startNewChat({ ephemeral: false });
@@ -272,7 +292,13 @@ export default function App() {
       }
     }
 
-    const userMsg = { id: newId(), role: "user", content: text };
+    const payload = { text, images };
+    const userMsg = {
+      id: newId(),
+      role: "user",
+      content: text,
+      attachments: images.map((img) => ({ id: img.id, previewUrl: img.previewUrl, dataUrl: img.dataUrl })),
+    };
     const assistantId = newId();
     const traceId = `${newId()}${newId()}`;
     traceIdRef.current = traceId;
@@ -288,6 +314,7 @@ export default function App() {
       },
     ]);
     setInput("");
+    setAttachments([]);
     setBusy(true);
 
     abortRef.current?.abort();
@@ -315,17 +342,17 @@ export default function App() {
     try {
       let full = "";
       if (ON_INGRESS) {
-        full = await completeNonStream(text, sid, traceId, onActivity, signal);
+        full = await completeNonStream(payload, sid, traceId, onActivity, signal);
       } else {
         try {
-          full = await completeStream(text, sid, traceId, onActivity, (delta) => {
+          full = await completeStream(payload, sid, traceId, onActivity, (delta) => {
             patchAssistant((m) => ({ ...m, content: delta }));
           }, signal);
         } catch (err) {
           if (err?.name === "AbortError") throw err;
           full = "";
         }
-        if (!full && !signal.aborted) full = await completeNonStream(text, sid, traceId, onActivity, signal);
+        if (!full && !signal.aborted) full = await completeNonStream(payload, sid, traceId, onActivity, signal);
       }
       if (signal.aborted) return;
       patchAssistant((m) => {
@@ -405,10 +432,17 @@ export default function App() {
             messages={messages}
           />
           <Composer
+            attachLabel={t("attachImage")}
+            attachments={attachments}
             busy={busy}
+            imageTooLargeLabel={t("imageTooLarge")}
+            maxImagesLabel={t("maxImages")}
             placeholder={t("placeholder")}
+            removeImageLabel={t("removeImage")}
             stopLabel={t("stop")}
+            unsupportedImageLabel={t("unsupportedImage")}
             value={input}
+            onAttachmentsChange={setAttachments}
             onChange={setInput}
             onStop={stopGeneration}
             onSubmit={send}

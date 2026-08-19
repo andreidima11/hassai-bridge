@@ -1,6 +1,7 @@
 """Current-user identity and per-user conversations (HA Ingress scoped)."""
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import FileResponse, JSONResponse
 
 from core.identity import ensure_from_request, ensure_user, list_profiles
 from core.config import BUILD_ID
@@ -10,6 +11,8 @@ from database import (
     get_conversation_sessions,
     get_session_messages,
 )
+from services import chat_content as cc
+from services import chat_media as cm
 
 
 def _require_admin_key(request: Request):
@@ -80,7 +83,27 @@ async def new_mine(request: Request):
 async def get_mine(request: Request, session_id: str, limit: int = 200):
     user_id = _current_username(request)
     messages = get_session_messages(user_id, session_id, limit)
+    for item in messages:
+        attachments = item.get("attachments")
+        if isinstance(attachments, list) and attachments:
+            item["attachments"] = cc.public_attachments(attachments, session_id)
     return {"user_id": user_id, "session_id": session_id, "messages": messages}
+
+
+@router.get("/api/chat/media/{attachment_id}")
+async def chat_media(request: Request, attachment_id: str):
+    user_id = _current_username(request)
+    path = cm.resolve_attachment_path(user_id, attachment_id)
+    if not path or not path.is_file():
+        return JSONResponse(status_code=404, content={"error": "Not found"})
+    mime = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(path.suffix.lower(), "application/octet-stream")
+    return FileResponse(path, media_type=mime, filename=path.name)
 
 
 @router.delete("/api/conversations/{session_id}")

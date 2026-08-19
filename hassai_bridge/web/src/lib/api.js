@@ -1,3 +1,5 @@
+import { buildUserContent } from "./images.js";
+
 const API = (typeof window.HASSAI_BASE === "string" ? window.HASSAI_BASE : "").replace(/\/$/, "");
 export const ON_INGRESS = /\/api\/hassio_ingress\//.test(API || location.pathname);
 
@@ -56,14 +58,15 @@ export function cancelChat(traceId) {
   return apiJson(`/v1/chat/cancel/${encodeURIComponent(traceId)}`, { method: "POST" });
 }
 
-export function postChat(stream, userText, sessionId, traceId, signal) {
+export function postChat(stream, payload, sessionId, traceId, signal) {
+  const content = typeof payload === "string" ? payload : buildUserContent(payload?.text, payload?.images);
   return fetch(API + "/v1/chat/completions", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     signal,
     body: JSON.stringify({
-      messages: [{ role: "user", content: userText }],
+      messages: [{ role: "user", content }],
       stream,
       session_id: sessionId,
       trace_id: traceId,
