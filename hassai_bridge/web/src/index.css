@@ -159,3 +159,26 @@ input:focus-visible {
 .md-body strong {
   font-weight: 600;
 }
+
+.thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgb(143 143 143 / 0.85) 0%,
+    rgb(236 236 236 / 0.95) 45%,
+    rgb(143 143 143 / 0.85) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 1.8s ease-in-out infinite;
+}
+
+@keyframes thinking-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}

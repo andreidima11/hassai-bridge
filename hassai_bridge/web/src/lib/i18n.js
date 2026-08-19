@@ -13,6 +13,7 @@ const I18N = {
     placeholder: "Message HASSAI…",
     settings: "Settings",
     thinking: "Thinking",
+    thinkingLive: "Thinking…",
     steps: "{n} steps · {s}s",
     thoughtFor: "Thought for {s}s",
     thoughtBrief: "Finished thinking",
@@ -59,6 +60,7 @@ const I18N = {
     placeholder: "Mesaj către HASSAI…",
     settings: "Setări",
     thinking: "Gândește",
+    thinkingLive: "Gândește…",
     steps: "{n} pași · {s}s",
     thoughtFor: "A gândit {s}s",
     thoughtBrief: "Gândire terminată",
@@ -124,6 +126,18 @@ export function activityVerb(lang, name) {
   if (name === "think") return tr(lang, "thinking");
   const translated = tr(lang, name);
   return translated === name ? name.replace(/^ha_/, "").replace(/_/g, " ") : translated;
+}
+
+export function liveThinkingLabel(lang, thinking) {
+  const running = (thinking.steps || []).find((step) => step.status === "running");
+  if (running) {
+    const verb = activityVerb(lang, running.name);
+    const detail = String(running.detail || "").trim();
+    if (detail) return `${verb} · ${detail}`;
+    return `${verb}…`;
+  }
+  if (thinking.active) return tr(lang, "thinkingLive");
+  return thinking.label || tr(lang, "thoughtBrief");
 }
 
 export function formatMs(ms) {

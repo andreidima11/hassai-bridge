@@ -25,7 +25,9 @@ export function MessageBubble({ message, lang }) {
           <SparklesIcon size={13} />
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
-          {message.thinking?.visible ? <Thinking thinking={message.thinking} lang={lang} /> : null}
+          {message.thinking?.visible ? (
+            <Thinking thinking={message.thinking} lang={lang} streaming={Boolean(message.streaming)} />
+          ) : null}
           {message.content ? (
             <MarkdownBody
               copiedLabel={tr(lang, "copied")}
@@ -33,10 +35,8 @@ export function MessageBubble({ message, lang }) {
               cursor={message.streaming ? <span className="ml-0.5 animate-pulse text-muted-foreground">▍</span> : null}
               text={message.content}
             />
-          ) : message.streaming ? (
-            <div className="flex min-h-7 items-center text-[15px] font-medium text-muted-foreground">
-              {message.thinking?.label || "…"}
-            </div>
+          ) : message.streaming && !message.thinking?.visible ? (
+            <div className="flex min-h-7 items-center text-[15px] font-medium text-muted-foreground">…</div>
           ) : null}
         </div>
       </div>

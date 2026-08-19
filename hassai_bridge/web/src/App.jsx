@@ -245,16 +245,21 @@ export default function App() {
         role: "assistant",
         content: "",
         streaming: true,
-        thinking: { ...emptyThinking(t("thinking")), visible: true, active: true, label: t("thinking") },
+        thinking: { ...emptyThinking(t("thinking")), visible: true, active: true },
       },
     ]);
     setInput("");
     setBusy(true);
 
+    const seenActivity = new Set();
     const patchAssistant = (fn) => {
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
     };
     const onActivity = (ev) => {
+      if (typeof ev?.i === "number") {
+        if (seenActivity.has(ev.i)) return;
+        seenActivity.add(ev.i);
+      }
       patchAssistant((m) => ({
         ...m,
         thinking: applyActivity(m.thinking || emptyThinking(t("thinking")), ev, t("thinking")),
