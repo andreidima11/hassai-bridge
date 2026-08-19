@@ -1726,6 +1726,7 @@ async def chat_completions(request: Request):
                 tool_choice=tool_choice,
                 provider=chat_provider,
                 thinking=pc.thinking_for_provider(thinking_cfg, chat_provider),
+                cache_conv_id=session_id,
             )
         except TraceCancelled:
             log.info("[%s] Chat cancelled trace=%s (before first call)", user_id, trace_id)
@@ -1801,6 +1802,7 @@ async def chat_completions(request: Request):
                         tool_choice=tool_choice,
                         provider=re_provider,
                         thinking=pc.thinking_for_provider(thinking_cfg, re_provider),
+                        cache_conv_id=session_id,
                     )
                 except TraceCancelled:
                     raise
@@ -1922,6 +1924,7 @@ async def chat_completions(request: Request):
             tool_choice=tool_choice,
             provider=chat_provider,
             thinking=pc.thinking_for_provider(thinking_cfg, chat_provider),
+            cache_conv_id=session_id,
         )
 
         try:
@@ -2100,6 +2103,7 @@ async def chat_completions(request: Request):
                     tool_choice=tool_choice,
                     provider=re_provider,
                     thinking=pc.thinking_for_provider(thinking_cfg, re_provider),
+                    cache_conv_id=session_id,
                 )
 
             if full_response:

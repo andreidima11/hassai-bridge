@@ -58,6 +58,7 @@ async def me(request: Request):
                 "source": "webui",
             }
     cfg = load_config()
+    from services.providers import get_active_provider
     active = get_active_provider()
     from services.provider_capabilities import provider_chat_capabilities
 

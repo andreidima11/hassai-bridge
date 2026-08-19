@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from services import deepseek as ds
+from services import grok as gk
 
 THINKING = "thinking"
 KV_CACHE = "kv_cache"
+IMAGE_GENERATION = "image_generation"
 
 
 def preset_capabilities(provider_type: str) -> dict:
@@ -21,6 +23,22 @@ def preset_capabilities(provider_type: str) -> dict:
                 "context_budget": 98000,
             },
         }
+    if provider_type == "grok":
+        return {
+            THINKING: {
+                "modes": list(gk.THINKING_MODES),
+                "default": "auto",
+                "label": "reasoning",
+                "note": "Grok reasoning cannot be fully disabled; Off uses low effort.",
+            },
+            KV_CACHE: {
+                "context_budget": 480000,
+            },
+            IMAGE_GENERATION: {
+                "endpoint": "/v1/images/generations",
+                "models": ["grok-imagine-image-2.0", "grok-imagine-image"],
+            },
+        }
     return {}
 
 
@@ -31,7 +49,11 @@ def provider_chat_capabilities(provider: dict | None) -> dict:
     caps = preset_capabilities(provider.get("type", ""))
     if THINKING in caps:
         thinking = dict(caps[THINKING])
-        thinking["default"] = ds.normalize_thinking_mode(provider.get("thinking_mode"))
+        ptype = provider.get("type", "")
+        if ptype == "deepseek":
+            thinking["default"] = ds.normalize_thinking_mode(provider.get("thinking_mode"))
+        elif ptype == "grok":
+            thinking["default"] = gk.normalize_thinking_mode(provider.get("thinking_mode"))
         caps[THINKING] = thinking
     return caps
 
@@ -53,10 +75,13 @@ def kv_context_budget(provider: dict | None) -> int:
 def cache_tokens_from_usage(provider: dict | None, usage: dict | None) -> tuple[int, int]:
     if not isinstance(provider, dict) or not isinstance(usage, dict):
         return 0, 0
-    if provider.get("type") == "deepseek":
+    ptype = provider.get("type", "")
+    if ptype == "deepseek":
         hit = int(usage.get("prompt_cache_hit_tokens") or 0)
         miss = int(usage.get("prompt_cache_miss_tokens") or 0)
         return hit, miss
+    if ptype == "grok":
+        return gk.cache_tokens_from_usage(usage)
     return 0, 0
 
 
@@ -75,6 +100,13 @@ def resolve_thinking(
             user_text=user_text,
             tools_active=tools_active,
         )
+    if ptype == "grok":
+        return gk.resolve_thinking(
+            provider,
+            override=override,
+            user_text=user_text,
+            tools_active=tools_active,
+        )
     return None
 
 
@@ -88,18 +120,23 @@ def apply_provider_payload_extras(payload: dict, provider: dict, thinking: dict 
     ptype = provider.get("type", "")
     if ptype == "deepseek":
         ds.apply_thinking_payload(payload, thinking)
+    elif ptype == "grok":
+        gk.apply_thinking_payload(payload, thinking, provider=provider)
 
 
 def assistant_turn(provider: dict, message: dict) -> dict:
-    if provider.get("type") == "deepseek":
+    ptype = provider.get("type")
+    if ptype == "deepseek":
         return ds.assistant_turn(message)
+    if ptype == "grok":
+        return gk.assistant_turn(message)
     out = dict(message)
     out.pop("reasoning_content", None)
     return out
 
 
 def needs_reasoning_in_tool_loop(provider: dict) -> bool:
-    return provider.get("type") == "deepseek"
+    return provider.get("type") in ("deepseek", "grok")
 
 
 def log_provider_usage(provider: dict | None, usage: dict | None, *, user_id: str = "") -> None:
@@ -107,3 +144,5 @@ def log_provider_usage(provider: dict | None, usage: dict | None, *, user_id: st
         return
     if provider.get("type") == "deepseek":
         ds.log_cache_usage(provider, usage, user_id=user_id)
+    elif provider.get("type") == "grok":
+        gk.log_cache_usage(provider, usage, user_id=user_id)
