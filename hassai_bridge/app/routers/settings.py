@@ -168,8 +168,17 @@ async def delete_user(username: str, purge: bool = False):
 
 @router.get("/providers/presets")
 async def get_provider_presets():
-    """Return available provider type presets (base URLs, etc.)."""
-    return PROVIDER_PRESETS
+    """Return available provider type presets (base URLs, capabilities, etc.)."""
+    from services.provider_capabilities import preset_capabilities
+
+    out = {}
+    for key, preset in PROVIDER_PRESETS.items():
+        entry = dict(preset)
+        caps = preset_capabilities(key)
+        if caps:
+            entry["capabilities"] = caps
+        out[key] = entry
+    return out
 
 
 @router.get("/providers")
@@ -239,7 +248,7 @@ async def update_provider(provider_id: str, data: dict):
     cfg = load_config()
     for p in cfg.get("providers", []):
         if p["id"] == provider_id:
-            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "eco_mode"):
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "eco_mode", "thinking_mode"):
                 if key in data:
                     p[key] = data[key]
             save_config(cfg)
@@ -374,6 +383,8 @@ async def delete_secondary_provider(provider_id: str):
     for p in cfg.get("providers", []):
         if p.get("secondary_provider") == provider_id:
             p["secondary_provider"] = ""
+        if p.get("vision_provider") == provider_id:
+            p["vision_provider"] = ""
     save_config(cfg)
     return {"status": "ok"}
 

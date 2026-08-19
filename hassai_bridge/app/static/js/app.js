@@ -79,6 +79,9 @@ document.querySelectorAll('.settings-tab').forEach(stab => {
     parent.querySelectorAll('.settings-subpanel').forEach(p => p.classList.remove('active'));
     stab.classList.add('active');
     document.getElementById(stab.dataset.stab).classList.add('active');
+    if (stab.dataset.stab === 'stab-stats-model' && _cachedUsageStats) {
+      requestAnimationFrame(() => _renderUsageCharts(_cachedUsageStats));
+    }
     if (stab.dataset.stab === 'stab-stats-server') {
       requestAnimationFrame(fitServerOverviewValues);
     }
@@ -377,10 +380,20 @@ const CHART_COLORS = [
   '#fd79a8', '#6c5ce7', '#00b894', '#fdcb6e',
 ];
 
+function _chartParentWidth(canvas, fallback = 300) {
+  const parent = canvas?.parentElement;
+  if (!parent) return fallback;
+  const w = parent.clientWidth;
+  if (w > 0) return w;
+  // Hidden subpanels report 0 width — fall back to canvas markup/default size.
+  return canvas.width || fallback;
+}
+
 function _drawPieChart(canvas, data, colors) {
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  const size = Math.min(canvas.parentElement.clientWidth - 40, 280);
+  const size = Math.max(120, Math.min(_chartParentWidth(canvas) - 40, 280));
   canvas.width = size * dpr;
   canvas.height = size * dpr;
   canvas.style.width = size + 'px';
@@ -395,7 +408,9 @@ function _drawPieChart(canvas, data, colors) {
     ctx.fillText(t('stats.noData'), size / 2, size / 2);
     return;
   }
-  const cx = size / 2, cy = size / 2, r = (size / 2) - 10;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = Math.max(1, (size / 2) - 10);
   let startAngle = -Math.PI / 2;
 
   data.forEach((d, i) => {
@@ -429,9 +444,10 @@ function _drawPieChart(canvas, data, colors) {
 }
 
 function _drawBarChart(canvas, labels, values, color) {
+  if (!canvas) return;
   const ctx = canvas.getContext('2d');
   const dpr = window.devicePixelRatio || 1;
-  const w = canvas.parentElement.clientWidth - 44;
+  const w = Math.max(200, _chartParentWidth(canvas, 800) - 44);
   const h = 180;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
@@ -516,6 +532,22 @@ function _formatMs(ms) {
   return ms + 'ms';
 }
 
+let _cachedUsageStats = null;
+
+function _renderUsageCharts(stats) {
+  const provData = stats.by_provider.map(p => ({ label: p.provider_name || p.provider_id, value: p.requests }));
+  _drawPieChart(document.getElementById('chartProvider'), provData, CHART_COLORS);
+  _buildLegend(document.getElementById('chartProviderLegend'), provData, CHART_COLORS);
+
+  const modelData = stats.by_model.map(m => ({ label: m.model, value: m.requests }));
+  _drawPieChart(document.getElementById('chartModel'), modelData, CHART_COLORS);
+  _buildLegend(document.getElementById('chartModelLegend'), modelData, CHART_COLORS);
+
+  const dailyLabels = stats.daily.map(d => d.day);
+  const dailyValues = stats.daily.map(d => d.requests);
+  _drawBarChart(document.getElementById('chartDaily'), dailyLabels, dailyValues, '#4f8cff');
+}
+
 async function loadUsageStats() {
   const days = parseInt(document.getElementById('statsPeriod').value) || 30;
   try {
@@ -547,20 +579,13 @@ async function loadUsageStats() {
     document.getElementById('statsSecondaryRequests').textContent = _formatNumber(sec.requests || 0);
     document.getElementById('statsSecondaryTokens').textContent = _formatNumber(sec.tokens || 0);
 
-    // Pie chart - by provider
-    const provData = stats.by_provider.map(p => ({ label: p.provider_name || p.provider_id, value: p.requests }));
-    _drawPieChart(document.getElementById('chartProvider'), provData, CHART_COLORS);
-    _buildLegend(document.getElementById('chartProviderLegend'), provData, CHART_COLORS);
+    // KV cache stats (DeepSeek)
+    const kv = stats.kv_cache || {};
+    document.getElementById('statsCacheHit').textContent = _formatNumber(kv.hit_tokens || 0);
+    document.getElementById('statsCacheMiss').textContent = _formatNumber(kv.miss_tokens || 0);
 
-    // Pie chart - by model
-    const modelData = stats.by_model.map(m => ({ label: m.model, value: m.requests }));
-    _drawPieChart(document.getElementById('chartModel'), modelData, CHART_COLORS);
-    _buildLegend(document.getElementById('chartModelLegend'), modelData, CHART_COLORS);
-
-    // Daily bar chart
-    const dailyLabels = stats.daily.map(d => d.day);
-    const dailyValues = stats.daily.map(d => d.requests);
-    _drawBarChart(document.getElementById('chartDaily'), dailyLabels, dailyValues, '#4f8cff');
+    _cachedUsageStats = stats;
+    _renderUsageCharts(stats);
 
     // Provider detail table
     document.getElementById('statsProviderTable').innerHTML = stats.by_provider.length
@@ -641,6 +666,7 @@ async function loadSettings() {
     _allProviders = cfg.providers || [];
     _activeProviderId = cfg.active_provider || '';
     _allSecondaryProviders = cfg.secondary_providers || [];
+    await loadProviderPresets();
     renderProvidersList();
     renderSecondaryProvidersList();
 
@@ -786,10 +812,30 @@ async function testSearxng() {
 // ══════════════════════════════════════════════════
 
 let _allProviders = [];
+let _providerPresets = {};
 let _allSecondaryProviders = [];
 let _activeProviderId = '';
 let _editingProviderId = null; // null = adding new, string = editing existing
 let _editingSecProviderId = null; // null = adding new, string = editing existing
+
+function providerTypeCapabilities(ptype) {
+  return _providerPresets[ptype]?.capabilities || {};
+}
+
+function updateProviderCapabilitySections(ptype) {
+  const thinkingSection = document.getElementById('provThinkingSection');
+  if (thinkingSection) {
+    thinkingSection.style.display = providerTypeCapabilities(ptype).thinking ? '' : 'none';
+  }
+}
+
+async function loadProviderPresets() {
+  try {
+    _providerPresets = await api('GET', '/api/settings/providers/presets');
+  } catch {
+    _providerPresets = {};
+  }
+}
 
 const PROVIDER_TYPE_LABELS = {
   local: 'Local (LM Studio / Ollama)',
@@ -827,6 +873,8 @@ function renderProvidersList() {
     const activeClass = isActive ? ' provider-active' : '';
     const secProv = p.secondary_provider ? _allSecondaryProviders.find(x => x.id === p.secondary_provider) : null;
     const secLabel = secProv ? `<span class="provider-secondary-badge">${t('settings.secondaryShort')}: ${escapeHtml(secProv.name)}</span>` : '';
+    const visProv = p.vision_provider ? _allSecondaryProviders.find(x => x.id === p.vision_provider) : null;
+    const visLabel = visProv ? `<span class="provider-secondary-badge">${t('settings.visionShort')}: ${escapeHtml(visProv.name)}</span>` : '';
     return `
       <div class="provider-item${activeClass}">
         <div class="provider-info">
@@ -834,6 +882,7 @@ function renderProvidersList() {
             ${isActive ? '✅ ' : ''}${escapeHtml(p.name)}
             <span class="provider-type-badge">${escapeHtml(typeLabel)}</span>
             ${secLabel}
+            ${visLabel}
           </div>
           <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
         </div>
@@ -854,6 +903,14 @@ function _populateSecondarySelect(excludeId) {
   }
 }
 
+function _populateVisionSelect() {
+  const sel = document.getElementById('provVision');
+  sel.innerHTML = `<option value="">${t('settings.noVision')}</option>`;
+  for (const p of _allSecondaryProviders) {
+    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
+  }
+}
+
 function openAddProvider() {
   _editingProviderId = null;
   document.getElementById('providerFormTitle').textContent = t('settings.addProvider');
@@ -869,6 +926,9 @@ function openAddProvider() {
   document.getElementById('provEcoMode').checked = false;
   _populateSecondarySelect(null);
   document.getElementById('provSecondary').value = '';
+  updateProviderCapabilitySections(document.getElementById('provType').value);
+  _populateVisionSelect();
+  document.getElementById('provVision').value = '';
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   document.getElementById('provTestSection').style.display = 'none';
   document.getElementById('provTestResult').style.display = 'none';
@@ -894,6 +954,11 @@ function editProvider(id) {
   document.getElementById('provEcoMode').checked = !!p.eco_mode;
   _populateSecondarySelect(id);
   document.getElementById('provSecondary').value = p.secondary_provider || '';
+  const thinkingEl = document.getElementById('provThinkingMode');
+  if (thinkingEl) thinkingEl.value = p.thinking_mode || 'auto';
+  updateProviderCapabilitySections(p.type || 'local');
+  _populateVisionSelect();
+  document.getElementById('provVision').value = p.vision_provider || '';
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   document.getElementById('provTestSection').style.display = '';
   document.getElementById('provTestResult').style.display = 'none';
@@ -942,6 +1007,7 @@ function onProvTypeChange() {
   if (!currentName || defaultNames.includes(currentName)) {
     nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
   }
+  updateProviderCapabilitySections(ptype);
 }
 
 async function saveProvider() {
@@ -956,6 +1022,8 @@ async function saveProvider() {
     temperature: parseFloat(document.getElementById('provTemperature').value) || 0.7,
     system_prompt: document.getElementById('provSystemPrompt').value.trim(),
     secondary_provider: document.getElementById('provSecondary').value || '',
+    thinking_mode: document.getElementById('provThinkingMode')?.value || 'auto',
+    vision_provider: document.getElementById('provVision').value || '',
     eco_mode: document.getElementById('provEcoMode').checked,
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }

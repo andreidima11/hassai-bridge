@@ -58,10 +58,19 @@ async def me(request: Request):
                 "source": "webui",
             }
     cfg = load_config()
+    active = get_active_provider()
+    from services.provider_capabilities import provider_chat_capabilities
+
     return {
         "user": _public_profile(match),
         "language": cfg.get("language") or "en",
         "build": BUILD_ID,
+        "chat": {
+            "provider_id": active.get("id", ""),
+            "provider_type": active.get("type", ""),
+            "provider_name": active.get("name", ""),
+            "capabilities": provider_chat_capabilities(active),
+        },
     }
 
 

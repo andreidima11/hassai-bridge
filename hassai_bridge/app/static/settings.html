@@ -153,6 +153,13 @@
             <div class="info-stat"><div class="info-stat-num" id="statsSecondaryTokens">—</div><div class="info-stat-lbl" data-i18n="stats.secondaryTokens">Secondary Tokens</div></div>
           </div>
         </div>
+        <div class="card" style="flex:1;min-width:280px">
+          <h2>⚡ <span data-i18n="stats.kvCache">KV Cache (DeepSeek)</span></h2>
+          <div class="stats-overview-grid">
+            <div class="info-stat"><div class="info-stat-num" id="statsCacheHit">—</div><div class="info-stat-lbl" data-i18n="stats.cacheHitTokens">Cache Hit Tokens</div></div>
+            <div class="info-stat"><div class="info-stat-num" id="statsCacheMiss">—</div><div class="info-stat-lbl" data-i18n="stats.cacheMissTokens">Cache Miss Tokens</div></div>
+          </div>
+        </div>
       </div>
 
       <!-- Pie charts -->
@@ -424,6 +431,23 @@
             <p class="card-muted hint" data-i18n="settings.secondaryProviderDesc">Optional. Select a secondary provider to handle tool call re-processing (cost reduction / faster processing) and memory operations for this provider.</p>
             <select id="provSecondary">
               <option value="" data-i18n="settings.noSecondary">— None —</option>
+            </select>
+          </div>
+          <div class="modal-section" id="provThinkingSection" style="display:none">
+            <h3 data-i18n="settings.thinkingMode">Thinking mode</h3>
+            <p class="card-muted hint" data-i18n="settings.thinkingModeDesc">Provider-specific reasoning control. Auto enables thinking for planning and complex questions; Off is fastest for simple chat.</p>
+            <select id="provThinkingMode">
+              <option value="auto" data-i18n="settings.thinkingAuto">Auto</option>
+              <option value="off" data-i18n="settings.thinkingOff">Off</option>
+              <option value="high" data-i18n="settings.thinkingHigh">High</option>
+              <option value="max" data-i18n="settings.thinkingMax">Max</option>
+            </select>
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.visionProvider">Vision LLM</h3>
+            <p class="card-muted hint" data-i18n="settings.visionProviderDesc">Optional. When the primary model cannot handle images, requests with photos are routed here first. If unset, the auxiliary (secondary) provider is used instead.</p>
+            <select id="provVision">
+              <option value="" data-i18n="settings.noVision">— None —</option>
             </select>
           </div>
           <div class="modal-section">

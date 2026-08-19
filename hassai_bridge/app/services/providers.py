@@ -63,6 +63,25 @@ PROVIDER_PRESETS = {
 }
 
 
+_VISION_MODEL_HINTS = re.compile(
+    r"gpt-4o|gpt-4-turbo|gpt-4-vision|gpt-4\.1|claude-3|claude-sonnet|claude-opus|gemini|llava|vision|"
+    r"qwen.*vl|pixtral|glm-4v|internvl|moondream|minicpm-v",
+    re.I,
+)
+
+
+def provider_supports_vision(provider: dict | None) -> bool:
+    if not isinstance(provider, dict):
+        return False
+    flag = provider.get("supports_vision")
+    if flag is True:
+        return True
+    if flag is False:
+        return False
+    model = str(provider.get("model") or "").strip()
+    return bool(model and _VISION_MODEL_HINTS.search(model))
+
+
 def get_active_provider() -> dict:
     """Get the currently active provider config."""
     cfg = load_config()
@@ -117,6 +136,31 @@ def get_secondary_provider(primary: dict | None = None) -> dict | None:
     return get_secondary_provider_by_id(sec_id)
 
 
+def get_vision_provider(primary: dict | None = None) -> dict | None:
+    """Get the dedicated vision provider for the given (or active) primary."""
+    if primary is None:
+        primary = get_active_provider()
+    vision_id = primary.get("vision_provider", "")
+    if not vision_id:
+        return None
+    return get_secondary_provider_by_id(vision_id)
+
+
+def resolve_image_provider(primary: dict | None = None, secondary: dict | None = None) -> dict | None:
+    """Pick provider for image requests when the primary model lacks vision.
+
+    Priority: dedicated vision provider, then auxiliary (secondary) provider.
+    """
+    if primary is None:
+        primary = get_active_provider()
+    vision = get_vision_provider(primary)
+    if vision:
+        return vision
+    if secondary is None:
+        secondary = get_secondary_provider(primary)
+    return secondary
+
+
 def get_secondary_provider_by_id(provider_id: str) -> dict | None:
     """Get a specific secondary provider by ID."""
     cfg = load_config()
@@ -168,7 +212,7 @@ def _build_url(provider: dict, path: str) -> str:
 
 async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,
                           tools: list | None = None, tool_choice: str | dict | None = None,
-                          provider: dict | None = None) -> dict:
+                          provider: dict | None = None, thinking: dict | None = None) -> dict:
     """Send a chat completion request to the active (or specified) provider."""
     if provider is None:
         provider = get_active_provider()
@@ -194,8 +238,13 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
     if max_tokens:
         payload["max_tokens"] = max_tokens
     temperature = provider.get("temperature")
-    if temperature is not None:
+    if temperature is not None and not (thinking and thinking.get("enabled")):
         payload["temperature"] = temperature
+
+    from services import provider_capabilities as pc
+
+    if thinking and pc.supports_thinking(provider):
+        pc.apply_provider_payload_extras(payload, provider, thinking)
 
     client = _get_client()
     # Retry on transient errors (#20)
@@ -223,7 +272,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
 
 async def chat_completion_stream(messages: list[dict], model: str | None = None,
                                  tools: list | None = None, tool_choice: str | dict | None = None,
-                                 provider: dict | None = None):
+                                 provider: dict | None = None, thinking: dict | None = None):
     """Stream chat completion, yielding SSE chunks."""
     if provider is None:
         provider = get_active_provider()
@@ -248,8 +297,13 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
     if max_tokens:
         payload["max_tokens"] = max_tokens
     temperature = provider.get("temperature")
-    if temperature is not None:
+    if temperature is not None and not (thinking and thinking.get("enabled")):
         payload["temperature"] = temperature
+
+    from services import provider_capabilities as pc
+
+    if thinking and pc.supports_thinking(provider):
+        pc.apply_provider_payload_extras(payload, provider, thinking)
 
     client = _get_client()
     try:

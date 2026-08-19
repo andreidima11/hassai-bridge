@@ -58,22 +58,24 @@ export function cancelChat(traceId) {
   return apiJson(`/v1/chat/cancel/${encodeURIComponent(traceId)}`, { method: "POST" });
 }
 
-export function postChat(stream, payload, sessionId, traceId, signal) {
+export function postChat(stream, payload, sessionId, traceId, signal, thinkingMode) {
   const content = typeof payload === "string" ? payload : buildUserContent(payload?.text, payload?.images);
   if (content == null || content === "") {
     return Promise.reject(new Error("empty message"));
   }
+  const body = {
+    messages: [{ role: "user", content }],
+    stream,
+    session_id: sessionId,
+    trace_id: traceId,
+  };
+  if (thinkingMode) body.thinking = thinkingMode;
   return fetch(API + "/v1/chat/completions", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     signal,
-    body: JSON.stringify({
-      messages: [{ role: "user", content }],
-      stream,
-      session_id: sessionId,
-      trace_id: traceId,
-    }),
+    body: JSON.stringify(body),
   });
 }
 

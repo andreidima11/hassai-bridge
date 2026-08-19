@@ -8,7 +8,7 @@ export function Messages({ messages, lang, greeting }) {
   return (
     <div className="relative min-h-0 flex-1 bg-background">
       {empty ? (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center overflow-visible px-2">
           {greeting}
         </div>
       ) : null}

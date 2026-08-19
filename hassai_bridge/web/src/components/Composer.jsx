@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, ImageIcon, StopIcon, XIcon } from "./Icons.jsx";
 import { MAX_CHAT_IMAGES, prepareImageFile } from "../lib/images.js";
+import { ThinkingMode } from "./ThinkingMode.jsx";
 
 export function Composer({
   value,
@@ -17,7 +18,12 @@ export function Composer({
   imageTooLargeLabel,
   maxImagesLabel,
   unsupportedImageLabel,
+  showThinking = false,
+  thinkingMode = "auto",
+  onThinkingModeChange,
+  lang = "en",
   onPickerOpen,
+  onPickerSettled,
 }) {
   const ref = useRef(null);
   const fileRef = useRef(null);
@@ -38,19 +44,16 @@ export function Composer({
   const addFiles = async (files) => {
     if (!files?.length || !onAttachmentsChange) return;
     setAttachError("");
-    const current = attachments || [];
-    if (current.length >= MAX_CHAT_IMAGES) {
-      setAttachError(maxImagesLabel);
-      return;
-    }
-    const next = [...current];
+    let added = 0;
     for (const file of files) {
-      if (next.length >= MAX_CHAT_IMAGES) {
-        setAttachError(maxImagesLabel);
-        break;
-      }
       try {
-        next.push(await prepareImageFile(file));
+        const prepared = await prepareImageFile(file);
+        onAttachmentsChange((current) => {
+          const base = current || [];
+          if (base.length >= MAX_CHAT_IMAGES) return base;
+          return [...base, prepared];
+        });
+        added += 1;
       } catch (err) {
         const code = String(err?.message || "");
         if (code === "too_large") setAttachError(imageTooLargeLabel);
@@ -58,7 +61,8 @@ export function Composer({
         else setAttachError(unsupportedImageLabel);
       }
     }
-    onAttachmentsChange(next);
+    if (added >= MAX_CHAT_IMAGES) setAttachError(maxImagesLabel);
+    onPickerSettled?.();
   };
 
   const removeAttachment = (id) => {
@@ -99,12 +103,14 @@ export function Composer({
           <input
             ref={fileRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
+            accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif"
             multiple
             className="hidden"
             onChange={(e) => {
-              addFiles(Array.from(e.target.files || []));
+              const picked = Array.from(e.target.files || []);
               e.target.value = "";
+              if (picked.length) addFiles(picked);
+              else onPickerSettled?.();
             }}
           />
           <button
@@ -120,6 +126,14 @@ export function Composer({
           >
             <ImageIcon />
           </button>
+          {showThinking ? (
+            <ThinkingMode
+              disabled={busy}
+              lang={lang}
+              mode={thinkingMode}
+              onChange={onThinkingModeChange}
+            />
+          ) : null}
           <textarea
             ref={ref}
             className="block max-h-40 min-h-6 w-full flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground/50"

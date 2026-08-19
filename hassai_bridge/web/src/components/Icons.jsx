@@ -103,3 +103,24 @@ export function XIcon({ size = 12 }) {
     </svg>
   );
 }
+
+export function BrainIcon({ active = false }) {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+      <path
+        d="M8.5 4.5a3 3 0 0 0-2.2 5.02 2.5 2.5 0 0 0-.55 4.98 3 3 0 0 0 2.75 1.75 3.25 3.25 0 0 0 6.1 0 3 3 0 0 0 2.75-1.75 2.5 2.5 0 0 0-.55-4.98A3 3 0 0 0 15.5 4.5 3.25 3.25 0 0 0 12 3.5 3.25 3.25 0 0 0 8.5 4.5Z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+        fill={active ? "currentColor" : "none"}
+        fillOpacity={active ? 0.18 : 0}
+      />
+      <path
+        d="M10 11.5c.4.8 1.2 1.3 2 1.3s1.6-.5 2-1.3"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
