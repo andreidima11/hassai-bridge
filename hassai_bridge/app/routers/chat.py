@@ -109,12 +109,13 @@ def _recall_provider(
     secondary: dict | None,
     *,
     image_provider: dict | None = None,
+    image_gen_provider: dict | None = None,
 ) -> dict:
     if image_provider is not None:
         return image_provider
     names = _tool_names(tool_calls)
     if any(name == "generate_image" for name in names):
-        return active
+        return image_gen_provider or active
     if any(
         name in lt.HA_LOVELACE_TOOLS
         or name in et.HA_ENTITY_TOOLS
@@ -514,6 +515,7 @@ async def _invoke_internal_tool(
     *,
     search_enabled: bool,
     provider: dict | None = None,
+    image_gen_provider: dict | None = None,
     user_id: str = "",
     session_id: str | None = None,
     generated_attachments: list | None = None,
@@ -537,8 +539,13 @@ async def _invoke_internal_tool(
         )
 
     if fn_name == "generate_image":
-        if not provider or not pc.supports_image_generation(provider):
-            return "Error: image generation is not available for the active provider.", False
+        gen_provider = image_gen_provider or provider
+        if not gen_provider or not pc.supports_image_generation(gen_provider):
+            return (
+                "Error: image generation is not available. Configure an Image Generation LLM "
+                "(Grok) for this provider in Settings.",
+                False,
+            )
         prompt = (args.get("prompt") or "").strip()
         if not prompt:
             return "Error: empty image prompt.", False
@@ -552,7 +559,7 @@ async def _invoke_internal_tool(
             from services import grok as gk
 
             result = await gk.generate_image(
-                provider,
+                gen_provider,
                 prompt,
                 model=model,
                 n=n,
@@ -595,6 +602,7 @@ async def _append_internal_tool_results(
     on_event=None,
     trace_id: str = "",
     provider: dict | None = None,
+    image_gen_provider: dict | None = None,
     user_id: str = "",
     session_id: str | None = None,
     generated_attachments: list | None = None,
@@ -633,6 +641,7 @@ async def _append_internal_tool_results(
                 args,
                 search_enabled=search_enabled,
                 provider=provider,
+                image_gen_provider=image_gen_provider,
                 user_id=user_id,
                 session_id=session_id,
                 generated_attachments=generated_attachments,
@@ -1611,8 +1620,9 @@ async def chat_completions(request: Request):
     all_tools.extend(ha_api.build_ha_tools())
     active = get_active_provider()
     request_has_images = cc.messages_have_images(messages)
-    if pc.supports_image_generation(active) and not request_has_images:
-        all_tools.append(pc.build_image_generation_tool(active))
+    image_gen_provider = providers.resolve_image_generation_provider(active)
+    if image_gen_provider and pc.supports_image_generation(image_gen_provider) and not request_has_images:
+        all_tools.append(pc.build_image_generation_tool(image_gen_provider))
     effective_tools = all_tools if all_tools else None
 
     # ── Slash command check ──
@@ -1873,6 +1883,7 @@ async def chat_completions(request: Request):
                     on_event=on_activity,
                     trace_id=trace_id,
                     provider=active,
+                    image_gen_provider=image_gen_provider,
                     user_id=user_id,
                     session_id=session_id,
                     generated_attachments=generated_attachments,
@@ -1880,7 +1891,9 @@ async def chat_completions(request: Request):
                     _search_used = True
 
                 re_provider = _recall_provider(
-                    internal_calls, active, secondary, image_provider=image_provider,
+                    internal_calls, active, secondary,
+                    image_provider=image_provider,
+                    image_gen_provider=image_gen_provider,
                 )
                 if secondary and re_provider is secondary:
                     _secondary_used_for_recall = True
@@ -2186,6 +2199,7 @@ async def chat_completions(request: Request):
                     on_event=on_stream_activity,
                     trace_id=trace_id,
                     provider=active,
+                    image_gen_provider=image_gen_provider,
                     user_id=user_id,
                     session_id=session_id,
                     generated_attachments=generated_attachments,
@@ -2202,7 +2216,9 @@ async def chat_completions(request: Request):
 
                 await _check_trace(trace_id)
                 re_provider = _recall_provider(
-                    internal_tcs, active, secondary, image_provider=image_provider,
+                    internal_tcs, active, secondary,
+                    image_provider=image_provider,
+                    image_gen_provider=image_gen_provider,
                 )
                 if secondary and re_provider is secondary:
                     secondary_used = True

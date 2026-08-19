@@ -235,6 +235,10 @@ async def add_provider(data: dict):
         "temperature": temperature,
         "system_prompt": system_prompt,
         "eco_mode": bool(data.get("eco_mode", False)),
+        "secondary_provider": str(data.get("secondary_provider") or "").strip(),
+        "vision_provider": str(data.get("vision_provider") or "").strip(),
+        "image_generation_provider": str(data.get("image_generation_provider") or "").strip(),
+        "thinking_mode": str(data.get("thinking_mode") or "auto").strip() or "auto",
     }
     cfg.setdefault("providers", []).append(provider)
     # Auto-activate if first provider
@@ -250,7 +254,7 @@ async def update_provider(provider_id: str, data: dict):
     cfg = load_config()
     for p in cfg.get("providers", []):
         if p["id"] == provider_id:
-            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "eco_mode", "thinking_mode"):
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "image_generation_provider", "eco_mode", "thinking_mode"):
                 if key in data:
                     p[key] = data[key]
             if p.get("base_url"):
@@ -393,6 +397,8 @@ async def delete_secondary_provider(provider_id: str):
             p["secondary_provider"] = ""
         if p.get("vision_provider") == provider_id:
             p["vision_provider"] = ""
+        if p.get("image_generation_provider") == provider_id:
+            p["image_generation_provider"] = ""
     save_config(cfg)
     return {"status": "ok"}
 

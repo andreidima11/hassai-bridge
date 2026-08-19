@@ -83,6 +83,7 @@ def test_recall_provider_uses_image_provider_when_set():
     active = {"id": "primary", "model": "llama-3.1-8b"}
     secondary = {"id": "secondary", "model": "gpt-4o-mini"}
     vision = {"id": "vision", "model": "gpt-4o"}
+    img_gen = {"id": "imggen", "type": "grok", "model": "grok-4.6"}
     tool_calls = [{"function": {"name": "web_search"}}]
 
     assert _recall_provider(tool_calls, active, secondary)["id"] == "secondary"
@@ -90,6 +91,12 @@ def test_recall_provider_uses_image_provider_when_set():
     assert _recall_provider(
         [{"function": {"name": "ha_call_service"}}], active, secondary, image_provider=vision,
     )["id"] == "vision"
+    assert _recall_provider(
+        [{"function": {"name": "generate_image"}}], active, secondary, image_gen_provider=img_gen,
+    )["id"] == "imggen"
+    assert _recall_provider(
+        [{"function": {"name": "generate_image"}}], active, secondary,
+    )["id"] == "primary"
 
 
 def test_resolve_image_provider(monkeypatch):
@@ -113,6 +120,22 @@ def test_resolve_image_provider(monkeypatch):
     monkeypatch.setattr(prov, "get_secondary_provider", lambda p=None: None)
     monkeypatch.setattr(prov, "find_global_vision_secondary", lambda: grok_vision)
     assert prov.resolve_image_provider({"id": "grok-main", "type": "grok", "model": "grok-4.6"}) is grok_vision
+
+
+def test_resolve_image_generation_provider(monkeypatch):
+    from services import providers as prov
+
+    grok_primary = {"id": "grok-main", "type": "grok", "model": "grok-4.6"}
+    assert prov.resolve_image_generation_provider(grok_primary) is grok_primary
+
+    deepseek = {"id": "ds", "type": "deepseek", "model": "deepseek-chat", "image_generation_provider": "grok-gen"}
+    grok_gen = {"id": "grok-gen", "type": "grok", "model": "grok-4.6"}
+    monkeypatch.setattr(prov, "get_image_generation_provider", lambda p=None: grok_gen)
+    assert prov.resolve_image_generation_provider(deepseek) is grok_gen
+
+    monkeypatch.setattr(prov, "get_image_generation_provider", lambda p=None: None)
+    monkeypatch.setattr(prov, "find_global_image_generation_secondary", lambda: grok_gen)
+    assert prov.resolve_image_generation_provider(deepseek) is grok_gen
 
 
 def test_vision_required_error_localized():
