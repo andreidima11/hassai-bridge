@@ -1,5 +1,20 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.39-beta
+
+- New Lovelace tools: `ha_delete_view`, `ha_update_dashboard`, `ha_delete_dashboard`, `ha_list_lovelace_resources`, `ha_append_card_yaml`
+- `dashboard_url` on dashboard tools resolves `/lovelace/...` and `/dashboard-.../...` into `url_path` + `view_path`
+- YAML card append via PyYAML for `ui-lovelace.yaml` and `dashboards/*.yaml`
+- Agent loop: notice when steps run out with pending tool calls; extended round limit uses a proper while loop
+- Fix `_list_dashboards` regression that dropped additional dashboard listings
+
+## 0.2.38-beta
+
+- Agent loop: extra tool round after Lovelace mutations; primary provider for dashboard tools (not secondary/eco)
+- Do not skip repeated `ha_get_dashboard` verify reads or mutating tool calls
+- Nested stack/grid cards via `card_path` (e.g. `2.1`); YAML dashboards show `config_file` in listings
+- Richer thinking-step labels for dashboard/card tools; Lovelace YAML writes hint `ha_reload lovelace`
+
 ## 0.2.37-beta
 
 - **Lovelace tools fixed for modern HA:** card edits target `sections[].cards` on sections views (not dead `view.cards`)
