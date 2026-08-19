@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.57-beta
+
+### Provider defaults & stats
+- **Correct default URLs** — Grok `https://api.x.ai/v1`, DeepSeek `https://api.deepseek.com/v1`, OpenAI `https://api.openai.com/v1`
+- **URL normalization** on save; legacy `/chat/completions` URLs cleaned automatically
+- **Statistics → Model** — cache hit/miss per model + **Cache by Model** table
+
 ## 0.2.56-beta
 
 ### Fixes
