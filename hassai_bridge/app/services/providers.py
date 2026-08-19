@@ -69,6 +69,8 @@ _VISION_MODEL_HINTS = re.compile(
     r"qwen.*vl|pixtral|glm-4v|internvl|moondream|minicpm-v",
     re.I,
 )
+_GROK_VISION_HINTS = re.compile(r"grok-2-vision|grok-vision|grok.*-vision", re.I)
+_GROK_TEXT_ONLY = re.compile(r"grok-4(?:\.\d+)?|grok-3|grok-code|grok-2$|grok-beta$", re.I)
 
 
 def provider_supports_vision(provider: dict | None) -> bool:
@@ -80,7 +82,15 @@ def provider_supports_vision(provider: dict | None) -> bool:
     if flag is False:
         return False
     model = str(provider.get("model") or "").strip()
-    return bool(model and _VISION_MODEL_HINTS.search(model))
+    if not model:
+        return False
+    if provider.get("type") == "grok":
+        if _GROK_TEXT_ONLY.search(model):
+            return False
+        if _GROK_VISION_HINTS.search(model):
+            return True
+        return False
+    return bool(_VISION_MODEL_HINTS.search(model))
 
 
 def get_active_provider() -> dict:
@@ -147,10 +157,20 @@ def get_vision_provider(primary: dict | None = None) -> dict | None:
     return get_secondary_provider_by_id(vision_id)
 
 
+def find_global_vision_secondary() -> dict | None:
+    """First configured secondary provider that supports chat vision."""
+    cfg = load_config()
+    for provider in cfg.get("secondary_providers", []):
+        if provider_supports_vision(provider):
+            return provider
+    return None
+
+
 def resolve_image_provider(primary: dict | None = None, secondary: dict | None = None) -> dict | None:
     """Pick provider for image requests when the primary model lacks vision.
 
-    Priority: dedicated vision provider, then auxiliary (secondary) provider.
+    Priority: dedicated vision provider, vision-capable secondary, then any
+    global vision secondary (e.g. Grok vision configured for another primary).
     """
     if primary is None:
         primary = get_active_provider()
@@ -159,7 +179,9 @@ def resolve_image_provider(primary: dict | None = None, secondary: dict | None =
         return vision
     if secondary is None:
         secondary = get_secondary_provider(primary)
-    return secondary
+    if secondary and provider_supports_vision(secondary):
+        return secondary
+    return find_global_vision_secondary()
 
 
 def get_secondary_provider_by_id(provider_id: str) -> dict | None:

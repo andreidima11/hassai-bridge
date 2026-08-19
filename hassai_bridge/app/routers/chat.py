@@ -143,6 +143,20 @@ def _vision_required_error(cfg: dict) -> JSONResponse:
     )
 
 
+def _provider_upstream_error(exc: Exception) -> JSONResponse:
+    from services.provider_errors import sanitize_error_message
+
+    return JSONResponse(
+        status_code=502,
+        content={
+            "error": {
+                "message": sanitize_error_message(str(exc)),
+                "type": "upstream_error",
+            },
+        },
+    )
+
+
 def _should_skip_repeated_tool(name: str, args: dict, fingerprints: list[str], fp: str) -> bool:
     if name in lt.HA_MUTATING_TOOLS:
         return False
@@ -1596,7 +1610,8 @@ async def chat_completions(request: Request):
     all_tools.extend(_build_skill_tools())
     all_tools.extend(ha_api.build_ha_tools())
     active = get_active_provider()
-    if pc.supports_image_generation(active):
+    request_has_images = cc.messages_have_images(messages)
+    if pc.supports_image_generation(active) and not request_has_images:
         all_tools.append(pc.build_image_generation_tool(active))
     effective_tools = all_tools if all_tools else None
 
@@ -1737,22 +1752,6 @@ async def chat_completions(request: Request):
     else:
         augmented = _trim_messages(augmented, max_ctx)
 
-    thinking_cfg = pc.resolve_thinking(
-        active,
-        override=thinking_override,
-        user_text=last_user_msg,
-        tools_active=bool(effective_tools),
-    )
-    if thinking_cfg:
-        log.info(
-            "[%s] Provider thinking mode=%s enabled=%s effort=%s auto=%s",
-            user_id,
-            thinking_cfg.get("mode"),
-            thinking_cfg.get("enabled"),
-            thinking_cfg.get("effort"),
-            thinking_cfg.get("auto_reason") or "-",
-        )
-
     request_has_images = cc.messages_have_images(augmented)
     image_provider: dict | None = None
     chat_provider = active
@@ -1766,6 +1765,22 @@ async def chat_completions(request: Request):
             "[%s] Routing image request to %s (primary lacks vision)",
             user_id,
             chat_provider.get("name", "?"),
+        )
+
+    thinking_cfg = pc.resolve_thinking(
+        chat_provider,
+        override=thinking_override,
+        user_text=last_user_msg,
+        tools_active=bool(effective_tools),
+    )
+    if thinking_cfg:
+        log.info(
+            "[%s] Provider thinking mode=%s enabled=%s effort=%s auto=%s",
+            user_id,
+            thinking_cfg.get("mode"),
+            thinking_cfg.get("enabled"),
+            thinking_cfg.get("effort"),
+            thinking_cfg.get("auto_reason") or "-",
         )
 
     # Log prompt size for optimization tracking
@@ -1815,10 +1830,7 @@ async def chat_completions(request: Request):
         except Exception as e:
             log.error(f"Provider [{chat_provider.get('name', '?')}] request failed: {e}")
             _trace_done(trace_id)
-            return JSONResponse(
-                status_code=502,
-                content={"error": {"message": "Provider request failed. Check server logs for details.", "type": "upstream_error"}},
-            )
+            return _provider_upstream_error(e)
         first_msg = result.get("choices", [{}])[0].get("message", {})
         pc.log_provider_usage(chat_provider, result.get("usage"), user_id=user_id)
         await emit_think("think-0", "done", think_t0, _message_reasoning(first_msg))
@@ -1894,10 +1906,7 @@ async def chat_completions(request: Request):
                 except Exception as e:
                     log.error("Provider re-call failed (round %s): %s", _round + 1, e)
                     _trace_done(trace_id)
-                    return JSONResponse(
-                        status_code=502,
-                        content={"error": {"message": "Provider request failed during tool loop.", "type": "upstream_error"}},
-                    )
+                    return _provider_upstream_error(e)
                 last_call_provider = re_provider
                 round_msg = result.get("choices", [{}])[0].get("message", {})
                 pc.log_provider_usage(re_provider, result.get("usage"), user_id=user_id)

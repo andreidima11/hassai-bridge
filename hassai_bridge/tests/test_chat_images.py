@@ -71,6 +71,9 @@ def test_provider_supports_vision():
     assert prov.provider_supports_vision({"model": "llama-3.1-8b"}) is False
     assert prov.provider_supports_vision({"model": "gpt-4o-mini", "supports_vision": False}) is False
     assert prov.provider_supports_vision({"model": "llama-3.1-8b", "supports_vision": True}) is True
+    assert prov.provider_supports_vision({"type": "grok", "model": "grok-4.6"}) is False
+    assert prov.provider_supports_vision({"type": "grok", "model": "grok-2-vision-1212"}) is True
+    assert prov.provider_supports_vision({"type": "grok", "model": "grok-4.6", "supports_vision": True}) is True
 
 
 def test_recall_provider_uses_image_provider_when_set():
@@ -103,6 +106,12 @@ def test_resolve_image_provider(monkeypatch):
 
     monkeypatch.setattr(prov, "get_secondary_provider", lambda p=None: secondary)
     assert prov.resolve_image_provider(primary) is secondary
+
+    grok_vision = {"id": "grok-vis", "type": "grok", "model": "grok-2-vision-1212"}
+    monkeypatch.setattr(prov, "get_vision_provider", lambda p=None: None)
+    monkeypatch.setattr(prov, "get_secondary_provider", lambda p=None: None)
+    monkeypatch.setattr(prov, "find_global_vision_secondary", lambda: grok_vision)
+    assert prov.resolve_image_provider({"id": "grok-main", "type": "grok", "model": "grok-4.6"}) is grok_vision
 
 
 def test_vision_required_error_localized():
