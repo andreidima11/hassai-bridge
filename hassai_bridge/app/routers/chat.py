@@ -206,6 +206,8 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(f"{flag} {preview}".strip())
     if name in {"ha_trigger_automation", "ha_run_script", "ha_activate_scene"}:
         return _clip_detail(args.get("entity_id"))
+    if name in {"ha_delete_automation", "ha_delete_script", "ha_delete_scene"}:
+        return _clip_detail(args.get("entity_id") or args.get("search") or args.get("name"))
     if name == "ha_create_floor":
         return _clip_detail(args.get("name"))
     if name == "ha_update_floor":

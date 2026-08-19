@@ -267,7 +267,25 @@ def test_format_automation_detail():
     states = load("domain_states_sample.json")
     text = et.format_automation_detail(states[0])
     assert "automation.morning" in text
+    assert "id: morning" in text
     assert "automation:" in text
+
+
+def test_resolve_config_entity_by_search_and_entity_id():
+    states = load("domain_states_sample.json")
+    resolved = et.resolve_config_entity(states, "automation", search="pulpa")
+    assert isinstance(resolved, str)
+    assert "no automation" in resolved
+
+    resolved = et.resolve_config_entity(states, "automation", search="morning")
+    assert resolved == ("automation.morning", "morning", states[0])
+
+    resolved = et.resolve_config_entity(states, "automation", entity_id="automation.morning")
+    assert resolved[0] == "automation.morning"
+    assert resolved[1] == "morning"
+
+    resolved = et.resolve_config_entity(states, "script", search="goodnight")
+    assert resolved == ("script.goodnight", "goodnight", states[1])
 
 
 def test_filter_config_entries():

@@ -617,6 +617,21 @@ _TOOL_SPECS: dict[str, dict] = {
             "required": ["entity_id", "confirm"],
         },
     },
+    "ha_delete_automation": {
+        "description": (
+            "Delete an automation (removes from automations.yaml and entity). "
+            "Pass entity_id or search by friendly name. confirm=true required."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string", "description": "automation.* entity"},
+                "search": {"type": "string", "description": "Friendly name or entity_id fragment"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["confirm"],
+        },
+    },
     "ha_list_scripts": {
         "description": "List script.* entities.",
         "parameters": {
@@ -640,6 +655,21 @@ _TOOL_SPECS: dict[str, dict] = {
             "required": ["entity_id", "confirm"],
         },
     },
+    "ha_delete_script": {
+        "description": (
+            "Delete a script (removes from scripts.yaml and entity). "
+            "Pass entity_id or search by friendly name. confirm=true required."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string", "description": "script.* entity"},
+                "search": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["confirm"],
+        },
+    },
     "ha_list_scenes": {
         "description": "List scene.* entities and entity counts.",
         "parameters": {
@@ -660,6 +690,21 @@ _TOOL_SPECS: dict[str, dict] = {
                 "confirm": {"type": "boolean"},
             },
             "required": ["entity_id", "confirm"],
+        },
+    },
+    "ha_delete_scene": {
+        "description": (
+            "Delete a scene (removes from scenes.yaml and entity). "
+            "Pass entity_id or search by friendly name. confirm=true required."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string", "description": "scene.* entity"},
+                "search": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["confirm"],
         },
     },
     "ha_list_config_entries": {
@@ -1652,6 +1697,45 @@ async def _trigger_automation(args: dict) -> str:
     return f"OK: triggered {entity_id}"
 
 
+async def _resolve_config_entity(args: dict, domain: str) -> tuple[str, str, dict] | str:
+    states = await _fetch_states_cached()
+    return et.resolve_config_entity(
+        states,
+        domain,
+        entity_id=str(args.get("entity_id") or ""),
+        search=str(args.get("search") or args.get("name") or ""),
+    )
+
+
+async def _delete_config_entity(args: dict, domain: str, config_segment: str) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    if not (args.get("entity_id") or args.get("search") or args.get("name")):
+        return "Error: entity_id or search is required"
+    resolved = await _resolve_config_entity(args, domain)
+    if isinstance(resolved, str):
+        return resolved
+    entity_id, config_id, _state = resolved
+    try:
+        await _core("DELETE", f"/config/{config_segment}/config/{config_id}")
+    except RuntimeError as e:
+        return f"Error: {e}"
+    _STATES_CACHE["ts"] = 0.0
+    return f"OK: deleted {entity_id} (id={config_id})"
+
+
+async def _delete_automation(args: dict) -> str:
+    return await _delete_config_entity(args, "automation", "automation")
+
+
+async def _delete_script(args: dict) -> str:
+    return await _delete_config_entity(args, "script", "script")
+
+
+async def _delete_scene(args: dict) -> str:
+    return await _delete_config_entity(args, "scene", "scene")
+
+
 async def _list_scripts(args: dict) -> str:
     return await _list_domain_states(args, "script", et.format_script_list)
 
@@ -2345,10 +2429,13 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_list_automations": _list_automations,
     "ha_get_automation": _get_automation,
     "ha_trigger_automation": _trigger_automation,
+    "ha_delete_automation": _delete_automation,
     "ha_list_scripts": _list_scripts,
     "ha_run_script": _run_script,
+    "ha_delete_script": _delete_script,
     "ha_list_scenes": _list_scenes,
     "ha_activate_scene": _activate_scene,
+    "ha_delete_scene": _delete_scene,
     "ha_list_config_entries": _list_config_entries,
     "ha_get_config_entry": _get_config_entry,
     "ha_reload_config_entry": _reload_config_entry,

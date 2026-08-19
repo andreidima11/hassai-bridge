@@ -22,7 +22,7 @@ Entities (live state via REST):
 - Trace: ha_get_history / ha_get_logbook for recent changes; ha_get_entity_source for integration
 - Voice/Assist: ha_list_exposed_entities → ha_expose_entity (confirm=true; assistant conversation by default)
 - Floors: ha_list_floors → ha_create_area with floor_name or ha_update_area
-- Automations/scripts/scenes: ha_list_automations / ha_list_scripts / ha_list_scenes → ha_trigger_automation / ha_run_script / ha_activate_scene (confirm=true)
+- Automations/scripts/scenes: ha_list_* (search) → ha_get_* if needed → ha_delete_* to remove (confirm=true); ha_trigger_automation / ha_run_script / ha_activate_scene to run. Delete uses automations.yaml / scripts.yaml / scenes.yaml — if delete fails (packages or custom YAML), remove the block with ha_read_file + ha_write_file.
 - Integrations: ha_list_config_entries → ha_get_config_entry; ha_reload_config_entry (confirm=true) after fixing YAML
 - Long-term sensors: ha_list_statistic_ids → ha_get_statistics; groups/zones/persons: ha_list_groups / ha_list_zones / ha_list_persons
 
@@ -82,6 +82,9 @@ HA_REGISTRY_MUTATING_TOOLS = frozenset({
     "ha_trigger_automation",
     "ha_run_script",
     "ha_activate_scene",
+    "ha_delete_automation",
+    "ha_delete_script",
+    "ha_delete_scene",
     "ha_reload_config_entry",
 })
 
@@ -914,12 +917,49 @@ def format_automation_detail(state: dict) -> str:
     )
     attrs = state.get("attributes") or {}
     extra: list[str] = []
-    for key in ("id", "mode", "current", "max", "last_triggered"):
+    config_id = config_id_from_state(state)
+    if config_id:
+        extra.append(f"id: {config_id}")
+    for key in ("mode", "current", "max", "last_triggered"):
         if attrs.get(key) is not None:
             extra.append(f"{key}: {attrs.get(key)}")
     if extra:
         body += "\nautomation: " + "; ".join(extra)
     return body
+
+
+def config_id_from_state(state: dict) -> str:
+    attrs = state.get("attributes") or {}
+    return str(attrs.get("id") or "").strip()
+
+
+def resolve_config_entity(
+    states: list[dict],
+    domain: str,
+    *,
+    entity_id: str = "",
+    search: str = "",
+) -> tuple[str, str, dict] | str:
+    """Resolve entity_id + config id for automation/script/scene delete."""
+    eid = (entity_id or "").strip()
+    query = (search or "").strip()
+    if eid and not eid.startswith(f"{domain}."):
+        return f"Error: entity_id must be {domain}.*"
+    if not eid and query:
+        filtered = filter_states(states, {"domain": domain, "search": query})
+        if not filtered:
+            return f"Error: no {domain} matching {query!r}"
+        if len(filtered) > 1:
+            ids = ", ".join(str(s.get("entity_id") or "") for s in filtered[:5])
+            return f"Error: multiple matches ({ids}); pass entity_id"
+        eid = str(filtered[0].get("entity_id") or "")
+    if not eid:
+        return "Error: entity_id or search is required"
+    state = next((s for s in states if str(s.get("entity_id") or "") == eid), None)
+    if not state:
+        return f"Error: {eid} not found"
+    config_id = config_id_from_state(state) or eid.split(".", 1)[-1]
+    return eid, config_id, state
 
 
 _STATISTICS_PERIODS = frozenset({"5minute", "hour", "day", "week", "month"})
@@ -1268,6 +1308,11 @@ def entity_error_hint(tool_name: str, message: str) -> str | None:
         return "Use ha_list_statistic_ids to find valid statistic_id values."
     if tool_name == "ha_get_config_entry" and ("not found" in lower or "404" in lower):
         return "Use ha_list_config_entries to find entry_id."
+    if tool_name in {"ha_delete_automation", "ha_delete_script", "ha_delete_scene"}:
+        if "405" in lower:
+            return "Update Home Assistant Supervisor or delete from Settings in the HA UI."
+        if "automations.yaml" in lower or "scripts.yaml" in lower or "scenes.yaml" in lower:
+            return "This item may live in a package or custom YAML file — use ha_list_files and ha_read_file."
     if "not found" in lower or "404" in lower:
         return "Use ha_list_entities or ha_list_entity_registry to find the correct entity_id."
     if "area" in lower and "unknown" in lower:
