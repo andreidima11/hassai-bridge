@@ -123,20 +123,57 @@ def test_format_enriched_list_columns():
 
 
 def test_resolve_area_id_by_name():
-    _data, _labels, area_names, _device_labels, _registry = _registry_bundle()
+    _data, _area_labels, area_names, _device_labels, _registry = _registry_bundle()
     assert et.resolve_area_id(area_names, area_name="Kitchen") == "kitchen"
     assert et.resolve_area_id(area_names, area_id="living_room") == "living_room"
 
 
 def test_build_entity_update_payload():
-    _data, _labels, area_names, _device_labels, _registry = _registry_bundle()
+    _data, _area_labels, area_names, _device_labels, _registry = _registry_bundle()
+    _, label_names = et.index_labels(_data["labels"])
     payload = et.build_entity_update_payload(
-        {"name": "New name", "area_name": "Kitchen", "disabled": False},
+        {"name": "New name", "area_name": "Kitchen", "disabled": False, "labels": ["Lights"]},
         area_names,
+        label_names,
     )
     assert payload["name"] == "New name"
     assert payload["area_id"] == "kitchen"
     assert payload["disabled_by"] is None
+    assert payload["labels"] == ["lights"]
+
+
+def test_resolve_label_ids_by_name():
+    _data, _area_labels, _area_names, _device_labels, _registry = _registry_bundle()
+    _, label_names = et.index_labels(_data["labels"])
+    assert et.resolve_label_ids(label_names, ["Lights", "climate"]) == ["lights", "climate"]
+
+
+def test_build_device_update_payload():
+    _data, _area_labels, area_names, _device_labels, _registry = _registry_bundle()
+    _, label_names = et.index_labels(_data["labels"])
+    payload = et.build_device_update_payload(
+        {"device_id": "dev-light-living", "area_name": "Kitchen", "labels": ["Lights"]},
+        area_names,
+        label_names,
+    )
+    assert payload["device_id"] == "dev-light-living"
+    assert payload["area_id"] == "kitchen"
+    assert payload["labels"] == ["lights"]
+
+
+def test_build_area_create_payload():
+    _data, _area_labels, _area_names, _device_labels, _registry = _registry_bundle()
+    _, label_names = et.index_labels(_data["labels"])
+    payload = et.build_area_create_payload({"name": "Office", "labels": ["Climate"]}, label_names)
+    assert payload["name"] == "Office"
+    assert payload["labels"] == ["climate"]
+
+
+def test_format_label_list():
+    _data, _area_labels, _area_names, _device_labels, _registry = _registry_bundle()
+    text = et.format_label_list(_data["labels"])
+    assert "label_id|name|color|icon" in text
+    assert "lights|Lights" in text
 
 
 def test_can_set_state_helpers_only():

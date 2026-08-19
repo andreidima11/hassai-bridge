@@ -175,6 +175,20 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(args.get("entity_id"))
     if name == "ha_get_device":
         return _clip_detail(args.get("device_id"))
+    if name == "ha_update_device":
+        bits = [
+            args.get("device_id") or "",
+            args.get("area_name") or args.get("area_id") or args.get("name_by_user") or "",
+        ]
+        return _clip_detail(" · ".join(str(b) for b in bits if b))
+    if name == "ha_create_area":
+        return _clip_detail(args.get("name"))
+    if name == "ha_update_area":
+        return _clip_detail(f"{args.get('area_id') or ''} {args.get('name') or ''}".strip())
+    if name == "ha_create_label":
+        return _clip_detail(args.get("name"))
+    if name == "ha_update_label":
+        return _clip_detail(f"{args.get('label_id') or ''} {args.get('name') or ''}".strip())
     if name == "ha_upsert_card":
         card = args.get("card") if isinstance(args.get("card"), dict) else {}
         bits = [

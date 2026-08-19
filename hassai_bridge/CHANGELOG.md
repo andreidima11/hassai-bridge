@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.44-beta
+
+- **Entity tools v3 (areas, labels, devices):** `ha_create_area`, `ha_update_area`, `ha_list_labels`, `ha_create_label`, `ha_update_label`, `ha_update_device`
+- Label names resolve to `label_id` when assigning labels on entities, areas, or devices
+- Registry cache includes label registry; invalidates after mutating registry tools
+- Thinking UI labels (EN/RO) for new tools
+
 ## 0.2.43-beta
 
 - **Entity tools v2 (registry):** `ha_list_entities` merges entity registry (area, device, disabled columns); filters by `area_name`, `device_id`, `include_disabled`

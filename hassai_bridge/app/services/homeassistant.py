@@ -39,7 +39,13 @@ _DEFAULT_DOMAINS = et._LEGACY_DEFAULT_DOMAINS
 
 _STATES_CACHE: dict[str, Any] = {"ts": 0.0, "rows": None}
 _STATES_CACHE_TTL = 8.0
-_REGISTRY_CACHE: dict[str, Any] = {"ts": 0.0, "entities": None, "areas": None, "devices": None}
+_REGISTRY_CACHE: dict[str, Any] = {
+    "ts": 0.0,
+    "entities": None,
+    "areas": None,
+    "devices": None,
+    "labels": None,
+}
 _REGISTRY_CACHE_TTL = 30.0
 
 
@@ -332,6 +338,67 @@ _TOOL_SPECS: dict[str, dict] = {
         "description": "List Home Assistant areas (rooms). Use area_id in ha_update_entity / filters.",
         "parameters": {"type": "object", "properties": {}},
     },
+    "ha_create_area": {
+        "description": "Create a Home Assistant area (room). confirm=true required.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "icon": {"type": "string"},
+                "floor_id": {"type": "string"},
+                "labels": {"type": "array", "items": {"type": "string"}, "description": "label_id or name"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["name", "confirm"],
+        },
+    },
+    "ha_update_area": {
+        "description": "Update area metadata (rename, icon, labels). confirm=true required.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "area_id": {"type": "string"},
+                "name": {"type": "string"},
+                "icon": {"type": "string"},
+                "labels": {"type": "array", "items": {"type": "string"}},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["area_id", "confirm"],
+        },
+    },
+    "ha_list_labels": {
+        "description": "List Home Assistant labels (label_id, name). Use before assigning labels to entities/devices.",
+        "parameters": {"type": "object", "properties": {}},
+    },
+    "ha_create_label": {
+        "description": "Create a label. confirm=true required.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "color": {"type": "string", "description": "Theme color or hex"},
+                "icon": {"type": "string"},
+                "description": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["name", "confirm"],
+        },
+    },
+    "ha_update_label": {
+        "description": "Update a label. confirm=true required.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "label_id": {"type": "string"},
+                "name": {"type": "string"},
+                "color": {"type": "string"},
+                "icon": {"type": "string"},
+                "description": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["label_id", "confirm"],
+        },
+    },
     "ha_list_devices": {
         "description": "List Home Assistant devices with area, manufacturer, and model.",
         "parameters": {
@@ -347,6 +414,25 @@ _TOOL_SPECS: dict[str, dict] = {
             "type": "object",
             "properties": {"device_id": {"type": "string"}},
             "required": ["device_id"],
+        },
+    },
+    "ha_update_device": {
+        "description": (
+            "Update device registry: rename, move to area, labels, disable. "
+            "Moves all entities on the device when area changes. confirm=true required."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "device_id": {"type": "string"},
+                "name_by_user": {"type": "string"},
+                "area_id": {"type": "string"},
+                "area_name": {"type": "string", "description": "Resolve area by name"},
+                "labels": {"type": "array", "items": {"type": "string"}},
+                "disabled": {"type": "boolean", "description": "true=disable, false=enable"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["device_id", "confirm"],
         },
     },
     "ha_set_state": {
@@ -773,7 +859,7 @@ async def _fetch_states_cached() -> list[dict]:
     return states
 
 
-async def _fetch_registry_bundle() -> tuple[list[dict], list[dict], list[dict]]:
+async def _fetch_registry_bundle() -> tuple[list[dict], list[dict], list[dict], list[dict]]:
     now = time.time()
     if (
         _REGISTRY_CACHE.get("entities") is not None
@@ -783,28 +869,42 @@ async def _fetch_registry_bundle() -> tuple[list[dict], list[dict], list[dict]]:
             _REGISTRY_CACHE["entities"],
             _REGISTRY_CACHE["areas"],
             _REGISTRY_CACHE["devices"],
+            _REGISTRY_CACHE["labels"],
         )
     entities = await _ws_call({"type": "config/entity_registry/list"})
     areas = await _ws_call({"type": "config/area_registry/list"})
     devices = await _ws_call({"type": "config/device_registry/list"})
+    try:
+        labels = await _ws_call({"type": "config/label_registry/list"})
+    except Exception as e:
+        log.warning("Label registry unavailable: %s", e)
+        labels = []
     if not isinstance(entities, list):
         entities = []
     if not isinstance(areas, list):
         areas = []
     if not isinstance(devices, list):
         devices = []
+    if not isinstance(labels, list):
+        labels = []
     _REGISTRY_CACHE["entities"] = entities
     _REGISTRY_CACHE["areas"] = areas
     _REGISTRY_CACHE["devices"] = devices
+    _REGISTRY_CACHE["labels"] = labels
     _REGISTRY_CACHE["ts"] = now
-    return entities, areas, devices
+    return entities, areas, devices, labels
 
 
-async def _registry_indexes() -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
-    entities, areas, devices = await _fetch_registry_bundle()
+def _invalidate_registry_cache() -> None:
+    _REGISTRY_CACHE["ts"] = 0.0
+
+
+async def _registry_indexes() -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
+    entities, areas, devices, labels = await _fetch_registry_bundle()
     area_labels, area_names = et.index_areas(areas)
     device_labels, device_names = et.index_devices(devices)
-    return area_labels, area_names, device_labels, device_names
+    _label_labels, label_names = et.index_labels(labels)
+    return area_labels, area_names, device_labels, device_names, label_names
 
 
 async def _list_entities(args: dict) -> str:
@@ -821,7 +921,7 @@ async def _list_entities(args: dict) -> str:
 
     if use_registry and is_available():
         try:
-            entities, areas, devices = await _fetch_registry_bundle()
+            entities, areas, devices, _labels = await _fetch_registry_bundle()
             area_labels, area_names = et.index_areas(areas)
             device_labels, _device_names = et.index_devices(devices)
             merged = et.merge_entities(
@@ -892,7 +992,7 @@ async def _list_services(args: dict) -> str:
 
 
 async def _list_entity_registry(args: dict) -> str:
-    entities, areas, devices = await _fetch_registry_bundle()
+    entities, areas, _devices, _labels = await _fetch_registry_bundle()
     area_labels, _area_names = et.index_areas(areas)
     filtered = et.filter_registry_entries(entities, args)
     return et.format_registry_list(filtered, area_labels)
@@ -902,7 +1002,7 @@ async def _get_entity_registry(args: dict) -> str:
     entity_id = (args.get("entity_id") or "").strip()
     if not entity_id:
         return "Error: entity_id is required"
-    entities, areas, devices = await _fetch_registry_bundle()
+    entities, areas, devices, _labels = await _fetch_registry_bundle()
     area_labels, _area_names = et.index_areas(areas)
     device_labels, _device_names = et.index_devices(devices)
     reg = et.registry_by_entity_id(entities).get(entity_id)
@@ -923,9 +1023,10 @@ async def _update_entity(args: dict) -> str:
     entity_id = (args.get("entity_id") or "").strip()
     if not entity_id:
         return "Error: entity_id is required"
-    _entities, areas, _devices = await _fetch_registry_bundle()
+    _entities, areas, _devices, labels = await _fetch_registry_bundle()
     _area_labels, area_names = et.index_areas(areas)
-    changes = et.build_entity_update_payload(args, area_names)
+    _label_labels, label_names = et.index_labels(labels)
+    changes = et.build_entity_update_payload(args, area_names, label_names)
     if not changes:
         return "Error: provide at least one of name, new_entity_id, area_id, area_name, icon, labels, disabled, hidden"
     payload: dict[str, Any] = {"type": "config/entity_registry/update", "entity_id": entity_id, **changes}
@@ -935,17 +1036,80 @@ async def _update_entity(args: dict) -> str:
         new_id = str(result["entity_id"])
     elif changes.get("new_entity_id"):
         new_id = str(changes["new_entity_id"])
-    _REGISTRY_CACHE["ts"] = 0.0
+    _invalidate_registry_cache()
     return f"OK: updated entity registry entry {entity_id} → {new_id}"
 
 
 async def _list_areas(_args: dict) -> str:
-    _entities, areas, _devices = await _fetch_registry_bundle()
+    _entities, areas, _devices, _labels = await _fetch_registry_bundle()
     return et.format_area_list(areas)
 
 
+async def _create_area(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    _entities, _areas, _devices, labels = await _fetch_registry_bundle()
+    _label_labels, label_names = et.index_labels(labels)
+    payload = et.build_area_create_payload(args, label_names)
+    if not payload.get("name"):
+        return "Error: name is required"
+    result = await _ws_call({"type": "config/area_registry/create", **payload})
+    area_id = result.get("area_id") if isinstance(result, dict) else "?"
+    _invalidate_registry_cache()
+    return f"OK: created area {payload['name']} (area_id={area_id})"
+
+
+async def _update_area(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    _entities, _areas, _devices, labels = await _fetch_registry_bundle()
+    _label_labels, label_names = et.index_labels(labels)
+    payload = et.build_area_update_payload(args, label_names)
+    if not payload.get("area_id"):
+        return "Error: area_id is required"
+    if len(payload) <= 1:
+        return "Error: provide at least one of name, icon, labels"
+    area_id = payload.pop("area_id")
+    result = await _ws_call({"type": "config/area_registry/update", "area_id": area_id, **payload})
+    name = result.get("name") if isinstance(result, dict) else area_id
+    _invalidate_registry_cache()
+    return f"OK: updated area {name} (area_id={area_id})"
+
+
+async def _list_labels(_args: dict) -> str:
+    _entities, _areas, _devices, labels = await _fetch_registry_bundle()
+    return et.format_label_list(labels)
+
+
+async def _create_label(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    payload = et.build_label_create_payload(args)
+    if not payload.get("name"):
+        return "Error: name is required"
+    result = await _ws_call({"type": "config/label_registry/create", **payload})
+    label_id = result.get("label_id") if isinstance(result, dict) else "?"
+    _invalidate_registry_cache()
+    return f"OK: created label {payload['name']} (label_id={label_id})"
+
+
+async def _update_label(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    payload = et.build_label_update_payload(args)
+    if not payload.get("label_id"):
+        return "Error: label_id is required"
+    if len(payload) <= 1:
+        return "Error: provide at least one of name, color, icon, description"
+    label_id = payload.pop("label_id")
+    result = await _ws_call({"type": "config/label_registry/update", "label_id": label_id, **payload})
+    name = result.get("name") if isinstance(result, dict) else label_id
+    _invalidate_registry_cache()
+    return f"OK: updated label {name} (label_id={label_id})"
+
+
 async def _list_devices(args: dict) -> str:
-    _entities, areas, devices = await _fetch_registry_bundle()
+    _entities, areas, devices, _labels = await _fetch_registry_bundle()
     area_labels, _area_names = et.index_areas(areas)
     search = (args.get("search") or "").strip().lower()
     if search:
@@ -966,13 +1130,34 @@ async def _get_device(args: dict) -> str:
     device_id = (args.get("device_id") or "").strip()
     if not device_id:
         return "Error: device_id is required"
-    entities, areas, devices = await _fetch_registry_bundle()
+    entities, areas, devices, _labels = await _fetch_registry_bundle()
     area_labels, _area_names = et.index_areas(areas)
     device = next((row for row in devices if isinstance(row, dict) and row.get("id") == device_id), None)
     if not device:
         return f"Error: no device with id {device_id}"
     linked = [row for row in entities if isinstance(row, dict) and row.get("device_id") == device_id]
     return et.format_device_detail(device, area_labels, linked)
+
+
+async def _update_device(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    _entities, areas, _devices, labels = await _fetch_registry_bundle()
+    _area_labels, area_names = et.index_areas(areas)
+    _label_labels, label_names = et.index_labels(labels)
+    payload = et.build_device_update_payload(args, area_names, label_names)
+    if not payload.get("device_id"):
+        return "Error: device_id is required"
+    if len(payload) <= 1:
+        return "Error: provide at least one of name_by_user, area_id, area_name, labels, disabled"
+    result = await _ws_call({"type": "config/device_registry/update", **payload})
+    device_id = payload["device_id"]
+    name = ""
+    if isinstance(result, dict):
+        name = str(result.get("name_by_user") or result.get("name") or "")
+    _invalidate_registry_cache()
+    suffix = f" ({name})" if name else ""
+    return f"OK: updated device {device_id}{suffix}"
 
 
 async def _set_state(args: dict) -> str:
@@ -1556,8 +1741,14 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_get_entity_registry": _get_entity_registry,
     "ha_update_entity": _update_entity,
     "ha_list_areas": _list_areas,
+    "ha_create_area": _create_area,
+    "ha_update_area": _update_area,
+    "ha_list_labels": _list_labels,
+    "ha_create_label": _create_label,
+    "ha_update_label": _update_label,
     "ha_list_devices": _list_devices,
     "ha_get_device": _get_device,
+    "ha_update_device": _update_device,
     "ha_set_state": _set_state,
     "ha_system_info": _system_info,
     "ha_get_logs": _get_logs,

@@ -13,6 +13,8 @@ Entities (live state via REST):
 - Find: ha_list_entities (search, domain, area_name, offset; registry columns when available) → ha_get_state
 - Registry metadata: ha_list_entity_registry / ha_get_entity_registry — names, areas, devices, disabled/hidden
 - Rename/move/disable: ha_update_entity (confirm=true); resolve area with ha_list_areas
+- Rooms: ha_create_area / ha_update_area; labels: ha_list_labels → ha_create_label → assign on entity/device
+- Move device + all its entities: ha_update_device (area_name/area_id, confirm=true)
 - Helpers only: ha_set_state for input_* / counter / timer — devices use ha_call_service
 - Act: ha_list_services(domain=…) → ha_call_service → ha_get_state to verify
 - area_id in registry, not state.attributes — use ha_list_areas for room names
@@ -41,11 +43,17 @@ HA_ENTITY_TOOLS = frozenset({
     "ha_list_areas",
     "ha_list_devices",
     "ha_get_device",
+    "ha_list_labels",
 })
 
 HA_REGISTRY_MUTATING_TOOLS = frozenset({
     "ha_update_entity",
     "ha_set_state",
+    "ha_create_area",
+    "ha_update_area",
+    "ha_create_label",
+    "ha_update_label",
+    "ha_update_device",
 })
 
 _STATE_SET_DOMAINS = frozenset({
@@ -322,6 +330,42 @@ def resolve_area_id(
     return None
 
 
+def index_labels(labels: list[dict]) -> tuple[dict[str, str], dict[str, str]]:
+    by_id: dict[str, str] = {}
+    by_name: dict[str, str] = {}
+    for row in labels:
+        if not isinstance(row, dict):
+            continue
+        label_id = str(row.get("label_id") or row.get("id") or "").strip()
+        name = str(row.get("name") or "").strip()
+        if label_id:
+            by_id[label_id] = name or label_id
+        if name:
+            by_name[name.lower()] = label_id
+    return by_id, by_name
+
+
+def resolve_label_ids(
+    label_names: dict[str, str],
+    labels: Any,
+) -> list[str] | None:
+    if labels is None:
+        return None
+    if not isinstance(labels, list):
+        return None
+    resolved: list[str] = []
+    for item in labels:
+        raw = str(item or "").strip()
+        if not raw:
+            continue
+        lower = raw.lower()
+        if lower in label_names:
+            resolved.append(label_names[lower])
+        else:
+            resolved.append(raw)
+    return resolved
+
+
 def merge_entities(
     states: list[dict],
     registry: dict[str, dict],
@@ -502,11 +546,26 @@ def format_registry_list(rows: list[dict], area_labels: dict[str, str]) -> str:
 def format_area_list(areas: list[dict]) -> str:
     if not areas:
         return "No areas."
-    lines = ["area_id|name"]
+    lines = ["area_id|name|icon"]
     for row in sorted(areas, key=lambda r: str(r.get("name") or "")):
         if not isinstance(row, dict):
             continue
-        lines.append(f"{row.get('area_id') or row.get('id') or '?'}|{row.get('name') or ''}")
+        lines.append(
+            f"{row.get('area_id') or row.get('id') or '?'}|{row.get('name') or ''}|{row.get('icon') or ''}"
+        )
+    return "\n".join(lines)
+
+
+def format_label_list(labels: list[dict]) -> str:
+    if not labels:
+        return "No labels."
+    lines = ["label_id|name|color|icon"]
+    for row in sorted(labels, key=lambda r: str(r.get("name") or "")):
+        if not isinstance(row, dict):
+            continue
+        lines.append(
+            f"{row.get('label_id') or row.get('id') or '?'}|{row.get('name') or ''}|{row.get('color') or ''}|{row.get('icon') or ''}"
+        )
     return "\n".join(lines)
 
 
@@ -548,7 +607,11 @@ def format_device_detail(device: dict, area_labels: dict[str, str], entities: li
     return "\n".join(lines)
 
 
-def build_entity_update_payload(args: dict, area_name_index: dict[str, str]) -> dict[str, Any]:
+def build_entity_update_payload(
+    args: dict,
+    area_name_index: dict[str, str],
+    label_name_index: dict[str, str] | None = None,
+) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     if args.get("name") is not None:
         payload["name"] = args.get("name")
@@ -557,7 +620,8 @@ def build_entity_update_payload(args: dict, area_name_index: dict[str, str]) -> 
     if args.get("icon") is not None:
         payload["icon"] = args.get("icon")
     if args.get("labels") is not None:
-        payload["labels"] = args.get("labels")
+        resolved = resolve_label_ids(label_name_index or {}, args.get("labels"))
+        payload["labels"] = resolved if resolved is not None else args.get("labels")
     area_id = resolve_area_id(
         area_name_index,
         area_id=args.get("area_id"),
@@ -576,6 +640,88 @@ def build_entity_update_payload(args: dict, area_name_index: dict[str, str]) -> 
     return payload
 
 
+def build_area_create_payload(args: dict, label_name_index: dict[str, str] | None = None) -> dict[str, Any]:
+    payload: dict[str, Any] = {"name": (args.get("name") or "").strip()}
+    if not payload["name"]:
+        return {}
+    for key in ("icon", "picture", "floor_id"):
+        if args.get(key) is not None:
+            payload[key] = args.get(key)
+    if args.get("labels") is not None:
+        resolved = resolve_label_ids(label_name_index or {}, args.get("labels"))
+        payload["labels"] = resolved if resolved is not None else args.get("labels")
+    return payload
+
+
+def build_area_update_payload(
+    args: dict,
+    label_name_index: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    area_id = (args.get("area_id") or "").strip()
+    if not area_id:
+        return {}
+    payload["area_id"] = area_id
+    for key in ("name", "icon", "picture", "floor_id"):
+        if args.get(key) is not None:
+            payload[key] = args.get(key)
+    if args.get("labels") is not None:
+        resolved = resolve_label_ids(label_name_index or {}, args.get("labels"))
+        payload["labels"] = resolved if resolved is not None else args.get("labels")
+    return payload
+
+
+def build_device_update_payload(
+    args: dict,
+    area_name_index: dict[str, str],
+    label_name_index: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    device_id = (args.get("device_id") or "").strip()
+    if not device_id:
+        return {}
+    payload["device_id"] = device_id
+    if args.get("name_by_user") is not None:
+        payload["name_by_user"] = args.get("name_by_user")
+    area_id = resolve_area_id(
+        area_name_index,
+        area_id=args.get("area_id"),
+        area_name=args.get("area_name"),
+    )
+    if args.get("area_id") is not None or args.get("area_name") is not None:
+        payload["area_id"] = area_id
+    if args.get("labels") is not None:
+        resolved = resolve_label_ids(label_name_index or {}, args.get("labels"))
+        payload["labels"] = resolved if resolved is not None else args.get("labels")
+    if args.get("disabled") is True:
+        payload["disabled_by"] = "user"
+    elif args.get("disabled") is False:
+        payload["disabled_by"] = None
+    return payload
+
+
+def build_label_create_payload(args: dict) -> dict[str, Any]:
+    payload: dict[str, Any] = {"name": (args.get("name") or "").strip()}
+    if not payload["name"]:
+        return {}
+    for key in ("color", "description", "icon"):
+        if args.get(key) is not None:
+            payload[key] = args.get(key)
+    return payload
+
+
+def build_label_update_payload(args: dict) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    label_id = (args.get("label_id") or "").strip()
+    if not label_id:
+        return {}
+    payload["label_id"] = label_id
+    for key in ("name", "color", "description", "icon"):
+        if args.get(key) is not None:
+            payload[key] = args.get(key)
+    return payload
+
+
 def can_set_state(entity_id: str) -> bool:
     return domain_of(entity_id) in _STATE_SET_DOMAINS
 
@@ -588,4 +734,6 @@ def entity_error_hint(tool_name: str, message: str) -> str | None:
         return "Use ha_list_entities or ha_list_entity_registry to find the correct entity_id."
     if "area" in lower and "unknown" in lower:
         return "Use ha_list_areas to resolve area_id from a room name."
+    if "label" in lower and ("unknown" in lower or "invalid" in lower):
+        return "Use ha_list_labels to resolve label_id from a label name."
     return None

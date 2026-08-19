@@ -48,5 +48,9 @@
       "platform": "input_boolean",
       "disabled_by": "user"
     }
+  ],
+  "labels": [
+    {"label_id": "lights", "name": "Lights", "color": "amber", "icon": "mdi:lightbulb"},
+    {"label_id": "climate", "name": "Climate", "color": "blue", "icon": "mdi:thermostat"}
   ]
 }
