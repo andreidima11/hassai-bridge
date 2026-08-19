@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.64-beta
+
+### Fix
+- **Grok + images** — grok-4/grok-4.6 no longer treated as vision models; image requests route to Vision LLM / global Grok vision secondary (same path as DeepSeek). Skip `generate_image` tool when the user attaches photos.
+
 ## 0.2.63-beta
 
 ### Fix
