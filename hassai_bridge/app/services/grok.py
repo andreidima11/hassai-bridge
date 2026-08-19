@@ -67,7 +67,15 @@ def resolve_thinking(
     }
 
 
-def apply_thinking_payload(payload: dict, thinking: dict | None, *, provider: dict | None = None) -> None:
+def apply_thinking_payload(payload: dict, thinking: dict | None, *, provider: dict | None = None, has_images: bool = False) -> None:
+    if has_images:
+        # Multimodal chat: keep reasoning low — high/xhigh + images can fail upstream.
+        payload["reasoning_effort"] = "low"
+        payload.pop("temperature", None)
+        payload.pop("presence_penalty", None)
+        payload.pop("frequency_penalty", None)
+        payload.pop("stop", None)
+        return
     if not thinking:
         return
     effort = thinking.get("effort") or "high"

@@ -22,6 +22,17 @@ def test_grok_resolve_thinking_max_uses_xhigh_on_46():
     assert out["effort"] == "xhigh"
 
 
+def test_grok_apply_thinking_low_on_multimodal():
+    payload = {"model": "grok-4.6", "messages": []}
+    grok.apply_thinking_payload(
+        payload,
+        {"effort": "xhigh", "enabled": True},
+        has_images=True,
+    )
+    assert payload["reasoning_effort"] == "low"
+    assert "temperature" not in payload
+
+
 def test_grok_cache_tokens_from_usage():
     hit, miss = grok.cache_tokens_from_usage({
         "prompt_tokens": 200,

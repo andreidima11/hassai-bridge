@@ -71,9 +71,10 @@ def test_provider_supports_vision():
     assert prov.provider_supports_vision({"model": "llama-3.1-8b"}) is False
     assert prov.provider_supports_vision({"model": "gpt-4o-mini", "supports_vision": False}) is False
     assert prov.provider_supports_vision({"model": "llama-3.1-8b", "supports_vision": True}) is True
-    assert prov.provider_supports_vision({"type": "grok", "model": "grok-4.6"}) is False
+    assert prov.provider_supports_vision({"type": "grok", "model": "grok-4.6"}) is True
     assert prov.provider_supports_vision({"type": "grok", "model": "grok-2-vision-1212"}) is True
-    assert prov.provider_supports_vision({"type": "grok", "model": "grok-4.6", "supports_vision": True}) is True
+    assert prov.provider_supports_vision({"type": "grok", "model": "grok-4.6", "supports_vision": False}) is False
+    assert prov.provider_supports_vision({"type": "grok", "model": ""}) is False
 
 
 def test_recall_provider_uses_image_provider_when_set():
