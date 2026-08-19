@@ -827,6 +827,8 @@ function renderProvidersList() {
     const activeClass = isActive ? ' provider-active' : '';
     const secProv = p.secondary_provider ? _allSecondaryProviders.find(x => x.id === p.secondary_provider) : null;
     const secLabel = secProv ? `<span class="provider-secondary-badge">${t('settings.secondaryShort')}: ${escapeHtml(secProv.name)}</span>` : '';
+    const visProv = p.vision_provider ? _allSecondaryProviders.find(x => x.id === p.vision_provider) : null;
+    const visLabel = visProv ? `<span class="provider-secondary-badge">${t('settings.visionShort')}: ${escapeHtml(visProv.name)}</span>` : '';
     return `
       <div class="provider-item${activeClass}">
         <div class="provider-info">
@@ -834,6 +836,7 @@ function renderProvidersList() {
             ${isActive ? '✅ ' : ''}${escapeHtml(p.name)}
             <span class="provider-type-badge">${escapeHtml(typeLabel)}</span>
             ${secLabel}
+            ${visLabel}
           </div>
           <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
         </div>
@@ -854,6 +857,14 @@ function _populateSecondarySelect(excludeId) {
   }
 }
 
+function _populateVisionSelect() {
+  const sel = document.getElementById('provVision');
+  sel.innerHTML = `<option value="">${t('settings.noVision')}</option>`;
+  for (const p of _allSecondaryProviders) {
+    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
+  }
+}
+
 function openAddProvider() {
   _editingProviderId = null;
   document.getElementById('providerFormTitle').textContent = t('settings.addProvider');
@@ -869,6 +880,8 @@ function openAddProvider() {
   document.getElementById('provEcoMode').checked = false;
   _populateSecondarySelect(null);
   document.getElementById('provSecondary').value = '';
+  _populateVisionSelect();
+  document.getElementById('provVision').value = '';
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   document.getElementById('provTestSection').style.display = 'none';
   document.getElementById('provTestResult').style.display = 'none';
@@ -894,6 +907,8 @@ function editProvider(id) {
   document.getElementById('provEcoMode').checked = !!p.eco_mode;
   _populateSecondarySelect(id);
   document.getElementById('provSecondary').value = p.secondary_provider || '';
+  _populateVisionSelect();
+  document.getElementById('provVision').value = p.vision_provider || '';
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   document.getElementById('provTestSection').style.display = '';
   document.getElementById('provTestResult').style.display = 'none';
@@ -956,6 +971,7 @@ async function saveProvider() {
     temperature: parseFloat(document.getElementById('provTemperature').value) || 0.7,
     system_prompt: document.getElementById('provSystemPrompt').value.trim(),
     secondary_provider: document.getElementById('provSecondary').value || '',
+    vision_provider: document.getElementById('provVision').value || '',
     eco_mode: document.getElementById('provEcoMode').checked,
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }

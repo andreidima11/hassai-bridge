@@ -98,10 +98,10 @@ def _recall_provider(
     active: dict,
     secondary: dict | None,
     *,
-    keep_on_primary: bool = False,
+    image_provider: dict | None = None,
 ) -> dict:
-    if keep_on_primary:
-        return active
+    if image_provider is not None:
+        return image_provider
     names = _tool_names(tool_calls)
     if any(
         name in lt.HA_LOVELACE_TOOLS
@@ -117,13 +117,13 @@ def _vision_required_error(cfg: dict) -> JSONResponse:
     lang = cfg.get("language") or "en"
     if lang == "ro":
         message = (
-            "Providerul activ nu suportă imagini. Alege un model vision "
-            "(ex. gpt-4o-mini) la providerul principal — nu folosim providerul secundar pentru poze."
+            "Providerul activ nu suportă imagini. Configurează un LLM Vision sau un provider "
+            "auxiliar (secundar) pentru poze, sau alege un model vision la providerul principal."
         )
     else:
         message = (
-            "The active provider/model does not support images. Choose a vision-capable model "
-            "on the primary provider — images are not routed to the secondary provider."
+            "The active provider/model does not support images. Configure a Vision LLM or "
+            "auxiliary (secondary) provider for images, or choose a vision-capable primary model."
         )
     return JSONResponse(
         status_code=400,
@@ -1611,9 +1611,19 @@ async def chat_completions(request: Request):
     augmented = _trim_messages(augmented, max_ctx)
 
     request_has_images = cc.messages_have_images(augmented)
+    image_provider: dict | None = None
+    chat_provider = active
     if request_has_images and not providers.provider_supports_vision(active):
-        _trace_done(trace_id)
-        return _vision_required_error(cfg)
+        image_provider = providers.resolve_image_provider(active, secondary)
+        if not image_provider:
+            _trace_done(trace_id)
+            return _vision_required_error(cfg)
+        chat_provider = image_provider
+        log.info(
+            "[%s] Routing image request to %s (primary lacks vision)",
+            user_id,
+            chat_provider.get("name", "?"),
+        )
 
     # Log prompt size for optimization tracking
     _prompt_tokens = sum(_estimate_tokens(m.get("content")) for m in augmented)
@@ -1622,7 +1632,8 @@ async def chat_completions(request: Request):
     # ── First LLM call ──
     _req_start = time.time()
     _search_used = False
-    _secondary_used_for_recall = False  # tracks if secondary handled a re-call (search/skill)
+    _secondary_used_for_recall = False  # tracks if secondary/vision handled a re-call (search/skill)
+    _image_provider_used = image_provider is not None
     _trace_start(trace_id)
     activity_events: list[dict] = []
 
@@ -1645,13 +1656,13 @@ async def chat_completions(request: Request):
         await emit_think("think-0", "running")
         try:
             await _check_trace(trace_id)
-            result = await providers.chat_completion(augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active)
+            result = await providers.chat_completion(augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=chat_provider)
         except TraceCancelled:
             log.info("[%s] Chat cancelled trace=%s (before first call)", user_id, trace_id)
             _trace_done(trace_id)
             return JSONResponse(content=_cancelled_openai_response(model, activity_events))
         except Exception as e:
-            log.error(f"Provider [{active.get('name', '?')}] request failed: {e}")
+            log.error(f"Provider [{chat_provider.get('name', '?')}] request failed: {e}")
             _trace_done(trace_id)
             return JSONResponse(
                 status_code=502,
@@ -1699,9 +1710,11 @@ async def chat_completions(request: Request):
                     _search_used = True
 
                 re_provider = _recall_provider(
-                    internal_calls, active, secondary, keep_on_primary=request_has_images,
+                    internal_calls, active, secondary, image_provider=image_provider,
                 )
                 if secondary and re_provider is secondary:
+                    _secondary_used_for_recall = True
+                elif image_provider and re_provider is image_provider:
                     _secondary_used_for_recall = True
                 last = _round >= round_limit - 1
                 think_id = f"think-{_round + 1}"
@@ -1777,7 +1790,11 @@ async def chat_completions(request: Request):
         log.info(f"[{user_id}] Response: {len(assistant_content or '')} chars, {_elapsed_ms}ms, search={_search_used}")
         try:
             usage = result.get("usage", {})
-            stat_prov = secondary if _secondary_used_for_recall and secondary else active
+            stat_prov = (
+                image_provider
+                if _image_provider_used
+                else (secondary if _secondary_used_for_recall and secondary else active)
+            )
             add_usage_stat(
                 user_id=user_id, provider_id=stat_prov.get("id", ""),
                 provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
@@ -1788,7 +1805,7 @@ async def chat_completions(request: Request):
                 response_time_ms=int((time.time() - _req_start) * 1000),
                 stream=False, search_used=_search_used,
                 eco_mode=bool(active.get("eco_mode")),
-                secondary_used=_secondary_used_for_recall,
+                secondary_used=_image_provider_used or _secondary_used_for_recall,
             )
         except Exception:
             pass
@@ -1806,7 +1823,7 @@ async def chat_completions(request: Request):
         full_response = ""
         fingerprints: list[str] = []
         search_used = False
-        secondary_used = False
+        secondary_used = _image_provider_used
         rounds_left = _agent_max_rounds(cfg)
         sse_buf: list[str] = []
         round_i = 0
@@ -1820,7 +1837,7 @@ async def chat_completions(request: Request):
                 yield sse_buf.pop(0)
 
         current_gen = providers.chat_completion_stream(
-            augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active
+            augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=chat_provider
         )
 
         try:
@@ -1978,9 +1995,11 @@ async def chat_completions(request: Request):
 
                 await _check_trace(trace_id)
                 re_provider = _recall_provider(
-                    internal_tcs, active, secondary, keep_on_primary=request_has_images,
+                    internal_tcs, active, secondary, image_provider=image_provider,
                 )
                 if secondary and re_provider is secondary:
+                    secondary_used = True
+                elif image_provider and re_provider is image_provider:
                     secondary_used = True
                 if any(name in lt.HA_MUTATING_TOOLS for name in _tool_names(internal_tcs)) and rounds_left <= 1:
                     rounds_left += 1
@@ -2007,7 +2026,11 @@ async def chat_completions(request: Request):
             _stream_elapsed = int((time.time() - _req_start) * 1000)
             log.info(f"[{user_id}] Stream response: {len(full_response)} chars, {_stream_elapsed}ms, search={search_used}")
             try:
-                stat_prov = secondary if secondary_used and secondary else active
+                stat_prov = (
+                    image_provider
+                    if _image_provider_used
+                    else (secondary if secondary_used and secondary else active)
+                )
                 add_usage_stat(
                     user_id=user_id, provider_id=stat_prov.get("id", ""),
                     provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),

@@ -239,7 +239,7 @@ async def update_provider(provider_id: str, data: dict):
     cfg = load_config()
     for p in cfg.get("providers", []):
         if p["id"] == provider_id:
-            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "eco_mode"):
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "eco_mode"):
                 if key in data:
                     p[key] = data[key]
             save_config(cfg)
@@ -374,6 +374,8 @@ async def delete_secondary_provider(provider_id: str):
     for p in cfg.get("providers", []):
         if p.get("secondary_provider") == provider_id:
             p["secondary_provider"] = ""
+        if p.get("vision_provider") == provider_id:
+            p["vision_provider"] = ""
     save_config(cfg)
     return {"status": "ok"}
 
