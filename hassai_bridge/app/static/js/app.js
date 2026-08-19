@@ -2297,6 +2297,10 @@ async function deleteCurrentSession() {
 }
 
 // ── Init ──
+(function wireBackToChat() {
+  const link = document.getElementById('backToChatLink');
+  if (link) link.href = `${API || ''}/`;
+})();
 loadSystemInfo();
 loadSettings();
 refreshConvUsers();
