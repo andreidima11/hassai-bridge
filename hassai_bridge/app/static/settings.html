@@ -154,7 +154,7 @@
           </div>
         </div>
         <div class="card" style="flex:1;min-width:280px">
-          <h2>⚡ <span data-i18n="stats.kvCache">KV Cache (DeepSeek)</span></h2>
+          <h2>⚡ <span data-i18n="stats.kvCache">Prompt Cache</span></h2>
           <div class="stats-overview-grid">
             <div class="info-stat"><div class="info-stat-num" id="statsCacheHit">—</div><div class="info-stat-lbl" data-i18n="stats.cacheHitTokens">Cache Hit Tokens</div></div>
             <div class="info-stat"><div class="info-stat-num" id="statsCacheMiss">—</div><div class="info-stat-lbl" data-i18n="stats.cacheMissTokens">Cache Miss Tokens</div></div>
@@ -191,6 +191,10 @@
         <div class="card" style="flex:1;min-width:280px">
           <h2 data-i18n="stats.modelDetails">Model Details</h2>
           <div id="statsModelTable" class="stats-detail-table"></div>
+        </div>
+        <div class="card" style="flex:1;min-width:280px">
+          <h2 data-i18n="stats.cacheByModel">Cache by Model</h2>
+          <div id="statsCacheModelTable" class="stats-detail-table"></div>
         </div>
       </div>
 

@@ -713,7 +713,9 @@ def get_usage_stats(days=30):
             """SELECT model, provider_name, provider_type,
                       COUNT(*) as requests,
                       COALESCE(SUM(tokens_total),0) as tokens,
-                      CAST(AVG(response_time_ms) AS INTEGER) as avg_response_ms
+                      CAST(AVG(response_time_ms) AS INTEGER) as avg_response_ms,
+                      COALESCE(SUM(cache_hit_tokens),0) as cache_hit_tokens,
+                      COALESCE(SUM(cache_miss_tokens),0) as cache_miss_tokens
                FROM usage_stats WHERE created_at >= ?
                GROUP BY model
                ORDER BY requests DESC""", (cutoff,)

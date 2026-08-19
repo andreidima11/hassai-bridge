@@ -579,10 +579,14 @@ async function loadUsageStats() {
     document.getElementById('statsSecondaryRequests').textContent = _formatNumber(sec.requests || 0);
     document.getElementById('statsSecondaryTokens').textContent = _formatNumber(sec.tokens || 0);
 
-    // KV cache stats (DeepSeek)
+    // Prompt cache stats (aggregate)
     const kv = stats.kv_cache || {};
     document.getElementById('statsCacheHit').textContent = _formatNumber(kv.hit_tokens || 0);
     document.getElementById('statsCacheMiss').textContent = _formatNumber(kv.miss_tokens || 0);
+
+    const modelsWithCache = (stats.by_model || []).filter(
+      (m) => (m.cache_hit_tokens || 0) > 0 || (m.cache_miss_tokens || 0) > 0,
+    );
 
     _cachedUsageStats = stats;
     _renderUsageCharts(stats);
@@ -600,14 +604,33 @@ async function loadUsageStats() {
 
     // Model detail table
     document.getElementById('statsModelTable').innerHTML = stats.by_model.length
-      ? stats.by_model.map(m => `
+      ? stats.by_model.map(m => {
+        const cacheBits = [];
+        if ((m.cache_hit_tokens || 0) > 0) cacheBits.push(`${t('stats.cacheHitShort')}: ${_formatNumber(m.cache_hit_tokens)}`);
+        if ((m.cache_miss_tokens || 0) > 0) cacheBits.push(`${t('stats.cacheMissShort')}: ${_formatNumber(m.cache_miss_tokens)}`);
+        const cacheMeta = cacheBits.length ? `<span class="stats-detail-meta">${cacheBits.join(' · ')}</span>` : '';
+        return `
         <div class="stats-detail-row">
           <span class="stats-detail-name">${escapeHtml(m.model)} <span class="stats-detail-badge">${escapeHtml(m.provider_type)}</span></span>
           <span class="stats-detail-num">${m.requests} req</span>
           <span class="stats-detail-meta">${_formatNumber(m.tokens)} tok</span>
           <span class="stats-detail-meta">${_formatMs(m.avg_response_ms)} avg</span>
-        </div>`).join('')
+          ${cacheMeta}
+        </div>`;
+      }).join('')
       : `<p class="card-muted">${t('stats.noData')}</p>`;
+
+    const cacheModelTable = document.getElementById('statsCacheModelTable');
+    if (cacheModelTable) {
+      cacheModelTable.innerHTML = modelsWithCache.length
+        ? modelsWithCache.map(m => `
+          <div class="stats-detail-row">
+            <span class="stats-detail-name">${escapeHtml(m.model)}</span>
+            <span class="stats-detail-meta">${t('stats.cacheHitShort')}: ${_formatNumber(m.cache_hit_tokens || 0)}</span>
+            <span class="stats-detail-meta">${t('stats.cacheMissShort')}: ${_formatNumber(m.cache_miss_tokens || 0)}</span>
+          </div>`).join('')
+        : `<p class="card-muted">${t('stats.noCacheData')}</p>`;
+    }
 
     // User detail table
     document.getElementById('statsUserTable').innerHTML = stats.by_user.length
@@ -847,11 +870,27 @@ const PROVIDER_TYPE_LABELS = {
 
 const PROVIDER_TYPE_URLS = {
   local: 'http://localhost:1234',
-  openai: 'https://api.openai.com',
-  grok: 'https://api.x.ai/v1/chat/completions',
-  deepseek: 'https://api.deepseek.com/chat/completions',
+  openai: 'https://api.openai.com/v1',
+  grok: 'https://api.x.ai/v1',
+  deepseek: 'https://api.deepseek.com/v1',
   glm: 'https://api.z.ai/api/paas/v4',
 };
+
+const LEGACY_PROVIDER_URLS = [
+  'https://api.openai.com',
+  'https://api.openai.com/v1/chat/completions',
+  'https://api.x.ai',
+  'https://api.x.ai/v1/chat/completions',
+  'https://api.deepseek.com',
+  'https://api.deepseek.com/chat/completions',
+  'https://api.deepseek.com/v1/chat/completions',
+];
+
+function normalizeProviderUrl(url) {
+  return String(url || '')
+    .trim()
+    .replace(/\/(chat\/completions|completions|responses|models|embeddings|images\/generations|images\/edits)$/i, '');
+}
 
 const PROVIDER_TYPE_NAMES = {
   local: 'LM Studio',
@@ -946,7 +985,7 @@ function editProvider(id) {
   document.getElementById('providerFormTitle').textContent = t('settings.editProvider');
   document.getElementById('provType').value = p.type || 'local';
   document.getElementById('provName').value = p.name || '';
-  document.getElementById('provUrl').value = p.base_url || '';
+  document.getElementById('provUrl').value = normalizeProviderUrl(p.base_url) || p.base_url || '';
   document.getElementById('provApiKey').value = p.api_key || '';
   document.getElementById('provModel').value = p.model || '';
   document.getElementById('provTimeout').value = p.timeout || 120;
@@ -999,7 +1038,7 @@ function onProvTypeChange() {
   // Pre-fill URL if empty or still a known default
   const urlField = document.getElementById('provUrl');
   const currentUrl = urlField.value.trim();
-  const defaultUrls = Object.values(PROVIDER_TYPE_URLS);
+  const defaultUrls = [...Object.values(PROVIDER_TYPE_URLS), ...LEGACY_PROVIDER_URLS];
   if (!currentUrl || defaultUrls.includes(currentUrl)) {
     urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
   }
@@ -1241,7 +1280,7 @@ function editSecondaryProvider(id) {
   document.getElementById('secProviderFormTitle').textContent = t('settings.editSecondaryProvider');
   document.getElementById('secProvType').value = p.type || 'local';
   document.getElementById('secProvName').value = p.name || '';
-  document.getElementById('secProvUrl').value = p.base_url || '';
+  document.getElementById('secProvUrl').value = normalizeProviderUrl(p.base_url) || p.base_url || '';
   document.getElementById('secProvApiKey').value = p.api_key || '';
   document.getElementById('secProvModel').value = p.model || '';
   document.getElementById('secProvTimeout').value = p.timeout || 120;
@@ -1284,7 +1323,7 @@ function onSecProvTypeChange() {
   const ptype = document.getElementById('secProvType').value;
   const urlField = document.getElementById('secProvUrl');
   const currentUrl = urlField.value.trim();
-  const defaultUrls = Object.values(PROVIDER_TYPE_URLS);
+  const defaultUrls = [...Object.values(PROVIDER_TYPE_URLS), ...LEGACY_PROVIDER_URLS];
   if (!currentUrl || defaultUrls.includes(currentUrl)) {
     urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
   }

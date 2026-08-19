@@ -43,7 +43,7 @@ PROVIDER_PRESETS = {
     },
     "openai": {
         "name": "OpenAI",
-        "base_url": "https://api.openai.com",
+        "base_url": "https://api.openai.com/v1",
         "requires_key": True,
     },
     "grok": {
@@ -53,7 +53,7 @@ PROVIDER_PRESETS = {
     },
     "deepseek": {
         "name": "DeepSeek",
-        "base_url": "https://api.deepseek.com",
+        "base_url": "https://api.deepseek.com/v1",
         "requires_key": True,
     },
     "glm": {
@@ -183,6 +183,11 @@ def _build_headers(provider: dict, *, extra: dict | None = None) -> dict:
     if extra:
         headers.update(extra)
     return headers
+
+
+def normalize_provider_base_url(raw: str) -> str:
+    """Normalize a user-entered provider base URL (strip endpoint paths)."""
+    return _normalize_base_url(str(raw or "").strip())
 
 
 def _normalize_base_url(raw: str) -> str:
