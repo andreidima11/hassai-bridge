@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.63-beta
+
+### Fix
+- **HA Companion app** — photo attach in chat via server upload; draft attachments survive WebView reload after gallery picker (mobile browser unchanged)
+
 ## 0.2.62-beta
 
 ### Fix
