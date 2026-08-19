@@ -17,6 +17,17 @@ def test_content_text_from_multimodal():
     assert cc.has_images(content) is True
 
 
+def test_save_uploaded_file_png(tmp_path, monkeypatch):
+    monkeypatch.setattr(cm, "UPLOADS_ROOT", tmp_path / "uploads")
+    tiny = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    att = cm.save_uploaded_file("tester", tiny, filename="dot.png", content_type="image/png")
+    assert att["id"]
+    assert att["mime"] == "image/png"
+    assert cm.resolve_attachment_path("tester", att["id"]).is_file()
+
+
 def test_build_multimodal_content_from_attachments(tmp_path, monkeypatch):
     monkeypatch.setattr(cm, "UPLOADS_ROOT", tmp_path)
     user_id = "tester"

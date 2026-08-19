@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowUpIcon, ImageIcon, StopIcon, XIcon } from "./Icons.jsx";
-import { MAX_CHAT_IMAGES, prepareImageFile } from "../lib/images.js";
+import { isHaCompanionApp, MAX_CHAT_IMAGES, prepareImageFile } from "../lib/images.js";
 import { ProviderQuickSettings } from "./ProviderQuickSettings.jsx";
 
 export function Composer({
@@ -30,13 +31,14 @@ export function Composer({
   onPickerOpen,
   onPickerSettled,
 }) {
-  const attachInputId = "hassai-chat-attach";
+  const attachInputId = useId();
   const ref = useRef(null);
   const fileRef = useRef(null);
-  const pickingRef = useRef(false);
   const processingRef = useRef(false);
   const [tall, setTall] = useState(false);
   const [attachError, setAttachError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const companionApp = isHaCompanionApp();
 
   useEffect(() => {
     const el = ref.current;
@@ -48,10 +50,9 @@ export function Composer({
   }, [value, attachments]);
 
   const canSend = Boolean(value.trim()) || (attachments?.length || 0) > 0;
-  const attachDisabled = busy || (attachments?.length || 0) >= MAX_CHAT_IMAGES;
+  const attachDisabled = busy || uploading || (attachments?.length || 0) >= MAX_CHAT_IMAGES;
 
   const finishPicking = () => {
-    pickingRef.current = false;
     onPickerSettled?.();
   };
 
@@ -61,6 +62,7 @@ export function Composer({
       return;
     }
     setAttachError("");
+    setUploading(true);
     let added = 0;
     for (const file of files) {
       try {
@@ -79,6 +81,7 @@ export function Composer({
       }
     }
     if (added >= MAX_CHAT_IMAGES) setAttachError(maxImagesLabel);
+    setUploading(false);
     finishPicking();
   };
 
@@ -106,10 +109,26 @@ export function Composer({
     setAttachError("");
   };
 
+  const fileInput = (
+    <input
+      ref={fileRef}
+      id={attachInputId}
+      type="file"
+      accept="image/*"
+      multiple={!companionApp}
+      tabIndex={-1}
+      aria-hidden="true"
+      style={{ position: "fixed", top: "-10000px", left: 0, width: 1, height: 1, opacity: 0 }}
+      disabled={attachDisabled}
+      onChange={handleFileInput}
+    />
+  );
+
   return (
     <div className="sticky bottom-0 z-[1] mx-auto flex w-full max-w-4xl flex-col bg-background px-3 pb-3 md:px-4 md:pb-4">
+      {typeof document !== "undefined" ? createPortal(fileInput, document.body) : fileInput}
       <form
-        className={`flex w-full flex-col gap-2 overflow-hidden border border-white/[0.08] bg-composer px-3 shadow-composer transition-[border-radius] duration-200 focus-within:border-white/15 ${
+        className={`flex w-full flex-col gap-2 border border-white/[0.08] bg-composer px-3 shadow-composer transition-[border-radius] duration-200 focus-within:border-white/15 ${
           tall ? "rounded-3xl py-2" : "rounded-full py-1"
         }`}
         onSubmit={onSubmit}
@@ -119,7 +138,7 @@ export function Composer({
             {attachments.map((item) => (
               <div key={item.id} className="relative size-16 overflow-hidden rounded-xl border border-white/10 bg-black/20">
                 <img alt="" className="size-full object-cover" src={item.previewUrl || item.dataUrl} />
-                {!busy ? (
+                {!busy && !uploading ? (
                   <button
                     type="button"
                     className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-black/60 text-white/90 hover:bg-black/80"
@@ -136,28 +155,18 @@ export function Composer({
         ) : null}
         <div className={`flex w-full gap-2 ${tall ? "items-end" : "items-center"}`}>
           <label
+            htmlFor={attachInputId}
             className={`relative mb-0 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground ${
               attachDisabled ? "cursor-not-allowed opacity-40" : "cursor-pointer"
-            }`}
+            } ${uploading ? "animate-pulse" : ""}`}
             aria-label={attachLabel}
             title={attachLabel}
             onClick={() => {
               if (attachDisabled) return;
-              pickingRef.current = true;
               onPickerOpen?.();
             }}
           >
             <ImageIcon />
-            <input
-              ref={fileRef}
-              id={attachInputId}
-              type="file"
-              accept="image/*"
-              multiple
-              className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
-              disabled={attachDisabled}
-              onChange={handleFileInput}
-            />
           </label>
           <textarea
             ref={ref}
@@ -183,7 +192,7 @@ export function Composer({
           />
           <ProviderQuickSettings
             capabilities={providerCapabilities}
-            disabled={busy}
+            disabled={busy || uploading}
             lang={lang}
             model={providerModel}
             providerId={providerId}
