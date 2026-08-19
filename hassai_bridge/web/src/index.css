@@ -4,16 +4,17 @@
 
 :root {
   --radius: 1rem;
-  --background: #212121;
-  --foreground: #ececec;
-  --card: #2f2f2f;
-  --composer: #2f2f2f;
-  --muted: #2f2f2f;
-  --muted-foreground: #8f8f8f;
-  --secondary: #2f2f2f;
-  --border: #424242;
-  --sidebar: #171717;
-  --sidebar-foreground: #ececec;
+  /* Home Assistant default dark — synced with parent theme when in ingress */
+  --background: #111111;
+  --foreground: #e3e3e3;
+  --card: #1c1c1c;
+  --composer: #1c1c1c;
+  --muted: #1c1c1c;
+  --muted-foreground: #9b9b9b;
+  --secondary: #282828;
+  --border: rgba(255, 255, 255, 0.08);
+  --sidebar: #111111;
+  --sidebar-foreground: #e3e3e3;
   --destructive: #f87171;
   --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --shadow-card: none;
@@ -33,7 +34,7 @@ body,
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: var(--sidebar);
+  background: var(--background);
   color: var(--foreground);
 }
 
@@ -163,9 +164,9 @@ input:focus-visible {
 .thinking-shimmer {
   background: linear-gradient(
     90deg,
-    rgb(143 143 143 / 0.85) 0%,
-    rgb(236 236 236 / 0.95) 45%,
-    rgb(143 143 143 / 0.85) 100%
+    rgb(155 155 155 / 0.85) 0%,
+    rgb(227 227 227 / 0.95) 45%,
+    rgb(155 155 155 / 0.85) 100%
   );
   background-size: 200% 100%;
   -webkit-background-clip: text;

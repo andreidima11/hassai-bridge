@@ -2,6 +2,28 @@
 
 const API = (typeof window.HASSAI_BASE === "string" ? window.HASSAI_BASE : "").replace(/\/$/, "");
 
+(function syncHaThemeFromParent() {
+  const map = [
+    ['--primary-background-color', '--bg'],
+    ['--primary-background-color', '--bg2'],
+    ['--card-background-color', '--card'],
+    ['--primary-text-color', '--text'],
+    ['--secondary-text-color', '--muted'],
+    ['--divider-color', '--border'],
+  ];
+  try {
+    const parentRoot = window.parent?.document?.documentElement;
+    if (!parentRoot || parentRoot === document.documentElement) return;
+    const ps = getComputedStyle(parentRoot);
+    for (const [src, dst] of map) {
+      const val = ps.getPropertyValue(src).trim();
+      if (val) document.documentElement.style.setProperty(dst, val);
+    }
+  } catch {
+    /* unavailable */
+  }
+})();
+
 (function ensureFreshBuild() {
   const local = typeof window.HASSAI_BUILD === "string" ? window.HASSAI_BUILD : "";
   if (!local) return;
@@ -260,9 +282,7 @@ async function loadSystemInfo() {
 
     const footerVer = document.getElementById('footerVersion');
     const footerHa = document.getElementById('footerHaStatus');
-    const topbarStamp = document.getElementById('topbarStamp');
     if (footerVer) footerVer.textContent = info.version ? `v${info.version}` : '—';
-    if (topbarStamp) topbarStamp.textContent = info.version ? `v${info.version}` : '';
     if (footerHa) {
       const ha = info.home_assistant || {};
       footerHa.className = '';

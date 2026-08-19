@@ -1,9 +1,9 @@
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#212121;--bg2:#171717;--card:#2f2f2f;--border:#424242;
-  --accent:#ececec;--accent-hover:#fff;--accent-glow:rgba(255,255,255,.06);
-  --on-accent:#171717;
-  --text:#ececec;--muted:#8f8f8f;
+  --bg:#111111;--bg2:#111111;--card:#1c1c1c;--border:rgba(255,255,255,.08);
+  --accent:#e3e3e3;--accent-hover:#fff;--accent-glow:rgba(255,255,255,.06);
+  --on-accent:#111111;
+  --text:#e3e3e3;--muted:#9b9b9b;
   --success:#4ade80;--danger:#f87171;--warn:#fbbf24;
   --radius:16px;--shadow:none;
 }
@@ -18,7 +18,7 @@ body{
   display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;
   padding:10px 16px max(10px,env(safe-area-inset-bottom));
   font-size:.72rem;color:var(--muted);
-  background:linear-gradient(180deg,transparent,rgba(33,33,33,.94) 40%);
+  background:linear-gradient(180deg,transparent,rgba(17,17,17,.94) 40%);
   pointer-events:none;
 }
 .app-footer-sep{opacity:.45}
@@ -69,7 +69,7 @@ a:hover{text-decoration:underline;text-underline-offset:3px}
 .settings-chat,.icon-btn{box-sizing:border-box}
 
 /* ── Layout ── */
-.container{max-width:980px;margin:20px auto;padding:0 20px}
+.container{max-width:980px;margin:12px auto 20px;padding:0 20px}
 
 /* ── Tabs ── */
 .tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--card);border-radius:999px;padding:4px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}

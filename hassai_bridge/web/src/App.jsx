@@ -15,6 +15,7 @@ import {
   readError,
   startActivityPoll,
 } from "./lib/api.js";
+import { syncHaTheme } from "./lib/theme.js";
 import { finishThinkingLabel, persistLang, readStoredLang, tr } from "./lib/i18n.js";
 import { applyActivity, emptyThinking } from "./lib/thinking.js";
 
@@ -97,11 +98,14 @@ export default function App() {
   const traceIdRef = useRef("");
 
   useEffect(() => {
+    syncHaTheme();
+  }, []);
+
+  useEffect(() => {
     sessionIdRef.current = sessionId;
   }, [sessionId]);
 
   const t = useCallback((key, params) => tr(lang, key, params), [lang]);
-  const stamp = String(window.HASSAI_VERSION || "").replace(/^v?/, "v");
   const settingsHref = `${window.HASSAI_BASE || ""}/settings`;
 
   const listedSessions = useMemo(() => {
@@ -373,19 +377,10 @@ export default function App() {
         onOpen={openSession}
       />
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-sidebar">
-        <header className="sticky top-0 flex h-12 shrink-0 items-center gap-2 bg-sidebar px-2">
-          <a
-            className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
-            href={settingsHref}
-            aria-label={t("settings")}
-            title={t("settings")}
-          >
-            <GearIcon />
-          </a>
-          <span className="flex-1 text-center text-[11px] tracking-wide text-muted-foreground/40">{stamp}</span>
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between p-2">
           <button
-            className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
+            className="pointer-events-auto grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
             type="button"
             onClick={() => setSidebarOpen((v) => !v)}
             aria-label={t("chats")}
@@ -393,10 +388,17 @@ export default function App() {
           >
             <ChatWindowIcon />
           </button>
-        </header>
+          <a
+            className="pointer-events-auto grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
+            href={settingsHref}
+            aria-label={t("settings")}
+            title={t("settings")}
+          >
+            <GearIcon />
+          </a>
+        </div>
 
-        {/* vercel/chatbot ChatShell: relative flex min-h-0 flex-1 flex-col overflow-hidden */}
-        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+        <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <Messages
             greeting={
               <div className="flex flex-col items-center px-4">
