@@ -588,6 +588,74 @@ def mutate_card_in_view(
     return action, removed
 
 
+def normalize_dashboard_url_path(value: str | None) -> str:
+    return (value or "").strip().strip("/").lower().replace("_", "-")
+
+
+def match_dashboard(rows: list[Any], args: dict) -> dict:
+    """Find a dashboard row from lovelace/dashboards/list by id, url_path, or title."""
+    dashboards = [row for row in rows if isinstance(row, dict)]
+    if not dashboards:
+        raise RuntimeError("no dashboards in list")
+
+    dashboard_id = str(args.get("dashboard_id") or "").strip()
+    if dashboard_id:
+        for row in dashboards:
+            if str(row.get("id") or "") == dashboard_id:
+                return row
+        raise RuntimeError(
+            f"no dashboard with id '{dashboard_id}'. Use ha_list_dashboards."
+        )
+
+    raw_path = str(args.get("url_path") or "").strip()
+    if raw_path:
+        target = normalize_dashboard_url_path(raw_path)
+        exact = [
+            row for row in dashboards
+            if normalize_dashboard_url_path(str(row.get("url_path") or "")) == target
+        ]
+        if len(exact) == 1:
+            return exact[0]
+        if len(exact) > 1:
+            raise RuntimeError(f"multiple dashboards match url_path '{raw_path}'")
+
+        partial = [
+            row for row in dashboards
+            if target in normalize_dashboard_url_path(str(row.get("url_path") or ""))
+            or normalize_dashboard_url_path(str(row.get("url_path") or "")) in target
+        ]
+        if len(partial) == 1:
+            return partial[0]
+
+        available = ", ".join(
+            f"{row.get('url_path')} (id={row.get('id')})" for row in dashboards[:8]
+        )
+        raise RuntimeError(
+            f"no dashboard with url_path '{raw_path}'. Available: {available}. "
+            "Use ha_list_dashboards and pass dashboard_id."
+        )
+
+    title = str(args.get("title") or "").strip().lower()
+    if title:
+        matches = [
+            row for row in dashboards
+            if title in str(row.get("title") or "").lower()
+        ]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            names = ", ".join(
+                f"{row.get('title')} ({row.get('url_path')}, id={row.get('id')})"
+                for row in matches
+            )
+            raise RuntimeError(f"ambiguous title '{args.get('title')}': {names}")
+        raise RuntimeError(f"no dashboard with title matching '{args.get('title')}'")
+
+    raise RuntimeError(
+        "provide dashboard_id, url_path, or title (from ha_list_dashboards)"
+    )
+
+
 def dashboard_error_hint(tool_name: str, message: str) -> str | None:
     lower = message.lower()
     if any(token in lower for token in ("storage mode", "yaml mode", "not in storage", "yaml only")):

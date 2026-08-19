@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.40-beta
+
+- **Fix `ha_delete_dashboard` / `ha_update_dashboard`:** Home Assistant requires `dashboard_id` (from `ha_list_dashboards`), not `url_path`
+- Lookup accepts `dashboard_id`, `url_path` (underscores → hyphens), or title (delete only)
+
 ## 0.2.39-beta
 
 - New Lovelace tools: `ha_delete_view`, `ha_update_dashboard`, `ha_delete_dashboard`, `ha_list_lovelace_resources`, `ha_append_card_yaml`
