@@ -482,9 +482,9 @@ export default function App() {
       />
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-start justify-between p-2">
+        <header className="flex shrink-0 items-center justify-between p-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
           <button
-            className="pointer-events-auto grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
+            className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
             type="button"
             onClick={() => setSidebarOpen((v) => !v)}
             aria-label={t("chats")}
@@ -493,14 +493,14 @@ export default function App() {
             <ChatWindowIcon />
           </button>
           <a
-            className="pointer-events-auto grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
+            className="grid size-9 place-items-center rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
             href={settingsHref}
             aria-label={t("settings")}
             title={t("settings")}
           >
             <GearIcon />
           </a>
-        </div>
+        </header>
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <Messages
