@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { resolveMediaUrl } from "../lib/api.js";
 
 const REMARK_PLUGINS = [remarkGfm];
 
@@ -69,7 +70,9 @@ function makeComponents(copyLabel, copiedLabel) {
       );
     },
     img({ src, alt }) {
-      return <img alt={alt || ""} className="my-2 max-h-80 max-w-full rounded-xl" src={src} />;
+      return (
+        <img alt={alt || ""} className="my-2 max-h-80 max-w-full rounded-xl border border-white/10" src={resolveMediaUrl(src)} />
+      );
     },
     input({ type, checked, ...props }) {
       if (type === "checkbox") {

@@ -7,6 +7,14 @@ export function apiUrl(path) {
   return API + path;
 }
 
+/** Resolve chat media and API paths for HA Ingress (relative /api/... URLs). */
+export function resolveMediaUrl(src) {
+  const raw = String(src || "").trim();
+  if (!raw) return raw;
+  if (raw.startsWith("/api/") || raw.startsWith("/v1/")) return apiUrl(raw);
+  return raw;
+}
+
 export async function apiJson(path, opts = {}) {
   const resp = await fetch(API + path, {
     credentials: "same-origin",
