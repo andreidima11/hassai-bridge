@@ -441,13 +441,20 @@ def _activity_meta(
     return meta or None
 
 
-def _markdown_for_generated_attachments(attachments: list[dict], session_id: str | None = None) -> str:
+def _markdown_for_generated_attachments(
+    attachments: list[dict],
+    session_id: str | None = None,
+    existing_text: str = "",
+) -> str:
     parts: list[str] = []
+    haystack = existing_text or ""
     for att in attachments or []:
         att_id = str(att.get("id") or "").strip()
         if not att_id:
             continue
         url = cm.attachment_public_url(att_id, session_id or "")
+        if att_id in haystack or url in haystack:
+            continue
         parts.append(f"![Generated image]({url})")
     return "\n\n".join(parts)
 
@@ -1920,7 +1927,9 @@ async def chat_completions(request: Request):
                 del final_msg["tool_calls"]
 
         assistant_content = final_msg.get("content", "") or ""
-        image_markdown = _markdown_for_generated_attachments(generated_attachments, session_id)
+        image_markdown = _markdown_for_generated_attachments(
+            generated_attachments, session_id, assistant_content,
+        )
         if image_markdown and image_markdown not in assistant_content:
             assistant_content = (
                 f"{assistant_content}\n\n{image_markdown}".strip()
@@ -2175,7 +2184,7 @@ async def chat_completions(request: Request):
                     search_used = True
                 new_generated = generated_attachments[prev_generated:]
                 if new_generated:
-                    image_md = _markdown_for_generated_attachments(new_generated, session_id)
+                    image_md = _markdown_for_generated_attachments(new_generated, session_id, full_response)
                     if image_md:
                         full_response += (("\n\n" if full_response else "") + image_md)
                         yield _sse_content_delta(image_md)
