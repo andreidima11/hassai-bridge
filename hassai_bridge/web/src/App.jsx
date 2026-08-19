@@ -6,6 +6,7 @@ import { Sidebar } from "./components/Sidebar.jsx";
 import {
   apiJson,
   apiUrl,
+  cancelChat,
   ensureFreshBuild,
   extractText,
   newId,
@@ -30,6 +31,7 @@ async function completeNonStream(userText, sessionId, traceId, onActivity, signa
   const resp = await postChat(false, userText, sessionId, traceId, signal);
   if (!resp.ok) throw new Error(await readError(resp));
   const data = await resp.json();
+  if (data.hassai_cancelled) throw new DOMException("Aborted", "AbortError");
   if (Array.isArray(data.hassai_activity)) data.hassai_activity.forEach(onActivity);
   const text = extractText(data);
   if (!text) throw new Error("empty");
@@ -92,6 +94,7 @@ export default function App() {
   const hiddenAt = useRef(0);
   const abortRef = useRef(null);
   const stopPollRef = useRef(null);
+  const traceIdRef = useRef("");
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -225,6 +228,8 @@ export default function App() {
   }, [busy, startNewChat]);
 
   const stopGeneration = useCallback(() => {
+    const traceId = traceIdRef.current;
+    if (traceId) cancelChat(traceId).catch(() => {});
     abortRef.current?.abort();
     stopPollRef.current?.();
     stopPollRef.current = null;
@@ -266,6 +271,7 @@ export default function App() {
     const userMsg = { id: newId(), role: "user", content: text };
     const assistantId = newId();
     const traceId = `${newId()}${newId()}`;
+    traceIdRef.current = traceId;
     setMessages((prev) => [
       ...prev,
       userMsg,

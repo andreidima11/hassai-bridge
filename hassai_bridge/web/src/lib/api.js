@@ -59,6 +59,10 @@ export function ensureFreshBuild(serverBuild) {
   }
 }
 
+export function cancelChat(traceId) {
+  return apiJson(`/v1/chat/cancel/${encodeURIComponent(traceId)}`, { method: "POST" });
+}
+
 export function postChat(stream, userText, sessionId, traceId, signal) {
   return fetch(API + "/v1/chat/completions", {
     method: "POST",
@@ -83,7 +87,7 @@ export function startActivityPoll(traceId, onEvent) {
       const data = await apiJson(`/v1/chat/activity/${encodeURIComponent(traceId)}?after=${after}`);
       for (const ev of data.events || []) onEvent(ev);
       if (typeof data.after === "number") after = data.after;
-      if (data.done) return;
+      if (data.done || data.cancelled) return;
     } catch {
       /* retry */
     }

@@ -269,6 +269,14 @@ _TRACE_TTL = 600.0
 _traces: dict[str, dict] = {}
 
 
+class TraceCancelled(Exception):
+    """Raised when a chat trace is cancelled via /v1/chat/cancel."""
+
+    def __init__(self, trace_id: str = ""):
+        self.trace_id = trace_id
+        super().__init__("cancelled")
+
+
 def _sanitize_trace_id(raw) -> str:
     value = str(raw or "").strip()
     if re.fullmatch(r"[A-Za-z0-9_-]{8,48}", value):
@@ -287,7 +295,29 @@ def _trace_start(trace_id: str) -> None:
     if not trace_id:
         return
     _trace_gc()
-    _traces[trace_id] = {"events": [], "done": False, "ts": time.time()}
+    _traces[trace_id] = {"events": [], "done": False, "cancelled": False, "ts": time.time()}
+
+
+def _trace_cancelled(trace_id: str) -> bool:
+    if not trace_id or trace_id not in _traces:
+        return False
+    return bool(_traces[trace_id].get("cancelled"))
+
+
+def _trace_cancel(trace_id: str) -> bool:
+    if not trace_id or trace_id not in _traces:
+        return False
+    bucket = _traces[trace_id]
+    if bucket.get("done") or bucket.get("cancelled"):
+        return False
+    bucket["cancelled"] = True
+    bucket["ts"] = time.time()
+    return True
+
+
+async def _check_trace(trace_id: str) -> None:
+    if _trace_cancelled(trace_id):
+        raise TraceCancelled(trace_id)
 
 
 def _trace_push(trace_id: str, event: dict) -> dict:
@@ -345,6 +375,22 @@ def _trace_done(trace_id: str) -> None:
     if trace_id and trace_id in _traces:
         _traces[trace_id]["done"] = True
         _traces[trace_id]["ts"] = time.time()
+
+
+def _cancelled_openai_response(model, activity_events: list | None = None) -> dict:
+    return {
+        "id": f"cancel-{int(time.time())}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model or "hassai-bridge",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": ""},
+            "finish_reason": "stop",
+        }],
+        "hassai_cancelled": True,
+        "hassai_activity": activity_events or [],
+    }
 
 
 def _activity_sse(event: dict) -> str:
@@ -406,10 +452,12 @@ async def _append_internal_tool_results(
     search_enabled: bool,
     fingerprints: list[str],
     on_event=None,
+    trace_id: str = "",
 ) -> bool:
     """Append tool-role messages for internal calls. Returns search_used."""
     search_used = False
     for tc in tool_calls:
+        await _check_trace(trace_id)
         fn = tc.get("function") or {}
         fn_name = fn.get("name") or ""
         if fn_name not in _INTERNAL_TOOLS:
@@ -1257,7 +1305,7 @@ _API_KEY_PATTERN = re.compile(r"^hab_[a-f0-9]{32,64}$")
 _KEEPALIVE_INTERVAL = 3
 
 
-async def _stream_with_keepalive_sse(gen, interval: float = _KEEPALIVE_INTERVAL):
+async def _stream_with_keepalive_sse(gen, interval: float = _KEEPALIVE_INTERVAL, trace_id: str = ""):
     """Wrap an async generator with periodic SSE keepalive comments.
 
     Prevents client disconnect during long prompt processing by sending
@@ -1267,6 +1315,8 @@ async def _stream_with_keepalive_sse(gen, interval: float = _KEEPALIVE_INTERVAL)
     gen_iter = gen.__aiter__()
     next_task = None
     while True:
+        if trace_id and _trace_cancelled(trace_id):
+            raise TraceCancelled(trace_id)
         if next_task is None:
             next_task = asyncio.ensure_future(gen_iter.__anext__())
         try:
@@ -1274,6 +1324,8 @@ async def _stream_with_keepalive_sse(gen, interval: float = _KEEPALIVE_INTERVAL)
             next_task = None
             yield chunk
         except asyncio.TimeoutError:
+            if trace_id and _trace_cancelled(trace_id):
+                raise TraceCancelled(trace_id)
             # Upstream read still in progress — send keepalive without cancelling it
             yield ": keepalive\n\n"
         except StopAsyncIteration:
@@ -1339,7 +1391,27 @@ async def chat_activity(trace_id: str, request: Request, after: int = -1):
         return {"events": [], "after": after, "done": False}
     events = [ev for ev in bucket["events"] if int(ev.get("i", 0)) > after]
     last = events[-1]["i"] if events else after
-    return {"events": events, "after": last, "done": bool(bucket.get("done"))}
+    return {
+        "events": events,
+        "after": last,
+        "done": bool(bucket.get("done")),
+        "cancelled": bool(bucket.get("cancelled")),
+    }
+
+
+@router.post("/v1/chat/cancel/{trace_id}")
+async def chat_cancel(trace_id: str, request: Request):
+    """Cancel an in-flight chat/agent trace (Stop button on Web UI)."""
+    _validate_api_key(request)
+    _trace_gc()
+    safe_id = _sanitize_trace_id(trace_id)
+    if not safe_id:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"message": "Invalid trace_id", "type": "invalid_request_error"}},
+        )
+    cancelled = _trace_cancel(safe_id)
+    return {"ok": True, "cancelled": cancelled}
 
 
 @router.post("/v1/chat/completions")
@@ -1502,7 +1574,12 @@ async def chat_completions(request: Request):
         think_t0 = time.time()
         await emit_think("think-0", "running")
         try:
+            await _check_trace(trace_id)
             result = await providers.chat_completion(augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active)
+        except TraceCancelled:
+            log.info("[%s] Chat cancelled trace=%s (before first call)", user_id, trace_id)
+            _trace_done(trace_id)
+            return JSONResponse(content=_cancelled_openai_response(model, activity_events))
         except Exception as e:
             log.error(f"Provider [{active.get('name', '?')}] request failed: {e}")
             _trace_done(trace_id)
@@ -1519,58 +1596,68 @@ async def chat_completions(request: Request):
         max_rounds = _agent_max_rounds(cfg)
         round_limit = max_rounds
         _round = 0
-        while _round < round_limit:
-            msg = result.get("choices", [{}])[0].get("message", {})
-            tool_calls = msg.get("tool_calls") or []
-            if not tool_calls:
-                break
+        try:
+            while _round < round_limit:
+                await _check_trace(trace_id)
+                msg = result.get("choices", [{}])[0].get("message", {})
+                tool_calls = msg.get("tool_calls") or []
+                if not tool_calls:
+                    break
 
-            internal_calls = [
-                tc for tc in tool_calls
-                if (tc.get("function") or {}).get("name") in _INTERNAL_TOOLS
-            ]
-            if not internal_calls:
-                msg["content"] = ""
-                _trace_done(trace_id)
-                result["hassai_activity"] = activity_events
-                return JSONResponse(content=result)
+                internal_calls = [
+                    tc for tc in tool_calls
+                    if (tc.get("function") or {}).get("name") in _INTERNAL_TOOLS
+                ]
+                if not internal_calls:
+                    msg["content"] = ""
+                    _trace_done(trace_id)
+                    result["hassai_activity"] = activity_events
+                    return JSONResponse(content=result)
 
-            round_limit = _maybe_extend_tool_rounds(internal_calls, _round, round_limit)
-            log.info("Agent round %s/%s — %s tool(s)", _round + 1, round_limit, len(internal_calls))
-            augmented.append(msg)
-            if await _append_internal_tool_results(
-                augmented,
-                internal_calls,
-                search_enabled=search_enabled,
-                fingerprints=fingerprints,
-                on_event=on_activity,
-            ):
-                _search_used = True
-
-            re_provider = _recall_provider(internal_calls, active, secondary)
-            if secondary and re_provider is secondary:
-                _secondary_used_for_recall = True
-            last = _round >= round_limit - 1
-            think_id = f"think-{_round + 1}"
-            think_t0 = time.time()
-            await emit_think(think_id, "running")
-            try:
-                result = await providers.chat_completion(
+                round_limit = _maybe_extend_tool_rounds(internal_calls, _round, round_limit)
+                log.info("Agent round %s/%s — %s tool(s)", _round + 1, round_limit, len(internal_calls))
+                augmented.append(msg)
+                if await _append_internal_tool_results(
                     augmented,
-                    model=model,
-                    tools=None if last else effective_tools,
-                    tool_choice=tool_choice,
-                    provider=re_provider,
-                )
-            except Exception as e:
-                log.error("Provider re-call failed (round %s): %s", _round + 1, e)
-                _trace_done(trace_id)
-                return JSONResponse(
-                    status_code=502,
-                    content={"error": {"message": "Provider request failed during tool loop.", "type": "upstream_error"}},
-                )
-            await emit_think(think_id, "done", think_t0)
-            _round += 1
+                    internal_calls,
+                    search_enabled=search_enabled,
+                    fingerprints=fingerprints,
+                    on_event=on_activity,
+                    trace_id=trace_id,
+                ):
+                    _search_used = True
+
+                re_provider = _recall_provider(internal_calls, active, secondary)
+                if secondary and re_provider is secondary:
+                    _secondary_used_for_recall = True
+                last = _round >= round_limit - 1
+                think_id = f"think-{_round + 1}"
+                think_t0 = time.time()
+                await emit_think(think_id, "running")
+                try:
+                    await _check_trace(trace_id)
+                    result = await providers.chat_completion(
+                        augmented,
+                        model=model,
+                        tools=None if last else effective_tools,
+                        tool_choice=tool_choice,
+                        provider=re_provider,
+                    )
+                except TraceCancelled:
+                    raise
+                except Exception as e:
+                    log.error("Provider re-call failed (round %s): %s", _round + 1, e)
+                    _trace_done(trace_id)
+                    return JSONResponse(
+                        status_code=502,
+                        content={"error": {"message": "Provider request failed during tool loop.", "type": "upstream_error"}},
+                    )
+                await emit_think(think_id, "done", think_t0)
+                _round += 1
+        except TraceCancelled:
+            log.info("[%s] Chat cancelled trace=%s (agent loop)", user_id, trace_id)
+            _trace_done(trace_id)
+            return JSONResponse(content=_cancelled_openai_response(model, activity_events))
 
         # If final result still has non-internal tool_calls, forward to client
         final_msg = result.get("choices", [{}])[0].get("message", {})
@@ -1664,6 +1751,7 @@ async def chat_completions(request: Request):
 
         try:
             while True:
+                await _check_trace(trace_id)
                 tc_accum: dict[int, dict] = {}
                 tc_chunks: list[str] = []
                 has_tool_calls = False
@@ -1674,7 +1762,7 @@ async def chat_completions(request: Request):
                 async for part in flush_activity():
                     yield part
 
-                async for chunk in _stream_with_keepalive_sse(current_gen):
+                async for chunk in _stream_with_keepalive_sse(current_gen, trace_id=trace_id):
                     if chunk.startswith("data: ") and chunk.strip() != "data: [DONE]":
                         try:
                             data = json.loads(chunk[6:])
@@ -1785,11 +1873,13 @@ async def chat_completions(request: Request):
                     search_enabled=search_enabled,
                     fingerprints=fingerprints,
                     on_event=on_stream_activity,
+                    trace_id=trace_id,
                 ):
                     search_used = True
                 async for part in flush_activity():
                     yield part
 
+                await _check_trace(trace_id)
                 re_provider = _recall_provider(internal_tcs, active, secondary)
                 if secondary and re_provider is secondary:
                     secondary_used = True
@@ -1832,6 +1922,11 @@ async def chat_completions(request: Request):
                 )
             except Exception:
                 pass
+        except TraceCancelled:
+            log.info("[%s] Stream cancelled trace=%s", user_id, trace_id)
+            async for part in flush_activity():
+                yield part
+            yield "data: [DONE]\n\n"
         finally:
             _trace_done(trace_id)
 
