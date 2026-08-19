@@ -123,7 +123,7 @@ export default function App() {
   const traceIdRef = useRef("");
   const messagesRef = useRef([]);
   const attachmentsRef = useRef([]);
-  const pickerOpenRef = useRef(false);
+  const pickerGuardUntil = useRef(0);
 
   useEffect(() => {
     syncHaTheme();
@@ -273,8 +273,7 @@ export default function App() {
         hiddenAt.current = Date.now();
         return;
       }
-      if (pickerOpenRef.current) {
-        pickerOpenRef.current = false;
+      if (Date.now() < pickerGuardUntil.current) {
         hiddenAt.current = 0;
         return;
       }
@@ -495,7 +494,12 @@ export default function App() {
             onAttachmentsChange={setAttachments}
             onChange={setInput}
             onPickerOpen={() => {
-              pickerOpenRef.current = true;
+              pickerGuardUntil.current = Date.now() + 120_000;
+            }}
+            onPickerSettled={() => {
+              window.setTimeout(() => {
+                pickerGuardUntil.current = 0;
+              }, 2500);
             }}
             onStop={stopGeneration}
             onSubmit={send}

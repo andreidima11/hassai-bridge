@@ -1,7 +1,34 @@
 export const MAX_CHAT_IMAGES = 4;
 export const MAX_IMAGE_BYTES = 1_200_000;
 
-const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const ALLOWED_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+]);
+
+function resolveImageMime(file) {
+  const type = String(file?.type || "").trim().toLowerCase();
+  if (ALLOWED_TYPES.has(type)) return type;
+  const name = String(file?.name || "").trim().toLowerCase();
+  if (name.endsWith(".heic")) return "image/heic";
+  if (name.endsWith(".heif")) return "image/heif";
+  if (name.endsWith(".jpg") || name.endsWith(".jpeg")) return "image/jpeg";
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".webp")) return "image/webp";
+  if (name.endsWith(".gif")) return "image/gif";
+  return type;
+}
+
+function isAllowedImage(file) {
+  const mime = resolveImageMime(file);
+  if (ALLOWED_TYPES.has(mime)) return true;
+  // Mobile pickers sometimes omit MIME type but still provide a decodable image.
+  return !mime && Boolean(file?.size);
+}
 
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
@@ -39,15 +66,16 @@ async function compressDataUrl(dataUrl, mimeHint = "image/jpeg") {
 }
 
 export async function prepareImageFile(file) {
-  if (!file || !ALLOWED_TYPES.has(file.type)) {
+  if (!file || !isAllowedImage(file)) {
     throw new Error("unsupported");
   }
+  const mime = resolveImageMime(file) || "image/jpeg";
   if (file.size > MAX_IMAGE_BYTES * 2) {
     throw new Error("too_large");
   }
   let dataUrl = await readFileAsDataUrl(file);
-  if (file.type !== "image/gif") {
-    dataUrl = await compressDataUrl(dataUrl, file.type);
+  if (mime !== "image/gif") {
+    dataUrl = await compressDataUrl(dataUrl, mime === "image/png" ? "image/png" : "image/jpeg");
   }
   const approxBytes = Math.ceil((dataUrl.length - dataUrl.indexOf(",") - 1) * 0.75);
   if (approxBytes > MAX_IMAGE_BYTES) {
@@ -56,7 +84,7 @@ export async function prepareImageFile(file) {
   return {
     id: crypto.randomUUID?.() || String(Date.now()),
     name: file.name || "image",
-    mime: file.type,
+    mime: mime.startsWith("image/") ? mime : "image/jpeg",
     previewUrl: dataUrl,
     dataUrl,
   };
