@@ -414,6 +414,10 @@ _TOOL_SPECS: dict[str, dict] = {
                 "section_title": {"type": "string"},
                 "create_section": {"type": "boolean", "description": "Create a section if needed"},
                 "card_index": {"type": "integer", "description": "Replace this card; omit to append"},
+                "card_path": {
+                    "type": "string",
+                    "description": "Optional dotted path for nested stack/grid cards (e.g. 2.1)",
+                },
                 "card": {"type": "object", "description": "Lovelace card JSON (must include type)"},
                 "confirm": {"type": "boolean"},
             },
@@ -432,9 +436,10 @@ _TOOL_SPECS: dict[str, dict] = {
                 "section_index": {"type": "integer"},
                 "section_title": {"type": "string"},
                 "card_index": {"type": "integer"},
+                "card_path": {"type": "string", "description": "Nested stack/grid path (e.g. 2.1)"},
                 "confirm": {"type": "boolean"},
             },
-            "required": ["card_index", "confirm"],
+            "required": ["confirm"],
         },
     },
     "ha_list_files": {
@@ -490,6 +495,7 @@ def ha_system_hint() -> str:
         "ha_create_dashboard / ha_upsert_view / ha_upsert_section / ha_upsert_card / ha_delete_card. "
         "Overview/default dashboard uses an empty url_path. A user 'page' is a view (view_path), not url_path. "
         "Sections views store cards in sections[].cards — pass section_index or create_section=true. "
+        "Nested stack/grid cards: card_path like 2.1. "
         "YAML dashboards: ha_read_file / ha_write_file, then ha_reload what=lovelace confirm=true. "
         "Avoid ha_save_dashboard unless replacing the entire config from a trusted source. "
         "YAML / configuration.yaml: ha_read_file / ha_write_file then ha_check_config, then ha_reload if needed. "
@@ -747,10 +753,18 @@ async def _list_dashboards(_args: dict) -> str:
         overview["config_file"] = "ui-lovelace.yaml"
 
     lines = ["Built-in dashboards:", lt.dump_json(overview, max_chars=2000)]
+    enriched: list[dict[str, Any]] = []
+    for row in dashboards:
+        if not isinstance(row, dict):
+            continue
+        item = dict(row)
+        if str(item.get("mode") or "") == "yaml":
+            rel = lt.yaml_dashboard_file(item.get("url_path"))
+            if rel:
+                item["config_file"] = rel
+        enriched.append(item)
+    dashboards = enriched
     if dashboards:
-        lines.append("")
-        lines.append("Additional dashboards:")
-        lines.append(lt.dump_json(dashboards, max_chars=10_000))
     else:
         lines.append("")
         lines.append("Additional dashboards: none")
@@ -796,9 +810,10 @@ async def _get_dashboard(args: dict) -> str:
         ui = _HA_CONFIG / "ui-lovelace.yaml"
         if lt.ws_url_path(url_path) is None and ui.is_file():
             return await _read_file({"path": "ui-lovelace.yaml"})
+        yaml_file = lt.yaml_dashboard_file(url_path)
         return (
-            "Error: dashboard is YAML mode. "
-            "Use ha_read_file on ui-lovelace.yaml or dashboards/<name>.yaml."
+            f"Error: dashboard is YAML mode. "
+            f"Use ha_read_file on {yaml_file or 'ui-lovelace.yaml or dashboards/*.yaml'}."
         )
 
     cfg = await _load_dashboard(url_path, force=bool(args.get("force")))
@@ -923,48 +938,36 @@ async def _upsert_card(args: dict) -> str:
     url_path = args.get("url_path")
     cfg = await _load_dashboard(url_path)
     vidx, view = lt.pick_view(cfg, args)
-    container = lt.card_container(view, args, create_section=bool(args.get("create_section")))
-    cards = list(container.cards)
-    if args.get("card_index") is None:
-        cards.append(card)
-        action = f"appended card #{len(cards)-1}"
-    else:
-        cidx = int(args["card_index"])
-        if cidx < 0 or cidx >= len(cards):
-            return f"Error: card_index {cidx} out of range 0..{len(cards)-1}"
-        cards[cidx] = card
-        action = f"replaced card #{cidx}"
-    container.write_back(cards)
+    action, _removed = lt.mutate_card_in_view(
+        view,
+        args,
+        card=card,
+        create_section=bool(args.get("create_section")),
+    )
     cfg["views"][vidx] = view
     await _save_dashboard_config(url_path, cfg)
 
     where = f"view {vidx} ({lt._view_label(view, vidx)})"
-    if container.kind == "sections":
-        where += f" section {container.section_index}"
     verify = lt.summarize_view(view, vidx, include_cards=True)
-    return f"OK: {action} on {where}\n{verify}"
+    dash = lt.ws_url_path(url_path)
+    path = lt._view_path(view, vidx)
+    open_hint = f"/lovelace/{path}" if dash is None else f"/dashboard-{dash}/{path}"
+    return f"OK: {action} on {where}\nopen: {open_hint}\n{verify}"
 
 
 async def _delete_card(args: dict) -> str:
     if msg := _require_confirm(args):
         return msg
+    if args.get("card_index") is None and not (args.get("card_path") or "").strip():
+        return "Error: card_index or card_path is required"
     url_path = args.get("url_path")
     cfg = await _load_dashboard(url_path)
     vidx, view = lt.pick_view(cfg, args)
-    container = lt.card_container(view, args)
-    cards = list(container.cards)
-    cidx = int(args.get("card_index"))
-    if cidx < 0 or cidx >= len(cards):
-        return f"Error: card_index {cidx} out of range 0..{len(cards)-1}"
-    removed = cards.pop(cidx)
-    container.write_back(cards)
+    action, _removed = lt.mutate_card_in_view(view, args, delete=True)
     cfg["views"][vidx] = view
     await _save_dashboard_config(url_path, cfg)
-    rtype = (removed or {}).get("type", "?")
     where = f"view {vidx} ({lt._view_label(view, vidx)})"
-    if container.kind == "sections":
-        where += f" section {container.section_index}"
-    return f"OK: deleted card #{cidx} (type={rtype}) from {where}"
+    return f"OK: {action} from {where}"
 
 
 async def _list_files(args: dict) -> str:
@@ -1024,7 +1027,10 @@ async def _write_file(args: dict) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     rel = path.relative_to(_HA_CONFIG).as_posix()
-    return f"OK: wrote {rel} ({len(content)} chars). Run ha_check_config for YAML."
+    hint = "Run ha_check_config for YAML."
+    if rel == "ui-lovelace.yaml" or rel.startswith("dashboards/"):
+        hint += " Then ha_reload what=lovelace confirm=true."
+    return f"OK: wrote {rel} ({len(content)} chars). {hint}"
 
 
 _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {

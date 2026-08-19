@@ -83,3 +83,37 @@ def test_upsert_view_appends_sections_view():
     assert cfg["views"][idx]["path"] == "kitchen"
     assert cfg["views"][idx]["type"] == "sections"
     assert cfg["views"][idx]["sections"]
+
+
+def test_nested_card_path_replace():
+    view = {
+        "title": "Home",
+        "type": "sections",
+        "sections": [
+            {
+                "type": "grid",
+                "cards": [
+                    {
+                        "type": "vertical-stack",
+                        "cards": [
+                            {"type": "tile", "entity": "light.a"},
+                            {"type": "tile", "entity": "light.b"},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    action, _ = lt.mutate_card_in_view(
+        view,
+        {"section_index": 0, "card_path": "0.1"},
+        card={"type": "tile", "entity": "light.c"},
+    )
+    assert "replaced nested" in action
+    nested = view["sections"][0]["cards"][0]["cards"]
+    assert nested[1]["entity"] == "light.c"
+
+
+def test_yaml_dashboard_file():
+    assert lt.yaml_dashboard_file(None) == "ui-lovelace.yaml"
+    assert lt.yaml_dashboard_file("energy-home") == "dashboards/energy-home.yaml"

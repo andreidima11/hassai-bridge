@@ -7,6 +7,29 @@ from typing import Any
 
 
 DEFAULT_URL_PATH_ALIASES = {"", "default", "overview", "(default)"}
+NESTED_CARD_TYPES = frozenset({"vertical-stack", "horizontal-stack", "grid", "stack"})
+HA_LOVELACE_TOOLS = frozenset({
+    "ha_list_dashboards",
+    "ha_get_dashboard",
+    "ha_create_dashboard",
+    "ha_save_dashboard",
+    "ha_upsert_view",
+    "ha_upsert_section",
+    "ha_upsert_card",
+    "ha_delete_card",
+})
+HA_MUTATING_TOOLS = frozenset({
+    "ha_save_dashboard",
+    "ha_create_dashboard",
+    "ha_upsert_view",
+    "ha_upsert_section",
+    "ha_upsert_card",
+    "ha_delete_card",
+    "ha_write_file",
+    "ha_apply_fix",
+    "ha_call_service",
+    "ha_reload",
+})
 
 
 def ws_url_path(url_path: str | None) -> str | None:
@@ -386,6 +409,127 @@ def dump_json(obj: Any, max_chars: int = 14_000) -> str:
     if len(text) > max_chars:
         return text[:max_chars] + f"\n… truncated ({len(text)} chars). Use ha_get_dashboard without full=true."
     return text
+
+
+def yaml_dashboard_file(url_path: str | None) -> str | None:
+    ws_path = ws_url_path(url_path)
+    if ws_path is None:
+        ui = "ui-lovelace.yaml"
+        return ui
+    candidate = f"dashboards/{ws_path}.yaml"
+    return candidate
+
+
+def mutate_card_in_view(
+    view: dict,
+    args: dict,
+    *,
+    card: dict | None = None,
+    delete: bool = False,
+    create_section: bool = False,
+) -> tuple[str, dict | None]:
+    """Insert, replace, or delete a card. Supports optional dotted card_path (e.g. 2.1)."""
+    container = card_container(view, args, create_section=create_section)
+    cards = list(container.cards)
+    removed: dict | None = None
+
+    card_path = (args.get("card_path") or "").strip()
+    if card_path:
+        parts = [int(p) for p in card_path.split(".") if p.isdigit()]
+        if not parts:
+            raise RuntimeError("invalid card_path")
+        if len(parts) > 2:
+            raise RuntimeError("card_path supports forms like 2 or 2.1")
+
+        if len(parts) == 1:
+            parent_idx = parts[0]
+            if parent_idx < 0 or parent_idx >= len(cards):
+                raise RuntimeError(f"card_path {parent_idx} out of range 0..{len(cards)-1}")
+            if delete or args.get("card_index") is not None:
+                cidx = parent_idx if args.get("card_index") is None else int(args["card_index"])
+                if delete:
+                    removed = cards.pop(cidx)
+                    container.write_back(cards)
+                    return f"deleted card #{cidx} (type={(removed or {}).get('type', '?')})", removed
+                if card is None:
+                    raise RuntimeError("card is required")
+                cards[cidx] = card
+                container.write_back(cards)
+                return f"replaced card #{cidx}", None
+
+            parent = cards[parent_idx]
+            if str(parent.get("type") or "") not in NESTED_CARD_TYPES:
+                raise RuntimeError(
+                    f"card {parent_idx} type={parent.get('type')} has no nested cards"
+                )
+            nested = list(parent.get("cards") or [])
+            if card is None:
+                raise RuntimeError("card is required")
+            nested.append(card)
+            parent["cards"] = nested
+            cards[parent_idx] = parent
+            container.write_back(cards)
+            return f"appended nested card {parent_idx}.{len(nested)-1}", None
+
+        parent_idx, child_idx = parts
+        if parent_idx < 0 or parent_idx >= len(cards):
+            raise RuntimeError(f"card_path root {parent_idx} out of range 0..{len(cards)-1}")
+        parent = cards[parent_idx]
+        if str(parent.get("type") or "") not in NESTED_CARD_TYPES:
+            raise RuntimeError(
+                f"card {parent_idx} type={parent.get('type')} has no nested cards"
+            )
+        nested = list(parent.get("cards") or [])
+        if delete:
+            if child_idx < 0 or child_idx >= len(nested):
+                raise RuntimeError(
+                    f"nested card {child_idx} out of range 0..{len(nested)-1}"
+                )
+            removed = nested.pop(child_idx)
+            parent["cards"] = nested
+            cards[parent_idx] = parent
+            container.write_back(cards)
+            return (
+                f"deleted nested card {parent_idx}.{child_idx} "
+                f"(type={(removed or {}).get('type', '?')})",
+                removed,
+            )
+        if card is None:
+            raise RuntimeError("card is required")
+        if child_idx >= len(nested):
+            nested.append(card)
+            parent["cards"] = nested
+            cards[parent_idx] = parent
+            container.write_back(cards)
+            return f"appended nested card {parent_idx}.{len(nested)-1}", None
+        nested[child_idx] = card
+        parent["cards"] = nested
+        cards[parent_idx] = parent
+        container.write_back(cards)
+        return f"replaced nested card {parent_idx}.{child_idx}", None
+
+    if delete:
+        cidx = int(args.get("card_index"))
+        if cidx < 0 or cidx >= len(cards):
+            raise RuntimeError(f"card_index {cidx} out of range 0..{len(cards)-1}")
+        removed = cards.pop(cidx)
+        action = f"deleted card #{cidx} (type={(removed or {}).get('type', '?')})"
+    elif args.get("card_index") is None:
+        if card is None:
+            raise RuntimeError("card is required")
+        cards.append(card)
+        action = f"appended card #{len(cards)-1}"
+    else:
+        cidx = int(args["card_index"])
+        if cidx < 0 or cidx >= len(cards):
+            raise RuntimeError(f"card_index {cidx} out of range 0..{len(cards)-1}")
+        if card is None:
+            raise RuntimeError("card is required")
+        cards[cidx] = card
+        action = f"replaced card #{cidx}"
+
+    container.write_back(cards)
+    return action, removed
 
 
 def dashboard_error_hint(tool_name: str, message: str) -> str | None:

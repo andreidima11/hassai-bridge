@@ -39,6 +39,7 @@ from services.memory_engine import (
 )
 from services.web_scraper import search_and_fetch
 from services import homeassistant as ha_api
+from services import lovelace_tools as lt
 
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
@@ -79,6 +80,35 @@ def _tool_fingerprint(name: str, args: dict) -> str:
     return f"{name}:{payload[:600]}"
 
 
+def _tool_names(tool_calls: list[dict]) -> list[str]:
+    names: list[str] = []
+    for tc in tool_calls or []:
+        fn = (tc.get("function") or {}).get("name") or ""
+        if fn:
+            names.append(fn)
+    return names
+
+
+def _recall_provider(tool_calls: list[dict], active: dict, secondary: dict | None) -> dict:
+    if any(name in lt.HA_LOVELACE_TOOLS for name in _tool_names(tool_calls)):
+        return active
+    return secondary or active
+
+
+def _should_skip_repeated_tool(name: str, args: dict, fingerprints: list[str], fp: str) -> bool:
+    if name in lt.HA_MUTATING_TOOLS:
+        return False
+    if name == "ha_get_dashboard" and args.get("include_cards"):
+        return False
+    return fingerprints.count(fp) >= _AGENT_REPEAT_LIMIT
+
+
+def _maybe_extend_tool_rounds(tool_calls: list[dict], round_idx: int, round_limit: int) -> int:
+    if round_idx >= round_limit - 1 and any(name in lt.HA_MUTATING_TOOLS for name in _tool_names(tool_calls)):
+        return round_limit + 1
+    return round_limit
+
+
 def _parse_tool_args(raw) -> dict:
     if isinstance(raw, dict):
         return raw
@@ -108,7 +138,33 @@ def _tool_detail(name: str, args: dict) -> str:
         call = f"{args.get('domain') or ''}.{args.get('service') or ''}".strip(".")
         entity = str(args.get("entity_id") or "").strip()
         return _clip_detail(" ".join(p for p in (call, entity) if p))
-    for key in ("entity_id", "path", "url_path", "suggestion_id", "what", "source", "domain", "search"):
+    if name == "ha_upsert_card":
+        card = args.get("card") if isinstance(args.get("card"), dict) else {}
+        bits = [
+            args.get("view_path") or args.get("view_title") or "",
+            args.get("section_index") if args.get("section_index") is not None else "",
+            card.get("type") or "",
+            card.get("entity") or "",
+        ]
+        return _clip_detail(" · ".join(str(b) for b in bits if b != ""))
+    if name == "ha_delete_card":
+        bits = [
+            args.get("view_path") or args.get("view_title") or "",
+            args.get("card_path") or "",
+            args.get("card_index") if args.get("card_index") is not None else "",
+        ]
+        return _clip_detail(" · ".join(str(b) for b in bits if b != ""))
+    if name == "ha_upsert_view":
+        return _clip_detail(args.get("title") or args.get("view_path") or args.get("path") or args.get("view_title"))
+    if name == "ha_create_dashboard":
+        return _clip_detail(f"{args.get('title') or ''} {args.get('url_path') or ''}".strip())
+    if name == "ha_get_dashboard":
+        bits = [
+            args.get("url_path") or "Overview",
+            args.get("view_path") or args.get("view_title") or "",
+        ]
+        return _clip_detail(" · ".join(str(b) for b in bits if b))
+    for key in ("entity_id", "path", "url_path", "view_path", "suggestion_id", "what", "source", "domain", "search"):
         val = args.get(key)
         if val:
             extra = args.get("search") if key == "domain" else None
@@ -273,7 +329,7 @@ async def _append_internal_tool_results(
             "id": tc_id, "name": fn_name, "detail": detail, "status": "running",
         })
         started = time.time()
-        if fingerprints.count(fp) >= _AGENT_REPEAT_LIMIT:
+        if _should_skip_repeated_tool(fn_name, args, fingerprints, fp):
             log.info("Skipping repeated tool %s", fp[:80])
             content = (
                 "Repeated tool call skipped — you already received this result. "
@@ -1368,7 +1424,8 @@ async def chat_completions(request: Request):
         # stops calling them (or we hit the round cap).
         fingerprints: list[str] = []
         max_rounds = _agent_max_rounds(cfg)
-        for _round in range(max_rounds):
+        round_limit = max_rounds
+        for _round in range(round_limit):
             msg = result.get("choices", [{}])[0].get("message", {})
             tool_calls = msg.get("tool_calls") or []
             if not tool_calls:
@@ -1384,7 +1441,8 @@ async def chat_completions(request: Request):
                 result["hassai_activity"] = activity_events
                 return JSONResponse(content=result)
 
-            log.info("Agent round %s/%s — %s tool(s)", _round + 1, max_rounds, len(internal_calls))
+            round_limit = _maybe_extend_tool_rounds(internal_calls, _round, round_limit)
+            log.info("Agent round %s/%s — %s tool(s)", _round + 1, round_limit, len(internal_calls))
             augmented.append(msg)
             if await _append_internal_tool_results(
                 augmented,
@@ -1395,10 +1453,10 @@ async def chat_completions(request: Request):
             ):
                 _search_used = True
 
-            re_provider = secondary or active
+            re_provider = _recall_provider(internal_calls, active, secondary)
             if secondary and re_provider is secondary:
                 _secondary_used_for_recall = True
-            last = _round >= max_rounds - 1
+            last = _round >= round_limit - 1
             think_id = f"think-{_round + 1}"
             think_t0 = time.time()
             await emit_think(think_id, "running")
@@ -1611,9 +1669,11 @@ async def chat_completions(request: Request):
                 async for part in flush_activity():
                     yield part
 
-                re_provider = secondary or active
+                re_provider = _recall_provider(internal_tcs, active, secondary)
                 if secondary and re_provider is secondary:
                     secondary_used = True
+                if any(name in lt.HA_MUTATING_TOOLS for name in _tool_names(internal_tcs)) and rounds_left <= 1:
+                    rounds_left += 1
                 rounds_left -= 1
                 round_i += 1
                 current_gen = providers.chat_completion_stream(
