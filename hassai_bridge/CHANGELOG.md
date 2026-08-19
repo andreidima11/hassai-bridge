@@ -1,5 +1,20 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.54-beta
+
+### Chat — provider quick settings
+- **🧠 brain icon** next to Send/Stop opens a popover: active provider, model picker (live fetch), thinking/reasoning mode
+- **Fetch Models fix** — settings and chat now show the full model list (API shape normalization + visible `<select>`)
+
+### Grok (x.ai) — reasoning, cache, image generation
+- **Reasoning effort** mapping (Auto / Off→low / High / Max→xhigh on grok-4.6+) via `reasoning_effort`
+- **Prompt cache** — `x-grok-conv-id` header from session id; cache hits from `prompt_tokens_details.cached_tokens`
+- **480K context budget** metadata for Grok KV trim
+- **Imagine image generation** — internal `generate_image` tool → `/v1/images/generations`; images persisted and shown inline in chat
+
+### Tests
+- 82 unit tests
+
 ## 0.2.53-beta
 
 ### DeepSeek — thinking, KV cache, stats
