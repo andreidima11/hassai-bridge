@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.58-beta
+
+### Fix
+- **Generated images in chat** — `/api/chat/media/...` URLs now work under HA Ingress (no more broken image placeholders)
+
 ## 0.2.57-beta
 
 ### Provider defaults & stats
