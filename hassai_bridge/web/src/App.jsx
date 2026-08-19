@@ -20,6 +20,12 @@ import { syncHaTheme } from "./lib/theme.js";
 import { finishThinkingLabel, persistLang, readStoredLang, tr } from "./lib/i18n.js";
 import { canSendMessage } from "./lib/images.js";
 import { applyActivity, emptyThinking } from "./lib/thinking.js";
+import {
+  defaultThinkingMode,
+  hasThinkingCapability,
+  persistThinkingMode,
+  readStoredThinkingMode,
+} from "./lib/providerCapabilities.js";
 
 function sessionStoreKey(username) {
   return `hassai.chat.session.${username || "default"}`;
@@ -40,8 +46,8 @@ function mapStoredAttachments(items) {
   }));
 }
 
-async function completeNonStream(payload, sessionId, traceId, onActivity, signal) {
-  const resp = await postChat(false, payload, sessionId, traceId, signal);
+async function completeNonStream(payload, sessionId, traceId, onActivity, signal, thinkingMode) {
+  const resp = await postChat(false, payload, sessionId, traceId, signal, thinkingMode);
   if (!resp.ok) throw new Error(await readError(resp));
   const data = await resp.json();
   if (data.hassai_cancelled) throw new DOMException("Aborted", "AbortError");
@@ -55,8 +61,8 @@ async function completeNonStream(payload, sessionId, traceId, onActivity, signal
   return text;
 }
 
-async function completeStream(payload, sessionId, traceId, onActivity, onDelta, signal) {
-  const resp = await postChat(true, payload, sessionId, traceId, signal);
+async function completeStream(payload, sessionId, traceId, onActivity, onDelta, signal, thinkingMode) {
+  const resp = await postChat(true, payload, sessionId, traceId, signal, thinkingMode);
   if (!resp.ok) throw new Error(await readError(resp));
   if (!resp.body) throw new Error("No stream body");
   const reader = resp.body.getReader();
@@ -107,6 +113,8 @@ export default function App() {
   const [sessions, setSessions] = useState([]);
   const [sessionId, setSessionId] = useState("");
   const [user, setUser] = useState({ username: "default", display_name: "default" });
+  const [chatCapabilities, setChatCapabilities] = useState({});
+  const [thinkingMode, setThinkingMode] = useState(() => readStoredThinkingMode());
   const sessionIdRef = useRef("");
   const bootDone = useRef(false);
   const hiddenAt = useRef(0);
@@ -227,6 +235,11 @@ export default function App() {
         setLang(nextLang);
         persistLang(nextLang);
         setUser(data.user || { username: "default", display_name: "default" });
+        const caps = data.chat?.capabilities || {};
+        setChatCapabilities(caps);
+        if (hasThinkingCapability(caps)) {
+          setThinkingMode((prev) => readStoredThinkingMode(defaultThinkingMode(caps) || prev));
+        }
         await refreshSessions();
       } catch {
         try {
@@ -368,20 +381,24 @@ export default function App() {
     const stopPoll = startActivityPoll(traceId, onActivity);
     stopPollRef.current = stopPoll;
 
+    const thinkingOverride = hasThinkingCapability(chatCapabilities) ? thinkingMode : undefined;
+
     try {
       let full = "";
       if (ON_INGRESS) {
-        full = await completeNonStream(payload, sid, traceId, onActivity, signal);
+        full = await completeNonStream(payload, sid, traceId, onActivity, signal, thinkingOverride);
       } else {
         try {
           full = await completeStream(payload, sid, traceId, onActivity, (delta) => {
             patchAssistant((m) => ({ ...m, content: delta }));
-          }, signal);
+          }, signal, thinkingOverride);
         } catch (err) {
           if (err?.name === "AbortError") throw err;
           full = "";
         }
-        if (!full && !signal.aborted) full = await completeNonStream(payload, sid, traceId, onActivity, signal);
+        if (!full && !signal.aborted) {
+          full = await completeNonStream(payload, sid, traceId, onActivity, signal, thinkingOverride);
+        }
       }
       if (signal.aborted) return;
       patchAssistant((m) => {
@@ -466,10 +483,13 @@ export default function App() {
             attachments={attachments}
             busy={busy}
             imageTooLargeLabel={t("imageTooLarge")}
+            lang={lang}
             maxImagesLabel={t("maxImages")}
             placeholder={t("placeholder")}
             removeImageLabel={t("removeImage")}
+            showThinking={hasThinkingCapability(chatCapabilities)}
             stopLabel={t("stop")}
+            thinkingMode={thinkingMode}
             unsupportedImageLabel={t("unsupportedImage")}
             value={input}
             onAttachmentsChange={setAttachments}
@@ -479,6 +499,10 @@ export default function App() {
             }}
             onStop={stopGeneration}
             onSubmit={send}
+            onThinkingModeChange={(mode) => {
+              setThinkingMode(mode);
+              persistThinkingMode(mode);
+            }}
           />
         </div>
       </div>

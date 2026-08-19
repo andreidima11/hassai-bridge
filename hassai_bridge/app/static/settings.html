@@ -426,6 +426,16 @@
               <option value="" data-i18n="settings.noSecondary">— None —</option>
             </select>
           </div>
+          <div class="modal-section" id="provThinkingSection" style="display:none">
+            <h3 data-i18n="settings.thinkingMode">Thinking mode</h3>
+            <p class="card-muted hint" data-i18n="settings.thinkingModeDesc">Provider-specific reasoning control. Auto enables thinking for planning and complex questions; Off is fastest for simple chat.</p>
+            <select id="provThinkingMode">
+              <option value="auto" data-i18n="settings.thinkingAuto">Auto</option>
+              <option value="off" data-i18n="settings.thinkingOff">Off</option>
+              <option value="high" data-i18n="settings.thinkingHigh">High</option>
+              <option value="max" data-i18n="settings.thinkingMax">Max</option>
+            </select>
+          </div>
           <div class="modal-section">
             <label class="toggle-row" style="cursor:pointer;display:flex;align-items:center;gap:10px">
               <input type="checkbox" id="provEcoMode">

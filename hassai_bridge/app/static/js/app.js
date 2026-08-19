@@ -641,6 +641,7 @@ async function loadSettings() {
     _allProviders = cfg.providers || [];
     _activeProviderId = cfg.active_provider || '';
     _allSecondaryProviders = cfg.secondary_providers || [];
+    await loadProviderPresets();
     renderProvidersList();
     renderSecondaryProvidersList();
 
@@ -786,10 +787,30 @@ async function testSearxng() {
 // ══════════════════════════════════════════════════
 
 let _allProviders = [];
+let _providerPresets = {};
 let _allSecondaryProviders = [];
 let _activeProviderId = '';
 let _editingProviderId = null; // null = adding new, string = editing existing
 let _editingSecProviderId = null; // null = adding new, string = editing existing
+
+function providerTypeCapabilities(ptype) {
+  return _providerPresets[ptype]?.capabilities || {};
+}
+
+function updateProviderCapabilitySections(ptype) {
+  const thinkingSection = document.getElementById('provThinkingSection');
+  if (thinkingSection) {
+    thinkingSection.style.display = providerTypeCapabilities(ptype).thinking ? '' : 'none';
+  }
+}
+
+async function loadProviderPresets() {
+  try {
+    _providerPresets = await api('GET', '/api/settings/providers/presets');
+  } catch {
+    _providerPresets = {};
+  }
+}
 
 const PROVIDER_TYPE_LABELS = {
   local: 'Local (LM Studio / Ollama)',
@@ -869,6 +890,7 @@ function openAddProvider() {
   document.getElementById('provEcoMode').checked = false;
   _populateSecondarySelect(null);
   document.getElementById('provSecondary').value = '';
+  updateProviderCapabilitySections(document.getElementById('provType').value);
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   document.getElementById('provTestSection').style.display = 'none';
   document.getElementById('provTestResult').style.display = 'none';
@@ -894,6 +916,9 @@ function editProvider(id) {
   document.getElementById('provEcoMode').checked = !!p.eco_mode;
   _populateSecondarySelect(id);
   document.getElementById('provSecondary').value = p.secondary_provider || '';
+  const thinkingEl = document.getElementById('provThinkingMode');
+  if (thinkingEl) thinkingEl.value = p.thinking_mode || 'auto';
+  updateProviderCapabilitySections(p.type || 'local');
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   document.getElementById('provTestSection').style.display = '';
   document.getElementById('provTestResult').style.display = 'none';
@@ -942,6 +967,7 @@ function onProvTypeChange() {
   if (!currentName || defaultNames.includes(currentName)) {
     nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
   }
+  updateProviderCapabilitySections(ptype);
 }
 
 async function saveProvider() {
@@ -956,6 +982,7 @@ async function saveProvider() {
     temperature: parseFloat(document.getElementById('provTemperature').value) || 0.7,
     system_prompt: document.getElementById('provSystemPrompt').value.trim(),
     secondary_provider: document.getElementById('provSecondary').value || '',
+    thinking_mode: document.getElementById('provThinkingMode')?.value || 'auto',
     eco_mode: document.getElementById('provEcoMode').checked,
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }

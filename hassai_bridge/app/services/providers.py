@@ -168,7 +168,7 @@ def _build_url(provider: dict, path: str) -> str:
 
 async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,
                           tools: list | None = None, tool_choice: str | dict | None = None,
-                          provider: dict | None = None) -> dict:
+                          provider: dict | None = None, thinking: dict | None = None) -> dict:
     """Send a chat completion request to the active (or specified) provider."""
     if provider is None:
         provider = get_active_provider()
@@ -194,8 +194,13 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
     if max_tokens:
         payload["max_tokens"] = max_tokens
     temperature = provider.get("temperature")
-    if temperature is not None:
+    if temperature is not None and not (thinking and thinking.get("enabled")):
         payload["temperature"] = temperature
+
+    from services import provider_capabilities as pc
+
+    if thinking and pc.supports_thinking(provider):
+        pc.apply_provider_payload_extras(payload, provider, thinking)
 
     client = _get_client()
     # Retry on transient errors (#20)
@@ -223,7 +228,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
 
 async def chat_completion_stream(messages: list[dict], model: str | None = None,
                                  tools: list | None = None, tool_choice: str | dict | None = None,
-                                 provider: dict | None = None):
+                                 provider: dict | None = None, thinking: dict | None = None):
     """Stream chat completion, yielding SSE chunks."""
     if provider is None:
         provider = get_active_provider()
@@ -248,8 +253,13 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
     if max_tokens:
         payload["max_tokens"] = max_tokens
     temperature = provider.get("temperature")
-    if temperature is not None:
+    if temperature is not None and not (thinking and thinking.get("enabled")):
         payload["temperature"] = temperature
+
+    from services import provider_capabilities as pc
+
+    if thinking and pc.supports_thinking(provider):
+        pc.apply_provider_payload_extras(payload, provider, thinking)
 
     client = _get_client()
     try:

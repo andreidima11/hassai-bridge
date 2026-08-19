@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpIcon, ImageIcon, StopIcon, XIcon } from "./Icons.jsx";
 import { MAX_CHAT_IMAGES, prepareImageFile } from "../lib/images.js";
+import { ThinkingMode } from "./ThinkingMode.jsx";
 
 export function Composer({
   value,
@@ -17,6 +18,10 @@ export function Composer({
   imageTooLargeLabel,
   maxImagesLabel,
   unsupportedImageLabel,
+  showThinking = false,
+  thinkingMode = "auto",
+  onThinkingModeChange,
+  lang = "en",
   onPickerOpen,
 }) {
   const ref = useRef(null);
@@ -120,6 +125,14 @@ export function Composer({
           >
             <ImageIcon />
           </button>
+          {showThinking ? (
+            <ThinkingMode
+              disabled={busy}
+              lang={lang}
+              mode={thinkingMode}
+              onChange={onThinkingModeChange}
+            />
+          ) : null}
           <textarea
             ref={ref}
             className="block max-h-40 min-h-6 w-full flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground/50"

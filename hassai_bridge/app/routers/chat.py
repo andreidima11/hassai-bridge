@@ -31,6 +31,7 @@ from database import (
 )
 from services import providers
 from services.providers import get_active_provider
+from services import provider_capabilities as pc
 from services import searxng, skills
 from services.memory_engine import (
     retrieve_relevant_memories,
@@ -93,7 +94,17 @@ def _tool_names(tool_calls: list[dict]) -> list[str]:
     return names
 
 
-def _recall_provider(tool_calls: list[dict], active: dict, secondary: dict | None) -> dict:
+def _parse_thinking_override(raw) -> str | None:
+    if raw is None:
+        return None
+    from services.deepseek import THINKING_MODES
+
+    mode = str(raw).strip().lower()
+    return mode if mode in THINKING_MODES else None
+
+
+def _recall_provider(
+    tool_calls: list[dict], active: dict, secondary: dict | None) -> dict:
     names = _tool_names(tool_calls)
     if any(
         name in lt.HA_LOVELACE_TOOLS
@@ -1445,6 +1456,7 @@ async def chat_completions(request: Request):
     user_id = _extract_user_id(request, body)
     session_id = str(body.get("session_id") or "").strip() or None
     trace_id = _sanitize_trace_id(body.get("trace_id"))
+    thinking_override = _parse_thinking_override(body.get("thinking"))
     cfg = load_config()
     search_enabled = cfg["searxng"].get("enabled", False)
 
@@ -1584,6 +1596,22 @@ async def chat_completions(request: Request):
     max_ctx = active.get("max_tokens", 2048) * 3  # rough context budget
     augmented = _trim_messages(augmented, max_ctx)
 
+    thinking_cfg = pc.resolve_thinking(
+        active,
+        override=thinking_override,
+        user_text=last_user_msg,
+        tools_active=bool(effective_tools),
+    )
+    if thinking_cfg:
+        log.info(
+            "[%s] Provider thinking mode=%s enabled=%s effort=%s auto=%s",
+            user_id,
+            thinking_cfg.get("mode"),
+            thinking_cfg.get("enabled"),
+            thinking_cfg.get("effort"),
+            thinking_cfg.get("auto_reason") or "-",
+        )
+
     # Log prompt size for optimization tracking
     _prompt_tokens = sum(_estimate_tokens(m.get("content")) for m in augmented)
     log.info(f"Prompt: {len(augmented)} msgs, ~{_prompt_tokens} tokens (budget {max_ctx})")
@@ -1614,7 +1642,14 @@ async def chat_completions(request: Request):
         await emit_think("think-0", "running")
         try:
             await _check_trace(trace_id)
-            result = await providers.chat_completion(augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active)
+            result = await providers.chat_completion(
+                augmented,
+                model=model,
+                tools=effective_tools,
+                tool_choice=tool_choice,
+                provider=active,
+                thinking=pc.thinking_for_provider(thinking_cfg, active),
+            )
         except TraceCancelled:
             log.info("[%s] Chat cancelled trace=%s (before first call)", user_id, trace_id)
             _trace_done(trace_id)
@@ -1627,6 +1662,7 @@ async def chat_completions(request: Request):
                 content={"error": {"message": "Provider request failed. Check server logs for details.", "type": "upstream_error"}},
             )
         first_msg = result.get("choices", [{}])[0].get("message", {})
+        pc.log_provider_usage(active, result.get("usage"), user_id=user_id)
         await emit_think("think-0", "done", think_t0, _message_reasoning(first_msg))
 
         # ── Handle tool_calls (search_web, run_skill, HA, or forward to client) ──
@@ -1636,6 +1672,7 @@ async def chat_completions(request: Request):
         max_rounds = _agent_max_rounds(cfg)
         round_limit = max_rounds
         _round = 0
+        last_call_provider = active
         try:
             while _round < round_limit:
                 await _check_trace(trace_id)
@@ -1656,7 +1693,7 @@ async def chat_completions(request: Request):
 
                 round_limit = _maybe_extend_tool_rounds(internal_calls, _round, round_limit)
                 log.info("Agent round %s/%s — %s tool(s)", _round + 1, round_limit, len(internal_calls))
-                augmented.append(msg)
+                augmented.append(pc.assistant_turn(last_call_provider, msg))
                 if await _append_internal_tool_results(
                     augmented,
                     internal_calls,
@@ -1682,6 +1719,7 @@ async def chat_completions(request: Request):
                         tools=None if last else effective_tools,
                         tool_choice=tool_choice,
                         provider=re_provider,
+                        thinking=pc.thinking_for_provider(thinking_cfg, re_provider),
                     )
                 except TraceCancelled:
                     raise
@@ -1692,7 +1730,9 @@ async def chat_completions(request: Request):
                         status_code=502,
                         content={"error": {"message": "Provider request failed during tool loop.", "type": "upstream_error"}},
                     )
+                last_call_provider = re_provider
                 round_msg = result.get("choices", [{}])[0].get("message", {})
+                pc.log_provider_usage(re_provider, result.get("usage"), user_id=user_id)
                 await emit_think(think_id, "done", think_t0, _message_reasoning(round_msg))
                 _round += 1
         except TraceCancelled:
@@ -1777,6 +1817,7 @@ async def chat_completions(request: Request):
         rounds_left = _agent_max_rounds(cfg)
         sse_buf: list[str] = []
         round_i = 0
+        stream_call_provider = active
 
         async def on_stream_activity(event: dict):
             pushed = _trace_push(trace_id, event)
@@ -1787,7 +1828,12 @@ async def chat_completions(request: Request):
                 yield sse_buf.pop(0)
 
         current_gen = providers.chat_completion_stream(
-            augmented, model=model, tools=effective_tools, tool_choice=tool_choice, provider=active
+            augmented,
+            model=model,
+            tools=effective_tools,
+            tool_choice=tool_choice,
+            provider=active,
+            thinking=pc.thinking_for_provider(thinking_cfg, active),
         )
 
         try:
@@ -1930,7 +1976,10 @@ async def chat_completions(request: Request):
                     break
 
                 log.info("Agent stream round — %s tool(s), %s left", len(internal_tcs), rounds_left)
-                augmented.append({"role": "assistant", "content": None, "tool_calls": internal_tcs})
+                assistant_turn = {"role": "assistant", "content": None, "tool_calls": internal_tcs}
+                if think_reasoning and pc.needs_reasoning_in_tool_loop(stream_call_provider):
+                    assistant_turn["reasoning_content"] = think_reasoning
+                augmented.append(assistant_turn)
                 if await _append_internal_tool_results(
                     augmented,
                     internal_tcs,
@@ -1947,6 +1996,7 @@ async def chat_completions(request: Request):
                 re_provider = _recall_provider(internal_tcs, active, secondary)
                 if secondary and re_provider is secondary:
                     secondary_used = True
+                stream_call_provider = re_provider
                 if any(name in lt.HA_MUTATING_TOOLS for name in _tool_names(internal_tcs)) and rounds_left <= 1:
                     rounds_left += 1
                 rounds_left -= 1
@@ -1957,6 +2007,7 @@ async def chat_completions(request: Request):
                     tools=None if rounds_left <= 0 else effective_tools,
                     tool_choice=tool_choice,
                     provider=re_provider,
+                    thinking=pc.thinking_for_provider(thinking_cfg, re_provider),
                 )
 
             if full_response:
