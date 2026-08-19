@@ -929,6 +929,8 @@ function openAddProvider() {
   updateProviderCapabilitySections(document.getElementById('provType').value);
   _populateVisionSelect();
   document.getElementById('provVision').value = '';
+  const provPicker = document.getElementById('provModelPicker');
+  if (provPicker) { provPicker.innerHTML = ''; provPicker.style.display = 'none'; }
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   document.getElementById('provTestSection').style.display = 'none';
   document.getElementById('provTestResult').style.display = 'none';
@@ -1080,6 +1082,39 @@ async function activateProvider(id) {
   }
 }
 
+function _modelEntryId(model) {
+  return String(model?.id || model?.model || model?.name || '').trim();
+}
+
+function _populateModelPicker(models, modelInput, pickerId) {
+  const picker = document.getElementById(pickerId);
+  if (!picker || !modelInput) return;
+  const rows = (models || []).map((m) => {
+    const id = _modelEntryId(m);
+    if (!id) return '';
+    const label = m.name && m.name !== id ? `${id} — ${m.name}` : id;
+    return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
+  }).filter(Boolean);
+  picker.innerHTML = rows.join('');
+  picker.style.display = rows.length ? '' : 'none';
+  picker.onchange = () => {
+    modelInput.value = picker.value;
+  };
+  if (!rows.length) {
+    toast(t('settings.noModelsFound'), true);
+    return;
+  }
+  const ids = (models || []).map(_modelEntryId).filter(Boolean);
+  const current = modelInput.value.trim();
+  if (current && ids.includes(current)) {
+    picker.value = current;
+  } else {
+    modelInput.value = ids[0];
+    picker.value = ids[0];
+  }
+  toast(t('toast.modelsReloaded', { count: ids.length }));
+}
+
 async function fetchProviderModels() {
   const baseUrl = document.getElementById('provUrl').value.trim();
   const apiKey = document.getElementById('provApiKey').value.trim();
@@ -1087,7 +1122,7 @@ async function fetchProviderModels() {
   const listId = 'provModelList';
   if (!baseUrl) { toast(t('settings.enterUrl'), true); return; }
 
-  async function _populateDatalist(models) {
+  async function _applyModels(models) {
     let dl = document.getElementById(listId);
     if (!dl) {
       dl = document.createElement('datalist');
@@ -1095,19 +1130,17 @@ async function fetchProviderModels() {
       modelInput.parentElement.appendChild(dl);
     }
     modelInput.setAttribute('list', listId);
-    dl.innerHTML = models.map(m => `<option value="${escapeHtml(m.id)}">`).join('');
-    if (models.length) {
-      if (!modelInput.value || modelInput.value === 'default') modelInput.value = models[0].id;
-      toast(t('toast.modelsReloaded'));
-    } else {
-      toast(t('settings.noModelsFound'), true);
-    }
+    dl.innerHTML = models.map((m) => {
+      const id = _modelEntryId(m);
+      return id ? `<option value="${escapeHtml(id)}">` : '';
+    }).join('');
+    _populateModelPicker(models, modelInput, 'provModelPicker');
   }
 
   if (_editingProviderId) {
     try {
       const data = await api('GET', `/api/settings/providers/${encodeURIComponent(_editingProviderId)}/models`);
-      _populateDatalist(data.models || []);
+      _applyModels(data.models || []);
     } catch (e) {
       toast(t('toast.error', { msg: e.message }), true);
     }
@@ -1127,7 +1160,7 @@ async function fetchProviderModels() {
       const tempId = result.provider.id;
       try {
         const data = await api('GET', `/api/settings/providers/${encodeURIComponent(tempId)}/models`);
-        _populateDatalist(data.models || []);
+        _applyModels(data.models || []);
       } finally {
         await api('DELETE', `/api/settings/providers/${encodeURIComponent(tempId)}`);
         const cfg = await api('GET', '/api/settings/');
@@ -1305,7 +1338,7 @@ async function fetchSecProviderModels() {
   const listId = 'secProvModelList';
   if (!baseUrl) { toast(t('settings.enterUrl'), true); return; }
 
-  async function _populateDatalist(models) {
+  async function _applyModels(models) {
     let dl = document.getElementById(listId);
     if (!dl) {
       dl = document.createElement('datalist');
@@ -1313,19 +1346,17 @@ async function fetchSecProviderModels() {
       modelInput.parentElement.appendChild(dl);
     }
     modelInput.setAttribute('list', listId);
-    dl.innerHTML = models.map(m => `<option value="${escapeHtml(m.id)}">`).join('');
-    if (models.length) {
-      if (!modelInput.value || modelInput.value === 'default') modelInput.value = models[0].id;
-      toast(t('toast.modelsReloaded'));
-    } else {
-      toast(t('settings.noModelsFound'), true);
-    }
+    dl.innerHTML = models.map((m) => {
+      const id = _modelEntryId(m);
+      return id ? `<option value="${escapeHtml(id)}">` : '';
+    }).join('');
+    _populateModelPicker(models, modelInput, 'secProvModelPicker');
   }
 
   if (_editingSecProviderId) {
     try {
       const data = await api('GET', `/api/settings/secondary-providers/${encodeURIComponent(_editingSecProviderId)}/models`);
-      _populateDatalist(data.models || []);
+      _applyModels(data.models || []);
     } catch (e) {
       toast(t('toast.error', { msg: e.message }), true);
     }
@@ -1346,7 +1377,7 @@ async function fetchSecProviderModels() {
       const tempId = result.provider.id;
       try {
         const data = await api('GET', `/api/settings/secondary-providers/${encodeURIComponent(tempId)}/models`);
-        _populateDatalist(data.models || []);
+        _applyModels(data.models || []);
       } finally {
         await api('DELETE', `/api/settings/secondary-providers/${encodeURIComponent(tempId)}`);
         const secData = await api('GET', '/api/settings/secondary-providers');

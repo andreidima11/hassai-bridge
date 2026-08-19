@@ -1,0 +1,228 @@
+"""Grok (x.ai) reasoning, prompt cache, image generation, and request helpers."""
+
+from __future__ import annotations
+
+import base64
+import re
+
+from services import chat_media as cm
+from services import deepseek as ds
+
+THINKING_MODES = ds.THINKING_MODES
+GROK_EFFORTS = ("low", "medium", "high", "xhigh")
+_XHIGH_MODELS = re.compile(r"grok-4\.6|grok-4\.20-multi-agent", re.I)
+
+
+def is_grok_provider(provider: dict | None) -> bool:
+    return isinstance(provider, dict) and provider.get("type") == "grok"
+
+
+def normalize_thinking_mode(value: str | None, default: str = "auto") -> str:
+    return ds.normalize_thinking_mode(value, default=default)
+
+
+def supports_xhigh(model: str | None) -> bool:
+    return bool(model and _XHIGH_MODELS.search(str(model)))
+
+
+def _grok_effort(mode: str, auto: dict, model: str) -> str:
+    if mode == "off":
+        return "low"
+    if mode == "high":
+        return "high"
+    if mode == "max":
+        return "xhigh" if supports_xhigh(model) else "high"
+    if not auto.get("enabled"):
+        return "low"
+    effort = auto.get("effort")
+    if effort == "max":
+        return "xhigh" if supports_xhigh(model) else "high"
+    if effort == "high":
+        return "high"
+    return "medium"
+
+
+def resolve_thinking(
+    provider: dict,
+    *,
+    override: str | None = None,
+    user_text: str = "",
+    tools_active: bool = False,
+) -> dict | None:
+    """Resolve Grok reasoning_effort for one chat request."""
+    if not is_grok_provider(provider):
+        return None
+
+    default_mode = normalize_thinking_mode(provider.get("thinking_mode"))
+    mode = normalize_thinking_mode(override, default=default_mode)
+    model = str(provider.get("model") or "")
+    auto = ds.auto_thinking_decision(user_text, tools_active=tools_active)
+    effort = _grok_effort(mode, auto, model)
+
+    return {
+        "mode": mode,
+        "enabled": True,
+        "effort": effort,
+        "auto_reason": auto.get("reason") if mode == "auto" else "",
+    }
+
+
+def apply_thinking_payload(payload: dict, thinking: dict | None, *, provider: dict | None = None) -> None:
+    if not thinking:
+        return
+    effort = thinking.get("effort") or "high"
+    if effort not in GROK_EFFORTS:
+        effort = "high"
+    payload["reasoning_effort"] = effort
+    payload.pop("temperature", None)
+    payload.pop("presence_penalty", None)
+    payload.pop("frequency_penalty", None)
+    payload.pop("stop", None)
+
+
+def assistant_turn(message: dict) -> dict:
+    out = dict(message)
+    reasoning = message.get("reasoning_content")
+    if reasoning:
+        out["reasoning_content"] = reasoning
+    return out
+
+
+def cache_tokens_from_usage(usage: dict | None) -> tuple[int, int]:
+    if not isinstance(usage, dict):
+        return 0, 0
+    prompt = int(usage.get("prompt_tokens") or 0)
+    details = usage.get("prompt_tokens_details") or {}
+    hit = int(details.get("cached_tokens") or 0)
+    miss = max(0, prompt - hit) if prompt else 0
+    return hit, miss
+
+
+def log_cache_usage(provider: dict | None, usage: dict | None, *, user_id: str = "") -> None:
+    if not is_grok_provider(provider) or not isinstance(usage, dict):
+        return
+    hit, miss = cache_tokens_from_usage(usage)
+    if hit or miss:
+        log_prefix = f"[{user_id}] " if user_id else ""
+        from logging import getLogger
+
+        getLogger("hassai.providers").info(
+            "%sGrok prompt cache: hit=%s miss=%s",
+            log_prefix,
+            hit,
+            miss,
+        )
+
+
+def grok_conv_header(session_id: str | None) -> dict[str, str]:
+    """Sticky routing header recommended by x.ai for prompt cache hits."""
+    sid = str(session_id or "").strip()
+    if not sid:
+        return {}
+    return {"x-grok-conv-id": sid[:128]}
+
+
+def default_image_model(provider: dict | None) -> str:
+    if isinstance(provider, dict):
+        configured = str(provider.get("image_model") or "").strip()
+        if configured:
+            return configured
+    return "grok-imagine-image-2.0"
+
+
+async def generate_image(
+    provider: dict,
+    prompt: str,
+    *,
+    model: str | None = None,
+    n: int = 1,
+    user_id: str = "",
+    session_id: str | None = None,
+) -> dict:
+    """Generate images via x.ai /v1/images/generations.
+
+    Returns {"text": str, "attachments": list[dict], "model": str}.
+    """
+    from logging import getLogger
+
+    from services import provider_capabilities as pc
+    from services import providers as prov
+
+    log = getLogger("hassai.providers")
+    if not is_grok_provider(provider):
+        raise ValueError("image generation requires a Grok provider")
+    if not pc.supports_image_generation(provider):
+        raise ValueError("image generation is not enabled for this provider")
+
+    clean_prompt = " ".join(str(prompt or "").split())[:4000]
+    if not clean_prompt:
+        raise ValueError("empty image prompt")
+
+    used_model = str(model or default_image_model(provider)).strip() or default_image_model(provider)
+    count = max(1, min(4, int(n or 1)))
+
+    url = prov._build_url(provider, "/v1/images/generations")
+    headers = prov._build_headers(provider)
+    payload = {
+        "model": used_model,
+        "prompt": clean_prompt,
+        "n": count,
+        "response_format": "url",
+    }
+    timeout = provider.get("timeout", 120)
+    client = prov._get_client()
+    resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
+    if resp.status_code >= 400:
+        log.error(
+            "Grok image generation failed (%s): %s",
+            resp.status_code,
+            resp.text[:500],
+        )
+    resp.raise_for_status()
+    data = resp.json()
+
+    attachments: list[dict] = []
+    public_urls: list[str] = []
+    for idx, item in enumerate(data.get("data") or []):
+        if not isinstance(item, dict):
+            continue
+        raw: bytes | None = None
+        mime = "image/png"
+        if item.get("b64_json"):
+            try:
+                raw = base64.b64decode(str(item["b64_json"]), validate=True)
+            except (ValueError, base64.binascii.Error):
+                raw = None
+        elif item.get("url"):
+            image_url = str(item["url"]).strip()
+            if image_url:
+                try:
+                    img_resp = await client.get(image_url, timeout=60)
+                    img_resp.raise_for_status()
+                    raw = img_resp.content
+                    mime = str(img_resp.headers.get("content-type") or "image/png").split(";")[0].strip()
+                except Exception as exc:
+                    log.warning("Failed to download generated image %s: %s", idx + 1, exc)
+                    public_urls.append(image_url)
+                    continue
+        if not raw:
+            continue
+        try:
+            att = cm.persist_image_bytes(user_id, raw, mime, name=f"generated-{idx + 1}")
+        except ValueError as exc:
+            log.warning("Failed to persist generated image %s: %s", idx + 1, exc)
+            continue
+        attachments.append(att)
+        public_urls.append(cm.attachment_public_url(att["id"], session_id or ""))
+
+    if not public_urls:
+        raise ValueError("image generation returned no usable images")
+
+    lines = [
+        "[Generated image — show each image in your reply using markdown: ![description](url)]",
+        f"Prompt: {clean_prompt}",
+        f"Model: {used_model}",
+    ]
+    for i, image_url in enumerate(public_urls, start=1):
+        lines.append(f"Image {i}: {image_url}")
+    return {"text": "\n".join(lines), "attachments": attachments, "model": used_model}

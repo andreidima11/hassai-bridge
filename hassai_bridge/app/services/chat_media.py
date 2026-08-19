@@ -93,3 +93,20 @@ def attachment_data_url(user_id: str, att: dict) -> str | None:
 def attachment_public_url(att_id: str, session_id: str = "") -> str:
     query = f"?session_id={session_id}" if session_id else ""
     return f"/api/chat/media/{att_id}{query}"
+
+
+def persist_image_bytes(user_id: str, raw: bytes, mime: str = "image/png", *, name: str = "") -> dict:
+    """Save one generated image blob and return attachment metadata."""
+    if not raw or len(raw) > MAX_BYTES:
+        raise ValueError("image too large or empty")
+    mime = str(mime or "image/png").lower()
+    if mime not in _ALLOWED_MIME:
+        mime = "image/png"
+    att_id = uuid.uuid4().hex[:16]
+    base = _safe_user_dir(user_id)
+    path = base / f"{att_id}.{_ext_for_mime(mime)}"
+    path.write_bytes(raw)
+    out = {"id": att_id, "mime": mime}
+    if name:
+        out["name"] = str(name)[:120]
+    return out

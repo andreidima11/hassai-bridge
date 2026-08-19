@@ -170,12 +170,14 @@ def get_secondary_provider_by_id(provider_id: str) -> dict | None:
     return None
 
 
-def _build_headers(provider: dict) -> dict:
+def _build_headers(provider: dict, *, extra: dict | None = None) -> dict:
     """Build request headers including auth if needed."""
     headers = {"Content-Type": "application/json"}
     api_key = provider.get("api_key", "")
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
+    if extra:
+        headers.update(extra)
     return headers
 
 
@@ -210,15 +212,31 @@ def _build_url(provider: dict, path: str) -> str:
     return base + "/v1" + clean_path
 
 
+def _provider_request_headers(provider: dict, cache_conv_id: str | None = None) -> dict:
+    extra = None
+    if provider.get("type") == "grok":
+        from services import grok as gk
+
+        extra = gk.grok_conv_header(cache_conv_id)
+    return _build_headers(provider, extra=extra)
+
+
+def _skip_temperature(provider: dict, thinking: dict | None) -> bool:
+    if provider.get("type") == "grok" and thinking:
+        return True
+    return bool(thinking and thinking.get("enabled") and provider.get("type") == "deepseek")
+
+
 async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,
                           tools: list | None = None, tool_choice: str | dict | None = None,
-                          provider: dict | None = None, thinking: dict | None = None) -> dict:
+                          provider: dict | None = None, thinking: dict | None = None,
+                          cache_conv_id: str | None = None) -> dict:
     """Send a chat completion request to the active (or specified) provider."""
     if provider is None:
         provider = get_active_provider()
 
     url = _build_url(provider, "/v1/chat/completions")
-    headers = _build_headers(provider)
+    headers = _provider_request_headers(provider, cache_conv_id)
     timeout = provider.get("timeout", 120)
 
     # Model priority: provider config > request param > default
@@ -238,7 +256,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
     if max_tokens:
         payload["max_tokens"] = max_tokens
     temperature = provider.get("temperature")
-    if temperature is not None and not (thinking and thinking.get("enabled")):
+    if temperature is not None and not _skip_temperature(provider, thinking):
         payload["temperature"] = temperature
 
     from services import provider_capabilities as pc
@@ -272,13 +290,14 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
 
 async def chat_completion_stream(messages: list[dict], model: str | None = None,
                                  tools: list | None = None, tool_choice: str | dict | None = None,
-                                 provider: dict | None = None, thinking: dict | None = None):
+                                 provider: dict | None = None, thinking: dict | None = None,
+                                 cache_conv_id: str | None = None):
     """Stream chat completion, yielding SSE chunks."""
     if provider is None:
         provider = get_active_provider()
 
     url = _build_url(provider, "/v1/chat/completions")
-    headers = _build_headers(provider)
+    headers = _provider_request_headers(provider, cache_conv_id)
     timeout = provider.get("timeout", 120)
 
     cfg_model = provider.get("model", "default")
@@ -297,7 +316,7 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
     if max_tokens:
         payload["max_tokens"] = max_tokens
     temperature = provider.get("temperature")
-    if temperature is not None and not (thinking and thinking.get("enabled")):
+    if temperature is not None and not _skip_temperature(provider, thinking):
         payload["temperature"] = temperature
 
     from services import provider_capabilities as pc
@@ -328,7 +347,7 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
 
 
 async def list_models(provider: dict | None = None) -> list[dict]:
-    """List available models from a provider."""
+    """List available models from a provider (normalized id + name)."""
     if provider is None:
         provider = get_active_provider()
 
@@ -339,7 +358,52 @@ async def list_models(provider: dict | None = None) -> list[dict]:
     resp = await client.get(url, headers=headers, timeout=15)
     resp.raise_for_status()
     data = resp.json()
-    return data.get("data", [])
+    return normalize_model_list(data)
+
+
+def normalize_model_entry(entry) -> dict | None:
+    """Normalize OpenAI / Ollama / vendor-specific model list entries."""
+    if isinstance(entry, str):
+        mid = entry.strip()
+        return {"id": mid, "name": mid} if mid else None
+    if not isinstance(entry, dict):
+        return None
+    mid = str(
+        entry.get("id")
+        or entry.get("model")
+        or entry.get("name")
+        or entry.get("model_name")
+        or ""
+    ).strip()
+    if not mid:
+        return None
+    name = str(entry.get("name") or entry.get("display_name") or mid).strip()
+    return {"id": mid, "name": name}
+
+
+def normalize_model_list(payload) -> list[dict]:
+    """Extract and dedupe model rows from assorted /v1/models response shapes."""
+    raw = payload
+    if isinstance(raw, dict):
+        raw = raw.get("data") or raw.get("models") or raw.get("result") or []
+        if isinstance(raw, dict):
+            raw = raw.get("data") or raw.get("models") or []
+    if not isinstance(raw, list):
+        return []
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for item in raw:
+        norm = normalize_model_entry(item)
+        if not norm:
+            continue
+        key = norm["id"].casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(norm)
+    out.sort(key=lambda row: row["id"].lower())
+    return out
 
 
 async def health_check(provider: dict | None = None) -> bool:

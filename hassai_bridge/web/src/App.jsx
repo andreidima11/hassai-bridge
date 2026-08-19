@@ -114,6 +114,7 @@ export default function App() {
   const [sessionId, setSessionId] = useState("");
   const [user, setUser] = useState({ username: "default", display_name: "default" });
   const [chatCapabilities, setChatCapabilities] = useState({});
+  const [providerInfo, setProviderInfo] = useState({ id: "", name: "", model: "" });
   const [thinkingMode, setThinkingMode] = useState(() => readStoredThinkingMode());
   const sessionIdRef = useRef("");
   const bootDone = useRef(false);
@@ -207,6 +208,9 @@ export default function App() {
             role: m.role,
             content: m.content || "",
             thinking: label ? next : emptyThinking(t("thinking")),
+            ...(Array.isArray(m.attachments) && m.attachments.length
+              ? { attachments: mapStoredAttachments(m.attachments) }
+              : {}),
           });
         } else {
           const content = m.content === "(image)" ? "" : m.content || "";
@@ -235,8 +239,14 @@ export default function App() {
         setLang(nextLang);
         persistLang(nextLang);
         setUser(data.user || { username: "default", display_name: "default" });
-        const caps = data.chat?.capabilities || {};
+        const chat = data.chat || {};
+        const caps = chat.capabilities || {};
         setChatCapabilities(caps);
+        setProviderInfo({
+          id: chat.provider_id || "",
+          name: chat.provider_name || "",
+          model: chat.model || "",
+        });
         if (hasThinkingCapability(caps)) {
           setThinkingMode((prev) => readStoredThinkingMode(defaultThinkingMode(caps) || prev));
         }
@@ -426,6 +436,16 @@ export default function App() {
     }
   };
 
+  const updateProviderModel = useCallback(async (model) => {
+    const providerId = providerInfo.id;
+    if (!providerId || !model) return;
+    await apiJson(`/api/settings/providers/${encodeURIComponent(providerId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ model }),
+    });
+    setProviderInfo((prev) => ({ ...prev, model }));
+  }, [providerInfo.id]);
+
   const deleteSession = async (id) => {
     if (!confirm(t("deleteConfirm"))) return;
     const inDb = sessions.some((s) => s.session_id === id);
@@ -486,7 +506,10 @@ export default function App() {
             maxImagesLabel={t("maxImages")}
             placeholder={t("placeholder")}
             removeImageLabel={t("removeImage")}
-            showThinking={hasThinkingCapability(chatCapabilities)}
+            providerCapabilities={chatCapabilities}
+            providerId={providerInfo.id}
+            providerModel={providerInfo.model}
+            providerName={providerInfo.name}
             stopLabel={t("stop")}
             thinkingMode={thinkingMode}
             unsupportedImageLabel={t("unsupportedImage")}
@@ -501,6 +524,7 @@ export default function App() {
                 pickerGuardUntil.current = 0;
               }, 2500);
             }}
+            onProviderModelChange={updateProviderModel}
             onStop={stopGeneration}
             onSubmit={send}
             onThinkingModeChange={(mode) => {

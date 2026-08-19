@@ -58,6 +58,7 @@ async def me(request: Request):
                 "source": "webui",
             }
     cfg = load_config()
+    from services.providers import get_active_provider
     active = get_active_provider()
     from services.provider_capabilities import provider_chat_capabilities
 
@@ -69,6 +70,8 @@ async def me(request: Request):
             "provider_id": active.get("id", ""),
             "provider_type": active.get("type", ""),
             "provider_name": active.get("name", ""),
+            "model": active.get("model", ""),
+            "thinking_mode": active.get("thinking_mode") or "auto",
             "capabilities": provider_chat_capabilities(active),
         },
     }

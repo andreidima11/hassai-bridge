@@ -420,6 +420,7 @@
               <input type="text" id="provModel" placeholder="e.g.: gpt-4o-mini" style="flex:1">
               <button class="btn btn-sm btn-primary" onclick="fetchProviderModels()" id="provFetchModelsBtn" data-i18n="settings.fetchModels">Fetch Models</button>
             </div>
+            <select id="provModelPicker" class="input-sm" size="8" style="display:none;margin-top:8px;width:100%"></select>
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.personality">Personality</h3>
@@ -522,6 +523,7 @@
               <input type="text" id="secProvModel" placeholder="e.g.: gpt-4o-mini" style="flex:1">
               <button class="btn btn-sm btn-primary" onclick="fetchSecProviderModels()" data-i18n="settings.fetchModels">Fetch Models</button>
             </div>
+            <select id="secProvModelPicker" class="input-sm" size="8" style="display:none;margin-top:8px;width:100%"></select>
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.advanced">Advanced</h3>
