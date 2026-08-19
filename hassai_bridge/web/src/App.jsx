@@ -436,6 +436,23 @@ export default function App() {
     }
   };
 
+  const refreshChatProvider = useCallback(async () => {
+    const data = await apiJson("/api/me");
+    const chat = data.chat || {};
+    const caps = chat.capabilities || {};
+    setChatCapabilities(caps);
+    setProviderInfo({
+      id: chat.provider_id || "",
+      name: chat.provider_name || "",
+      model: chat.model || "",
+    });
+    if (hasThinkingCapability(caps)) {
+      setThinkingMode((prev) => readStoredThinkingMode(defaultThinkingMode(caps) || prev));
+    } else {
+      setThinkingMode("off");
+    }
+  }, []);
+
   const updateProviderModel = useCallback(async (model) => {
     const providerId = providerInfo.id;
     if (!providerId || !model) return;
@@ -445,6 +462,15 @@ export default function App() {
     });
     setProviderInfo((prev) => ({ ...prev, model }));
   }, [providerInfo.id]);
+
+  const changeProvider = useCallback(
+    async (newId) => {
+      if (!newId || newId === providerInfo.id) return;
+      await apiJson(`/api/settings/providers/${encodeURIComponent(newId)}/activate`, { method: "PUT" });
+      await refreshChatProvider();
+    },
+    [providerInfo.id, refreshChatProvider],
+  );
 
   const deleteSession = async (id) => {
     if (!confirm(t("deleteConfirm"))) return;
@@ -535,6 +561,7 @@ export default function App() {
                 pickerGuardUntil.current = 0;
               }, 2500);
             }}
+            onProviderChange={changeProvider}
             onProviderModelChange={updateProviderModel}
             onStop={stopGeneration}
             onSubmit={send}

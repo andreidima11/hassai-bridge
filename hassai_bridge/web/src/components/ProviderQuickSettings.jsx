@@ -46,12 +46,16 @@ export function ProviderQuickSettings({
   thinkingMode,
   onThinkingModeChange,
   onModelChange,
+  onProviderChange,
   lang,
   disabled = false,
 }) {
   const anchorRef = useRef(null);
   const panelRef = useRef(null);
   const [open, setOpen] = useState(false);
+  const [providers, setProviders] = useState([]);
+  const [loadingProviders, setLoadingProviders] = useState(false);
+  const [providersError, setProvidersError] = useState("");
   const [models, setModels] = useState([]);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState("");
@@ -68,6 +72,29 @@ export function ProviderQuickSettings({
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoadingProviders(true);
+    setProvidersError("");
+    apiJson("/api/settings/providers")
+      .then((data) => {
+        if (cancelled) return;
+        setProviders(Array.isArray(data.providers) ? data.providers : []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setProviders([]);
+        setProvidersError(String(err.message || "error"));
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingProviders(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -105,10 +132,32 @@ export function ProviderQuickSettings({
       role="dialog"
       aria-label={tr(lang, "providerSettings")}
     >
-      <div className="mb-3">
-        <div className="text-[11px] uppercase tracking-wide text-muted-foreground">{tr(lang, "providerLabel")}</div>
-        <div className="truncate text-[14px] font-medium text-foreground">{providerName || "—"}</div>
-      </div>
+      <label className="mb-3 block">
+        <div className="mb-1 text-[12px] text-muted-foreground">{tr(lang, "providerLabel")}</div>
+        {loadingProviders ? (
+          <div className="text-[12px] text-muted-foreground">{tr(lang, "loadingProviders")}</div>
+        ) : providers.length ? (
+          <select
+            className="w-full rounded-xl border border-white/10 bg-background px-2.5 py-2 text-[13px] text-foreground outline-none focus:border-white/20"
+            value={providerId || ""}
+            onChange={(e) => onProviderChange?.(e.target.value)}
+          >
+            {!providers.some((row) => row.id === providerId) && providerId ? (
+              <option value={providerId}>{providerName || providerId}</option>
+            ) : null}
+            {providers.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.name || row.id}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="rounded-xl border border-white/10 bg-background px-2.5 py-2 text-[13px] text-foreground">
+            {providerName || tr(lang, "noProviders")}
+          </div>
+        )}
+        {providersError ? <div className="mt-1 text-[11px] text-amber-400/90">{providersError}</div> : null}
+      </label>
 
       <label className="mb-3 block">
         <div className="mb-1 text-[12px] text-muted-foreground">{tr(lang, "modelLabel")}</div>
