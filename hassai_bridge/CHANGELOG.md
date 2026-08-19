@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.48-beta
+
+### Chat UX — Stop & thinking
+- **Stop button** replaces Send while the model is generating (EN/RO)
+- **Thinking panel** collapsed by default; click the live status label to expand steps
+- **Server-side cancel:** `POST /v1/chat/cancel/{trace_id}` stops the agent loop (ingress + stream)
+- Activity poll exposes `cancelled`; 50 unit tests
+
 ## 0.2.47-beta
 
 ### Phase 7 — integrations, statistics, location entities
