@@ -271,6 +271,23 @@ def test_format_automation_detail():
     assert "automation:" in text
 
 
+def test_format_automation_config_summary():
+    config = {
+        "alias": "Pulpa",
+        "description": "Test automation",
+        "mode": "single",
+        "triggers": [{"platform": "state", "entity_id": "binary_sensor.door"}],
+        "conditions": [],
+        "actions": [{"service": "light.turn_off", "target": {"entity_id": "light.kitchen"}}],
+    }
+    text = et.format_automation_config(config)
+    assert "alias: Pulpa" in text
+    assert "triggers (1):" in text
+    assert "platform=state" in text
+    assert "actions (1):" in text
+    assert "light.turn_off" in text
+
+
 def test_resolve_config_entity_by_search_and_entity_id():
     states = load("domain_states_sample.json")
     resolved = et.resolve_config_entity(states, "automation", search="pulpa")

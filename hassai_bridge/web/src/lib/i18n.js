@@ -16,6 +16,8 @@ const I18N = {
     settings: "Settings",
     thinking: "Thinking",
     thinkingLive: "Thinking…",
+    thinkingBrieflyLive: "Thinking briefly…",
+    thoughtBriefly: "Thought briefly",
     steps: "{n} steps · {s}s",
     thoughtFor: "Thought for {s}s",
     thoughtBrief: "Finished thinking",
@@ -105,6 +107,8 @@ const I18N = {
     settings: "Setări",
     thinking: "Gândește",
     thinkingLive: "Gândește…",
+    thinkingBrieflyLive: "Gândește puțin…",
+    thoughtBriefly: "A gândit puțin",
     steps: "{n} pași · {s}s",
     thoughtFor: "A gândit {s}s",
     thoughtBrief: "Gândire terminată",
@@ -207,20 +211,21 @@ export function tr(lang, key, params = {}) {
 }
 
 export function activityVerb(lang, name) {
-  if (name === "think") return tr(lang, "thinking");
+  if (name === "think") return tr(lang, "thoughtBriefly");
   const translated = tr(lang, name);
   return translated === name ? name.replace(/^ha_/, "").replace(/_/g, " ") : translated;
 }
 
 export function liveThinkingLabel(lang, thinking) {
-  const running = (thinking.steps || []).find((step) => step.status === "running");
-  if (running) {
-    const verb = activityVerb(lang, running.name);
-    const detail = String(running.detail || "").trim();
+  const runningTool = (thinking.steps || []).find((step) => step.status === "running" && step.name !== "think");
+  if (runningTool) {
+    const verb = activityVerb(lang, runningTool.name);
+    const detail = String(runningTool.detail || "").trim();
     if (detail) return `${verb} · ${detail}`;
     return `${verb}…`;
   }
-  if (thinking.active) return tr(lang, "thinkingLive");
+  const runningThink = (thinking.steps || []).find((step) => step.status === "running" && step.name === "think");
+  if (runningThink || thinking.active) return tr(lang, "thinkingBrieflyLive");
   return thinking.label || tr(lang, "thoughtBrief");
 }
 
@@ -248,6 +253,7 @@ export function finishThinkingLabel(lang, thinking) {
       s: (totalMs / 1000).toFixed(totalMs >= 10000 ? 0 : 1),
     });
   }
+  if (thinkMs > 0 && thinkMs < 4000) return tr(lang, "thoughtBriefly");
   return thinkMs >= 1000
     ? tr(lang, "thoughtFor", { s: (thinkMs / 1000).toFixed(thinkMs >= 10000 ? 0 : 1) })
     : tr(lang, "thoughtBrief");

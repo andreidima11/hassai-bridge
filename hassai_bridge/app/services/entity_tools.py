@@ -8,6 +8,7 @@ from typing import Any
 DEFAULT_HA_AGENT_PROMPT = """You are the Home Assistant administrator copilot. Available tools: {tools}.
 
 Chain tools until the job is done — do not stop after a single lookup.
+Read-only questions (explain, what does X do, list, show): usually 1–3 tool calls, then answer in plain language — do not loop tools or narrate internal reasoning.
 
 Entities (live state via REST):
 - Find: ha_list_entities (search, domain, area_name, offset; registry columns when available) → ha_get_state
@@ -22,7 +23,7 @@ Entities (live state via REST):
 - Trace: ha_get_history / ha_get_logbook for recent changes; ha_get_entity_source for integration
 - Voice/Assist: ha_list_exposed_entities → ha_expose_entity (confirm=true; assistant conversation by default)
 - Floors: ha_list_floors → ha_create_area with floor_name or ha_update_area
-- Automations/scripts/scenes: ha_list_* (search) → ha_get_* if needed → ha_delete_* to remove (confirm=true); ha_trigger_automation / ha_run_script / ha_activate_scene to run. Delete uses automations.yaml / scripts.yaml / scenes.yaml — if delete fails (packages or custom YAML), remove the block with ha_read_file + ha_write_file.
+- Automations/scripts/scenes: ha_list_* (search) → ha_get_* (config + triggers/actions for explain) → answer or ha_delete_* (confirm=true) to remove; ha_trigger/run/activate to run. Explain-only: stop after ha_get_* — do not call delete/mutate tools.
 - Integrations: ha_list_config_entries → ha_get_config_entry; ha_reload_config_entry (confirm=true) after fixing YAML
 - Long-term sensors: ha_list_statistic_ids → ha_get_statistics; groups/zones/persons: ha_list_groups / ha_list_zones / ha_list_persons
 
@@ -931,6 +932,72 @@ def format_automation_detail(state: dict) -> str:
 def config_id_from_state(state: dict) -> str:
     attrs = state.get("attributes") or {}
     return str(attrs.get("id") or "").strip()
+
+
+def _summarize_automation_block(block: Any, *, max_len: int = 140) -> str:
+    if isinstance(block, str):
+        text = block.strip()
+    elif isinstance(block, dict):
+        parts: list[str] = []
+        for key in ("platform", "service", "entity_id", "device_id", "area_id", "type", "alias"):
+            val = block.get(key)
+            if val not in (None, "", []):
+                parts.append(f"{key}={val}")
+        if not parts:
+            parts.append(json.dumps(block, ensure_ascii=False, default=str)[: max_len - 8])
+        text = " ".join(parts)
+    else:
+        text = str(block)
+    text = " ".join(text.split())
+    return text[:max_len] + ("…" if len(text) > max_len else "")
+
+
+def _automation_section(config: dict, *keys: str) -> list[Any]:
+    for key in keys:
+        val = config.get(key)
+        if val is None:
+            continue
+        if isinstance(val, list):
+            return val
+        return [val]
+    return []
+
+
+def format_automation_config(config: dict | None) -> str:
+    if not config or not isinstance(config, dict):
+        return ""
+    lines = ["config:"]
+    alias = config.get("alias") or config.get("id")
+    if alias:
+        lines.append(f"alias: {alias}")
+    if config.get("description"):
+        lines.append(f"description: {config['description']}")
+    mode = config.get("mode")
+    if mode:
+        lines.append(f"mode: {mode}")
+
+    triggers = _automation_section(config, "triggers", "trigger")
+    lines.append(f"triggers ({len(triggers)}):")
+    for idx, block in enumerate(triggers[:8], start=1):
+        lines.append(f"  {idx}. {_summarize_automation_block(block)}")
+    if len(triggers) > 8:
+        lines.append(f"  … +{len(triggers) - 8} more")
+
+    conditions = _automation_section(config, "conditions", "condition")
+    if conditions:
+        lines.append(f"conditions ({len(conditions)}):")
+        for idx, block in enumerate(conditions[:4], start=1):
+            lines.append(f"  {idx}. {_summarize_automation_block(block)}")
+        if len(conditions) > 4:
+            lines.append(f"  … +{len(conditions) - 4} more")
+
+    actions = _automation_section(config, "actions", "action")
+    lines.append(f"actions ({len(actions)}):")
+    for idx, block in enumerate(actions[:10], start=1):
+        lines.append(f"  {idx}. {_summarize_automation_block(block)}")
+    if len(actions) > 10:
+        lines.append(f"  … +{len(actions) - 10} more")
+    return "\n".join(lines)
 
 
 def resolve_config_entity(

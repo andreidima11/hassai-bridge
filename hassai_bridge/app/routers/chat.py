@@ -67,6 +67,7 @@ def _agentic_instruction() -> str:
         "Work style: autonomous agent. Finish the job; do not narrate a plan and wait. "
         "Keep using tools until the task is actually done — inspect, change, verify, fix, then stop. "
         "Never ask \"should I continue?\" or \"want me to proceed?\". "
+        "Read-only questions (explain, what does X do, list, show): use 1–3 tool calls, then answer clearly — do not loop tools or expose chain-of-thought. "
         "If the user asked you to change Home Assistant (entities, cards, files, automations, reloads), "
         "set confirm=true and do it. Only pause when the request is ambiguous or truly destructive "
         "and they did not ask for that change. End with a short summary of what you did."
@@ -206,6 +207,8 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(f"{flag} {preview}".strip())
     if name in {"ha_trigger_automation", "ha_run_script", "ha_activate_scene"}:
         return _clip_detail(args.get("entity_id"))
+    if name == "ha_get_automation":
+        return _clip_detail(args.get("entity_id") or args.get("search") or args.get("name"))
     if name in {"ha_delete_automation", "ha_delete_script", "ha_delete_scene"}:
         return _clip_detail(args.get("entity_id") or args.get("search") or args.get("name"))
     if name == "ha_create_floor":

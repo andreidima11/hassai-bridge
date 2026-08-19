@@ -1,11 +1,25 @@
 import { useEffect, useState } from "react";
 import { ChevronIcon } from "./Icons.jsx";
 import { activityVerb, formatMs, liveThinkingLabel, tr } from "../lib/i18n.js";
+import { toolSteps } from "../lib/thinking.js";
 
 function StepRow({ step, lang }) {
   const running = step.status === "running";
   const done = step.status === "done";
   const skipped = step.status === "skip";
+  const isThink = step.name === "think";
+
+  if (isThink) {
+    const label = running
+      ? tr(lang, "thinkingBrieflyLive")
+      : `${tr(lang, "thoughtBriefly")}${step.ms ? ` · ${formatMs(step.ms)}` : ""}`;
+    return (
+      <div className="relative flex min-w-0 items-start gap-2.5 py-1 text-[13px] leading-snug text-muted-foreground/85">
+        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/35" aria-hidden="true" />
+        <span className={`min-w-0 truncate ${running ? "thinking-shimmer" : ""}`}>{label}</span>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex min-w-0 items-start gap-2.5 py-1.5 text-[13px] leading-snug">
@@ -44,7 +58,9 @@ function StepRow({ step, lang }) {
 
 export function Thinking({ thinking, lang, streaming = false }) {
   const steps = thinking.steps || [];
+  const tools = toolSteps(steps);
   const hasSteps = steps.length > 0;
+  const hasTools = tools.length > 0;
   const isLive = Boolean(thinking.active || streaming);
   const canToggle = isLive || hasSteps;
   const [open, setOpen] = useState(false);
@@ -80,14 +96,14 @@ export function Thinking({ thinking, lang, streaming = false }) {
         aria-expanded={canToggle ? open : undefined}
       >
         <ChevronIcon className={`mt-px shrink-0 transition-transform duration-200 ${open && canToggle ? "rotate-180" : ""}`} />
-        {isLive && !hasSteps ? (
+        {isLive && !hasTools ? (
           <span className="thinking-shimmer truncate">{headerLabel}</span>
         ) : (
           <span className="truncate">{headerLabel}</span>
         )}
-        {!open && hasSteps && !isLive ? (
+        {!open && hasTools && !isLive ? (
           <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground/75">
-            {steps.length}
+            {tools.length}
           </span>
         ) : null}
       </button>

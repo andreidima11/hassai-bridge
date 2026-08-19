@@ -598,11 +598,16 @@ _TOOL_SPECS: dict[str, dict] = {
         },
     },
     "ha_get_automation": {
-        "description": "Get one automation entity state and attributes.",
+        "description": (
+            "Get automation state plus triggers/conditions/actions summary. "
+            "Pass entity_id or search by friendly name."
+        ),
         "parameters": {
             "type": "object",
-            "properties": {"entity_id": {"type": "string"}},
-            "required": ["entity_id"],
+            "properties": {
+                "entity_id": {"type": "string", "description": "automation.* entity"},
+                "search": {"type": "string", "description": "Friendly name or entity_id fragment"},
+            },
         },
     },
     "ha_trigger_automation": {
@@ -1676,12 +1681,42 @@ async def _list_automations(args: dict) -> str:
 
 async def _get_automation(args: dict) -> str:
     entity_id = (args.get("entity_id") or "").strip()
-    if not entity_id:
-        return "Error: entity_id is required"
-    if not entity_id.startswith("automation."):
-        return "Error: entity_id must be an automation.* entity"
-    state = await _core("GET", f"/states/{entity_id}")
-    return et.format_automation_detail(state)
+    search = (args.get("search") or args.get("name") or "").strip()
+    state: dict
+    config_id = ""
+    if not entity_id and search:
+        resolved = await _resolve_config_entity(args, "automation")
+        if isinstance(resolved, str):
+            return resolved
+        entity_id, config_id, state = resolved
+    elif entity_id:
+        if not entity_id.startswith("automation."):
+            return "Error: entity_id must be an automation.* entity"
+        state = await _core("GET", f"/states/{entity_id}")
+        config_id = et.config_id_from_state(state)
+    else:
+        return "Error: entity_id or search is required"
+
+    detail = et.format_automation_detail(state)
+    config_text = await _fetch_automation_config(entity_id, config_id)
+    if config_text:
+        return f"{detail}\n\n{config_text}"
+    return detail
+
+
+async def _fetch_automation_config(entity_id: str, config_id: str) -> str:
+    if config_id:
+        try:
+            cfg = await _core("GET", f"/config/automation/config/{config_id}")
+            return et.format_automation_config(cfg if isinstance(cfg, dict) else None)
+        except RuntimeError:
+            pass
+    try:
+        result = await _ws_call({"type": "automation/config", "entity_id": entity_id})
+        cfg = result.get("config") if isinstance(result, dict) else None
+        return et.format_automation_config(cfg if isinstance(cfg, dict) else None)
+    except RuntimeError:
+        return ""
 
 
 async def _trigger_automation(args: dict) -> str:
