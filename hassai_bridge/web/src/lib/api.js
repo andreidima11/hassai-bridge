@@ -30,14 +30,7 @@ export function extractText(payload) {
   const choice = payload?.choices?.[0] || {};
   const delta = choice.delta || {};
   const msg = choice.message || {};
-  return (
-    delta.content ||
-    delta.reasoning_content ||
-    msg.content ||
-    msg.reasoning_content ||
-    payload?.error?.message ||
-    ""
-  );
+  return delta.content || msg.content || payload?.error?.message || "";
 }
 
 export function newId() {

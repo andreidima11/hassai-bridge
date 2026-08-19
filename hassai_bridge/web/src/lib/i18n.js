@@ -211,7 +211,7 @@ export function tr(lang, key, params = {}) {
 }
 
 export function activityVerb(lang, name) {
-  if (name === "think") return tr(lang, "thoughtBriefly");
+  if (name === "think") return tr(lang, "thinking");
   const translated = tr(lang, name);
   return translated === name ? name.replace(/^ha_/, "").replace(/_/g, " ") : translated;
 }
@@ -225,7 +225,7 @@ export function liveThinkingLabel(lang, thinking) {
     return `${verb}…`;
   }
   const runningThink = (thinking.steps || []).find((step) => step.status === "running" && step.name === "think");
-  if (runningThink || thinking.active) return tr(lang, "thinkingBrieflyLive");
+  if (runningThink || thinking.active) return tr(lang, "thinkingLive");
   return thinking.label || tr(lang, "thoughtBrief");
 }
 
@@ -253,7 +253,6 @@ export function finishThinkingLabel(lang, thinking) {
       s: (totalMs / 1000).toFixed(totalMs >= 10000 ? 0 : 1),
     });
   }
-  if (thinkMs > 0 && thinkMs < 4000) return tr(lang, "thoughtBriefly");
   return thinkMs >= 1000
     ? tr(lang, "thoughtFor", { s: (thinkMs / 1000).toFixed(thinkMs >= 10000 ? 0 : 1) })
     : tr(lang, "thoughtBrief");

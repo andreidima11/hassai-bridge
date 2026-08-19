@@ -11,12 +11,20 @@ function StepRow({ step, lang }) {
 
   if (isThink) {
     const label = running
-      ? tr(lang, "thinkingBrieflyLive")
-      : `${tr(lang, "thoughtBriefly")}${step.ms ? ` · ${formatMs(step.ms)}` : ""}`;
+      ? tr(lang, "thinkingLive")
+      : `${tr(lang, "thinking")}${step.ms ? ` · ${formatMs(step.ms)}` : ""}`;
+    const detail = String(step.detail || "").trim();
     return (
       <div className="relative flex min-w-0 items-start gap-2.5 py-1 text-[13px] leading-snug text-muted-foreground/85">
         <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/35" aria-hidden="true" />
-        <span className={`min-w-0 truncate ${running ? "thinking-shimmer" : ""}`}>{label}</span>
+        <div className="min-w-0 flex-1">
+          <span className={`block min-w-0 truncate ${running ? "thinking-shimmer" : ""}`}>{label}</span>
+          {detail ? (
+            <p className="mt-1.5 whitespace-pre-wrap break-words text-[12px] font-normal leading-relaxed text-muted-foreground/70">
+              {detail}
+            </p>
+          ) : null}
+        </div>
       </div>
     );
   }

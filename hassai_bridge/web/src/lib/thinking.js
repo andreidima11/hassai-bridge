@@ -25,7 +25,12 @@ export function applyActivity(thinking, ev, fallbackLabel) {
     }
     const id = String(ev.id || `think-${ev.i ?? next.steps.length}`);
     const idx = next.steps.findIndex((s) => s.id === id);
-    const row = { id, name: "think", status: ev.status, detail: "", ms: ev.ms };
+    const prev = idx >= 0 ? next.steps[idx] : null;
+    const detail =
+      ev.detail != null && String(ev.detail).length
+        ? String(ev.detail)
+        : prev?.detail || "";
+    const row = { id, name: "think", status: ev.status, detail, ms: ev.ms ?? prev?.ms };
     if (idx >= 0) next.steps[idx] = row;
     else next.steps.push(row);
     return next;

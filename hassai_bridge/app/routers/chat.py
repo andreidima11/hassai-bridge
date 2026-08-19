@@ -335,6 +335,22 @@ def _trace_push(trace_id: str, event: dict) -> dict:
     return payload
 
 
+_REASONING_DETAIL_MAX = 8000
+
+
+def _clip_reasoning(text: str | None) -> str:
+    raw = (text or "").strip()
+    if len(raw) <= _REASONING_DETAIL_MAX:
+        return raw
+    return raw[:_REASONING_DETAIL_MAX] + "…"
+
+
+def _message_reasoning(message: dict | None) -> str:
+    if not isinstance(message, dict):
+        return ""
+    return _clip_reasoning(message.get("reasoning_content") or "")
+
+
 def _compact_activity(events: list | None) -> list[dict]:
     """Keep the last status per step id (running → done) for storage."""
     if not events:
@@ -1569,8 +1585,13 @@ async def chat_completions(request: Request):
     async def on_activity(event: dict):
         activity_events.append(_trace_push(trace_id, event))
 
-    async def emit_think(think_id: str, status: str, started: float | None = None):
-        payload = {"id": think_id, "name": "think", "detail": "", "status": status}
+    async def emit_think(
+        think_id: str,
+        status: str,
+        started: float | None = None,
+        detail: str = "",
+    ):
+        payload = {"id": think_id, "name": "think", "detail": detail, "status": status}
         if status != "running" and started is not None:
             payload["ms"] = int((time.time() - started) * 1000)
         await on_activity(payload)
@@ -1592,7 +1613,8 @@ async def chat_completions(request: Request):
                 status_code=502,
                 content={"error": {"message": "Provider request failed. Check server logs for details.", "type": "upstream_error"}},
             )
-        await emit_think("think-0", "done", think_t0)
+        first_msg = result.get("choices", [{}])[0].get("message", {})
+        await emit_think("think-0", "done", think_t0, _message_reasoning(first_msg))
 
         # ── Handle tool_calls (search_web, run_skill, HA, or forward to client) ──
         # Agentic loop: keep tools available and continue until the model
@@ -1657,7 +1679,8 @@ async def chat_completions(request: Request):
                         status_code=502,
                         content={"error": {"message": "Provider request failed during tool loop.", "type": "upstream_error"}},
                     )
-                await emit_think(think_id, "done", think_t0)
+                round_msg = result.get("choices", [{}])[0].get("message", {})
+                await emit_think(think_id, "done", think_t0, _message_reasoning(round_msg))
                 _round += 1
         except TraceCancelled:
             log.info("[%s] Chat cancelled trace=%s (agent loop)", user_id, trace_id)
@@ -1763,6 +1786,8 @@ async def chat_completions(request: Request):
                 think_id = f"think-{round_i}"
                 think_t0 = time.time()
                 think_open = True
+                think_reasoning = ""
+                last_reasoning_push = 0.0
                 await on_stream_activity({"id": think_id, "name": "think", "detail": "", "status": "running"})
                 async for part in flush_activity():
                     yield part
@@ -1801,6 +1826,21 @@ async def chat_completions(request: Request):
                             continue
 
                         if reasoning:
+                            think_reasoning += reasoning
+                            now = time.time()
+                            if think_open and (
+                                now - last_reasoning_push >= 0.35
+                                or len(think_reasoning) <= 120
+                            ):
+                                last_reasoning_push = now
+                                await on_stream_activity({
+                                    "id": think_id,
+                                    "name": "think",
+                                    "detail": _clip_reasoning(think_reasoning),
+                                    "status": "running",
+                                })
+                                async for part in flush_activity():
+                                    yield part
                             yield chunk
                             continue
 
@@ -1808,8 +1848,11 @@ async def chat_completions(request: Request):
                             if think_open:
                                 think_open = False
                                 await on_stream_activity({
-                                    "id": think_id, "name": "think", "detail": "",
-                                    "status": "done", "ms": int((time.time() - think_t0) * 1000),
+                                    "id": think_id,
+                                    "name": "think",
+                                    "detail": _clip_reasoning(think_reasoning),
+                                    "status": "done",
+                                    "ms": int((time.time() - think_t0) * 1000),
                                 })
                                 async for part in flush_activity():
                                     yield part
@@ -1824,8 +1867,11 @@ async def chat_completions(request: Request):
                 if think_open:
                     think_open = False
                     await on_stream_activity({
-                        "id": think_id, "name": "think", "detail": "",
-                        "status": "done", "ms": int((time.time() - think_t0) * 1000),
+                        "id": think_id,
+                        "name": "think",
+                        "detail": _clip_reasoning(think_reasoning),
+                        "status": "done",
+                        "ms": int((time.time() - think_t0) * 1000),
                     })
                     async for part in flush_activity():
                         yield part
