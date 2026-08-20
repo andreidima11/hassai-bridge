@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.71-beta
+
+### Fix
+- **Import in HA Companion app** — Backup Import uses a full-size transparent file input over the button (and `accept=*/*`) so the native picker opens in the Companion WebView; browser/mobile web already worked
+
 ## 0.2.70-beta
 
 ### Fix
