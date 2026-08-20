@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.70-beta
+
+### Fix
+- **Import file dialog** — Backup Import uses native label + hidden file input (HA WebView no longer blocks the picker)
+
 ## 0.2.69-beta
 
 ### Fix

@@ -2139,25 +2139,6 @@ function softReloadSettings() {
   }, 1200);
 }
 
-function _detachedFileInput(accept, onFile) {
-  const input = document.createElement('input');
-  input.type = 'file';
-  input.accept = accept;
-  input.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;width:1px;height:1px';
-  document.body.appendChild(input);
-  const cleanup = () => {
-    try { input.remove(); } catch { /* ignore */ }
-  };
-  input.addEventListener('change', async () => {
-    const file = input.files && input.files[0];
-    cleanup();
-    if (file) await onFile(file);
-  }, { once: true });
-  // If picker cancelled, remove later
-  setTimeout(cleanup, 120000);
-  input.click();
-}
-
 async function uploadChunked(file, kind) {
   const start = await api('POST', '/api/settings/import/start', {
     size: file.size,
@@ -2202,8 +2183,11 @@ async function downloadFullExport() {
   }
 }
 
-function pickFullImport() {
-  _detachedFileInput('.zip,application/zip', uploadFullImportFile);
+function onImportZipPicked(event) {
+  const input = event.target;
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (file) uploadFullImportFile(file);
 }
 
 async function uploadFullImportFile(file) {
@@ -2234,8 +2218,11 @@ async function downloadBackup() {
   }
 }
 
-function pickDbRestore() {
-  _detachedFileInput('.db,application/octet-stream', uploadRestoreFile);
+function onImportDbPicked(event) {
+  const input = event.target;
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (file) uploadRestoreFile(file);
 }
 
 async function uploadRestoreFile(file) {

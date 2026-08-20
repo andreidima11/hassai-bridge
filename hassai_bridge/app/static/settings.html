@@ -653,7 +653,8 @@
         <p class="card-muted hint" data-i18n="settings.fullExportWarn">The ZIP includes secrets (provider keys, Assist keys). Store it safely.</p>
         <div class="btn-row">
           <button type="button" class="btn btn-sm btn-primary" onclick="downloadFullExport()" data-i18n="settings.downloadFullExport">Export all</button>
-          <button type="button" class="btn btn-sm btn-success" onclick="pickFullImport()" data-i18n="settings.importFull">Import all</button>
+          <label for="importZipInput" class="btn btn-sm btn-success" style="cursor:pointer;margin:0" data-i18n="settings.importFull">Import all</label>
+          <input id="importZipInput" type="file" accept=".zip,application/zip" class="sr-file-input" onchange="onImportZipPicked(event)">
         </div>
         <p id="backupImportStatus" class="card-muted hint" style="margin-top:8px;display:none"></p>
       </div>
@@ -662,7 +663,8 @@
         <p class="card-muted" data-i18n="settings.backupDesc">Legacy: download or restore only the SQLite database (memories & conversations). Does not include settings or providers.</p>
         <div class="btn-row">
           <button type="button" class="btn btn-sm" onclick="downloadBackup()" data-i18n="settings.downloadBackup">Download DB</button>
-          <button type="button" class="btn btn-sm" onclick="pickDbRestore()" data-i18n="settings.restore">Restore DB</button>
+          <label for="importDbInput" class="btn btn-sm" style="cursor:pointer;margin:0" data-i18n="settings.restore">Restore DB</label>
+          <input id="importDbInput" type="file" accept=".db,application/x-sqlite3,application/octet-stream" class="sr-file-input" onchange="onImportDbPicked(event)">
         </div>
       </div>
     </div>
