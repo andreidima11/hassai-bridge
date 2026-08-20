@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.74-beta
+
+### Fix
+- **Backup** — removed Import from /share; after Import the page no longer reloads (that kicked HA Ingress); settings refresh in-place via JS
+- **Export in Companion** — blob download no longer navigates the iframe away; use browser / Open Web UI to download
+
 ## 0.2.73-beta
 
 ### Fix
