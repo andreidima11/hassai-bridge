@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.68-beta
+
+### Feature
+- **Export / Import** — Settings → Backup: full ZIP with config (providers, profiles, API keys), database, chat images, and generated skills; legacy DB-only backup kept
+
 ## 0.2.67-beta
 
 ### Fix
