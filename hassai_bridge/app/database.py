@@ -8,6 +8,6 @@ from core.database import (
     add_conversation_message, get_conversation_history,
     get_conversation_sessions, get_session_messages,
     delete_conversation_session, bulk_delete_conversation_sessions,
-    clear_conversation, CATEGORIES, DB_PATH,
+    clear_conversation, CATEGORIES, DB_PATH, close_all_connections,
     add_usage_stat, get_usage_stats, create_conversation_session,
 )

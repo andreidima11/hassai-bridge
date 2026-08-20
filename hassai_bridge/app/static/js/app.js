@@ -2192,14 +2192,6 @@ function _looksLikeZip(file) {
   return Boolean(file?.size) && !name;
 }
 
-function _looksLikeDb(file) {
-  const name = String(file?.name || '').toLowerCase();
-  if (name.endsWith('.db') || name.endsWith('.sqlite') || name.endsWith('.sqlite3')) return true;
-  const mime = String(file?.type || '').toLowerCase();
-  if (mime.includes('sqlite') || mime === 'application/octet-stream' || mime === 'application/x-sqlite3') return true;
-  return Boolean(file?.size) && !name;
-}
-
 function onImportZipPicked(event) {
   const input = event.target;
   const file = input.files && input.files[0];
