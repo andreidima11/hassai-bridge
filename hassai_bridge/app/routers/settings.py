@@ -2,7 +2,7 @@ import time
 import socket
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Request, Depends, UploadFile, File as FastAPIFile
+from fastapi import APIRouter, HTTPException, Request, Depends, UploadFile, File as FastAPIFile, Form
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from config import load_config, save_config
@@ -713,9 +713,82 @@ async def export_full():
     )
 
 
+@router.get("/export/config")
+async def export_config_only():
+    """Download settings-only JSON (providers, profiles, keys — no database)."""
+    import json as _json
+    from datetime import datetime, timezone
+    from fastapi.responses import Response
+
+    cfg = load_config()
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    body = _json.dumps(cfg, indent=2, ensure_ascii=False) + "\n"
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="hassai-settings-{stamp}.json"',
+        },
+    )
+
+
+@router.post("/import/config")
+async def import_config_only(data: dict):
+    """Restore settings/profiles/providers from a JSON object (Ingress-safe)."""
+    try:
+        return ei_export.restore_config_only(data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {e}") from e
+
+
+@router.post("/import/start")
+async def import_chunk_start(data: dict):
+    """Start a chunked upload (zip or db) — avoids HA Ingress body size limits."""
+    try:
+        size = int(data.get("size") or 0)
+        kind = str(data.get("kind") or "zip").strip().lower() or "zip"
+        return ei_export.start_chunked_upload(
+            size=size,
+            filename=str(data.get("filename") or ""),
+            kind=kind,
+        )
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/import/chunk")
+async def import_chunk_upload(
+    id: str = Form(...),
+    offset: int = Form(...),
+    chunk: UploadFile = FastAPIFile(...),
+):
+    """Append one binary chunk of a ZIP export."""
+    data = await chunk.read()
+    try:
+        return ei_export.append_chunk(id, int(offset), data)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.post("/import/finish")
+async def import_chunk_finish(data: dict):
+    """Finalize chunked ZIP upload and restore."""
+    upload_id = str(data.get("id") or "").strip()
+    if not upload_id:
+        raise HTTPException(status_code=400, detail="id required")
+    try:
+        return ei_export.finish_chunked_upload(upload_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {e}") from e
+
+
 @router.post("/import/upload")
 async def import_full_upload(file: UploadFile = FastAPIFile(...)):
-    """Restore full settings and data from a HASSAI export ZIP."""
+    """Restore full settings and data from a HASSAI export ZIP (small files / non-Ingress)."""
     import tempfile
 
     name = (file.filename or "").lower()
@@ -770,46 +843,26 @@ async def restore_database(file: bytes = None):
 
 @router.post("/restore/upload")
 async def restore_database_upload(file: UploadFile = FastAPIFile(...)):
-    """Restore database from uploaded .db file."""
-    import shutil
-    from database import DB_PATH
+    """Restore database from uploaded .db file (legacy single-shot; prefer chunked import)."""
+    import tempfile
 
     if not file.filename or not file.filename.endswith(".db"):
         raise HTTPException(status_code=400, detail="Only .db files are accepted")
 
-    # Read uploaded file (limit to 100MB)
     contents = await file.read()
     if len(contents) > 100 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large (max 100MB)")
+    if not contents:
+        raise HTTPException(status_code=400, detail="Empty file")
 
-    # Validate it's a valid SQLite file
-    if not contents[:16].startswith(b"SQLite format 3"):
-        raise HTTPException(status_code=400, detail="Invalid SQLite database file")
-
-    # Validate required tables exist in the uploaded DB
-    import sqlite3 as _sqlite3
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=True) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
         tmp.write(contents)
-        tmp.flush()
-        try:
-            _conn = _sqlite3.connect(tmp.name)
-            tables = {r[0] for r in _conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
-            _conn.close()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Cannot read uploaded database")
-    required_tables = {"memories", "conversations"}
-    missing = required_tables - tables
-    if missing:
-        raise HTTPException(status_code=400, detail=f"Invalid HASSAI backup: missing tables {missing}")
-
-    # Backup current DB before replacing
-    backup_path = DB_PATH.with_suffix(".db.bak")
-    if DB_PATH.exists():
-        shutil.copy2(str(DB_PATH), str(backup_path))
-
-    # Write the new database
-    with open(str(DB_PATH), "wb") as f:
-        f.write(contents)
-
-    return {"status": "ok", "message": "Database restored successfully", "size": len(contents)}
+        tmp_path = Path(tmp.name)
+    try:
+        return ei_export.restore_database_file(tmp_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Restore failed: {e}") from e
+    finally:
+        tmp_path.unlink(missing_ok=True)

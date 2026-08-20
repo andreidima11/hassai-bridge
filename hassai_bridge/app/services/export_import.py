@@ -18,6 +18,154 @@ log = logging.getLogger("hassai.export")
 FORMAT_NAME = "hassai-export"
 FORMAT_VERSION = 1
 MAX_IMPORT_BYTES = 200 * 1024 * 1024
+CHUNK_UPLOAD_TTL_SEC = 3600
+_pending_uploads: dict[str, dict] = {}
+
+
+def start_chunked_upload(*, size: int, filename: str = "", kind: str = "zip") -> dict:
+    """Create a temp file for Ingress-friendly chunked upload (zip or db)."""
+    import time
+    import uuid
+
+    kind = str(kind or "zip").strip().lower()
+    if kind not in ("zip", "db"):
+        raise ValueError("kind must be zip or db")
+    max_bytes = MAX_IMPORT_BYTES if kind == "zip" else 100 * 1024 * 1024
+    if size <= 0 or size > max_bytes:
+        raise ValueError(f"Invalid upload size (max {max_bytes // (1024 * 1024)}MB)")
+    upload_id = uuid.uuid4().hex
+    suffix = ".zip" if kind == "zip" else ".db"
+    tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    _pending_uploads[upload_id] = {
+        "path": tmp_path,
+        "size": int(size),
+        "received": 0,
+        "filename": str(filename or "")[:200],
+        "kind": kind,
+        "created": time.time(),
+    }
+    _prune_chunked_uploads()
+    return {"id": upload_id, "size": int(size), "kind": kind}
+
+
+def _prune_chunked_uploads() -> None:
+    import time
+
+    now = time.time()
+    stale = [
+        uid
+        for uid, meta in _pending_uploads.items()
+        if now - float(meta.get("created") or 0) > CHUNK_UPLOAD_TTL_SEC
+    ]
+    for uid in stale:
+        meta = _pending_uploads.pop(uid, None)
+        if meta:
+            Path(meta["path"]).unlink(missing_ok=True)
+
+
+def append_chunk(upload_id: str, offset: int, data: bytes) -> dict:
+    meta = _pending_uploads.get(upload_id)
+    if not meta:
+        raise ValueError("Upload session expired or unknown — start again")
+    expected = int(meta["received"])
+    if int(offset) != expected:
+        raise ValueError(f"Unexpected chunk offset {offset}, expected {expected}")
+    if not data:
+        raise ValueError("Empty chunk")
+    path = Path(meta["path"])
+    with open(path, "ab") as out:
+        out.write(data)
+    meta["received"] = expected + len(data)
+    if meta["received"] > meta["size"]:
+        path.unlink(missing_ok=True)
+        _pending_uploads.pop(upload_id, None)
+        raise ValueError("Upload exceeded declared size")
+    return {"id": upload_id, "received": meta["received"], "size": meta["size"]}
+
+
+def finish_chunked_upload(upload_id: str) -> dict:
+    meta = _pending_uploads.pop(upload_id, None)
+    if not meta:
+        raise ValueError("Upload session expired or unknown — start again")
+    path = Path(meta["path"])
+    try:
+        if int(meta["received"]) != int(meta["size"]):
+            raise ValueError(
+                f"Incomplete upload: got {meta['received']} of {meta['size']} bytes"
+            )
+        kind = meta.get("kind") or "zip"
+        if kind == "db":
+            return restore_database_file(path)
+        return restore_export_zip(path)
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def restore_database_file(db_path: Path) -> dict:
+    """Replace hassai.db from an uploaded SQLite file path."""
+    import shutil
+
+    from database import DB_PATH
+
+    raw = Path(db_path).read_bytes()
+    if not raw[:16].startswith(b"SQLite format 3"):
+        raise ValueError("Invalid SQLite database file")
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+        tmp.write(raw)
+        check_path = Path(tmp.name)
+    try:
+        conn = sqlite3.connect(str(check_path))
+        try:
+            tables = {
+                r[0]
+                for r in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                ).fetchall()
+            }
+        finally:
+            conn.close()
+    finally:
+        check_path.unlink(missing_ok=True)
+    required = {"memories", "conversations"}
+    missing = required - tables
+    if missing:
+        raise ValueError(f"Invalid HASSAI backup: missing tables {missing}")
+
+    backup_path = DB_PATH.with_suffix(".db.bak")
+    if DB_PATH.exists():
+        shutil.copy2(DB_PATH, backup_path)
+    with open(DB_PATH, "wb") as out:
+        out.write(raw)
+    for suffix in ("-wal", "-shm"):
+        side = Path(str(DB_PATH) + suffix)
+        if side.exists():
+            side.unlink(missing_ok=True)
+    return {
+        "status": "ok",
+        "message": "Database restored successfully",
+        "size": len(raw),
+    }
+
+
+def restore_config_only(cfg: dict) -> dict:
+    """Replace settings/profiles/providers from a config dict (no DB/uploads)."""
+    if not isinstance(cfg, dict):
+        raise ValueError("config must be an object")
+    # Require at least providers or users or api_key so we don't wipe with garbage
+    if not any(k in cfg for k in ("providers", "users", "api_key", "secondary_providers")):
+        raise ValueError("Invalid settings file: missing providers/users")
+    save_config(cfg)
+    return {
+        "status": "ok",
+        "message": "Settings restored successfully",
+        "counts": {
+            "providers": len(cfg.get("providers") or []),
+            "secondary_providers": len(cfg.get("secondary_providers") or []),
+            "profiles": len((cfg.get("users") or {}).get("profiles") or {}),
+        },
+    }
 
 # Paths relative to DATA_DIR (or package data via symlink on add-on)
 UPLOADS_REL = Path("uploads") / "chat"

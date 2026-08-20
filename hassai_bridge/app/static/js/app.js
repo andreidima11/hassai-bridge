@@ -107,10 +107,15 @@ function setText(id, value) {
 
 // ── API helpers ──
 async function api(method, path, body = null) {
-  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  const opts = { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   const resp = await fetch(API + path, opts);
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    const detail = err.detail || `HTTP ${resp.status}`;
+    throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+  }
+  if (resp.status === 204) return {};
   return resp.json();
 }
 
@@ -2086,81 +2091,170 @@ async function restartServer() {
 }
 
 // ══════════════════════════════════════════════════
-// BACKUP / RESTORE
+// BACKUP / RESTORE (Ingress-safe: blob download + chunked upload)
 // ══════════════════════════════════════════════════
 
-function downloadFullExport() {
-  const a = document.createElement('a');
-  a.href = API + '/api/settings/export';
-  a.download = 'hassai-export.zip';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  toast(t('toast.fullExportStarted'));
-}
+const _IMPORT_CHUNK = 256 * 1024; // 256KB — stays under HA Ingress body limits
 
-async function uploadFullImport(input) {
-  const file = input.files[0];
-  if (!file) return;
-  if (!confirm(t('confirm.fullImport'))) {
-    input.value = '';
+function setBackupStatus(msg) {
+  const el = document.getElementById('backupImportStatus');
+  if (!el) return;
+  if (!msg) {
+    el.style.display = 'none';
+    el.textContent = '';
     return;
   }
-  const formData = new FormData();
-  formData.append('file', file);
-  try {
-    const resp = await fetch(API + '/api/settings/import/upload', {
+  el.style.display = '';
+  el.textContent = msg;
+}
+
+async function downloadViaBlob(path, filename) {
+  const resp = await fetch(API + path, { credentials: 'same-origin', cache: 'no-store' });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.detail || `HTTP ${resp.status}`);
+  }
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+function softReloadSettings() {
+  // Avoid location.reload() which can bounce Ingress iframe to HA dashboard
+  setTimeout(() => {
+    try {
+      const u = new URL(location.href);
+      u.searchParams.set('_r', String(Date.now()));
+      location.replace(u.toString());
+    } catch {
+      location.href = (API || '') + '/static/settings.html';
+    }
+  }, 1200);
+}
+
+function _detachedFileInput(accept, onFile) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = accept;
+  input.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;width:1px;height:1px';
+  document.body.appendChild(input);
+  const cleanup = () => {
+    try { input.remove(); } catch { /* ignore */ }
+  };
+  input.addEventListener('change', async () => {
+    const file = input.files && input.files[0];
+    cleanup();
+    if (file) await onFile(file);
+  }, { once: true });
+  // If picker cancelled, remove later
+  setTimeout(cleanup, 120000);
+  input.click();
+}
+
+async function uploadChunked(file, kind) {
+  const start = await api('POST', '/api/settings/import/start', {
+    size: file.size,
+    filename: file.name || '',
+    kind,
+  });
+  const uploadId = start.id;
+  let offset = 0;
+  while (offset < file.size) {
+    const end = Math.min(offset + _IMPORT_CHUNK, file.size);
+    const blob = file.slice(offset, end);
+    const form = new FormData();
+    form.append('id', uploadId);
+    form.append('offset', String(offset));
+    form.append('chunk', blob, 'chunk.bin');
+    const resp = await fetch(API + '/api/settings/import/chunk', {
       method: 'POST',
       credentials: 'same-origin',
-      body: formData,
+      body: form,
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      throw new Error(err.detail || `HTTP ${resp.status}`);
+      const detail = err.detail || `HTTP ${resp.status}`;
+      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
     }
+    offset = end;
+    const pct = Math.min(100, Math.round((offset / file.size) * 100));
+    setBackupStatus(t('toast.importProgress', { pct }));
+  }
+  return api('POST', '/api/settings/import/finish', { id: uploadId });
+}
+
+async function downloadFullExport() {
+  try {
+    setBackupStatus(t('toast.fullExportStarted'));
+    await downloadViaBlob('/api/settings/export', 'hassai-export.zip');
+    setBackupStatus('');
+    toast(t('toast.backupDownloaded'));
+  } catch (e) {
+    setBackupStatus('');
+    toast(t('toast.restoreError', { msg: e.message }), true);
+  }
+}
+
+function pickFullImport() {
+  _detachedFileInput('.zip,application/zip', uploadFullImportFile);
+}
+
+async function uploadFullImportFile(file) {
+  if (!file) return;
+  if (!/\.zip$/i.test(file.name || '')) {
+    toast(t('toast.restoreError', { msg: 'ZIP required' }), true);
+    return;
+  }
+  if (!confirm(t('confirm.fullImport'))) return;
+  try {
+    setBackupStatus(t('toast.importProgress', { pct: 0 }));
+    await uploadChunked(file, 'zip');
+    setBackupStatus('');
     toast(t('toast.fullImportDone'));
-    setTimeout(() => location.reload(), 1500);
+    softReloadSettings();
+  } catch (e) {
+    setBackupStatus('');
+    toast(t('toast.restoreError', { msg: e.message }), true);
+  }
+}
+
+async function downloadBackup() {
+  try {
+    await downloadViaBlob('/api/settings/backup', 'hassai_backup.db');
+    toast(t('toast.backupDownloaded'));
   } catch (e) {
     toast(t('toast.restoreError', { msg: e.message }), true);
   }
-  input.value = '';
 }
 
-function downloadBackup() {
-  const a = document.createElement('a');
-  a.href = API + '/api/settings/backup';
-  a.download = 'hassai_backup.db';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  toast(t('toast.backupDownloaded'));
+function pickDbRestore() {
+  _detachedFileInput('.db,application/octet-stream', uploadRestoreFile);
 }
 
-async function uploadRestore(input) {
-  const file = input.files[0];
+async function uploadRestoreFile(file) {
   if (!file) return;
-  if (!confirm(t('confirm.restore'))) {
-    input.value = '';
+  if (!/\.db$/i.test(file.name || '')) {
+    toast(t('toast.restoreError', { msg: '.db required' }), true);
     return;
   }
-  const formData = new FormData();
-  formData.append('file', file);
+  if (!confirm(t('confirm.restore'))) return;
   try {
-    const resp = await fetch(API + '/api/settings/restore/upload', {
-      method: 'POST',
-      credentials: 'same-origin',
-      body: formData,
-    });
-    if (!resp.ok) {
-      const err = await resp.json().catch(() => ({}));
-      throw new Error(err.detail || `HTTP ${resp.status}`);
-    }
+    setBackupStatus(t('toast.importProgress', { pct: 0 }));
+    await uploadChunked(file, 'db');
+    setBackupStatus('');
     toast(t('toast.dbRestored'));
-    setTimeout(() => location.reload(), 1500);
+    softReloadSettings();
   } catch (e) {
+    setBackupStatus('');
     toast(t('toast.restoreError', { msg: e.message }), true);
   }
-  input.value = '';
 }
 
 // ══════════════════════════════════════════════════
