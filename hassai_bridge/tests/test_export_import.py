@@ -154,3 +154,35 @@ def test_chunked_db_upload_roundtrip(data_env, tmp_path):
     result = ei.finish_chunked_upload(start["id"])
     assert result["status"] == "ok"
     assert data_env["db_path"].read_bytes()[:16].startswith(b"SQLite format 3")
+
+
+def test_share_list_and_import_zip(data_env, tmp_path, monkeypatch):
+    share = tmp_path / "share"
+    media = tmp_path / "media"
+    share.mkdir()
+    media.mkdir()
+    zip_path = share / "hassai-export.zip"
+    ei.build_export_zip(zip_path)
+    (media / "notes.txt").write_text("ignore", encoding="utf-8")
+    (share / "legacy.db").write_bytes(data_env["db_path"].read_bytes())
+
+    monkeypatch.setattr(ei, "_SHARE_IMPORT_ROOTS_OVERRIDE", (share, media))
+
+    files = ei.list_share_import_files()
+    kinds = {f["kind"] for f in files}
+    names = {f["name"] for f in files}
+    assert "zip" in kinds
+    assert "db" in kinds
+    assert "hassai-export.zip" in names
+    assert "legacy.db" in names
+
+    # Mutate config then restore via share path
+    data_env["cfg_path"].write_text(json.dumps({"api_key": "wiped", "providers": []}), encoding="utf-8")
+    result = ei.import_from_share_path(str(zip_path))
+    assert result["status"] == "ok"
+    assert result["kind"] == "zip"
+    restored = json.loads(data_env["cfg_path"].read_text(encoding="utf-8"))
+    assert restored["api_key"] == "hab_test"
+
+    with pytest.raises(ValueError, match="under /share|/media|Path must"):
+        ei.import_from_share_path(str(tmp_path / "outside.zip"))

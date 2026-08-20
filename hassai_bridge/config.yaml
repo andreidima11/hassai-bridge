@@ -2,7 +2,7 @@
 # Keep `version` identical to the root /VERSION file (no leading "v").
 # Prebuilt GHCR image — Supervisor PULLS it (reliable updates). Quotes keep {arch}.
 name: HASSAI Bridge
-version: "0.2.71-beta"
+version: "0.2.72-beta"
 slug: hassai_bridge
 description: AI bridge for Home Assistant — agentic chat, memory, and LLM proxy
 url: https://github.com/andreidima11/hassai-bridge
