@@ -22,6 +22,20 @@ CATEGORIES = [
 _thread_local = threading.local()
 
 
+def close_all_connections() -> None:
+    """Close the current thread's cached SQLite connection (call before DB replace)."""
+    conn = getattr(_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        try:
+            delattr(_thread_local, "conn")
+        except Exception:
+            _thread_local.conn = None
+
+
 def _get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = getattr(_thread_local, "conn", None)
@@ -29,8 +43,15 @@ def _get_connection() -> sqlite3.Connection:
         try:
             conn.execute("SELECT 1")  # verify still alive
             return conn
-        except sqlite3.ProgrammingError:
-            pass  # closed, fall through
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError, sqlite3.DatabaseError):
+            try:
+                conn.close()
+            except Exception:
+                pass
+            try:
+                delattr(_thread_local, "conn")
+            except Exception:
+                _thread_local.conn = None
     conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")

@@ -648,38 +648,34 @@
     <!-- ── Backup ── -->
     <div class="settings-subpanel" id="stab-backup">
       <div class="card">
-        <h2 data-i18n="settings.fullExport">Export / Import</h2>
-        <p class="card-muted" data-i18n="settings.fullExportDesc">Download everything (settings, providers, user profiles, API keys, conversations, memories, chat images, skills) or restore from a previous export. Import replaces current data.</p>
-        <p class="card-muted hint" data-i18n="settings.fullExportWarn">The ZIP includes secrets (provider keys, Assist keys). Store it safely.</p>
-        <div class="btn-row">
-          <button type="button" class="btn btn-sm btn-primary" onclick="downloadFullExport()" data-i18n="settings.downloadFullExport">Export all</button>
-          <span class="file-btn-wrap btn btn-sm btn-success" id="importZipWrap">
-            <span class="file-btn-label" data-i18n="settings.importFull">Import all</span>
-            <input id="importZipInput" type="file" accept="*/*" class="file-btn-input" aria-label="Import ZIP" onchange="onImportZipPicked(event)">
+        <h2 data-i18n="settings.fullExport">Backup</h2>
+        <p class="card-muted" data-i18n="settings.fullExportDesc">Export or restore settings, providers, profiles, conversations, memories, and images. Import replaces current data.</p>
+        <p class="card-muted hint" data-i18n="settings.fullExportWarn">The ZIP includes secrets (API keys). Store it safely.</p>
+
+        <h3 style="margin:18px 0 8px;font-size:.95rem" data-i18n="settings.backupExportTitle">1. Export</h3>
+        <div class="btn-row" style="margin-top:0">
+          <button type="button" class="btn btn-sm btn-primary" onclick="downloadFullExport()" data-i18n="settings.downloadFullExport">Download backup ZIP</button>
+        </div>
+
+        <h3 style="margin:22px 0 8px;font-size:.95rem" data-i18n="settings.backupImportBrowserTitle">2. Import (browser / computer)</h3>
+        <p class="card-muted hint" data-i18n="settings.backupImportBrowserHint">Works in Chrome/Safari. In the Home Assistant Companion app the file button often does nothing — use step 3 instead.</p>
+        <div class="btn-row" style="margin-top:0">
+          <span class="file-btn-wrap btn btn-sm btn-success">
+            <span class="file-btn-label" data-i18n="settings.importFull">Choose ZIP…</span>
+            <input id="importZipInput" type="file" accept=".zip,application/zip,*/*" class="file-btn-input" aria-label="Import ZIP" onchange="onImportZipPicked(event)">
           </span>
         </div>
-        <p id="backupImportStatus" class="card-muted hint" style="margin-top:8px;display:none"></p>
-      </div>
-      <div class="card" style="margin-top:16px" id="shareImportCard">
-        <h2 data-i18n="settings.shareImport">Import from /share (Companion)</h2>
-        <p class="card-muted" data-i18n="settings.shareImportDesc">In the Home Assistant app the file picker often does nothing. Copy your export ZIP (or .db) into Home Assistant’s <strong>/share</strong> folder (Samba / File editor), then pick it here — no dialog needed.</p>
-        <div class="btn-row" style="align-items:center">
-          <select id="shareImportSelect" class="select-inline" style="min-width:min(100%,280px);flex:1"></select>
-          <button type="button" class="btn btn-sm" onclick="refreshShareImportList()" data-i18n="settings.shareImportRefresh">Refresh</button>
-          <button type="button" class="btn btn-sm btn-success" onclick="importFromShareSelected()" data-i18n="settings.shareImportRun">Import selected</button>
+
+        <h3 style="margin:22px 0 8px;font-size:.95rem" data-i18n="settings.backupImportShareTitle">3. Import from /share (Companion app)</h3>
+        <p class="card-muted" data-i18n="settings.shareImportDesc">Copy the ZIP into Home Assistant’s <strong>/share</strong> folder (Samba or File editor), type the file name below, then Import. Default name: <code>hassai-import.zip</code>.</p>
+        <div class="btn-row" style="margin-top:8px;align-items:center">
+          <input type="text" id="shareImportName" value="hassai-import.zip" spellcheck="false" autocomplete="off" style="flex:1;min-width:160px" data-i18n-placeholder="settings.shareImportPlaceholder" placeholder="hassai-import.zip">
+          <button type="button" class="btn btn-sm" onclick="fillShareImportSuggestions()" data-i18n="settings.shareImportRefresh">List /share</button>
+          <button type="button" class="btn btn-sm btn-success" onclick="importFromShareSelected()" data-i18n="settings.shareImportRun">Import from /share</button>
         </div>
+        <select id="shareImportSelect" style="display:none;margin-top:8px;width:100%" onchange="onShareSuggestionPicked()"></select>
         <p id="shareImportHint" class="card-muted hint" style="margin-top:8px"></p>
-      </div>
-      <div class="card" style="margin-top:16px">
-        <h2 data-i18n="settings.backup">Database only</h2>
-        <p class="card-muted" data-i18n="settings.backupDesc">Legacy: download or restore only the SQLite database (memories & conversations). Does not include settings or providers.</p>
-        <div class="btn-row">
-          <button type="button" class="btn btn-sm" onclick="downloadBackup()" data-i18n="settings.downloadBackup">Download DB</button>
-          <span class="file-btn-wrap btn btn-sm">
-            <span class="file-btn-label" data-i18n="settings.restore">Restore DB</span>
-            <input id="importDbInput" type="file" accept="*/*" class="file-btn-input" aria-label="Restore DB" onchange="onImportDbPicked(event)">
-          </span>
-        </div>
+        <p id="backupImportStatus" class="card-muted hint" style="margin-top:8px;display:none"></p>
       </div>
     </div>
 

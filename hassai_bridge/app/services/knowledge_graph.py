@@ -38,6 +38,20 @@ DB_PATH = Path(__file__).parent.parent / "data" / "hassai.db"
 _kg_thread_local = threading.local()
 
 
+def close_all_connections() -> None:
+    """Close cached knowledge-graph SQLite connection before a DB restore."""
+    conn = getattr(_kg_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        try:
+            delattr(_kg_thread_local, "conn")
+        except Exception:
+            _kg_thread_local.conn = None
+
+
 def _get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = getattr(_kg_thread_local, "conn", None)
@@ -45,8 +59,15 @@ def _get_connection() -> sqlite3.Connection:
         try:
             conn.execute("SELECT 1")
             return conn
-        except sqlite3.ProgrammingError:
-            pass
+        except (sqlite3.ProgrammingError, sqlite3.OperationalError, sqlite3.DatabaseError):
+            try:
+                conn.close()
+            except Exception:
+                pass
+            try:
+                delattr(_kg_thread_local, "conn")
+            except Exception:
+                _kg_thread_local.conn = None
     conn = sqlite3.connect(str(DB_PATH), timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
