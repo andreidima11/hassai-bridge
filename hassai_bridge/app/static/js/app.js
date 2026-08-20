@@ -955,10 +955,10 @@ function _populateVisionSelect() {
 
 function _populateImageGenSelect() {
   const sel = document.getElementById('provImageGen');
+  if (!sel) return;
   sel.innerHTML = `<option value="">${t('settings.noImageGen')}</option>`;
   for (const p of _allSecondaryProviders) {
-    if (p.type !== 'grok') continue;
-    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (Grok)</option>`;
+    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
   }
 }
 

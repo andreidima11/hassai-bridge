@@ -1,9 +1,14 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.67-beta
+
+### Fix
+- **Image Generation LLM** — dropdown now lists all secondary providers (same as Vision / Secondary), not only type=Grok
+
 ## 0.2.66-beta
 
 ### Feature
-- **Image Generation LLM** — per primary provider, assign a Grok secondary for `generate_image` (e.g. DeepSeek chat + Grok Imagine for image creation)
+- **Image Generation LLM** — per primary provider, assign a secondary for `generate_image` (e.g. DeepSeek chat + Grok Imagine for image creation)
 
 ## 0.2.65-beta
 
