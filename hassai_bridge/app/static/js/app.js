@@ -2115,28 +2115,55 @@ async function downloadViaBlob(path, filename) {
     throw new Error(err.detail || `HTTP ${resp.status}`);
   }
   const blob = await resp.blob();
+  // Companion WebView often navigates the Ingress iframe to the blob URL (kicks you
+  // out of the add-on). Prefer the File System Access API, else only use <a download>
+  // when the attribute is honored; never assign location.href to the blob.
+  if (typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: 'ZIP', accept: { 'application/zip': ['.zip'] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      /* fall through */
+    }
+  }
+  const companion = /Home Assistant/i.test(navigator.userAgent || '');
+  if (companion) {
+    throw new Error(t('toast.exportUseBrowser'));
+  }
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.rel = 'noopener';
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
 }
 
-function softReloadSettings() {
-  // Avoid location.reload() which can bounce Ingress iframe to HA dashboard
-  setTimeout(() => {
-    try {
-      const u = new URL(location.href);
-      u.searchParams.set('_r', String(Date.now()));
-      location.replace(u.toString());
-    } catch {
-      location.href = (API || '') + '/static/settings.html';
-    }
-  }, 1200);
+async function refreshAfterImport() {
+  // Do NOT location.reload / location.replace — that bounces HA Ingress out of the add-on.
+  try {
+    await loadSettings();
+  } catch (e) {
+    console.warn('refreshAfterImport loadSettings', e);
+  }
+  try {
+    if (typeof loadUsersTab === 'function') await loadUsersTab();
+  } catch (e) {
+    /* optional */
+  }
 }
 
 async function uploadChunked(file, kind) {
@@ -2188,7 +2215,6 @@ function _looksLikeZip(file) {
   if (name.endsWith('.zip')) return true;
   const mime = String(file?.type || '').toLowerCase();
   if (mime.includes('zip') || mime === 'application/octet-stream') return true;
-  // HA Companion WebView sometimes omits name/type — server still validates ZIP magic
   return Boolean(file?.size) && !name;
 }
 
@@ -2211,76 +2237,7 @@ async function uploadFullImportFile(file) {
     await uploadChunked(file, 'zip');
     setBackupStatus('');
     toast(t('toast.fullImportDone'));
-    softReloadSettings();
-  } catch (e) {
-    setBackupStatus('');
-    toast(t('toast.restoreError', { msg: e.message }), true);
-  }
-}
-
-function _fmtShareSize(bytes) {
-  const n = Number(bytes) || 0;
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function onShareSuggestionPicked() {
-  const select = document.getElementById('shareImportSelect');
-  const input = document.getElementById('shareImportName');
-  if (!select || !input || !select.value) return;
-  input.value = select.value;
-}
-
-async function fillShareImportSuggestions() {
-  const select = document.getElementById('shareImportSelect');
-  const hint = document.getElementById('shareImportHint');
-  const input = document.getElementById('shareImportName');
-  if (!select) return;
-  try {
-    setBackupStatus(t('settings.shareImportListing'));
-    const data = await api('GET', '/api/settings/import/share');
-    const files = Array.isArray(data.files) ? data.files : [];
-    select.innerHTML = '';
-    if (!files.length) {
-      select.style.display = 'none';
-      if (hint) hint.textContent = t('settings.shareImportEmpty');
-      setBackupStatus('');
-      return;
-    }
-    const placeholder = document.createElement('option');
-    placeholder.value = '';
-    placeholder.textContent = t('settings.shareImportPick');
-    select.appendChild(placeholder);
-    for (const f of files) {
-      const opt = document.createElement('option');
-      opt.value = f.name;
-      opt.textContent = `${f.name} · ${f.kind.toUpperCase()} · ${_fmtShareSize(f.size)}`;
-      select.appendChild(opt);
-    }
-    select.style.display = '';
-    if (input && data.default_name && !input.value) input.value = data.default_name;
-    if (hint) hint.textContent = t('settings.shareImportReady', { count: files.length });
-    setBackupStatus('');
-  } catch (e) {
-    select.style.display = 'none';
-    if (hint) hint.textContent = e.message || '';
-    setBackupStatus('');
-    toast(t('toast.restoreError', { msg: e.message }), true);
-  }
-}
-
-async function importFromShareSelected() {
-  const input = document.getElementById('shareImportName');
-  const name = (input && input.value ? input.value : '').trim() || 'hassai-import.zip';
-  const isDb = /\.(db|sqlite3?)$/i.test(name);
-  if (!confirm(isDb ? t('confirm.restore') : t('confirm.fullImport'))) return;
-  try {
-    setBackupStatus(t('toast.importProgress', { pct: 100 }));
-    await api('POST', '/api/settings/import/share', { name });
-    setBackupStatus('');
-    toast(isDb ? t('toast.dbRestored') : t('toast.fullImportDone'));
-    softReloadSettings();
+    await refreshAfterImport();
   } catch (e) {
     setBackupStatus('');
     toast(t('toast.restoreError', { msg: e.message }), true);

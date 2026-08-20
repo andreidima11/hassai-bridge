@@ -651,30 +651,13 @@
         <h2 data-i18n="settings.fullExport">Backup</h2>
         <p class="card-muted" data-i18n="settings.fullExportDesc">Export or restore settings, providers, profiles, conversations, memories, and images. Import replaces current data.</p>
         <p class="card-muted hint" data-i18n="settings.fullExportWarn">The ZIP includes secrets (API keys). Store it safely.</p>
-
-        <h3 style="margin:18px 0 8px;font-size:.95rem" data-i18n="settings.backupExportTitle">1. Export</h3>
-        <div class="btn-row" style="margin-top:0">
+        <div class="btn-row">
           <button type="button" class="btn btn-sm btn-primary" onclick="downloadFullExport()" data-i18n="settings.downloadFullExport">Download backup ZIP</button>
-        </div>
-
-        <h3 style="margin:22px 0 8px;font-size:.95rem" data-i18n="settings.backupImportBrowserTitle">2. Import (browser / computer)</h3>
-        <p class="card-muted hint" data-i18n="settings.backupImportBrowserHint">Works in Chrome/Safari. In the Home Assistant Companion app the file button often does nothing — use step 3 instead.</p>
-        <div class="btn-row" style="margin-top:0">
           <span class="file-btn-wrap btn btn-sm btn-success">
-            <span class="file-btn-label" data-i18n="settings.importFull">Choose ZIP…</span>
+            <span class="file-btn-label" data-i18n="settings.importFull">Import ZIP…</span>
             <input id="importZipInput" type="file" accept=".zip,application/zip,*/*" class="file-btn-input" aria-label="Import ZIP" onchange="onImportZipPicked(event)">
           </span>
         </div>
-
-        <h3 style="margin:22px 0 8px;font-size:.95rem" data-i18n="settings.backupImportShareTitle">3. Import from /share (Companion app)</h3>
-        <p class="card-muted" data-i18n="settings.shareImportDesc">Copy the ZIP into Home Assistant’s <strong>/share</strong> folder (Samba or File editor), type the file name below, then Import. Default name: <code>hassai-import.zip</code>.</p>
-        <div class="btn-row" style="margin-top:8px;align-items:center">
-          <input type="text" id="shareImportName" value="hassai-import.zip" spellcheck="false" autocomplete="off" style="flex:1;min-width:160px" data-i18n-placeholder="settings.shareImportPlaceholder" placeholder="hassai-import.zip">
-          <button type="button" class="btn btn-sm" onclick="fillShareImportSuggestions()" data-i18n="settings.shareImportRefresh">List /share</button>
-          <button type="button" class="btn btn-sm btn-success" onclick="importFromShareSelected()" data-i18n="settings.shareImportRun">Import from /share</button>
-        </div>
-        <select id="shareImportSelect" style="display:none;margin-top:8px;width:100%" onchange="onShareSuggestionPicked()"></select>
-        <p id="shareImportHint" class="card-muted hint" style="margin-top:8px"></p>
         <p id="backupImportStatus" class="card-muted hint" style="margin-top:8px;display:none"></p>
       </div>
     </div>
