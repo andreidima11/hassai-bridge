@@ -653,8 +653,10 @@
         <p class="card-muted hint" data-i18n="settings.fullExportWarn">The ZIP includes secrets (provider keys, Assist keys). Store it safely.</p>
         <div class="btn-row">
           <button type="button" class="btn btn-sm btn-primary" onclick="downloadFullExport()" data-i18n="settings.downloadFullExport">Export all</button>
-          <label for="importZipInput" class="btn btn-sm btn-success" style="cursor:pointer;margin:0" data-i18n="settings.importFull">Import all</label>
-          <input id="importZipInput" type="file" accept=".zip,application/zip" class="sr-file-input" onchange="onImportZipPicked(event)">
+          <span class="file-btn-wrap btn btn-sm btn-success">
+            <span class="file-btn-label" data-i18n="settings.importFull">Import all</span>
+            <input id="importZipInput" type="file" accept="*/*" class="file-btn-input" aria-label="Import ZIP" onchange="onImportZipPicked(event)">
+          </span>
         </div>
         <p id="backupImportStatus" class="card-muted hint" style="margin-top:8px;display:none"></p>
       </div>
@@ -663,8 +665,10 @@
         <p class="card-muted" data-i18n="settings.backupDesc">Legacy: download or restore only the SQLite database (memories & conversations). Does not include settings or providers.</p>
         <div class="btn-row">
           <button type="button" class="btn btn-sm" onclick="downloadBackup()" data-i18n="settings.downloadBackup">Download DB</button>
-          <label for="importDbInput" class="btn btn-sm" style="cursor:pointer;margin:0" data-i18n="settings.restore">Restore DB</label>
-          <input id="importDbInput" type="file" accept=".db,application/x-sqlite3,application/octet-stream" class="sr-file-input" onchange="onImportDbPicked(event)">
+          <span class="file-btn-wrap btn btn-sm">
+            <span class="file-btn-label" data-i18n="settings.restore">Restore DB</span>
+            <input id="importDbInput" type="file" accept="*/*" class="file-btn-input" aria-label="Restore DB" onchange="onImportDbPicked(event)">
+          </span>
         </div>
       </div>
     </div>

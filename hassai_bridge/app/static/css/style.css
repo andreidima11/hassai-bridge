@@ -119,16 +119,32 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .btn-sm{padding:7px 14px;font-size:.8rem}
 .btn-row{display:flex;gap:8px;margin-top:18px;flex-wrap:wrap}
 .btn-row > label.btn{display:inline-flex;align-items:center;justify-content:center}
-.sr-file-input{
-  position:absolute;
-  width:1px;
-  height:1px;
-  padding:0;
-  margin:-1px;
+/* Transparent file input over the button — HA Companion WebView needs a real
+   tap on <input type=file>, not label[for] / programmatic click / clipped inputs. */
+.file-btn-wrap{
+  position:relative;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
   overflow:hidden;
-  clip:rect(0,0,0,0);
-  white-space:nowrap;
+  margin:0;
+  cursor:pointer;
+  -webkit-user-select:none;
+  user-select:none;
+}
+.file-btn-label{pointer-events:none}
+.file-btn-input{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  opacity:0;
+  cursor:pointer;
+  font-size:48px;
+  margin:0;
+  padding:0;
   border:0;
+  z-index:2;
 }
 
 /* ── Status badges ── */

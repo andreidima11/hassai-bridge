@@ -2183,6 +2183,23 @@ async function downloadFullExport() {
   }
 }
 
+function _looksLikeZip(file) {
+  const name = String(file?.name || '').toLowerCase();
+  if (name.endsWith('.zip')) return true;
+  const mime = String(file?.type || '').toLowerCase();
+  if (mime.includes('zip') || mime === 'application/octet-stream') return true;
+  // HA Companion WebView sometimes omits name/type — server still validates ZIP magic
+  return Boolean(file?.size) && !name;
+}
+
+function _looksLikeDb(file) {
+  const name = String(file?.name || '').toLowerCase();
+  if (name.endsWith('.db') || name.endsWith('.sqlite') || name.endsWith('.sqlite3')) return true;
+  const mime = String(file?.type || '').toLowerCase();
+  if (mime.includes('sqlite') || mime === 'application/octet-stream' || mime === 'application/x-sqlite3') return true;
+  return Boolean(file?.size) && !name;
+}
+
 function onImportZipPicked(event) {
   const input = event.target;
   const file = input.files && input.files[0];
@@ -2192,7 +2209,7 @@ function onImportZipPicked(event) {
 
 async function uploadFullImportFile(file) {
   if (!file) return;
-  if (!/\.zip$/i.test(file.name || '')) {
+  if (!_looksLikeZip(file)) {
     toast(t('toast.restoreError', { msg: 'ZIP required' }), true);
     return;
   }
@@ -2227,7 +2244,7 @@ function onImportDbPicked(event) {
 
 async function uploadRestoreFile(file) {
   if (!file) return;
-  if (!/\.db$/i.test(file.name || '')) {
+  if (!_looksLikeDb(file)) {
     toast(t('toast.restoreError', { msg: '.db required' }), true);
     return;
   }
