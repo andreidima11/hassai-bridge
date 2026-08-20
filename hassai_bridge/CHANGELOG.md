@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.69-beta
+
+### Fix
+- **Import on HA Ingress** — full ZIP and DB restore now upload in small chunks (no kick to HA dashboard); downloads use blob URLs instead of navigating the iframe
+
 ## 0.2.68-beta
 
 ### Feature

@@ -141,3 +141,16 @@ def test_restore_rejects_non_zip(tmp_path):
     bad.write_bytes(b"not-a-zip")
     with pytest.raises(ValueError, match="ZIP"):
         ei.restore_export_zip(bad)
+
+
+def test_chunked_db_upload_roundtrip(data_env, tmp_path):
+    db_bytes = data_env["db_path"].read_bytes()
+    # wipe live db
+    data_env["db_path"].write_bytes(b"")
+    start = ei.start_chunked_upload(size=len(db_bytes), filename="x.db", kind="db")
+    mid = len(db_bytes) // 2 or 1
+    ei.append_chunk(start["id"], 0, db_bytes[:mid])
+    ei.append_chunk(start["id"], mid, db_bytes[mid:])
+    result = ei.finish_chunked_upload(start["id"])
+    assert result["status"] == "ok"
+    assert data_env["db_path"].read_bytes()[:16].startswith(b"SQLite format 3")
