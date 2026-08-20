@@ -2089,6 +2089,43 @@ async function restartServer() {
 // BACKUP / RESTORE
 // ══════════════════════════════════════════════════
 
+function downloadFullExport() {
+  const a = document.createElement('a');
+  a.href = API + '/api/settings/export';
+  a.download = 'hassai-export.zip';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  toast(t('toast.fullExportStarted'));
+}
+
+async function uploadFullImport(input) {
+  const file = input.files[0];
+  if (!file) return;
+  if (!confirm(t('confirm.fullImport'))) {
+    input.value = '';
+    return;
+  }
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const resp = await fetch(API + '/api/settings/import/upload', {
+      method: 'POST',
+      credentials: 'same-origin',
+      body: formData,
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || `HTTP ${resp.status}`);
+    }
+    toast(t('toast.fullImportDone'));
+    setTimeout(() => location.reload(), 1500);
+  } catch (e) {
+    toast(t('toast.restoreError', { msg: e.message }), true);
+  }
+  input.value = '';
+}
+
 function downloadBackup() {
   const a = document.createElement('a');
   a.href = API + '/api/settings/backup';
@@ -2111,6 +2148,7 @@ async function uploadRestore(input) {
   try {
     const resp = await fetch(API + '/api/settings/restore/upload', {
       method: 'POST',
+      credentials: 'same-origin',
       body: formData,
     });
     if (!resp.ok) {

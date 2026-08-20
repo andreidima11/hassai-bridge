@@ -1,14 +1,17 @@
 import time
 import socket
-from fastapi import APIRouter, HTTPException, Request, Depends
+from pathlib import Path
+
+from fastapi import APIRouter, HTTPException, Request, Depends, UploadFile, File as FastAPIFile
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 from config import load_config, save_config
 from core.config import VERSION, BUILD_ID
 from database import get_db, get_all_users, get_conversation_sessions, get_session_messages, delete_conversation_session, bulk_delete_conversation_sessions, get_usage_stats, delete_user_data
 from services import providers, searxng
 from services.providers import get_active_provider, PROVIDER_PRESETS
 from services import homeassistant as ha_api
-
+from services import export_import as ei_export
 
 def _require_admin_key(request: Request):
     """Import-free admin auth — delegates to main._require_admin_key at runtime."""
@@ -580,6 +583,8 @@ async def system_info():
             {"method": "GET", "path": "/api/settings/conversations/{user_id}/{session_id}", "description": "Get Session Messages"},
             {"method": "DELETE", "path": "/api/settings/conversations/{user_id}/{session_id}", "description": "Delete Session"},
             {"method": "POST", "path": "/api/settings/conversations/{user_id}/bulk-delete", "description": "Bulk Delete Sessions"},
+            {"method": "GET", "path": "/api/settings/export", "description": "Download full settings export (ZIP)"},
+            {"method": "POST", "path": "/api/settings/import/upload", "description": "Restore full settings from ZIP"},
             {"method": "GET", "path": "/api/settings/backup", "description": "Download Database Backup"},
             {"method": "POST", "path": "/api/settings/restore", "description": "Restore Database (path)"},
             {"method": "POST", "path": "/api/settings/restore/upload", "description": "Restore Database (upload)"},
@@ -677,7 +682,69 @@ async def bulk_delete_sessions(user_id: str, data: dict):
 
 
 # ══════════════════════════════════════════════════
-# Database backup / restore
+# Full export / import (config + DB + uploads + skills)
+# ══════════════════════════════════════════════════
+
+@router.get("/export")
+async def export_full():
+    """Download a full ZIP: config, database, chat uploads, generated skills."""
+    import tempfile
+    from datetime import datetime, timezone
+    from fastapi.responses import FileResponse as FR
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    tmp_path = Path(tmp.name)
+    tmp.close()
+    try:
+        ei_export.build_export_zip(tmp_path)
+    except Exception as e:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Export failed: {e}") from e
+
+    def _cleanup():
+        tmp_path.unlink(missing_ok=True)
+
+    return FR(
+        path=str(tmp_path),
+        filename=f"hassai-export-{stamp}.zip",
+        media_type="application/zip",
+        background=BackgroundTask(_cleanup),
+    )
+
+
+@router.post("/import/upload")
+async def import_full_upload(file: UploadFile = FastAPIFile(...)):
+    """Restore full settings and data from a HASSAI export ZIP."""
+    import tempfile
+
+    name = (file.filename or "").lower()
+    if not name.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only .zip export files are accepted")
+
+    contents = await file.read()
+    if len(contents) > ei_export.MAX_IMPORT_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 200MB)")
+    if not contents:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
+        tmp.write(contents)
+        tmp_path = Path(tmp.name)
+    try:
+        result = ei_export.restore_export_zip(tmp_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {e}") from e
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+    return result
+
+
+# ══════════════════════════════════════════════════
+# Database backup / restore (legacy .db only)
 # ══════════════════════════════════════════════════
 
 @router.get("/backup")
@@ -699,8 +766,6 @@ async def restore_database(file: bytes = None):
     """Deprecated — use /restore/upload."""
     raise HTTPException(status_code=410, detail="Deprecated. Use POST /api/settings/restore/upload")
 
-
-from fastapi import UploadFile, File as FastAPIFile
 
 
 @router.post("/restore/upload")
