@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.72-beta
+
+### Fix
+- **Companion Import (no file dialog)** — HA Companion app often never opens a file picker for Backup Import. New **Import from /share**: copy the ZIP into Home Assistant `/share`, then pick it from the list (no dialog). Browser Import still works as before.
+
 ## 0.2.71-beta
 
 ### Fix

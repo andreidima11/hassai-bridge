@@ -585,6 +585,8 @@ async def system_info():
             {"method": "POST", "path": "/api/settings/conversations/{user_id}/bulk-delete", "description": "Bulk Delete Sessions"},
             {"method": "GET", "path": "/api/settings/export", "description": "Download full settings export (ZIP)"},
             {"method": "POST", "path": "/api/settings/import/upload", "description": "Restore full settings from ZIP"},
+            {"method": "GET", "path": "/api/settings/import/share", "description": "List ZIP/DB files under /share and /media"},
+            {"method": "POST", "path": "/api/settings/import/share", "description": "Restore from a /share or /media path"},
             {"method": "GET", "path": "/api/settings/backup", "description": "Download Database Backup"},
             {"method": "POST", "path": "/api/settings/restore", "description": "Restore Database (path)"},
             {"method": "POST", "path": "/api/settings/restore/upload", "description": "Restore Database (upload)"},
@@ -814,6 +816,31 @@ async def import_full_upload(file: UploadFile = FastAPIFile(...)):
         tmp_path.unlink(missing_ok=True)
 
     return result
+
+
+@router.get("/import/share")
+async def list_share_imports():
+    """List ZIP/DB files under /share and /media (Companion-safe import, no file picker)."""
+    try:
+        files = ei_export.list_share_import_files()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Scan failed: {e}") from e
+    roots = [str(p) for p in ei_export._share_roots() if p.exists()]
+    return {"files": files, "roots": roots}
+
+
+@router.post("/import/share")
+async def import_from_share(data: dict):
+    """Restore from a file already on /share or /media (no WebView upload)."""
+    path = str((data or {}).get("path") or "").strip()
+    if not path:
+        raise HTTPException(status_code=400, detail="path required")
+    try:
+        return ei_export.import_from_share_path(path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Import failed: {e}") from e
 
 
 # ══════════════════════════════════════════════════

@@ -653,12 +653,22 @@
         <p class="card-muted hint" data-i18n="settings.fullExportWarn">The ZIP includes secrets (provider keys, Assist keys). Store it safely.</p>
         <div class="btn-row">
           <button type="button" class="btn btn-sm btn-primary" onclick="downloadFullExport()" data-i18n="settings.downloadFullExport">Export all</button>
-          <span class="file-btn-wrap btn btn-sm btn-success">
+          <span class="file-btn-wrap btn btn-sm btn-success" id="importZipWrap">
             <span class="file-btn-label" data-i18n="settings.importFull">Import all</span>
             <input id="importZipInput" type="file" accept="*/*" class="file-btn-input" aria-label="Import ZIP" onchange="onImportZipPicked(event)">
           </span>
         </div>
         <p id="backupImportStatus" class="card-muted hint" style="margin-top:8px;display:none"></p>
+      </div>
+      <div class="card" style="margin-top:16px" id="shareImportCard">
+        <h2 data-i18n="settings.shareImport">Import from /share (Companion)</h2>
+        <p class="card-muted" data-i18n="settings.shareImportDesc">In the Home Assistant app the file picker often does nothing. Copy your export ZIP (or .db) into Home Assistant’s <strong>/share</strong> folder (Samba / File editor), then pick it here — no dialog needed.</p>
+        <div class="btn-row" style="align-items:center">
+          <select id="shareImportSelect" class="select-inline" style="min-width:min(100%,280px);flex:1"></select>
+          <button type="button" class="btn btn-sm" onclick="refreshShareImportList()" data-i18n="settings.shareImportRefresh">Refresh</button>
+          <button type="button" class="btn btn-sm btn-success" onclick="importFromShareSelected()" data-i18n="settings.shareImportRun">Import selected</button>
+        </div>
+        <p id="shareImportHint" class="card-muted hint" style="margin-top:8px"></p>
       </div>
       <div class="card" style="margin-top:16px">
         <h2 data-i18n="settings.backup">Database only</h2>

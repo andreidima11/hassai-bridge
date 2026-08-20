@@ -21,6 +21,119 @@ MAX_IMPORT_BYTES = 200 * 1024 * 1024
 CHUNK_UPLOAD_TTL_SEC = 3600
 _pending_uploads: dict[str, dict] = {}
 
+# HA add-on mapped folders (config.yaml map: share/media). Used when Companion
+# WebView cannot open a generic <input type=file> picker.
+SHARE_IMPORT_ROOTS = (Path("/share"), Path("/media"))
+_SHARE_IMPORT_ROOTS_OVERRIDE: tuple[Path, ...] | None = None
+
+
+def _share_roots() -> tuple[Path, ...]:
+    if _SHARE_IMPORT_ROOTS_OVERRIDE is not None:
+        return _SHARE_IMPORT_ROOTS_OVERRIDE
+    return SHARE_IMPORT_ROOTS
+
+
+def list_share_import_files(*, max_depth: int = 3, limit: int = 80) -> list[dict]:
+    """List .zip / .db files under /share and /media for Companion-safe import."""
+    found: list[dict] = []
+    for root in _share_roots():
+        if not root.is_dir():
+            continue
+        try:
+            root_res = root.resolve()
+        except OSError:
+            continue
+        try:
+            candidates = list(root.rglob("*"))
+        except OSError as exc:
+            log.warning("Cannot scan %s: %s", root, exc)
+            continue
+        for path in candidates:
+            try:
+                if not path.is_file():
+                    continue
+                rel = path.resolve().relative_to(root_res)
+            except (OSError, ValueError):
+                continue
+            if len(rel.parts) > max_depth:
+                continue
+            name_l = path.name.lower()
+            if name_l.endswith(".zip"):
+                kind = "zip"
+            elif name_l.endswith(".db") or name_l.endswith(".sqlite") or name_l.endswith(".sqlite3"):
+                kind = "db"
+            else:
+                continue
+            try:
+                st = path.stat()
+            except OSError:
+                continue
+            if st.st_size <= 0 or st.st_size > MAX_IMPORT_BYTES:
+                continue
+            found.append(
+                {
+                    "path": str(path.resolve()),
+                    "name": path.name,
+                    "rel": str(rel).replace("\\", "/"),
+                    "root": root_res.name,
+                    "kind": kind,
+                    "size": int(st.st_size),
+                    "mtime": float(st.st_mtime),
+                }
+            )
+    found.sort(key=lambda item: item["mtime"], reverse=True)
+    return found[:limit]
+
+
+def resolve_share_import_path(raw: str) -> Path:
+    """Resolve a user-selected path; must stay under /share or /media."""
+    text = str(raw or "").strip()
+    if not text:
+        raise ValueError("path required")
+    path = Path(text).expanduser()
+    if not path.is_absolute():
+        # Allow relative like share/backup.zip → /share/backup.zip
+        path = Path("/") / path
+    try:
+        resolved = path.resolve()
+    except OSError as exc:
+        raise ValueError(f"Invalid path: {exc}") from exc
+    allowed = False
+    for root in _share_roots():
+        try:
+            if not root.exists():
+                continue
+            resolved.relative_to(root.resolve())
+            allowed = True
+            break
+        except (OSError, ValueError):
+            continue
+    if not allowed:
+        raise ValueError("Path must be under /share or /media")
+    if not resolved.is_file():
+        raise ValueError("File not found")
+    size = resolved.stat().st_size
+    if size <= 0 or size > MAX_IMPORT_BYTES:
+        raise ValueError(f"Invalid file size (max {MAX_IMPORT_BYTES // (1024 * 1024)}MB)")
+    return resolved
+
+
+def import_from_share_path(raw: str) -> dict:
+    """Restore from a ZIP/DB already on the HA host (/share or /media)."""
+    path = resolve_share_import_path(raw)
+    name = path.name.lower()
+    if name.endswith(".zip"):
+        result = restore_export_zip(path)
+        result["source"] = str(path)
+        result["kind"] = "zip"
+        return result
+    if name.endswith(".db") or name.endswith(".sqlite") or name.endswith(".sqlite3"):
+        result = restore_database_file(path)
+        result["source"] = str(path)
+        result["kind"] = "db"
+        return result
+    raise ValueError("Only .zip or .db files are supported")
+
 
 def start_chunked_upload(*, size: int, filename: str = "", kind: str = "zip") -> dict:
     """Create a temp file for Ingress-friendly chunked upload (zip or db)."""

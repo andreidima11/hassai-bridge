@@ -85,6 +85,9 @@ document.querySelectorAll('.settings-tab').forEach(stab => {
     if (stab.dataset.stab === 'stab-stats-server') {
       requestAnimationFrame(fitServerOverviewValues);
     }
+    if (stab.dataset.stab === 'stab-backup') {
+      refreshShareImportList();
+    }
   });
 });
 
@@ -2261,10 +2264,73 @@ async function uploadRestoreFile(file) {
   }
 }
 
+function _fmtShareSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function refreshShareImportList() {
+  const select = document.getElementById('shareImportSelect');
+  const hint = document.getElementById('shareImportHint');
+  if (!select) return;
+  const prev = select.value;
+  try {
+    const data = await api('GET', '/api/settings/import/share');
+    const files = Array.isArray(data.files) ? data.files : [];
+    select.innerHTML = '';
+    if (!files.length) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = t('settings.shareImportEmpty');
+      select.appendChild(opt);
+      if (hint) hint.textContent = t('settings.shareImportEmpty');
+      return;
+    }
+    for (const f of files) {
+      const opt = document.createElement('option');
+      opt.value = f.path;
+      opt.textContent = `${f.root}/${f.rel} · ${f.kind.toUpperCase()} · ${_fmtShareSize(f.size)}`;
+      select.appendChild(opt);
+    }
+    if (prev && files.some((f) => f.path === prev)) select.value = prev;
+    if (hint) hint.textContent = t('settings.shareImportReady', { count: files.length });
+  } catch (e) {
+    select.innerHTML = '';
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = e.message || 'error';
+    select.appendChild(opt);
+    if (hint) hint.textContent = e.message || '';
+    toast(t('toast.restoreError', { msg: e.message }), true);
+  }
+}
+
+async function importFromShareSelected() {
+  const select = document.getElementById('shareImportSelect');
+  const path = select && select.value;
+  if (!path) {
+    toast(t('settings.shareImportEmpty'), true);
+    return;
+  }
+  const isDb = /\.(db|sqlite3?)$/i.test(path);
+  if (!confirm(isDb ? t('confirm.restore') : t('confirm.fullImport'))) return;
+  try {
+    setBackupStatus(t('toast.importProgress', { pct: 100 }));
+    await api('POST', '/api/settings/import/share', { path });
+    setBackupStatus('');
+    toast(isDb ? t('toast.dbRestored') : t('toast.fullImportDone'));
+    softReloadSettings();
+  } catch (e) {
+    setBackupStatus('');
+    toast(t('toast.restoreError', { msg: e.message }), true);
+  }
+}
+
 // ══════════════════════════════════════════════════
 // CONVERSATIONS TAB
 // ══════════════════════════════════════════════════
-
 let _convUserId = '';
 let _convSessionId = '';
 
