@@ -85,9 +85,6 @@ document.querySelectorAll('.settings-tab').forEach(stab => {
     if (stab.dataset.stab === 'stab-stats-server') {
       requestAnimationFrame(fitServerOverviewValues);
     }
-    if (stab.dataset.stab === 'stab-backup') {
-      refreshShareImportList();
-    }
   });
 });
 
@@ -2195,14 +2192,6 @@ function _looksLikeZip(file) {
   return Boolean(file?.size) && !name;
 }
 
-function _looksLikeDb(file) {
-  const name = String(file?.name || '').toLowerCase();
-  if (name.endsWith('.db') || name.endsWith('.sqlite') || name.endsWith('.sqlite3')) return true;
-  const mime = String(file?.type || '').toLowerCase();
-  if (mime.includes('sqlite') || mime === 'application/octet-stream' || mime === 'application/x-sqlite3') return true;
-  return Boolean(file?.size) && !name;
-}
-
 function onImportZipPicked(event) {
   const input = event.target;
   const file = input.files && input.files[0];
@@ -2229,41 +2218,6 @@ async function uploadFullImportFile(file) {
   }
 }
 
-async function downloadBackup() {
-  try {
-    await downloadViaBlob('/api/settings/backup', 'hassai_backup.db');
-    toast(t('toast.backupDownloaded'));
-  } catch (e) {
-    toast(t('toast.restoreError', { msg: e.message }), true);
-  }
-}
-
-function onImportDbPicked(event) {
-  const input = event.target;
-  const file = input.files && input.files[0];
-  input.value = '';
-  if (file) uploadRestoreFile(file);
-}
-
-async function uploadRestoreFile(file) {
-  if (!file) return;
-  if (!_looksLikeDb(file)) {
-    toast(t('toast.restoreError', { msg: '.db required' }), true);
-    return;
-  }
-  if (!confirm(t('confirm.restore'))) return;
-  try {
-    setBackupStatus(t('toast.importProgress', { pct: 0 }));
-    await uploadChunked(file, 'db');
-    setBackupStatus('');
-    toast(t('toast.dbRestored'));
-    softReloadSettings();
-  } catch (e) {
-    setBackupStatus('');
-    toast(t('toast.restoreError', { msg: e.message }), true);
-  }
-}
-
 function _fmtShareSize(bytes) {
   const n = Number(bytes) || 0;
   if (n < 1024) return `${n} B`;
@@ -2271,54 +2225,59 @@ function _fmtShareSize(bytes) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-async function refreshShareImportList() {
+function onShareSuggestionPicked() {
+  const select = document.getElementById('shareImportSelect');
+  const input = document.getElementById('shareImportName');
+  if (!select || !input || !select.value) return;
+  input.value = select.value;
+}
+
+async function fillShareImportSuggestions() {
   const select = document.getElementById('shareImportSelect');
   const hint = document.getElementById('shareImportHint');
+  const input = document.getElementById('shareImportName');
   if (!select) return;
-  const prev = select.value;
   try {
+    setBackupStatus(t('settings.shareImportListing'));
     const data = await api('GET', '/api/settings/import/share');
     const files = Array.isArray(data.files) ? data.files : [];
     select.innerHTML = '';
     if (!files.length) {
-      const opt = document.createElement('option');
-      opt.value = '';
-      opt.textContent = t('settings.shareImportEmpty');
-      select.appendChild(opt);
+      select.style.display = 'none';
       if (hint) hint.textContent = t('settings.shareImportEmpty');
+      setBackupStatus('');
       return;
     }
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = t('settings.shareImportPick');
+    select.appendChild(placeholder);
     for (const f of files) {
       const opt = document.createElement('option');
-      opt.value = f.path;
-      opt.textContent = `${f.root}/${f.rel} · ${f.kind.toUpperCase()} · ${_fmtShareSize(f.size)}`;
+      opt.value = f.name;
+      opt.textContent = `${f.name} · ${f.kind.toUpperCase()} · ${_fmtShareSize(f.size)}`;
       select.appendChild(opt);
     }
-    if (prev && files.some((f) => f.path === prev)) select.value = prev;
+    select.style.display = '';
+    if (input && data.default_name && !input.value) input.value = data.default_name;
     if (hint) hint.textContent = t('settings.shareImportReady', { count: files.length });
+    setBackupStatus('');
   } catch (e) {
-    select.innerHTML = '';
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = e.message || 'error';
-    select.appendChild(opt);
+    select.style.display = 'none';
     if (hint) hint.textContent = e.message || '';
+    setBackupStatus('');
     toast(t('toast.restoreError', { msg: e.message }), true);
   }
 }
 
 async function importFromShareSelected() {
-  const select = document.getElementById('shareImportSelect');
-  const path = select && select.value;
-  if (!path) {
-    toast(t('settings.shareImportEmpty'), true);
-    return;
-  }
-  const isDb = /\.(db|sqlite3?)$/i.test(path);
+  const input = document.getElementById('shareImportName');
+  const name = (input && input.value ? input.value : '').trim() || 'hassai-import.zip';
+  const isDb = /\.(db|sqlite3?)$/i.test(name);
   if (!confirm(isDb ? t('confirm.restore') : t('confirm.fullImport'))) return;
   try {
     setBackupStatus(t('toast.importProgress', { pct: 100 }));
-    await api('POST', '/api/settings/import/share', { path });
+    await api('POST', '/api/settings/import/share', { name });
     setBackupStatus('');
     toast(isDb ? t('toast.dbRestored') : t('toast.fullImportDone'));
     softReloadSettings();

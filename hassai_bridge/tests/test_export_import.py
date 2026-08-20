@@ -158,31 +158,34 @@ def test_chunked_db_upload_roundtrip(data_env, tmp_path):
 
 def test_share_list_and_import_zip(data_env, tmp_path, monkeypatch):
     share = tmp_path / "share"
-    media = tmp_path / "media"
     share.mkdir()
-    media.mkdir()
-    zip_path = share / "hassai-export.zip"
+    zip_path = share / "hassai-import.zip"
     ei.build_export_zip(zip_path)
-    (media / "notes.txt").write_text("ignore", encoding="utf-8")
     (share / "legacy.db").write_bytes(data_env["db_path"].read_bytes())
+    nested = share / "deep"
+    nested.mkdir()
+    (nested / "hidden.zip").write_bytes(b"PK\x03\x04not-listed")
 
-    monkeypatch.setattr(ei, "_SHARE_IMPORT_ROOTS_OVERRIDE", (share, media))
+    monkeypatch.setattr(ei, "_SHARE_IMPORT_ROOT_OVERRIDE", share)
 
     files = ei.list_share_import_files()
-    kinds = {f["kind"] for f in files}
     names = {f["name"] for f in files}
-    assert "zip" in kinds
-    assert "db" in kinds
-    assert "hassai-export.zip" in names
+    assert "hassai-import.zip" in names
     assert "legacy.db" in names
+    assert "hidden.zip" not in names  # top-level only — no recursion
 
-    # Mutate config then restore via share path
+    # Mutate config then restore via bare filename
     data_env["cfg_path"].write_text(json.dumps({"api_key": "wiped", "providers": []}), encoding="utf-8")
-    result = ei.import_from_share_path(str(zip_path))
+    result = ei.import_from_share_path("hassai-import.zip")
     assert result["status"] == "ok"
     assert result["kind"] == "zip"
     restored = json.loads(data_env["cfg_path"].read_text(encoding="utf-8"))
     assert restored["api_key"] == "hab_test"
 
-    with pytest.raises(ValueError, match="under /share|/media|Path must"):
-        ei.import_from_share_path(str(tmp_path / "outside.zip"))
+    with pytest.raises(ValueError, match="not found|File not found"):
+        ei.import_from_share_path("missing.zip")
+
+    outside = tmp_path / "outside.zip"
+    outside.write_bytes(zip_path.read_bytes())
+    with pytest.raises(ValueError, match="under /share|file name|/share"):
+        ei.import_from_share_path(str(outside))

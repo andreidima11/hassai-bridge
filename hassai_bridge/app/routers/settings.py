@@ -820,23 +820,25 @@ async def import_full_upload(file: UploadFile = FastAPIFile(...)):
 
 @router.get("/import/share")
 async def list_share_imports():
-    """List ZIP/DB files under /share and /media (Companion-safe import, no file picker)."""
+    """List ZIP/DB files in /share top-level only (safe — no /media recursion)."""
     try:
         files = ei_export.list_share_import_files()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scan failed: {e}") from e
-    roots = [str(p) for p in ei_export._share_roots() if p.exists()]
-    return {"files": files, "roots": roots}
+    root = ei_export._share_root()
+    return {
+        "files": files,
+        "roots": [str(root)] if root.exists() else [],
+        "default_name": ei_export.DEFAULT_SHARE_IMPORT_NAME,
+    }
 
 
 @router.post("/import/share")
 async def import_from_share(data: dict):
-    """Restore from a file already on /share or /media (no WebView upload)."""
-    path = str((data or {}).get("path") or "").strip()
-    if not path:
-        raise HTTPException(status_code=400, detail="path required")
+    """Restore from a file already on /share (filename only — no WebView upload)."""
+    raw = str((data or {}).get("path") or (data or {}).get("name") or "").strip()
     try:
-        return ei_export.import_from_share_path(path)
+        return ei_export.import_from_share_path(raw)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:

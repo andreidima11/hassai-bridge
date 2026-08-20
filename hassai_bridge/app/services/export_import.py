@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
 import sqlite3
 import tempfile
@@ -21,41 +22,50 @@ MAX_IMPORT_BYTES = 200 * 1024 * 1024
 CHUNK_UPLOAD_TTL_SEC = 3600
 _pending_uploads: dict[str, dict] = {}
 
-# HA add-on mapped folders (config.yaml map: share/media). Used when Companion
-# WebView cannot open a generic <input type=file> picker.
-SHARE_IMPORT_ROOTS = (Path("/share"), Path("/media"))
-_SHARE_IMPORT_ROOTS_OVERRIDE: tuple[Path, ...] | None = None
+# Only /share, and only the top level — never recurse into /media (OOM/hang on HA).
+SHARE_IMPORT_ROOT = Path("/share")
+_SHARE_IMPORT_ROOT_OVERRIDE: Path | None = None
+DEFAULT_SHARE_IMPORT_NAME = "hassai-import.zip"
 
 
-def _share_roots() -> tuple[Path, ...]:
-    if _SHARE_IMPORT_ROOTS_OVERRIDE is not None:
-        return _SHARE_IMPORT_ROOTS_OVERRIDE
-    return SHARE_IMPORT_ROOTS
+def _share_root() -> Path:
+    if _SHARE_IMPORT_ROOT_OVERRIDE is not None:
+        return _SHARE_IMPORT_ROOT_OVERRIDE
+    return SHARE_IMPORT_ROOT
 
 
-def list_share_import_files(*, max_depth: int = 3, limit: int = 80) -> list[dict]:
-    """List .zip / .db files under /share and /media for Companion-safe import."""
+def close_db_connections() -> None:
+    """Drop cached SQLite connections so a restored DB file can be opened cleanly."""
+    try:
+        from database import close_all_connections
+
+        close_all_connections()
+    except Exception as exc:
+        log.warning("close database connections failed: %s", exc)
+    try:
+        from services import knowledge_graph as kg
+
+        close_kg = getattr(kg, "close_all_connections", None)
+        if callable(close_kg):
+            close_kg()
+    except Exception as exc:
+        log.warning("close knowledge_graph connections failed: %s", exc)
+
+
+def list_share_import_files(*, limit: int = 40) -> list[dict]:
+    """List .zip/.db files in /share (top level only — safe for HA Companion)."""
+    root = _share_root()
     found: list[dict] = []
-    for root in _share_roots():
-        if not root.is_dir():
-            continue
+    if not root.is_dir():
+        return found
+    try:
+        entries = list(root.iterdir())
+    except OSError as exc:
+        log.warning("Cannot list %s: %s", root, exc)
+        return found
+    for path in entries:
         try:
-            root_res = root.resolve()
-        except OSError:
-            continue
-        try:
-            candidates = list(root.rglob("*"))
-        except OSError as exc:
-            log.warning("Cannot scan %s: %s", root, exc)
-            continue
-        for path in candidates:
-            try:
-                if not path.is_file():
-                    continue
-                rel = path.resolve().relative_to(root_res)
-            except (OSError, ValueError):
-                continue
-            if len(rel.parts) > max_depth:
+            if not path.is_file():
                 continue
             name_l = path.name.lower()
             if name_l.endswith(".zip"):
@@ -64,72 +74,75 @@ def list_share_import_files(*, max_depth: int = 3, limit: int = 80) -> list[dict
                 kind = "db"
             else:
                 continue
-            try:
-                st = path.stat()
-            except OSError:
-                continue
+            st = path.stat()
             if st.st_size <= 0 or st.st_size > MAX_IMPORT_BYTES:
                 continue
             found.append(
                 {
                     "path": str(path.resolve()),
                     "name": path.name,
-                    "rel": str(rel).replace("\\", "/"),
-                    "root": root_res.name,
+                    "rel": path.name,
+                    "root": "share",
                     "kind": kind,
                     "size": int(st.st_size),
                     "mtime": float(st.st_mtime),
                 }
             )
+        except OSError:
+            continue
     found.sort(key=lambda item: item["mtime"], reverse=True)
     return found[:limit]
 
 
 def resolve_share_import_path(raw: str) -> Path:
-    """Resolve a user-selected path; must stay under /share or /media."""
+    """Resolve a filename or path under /share only (no /media, no traversal)."""
     text = str(raw or "").strip()
     if not text:
-        raise ValueError("path required")
-    path = Path(text).expanduser()
-    if not path.is_absolute():
-        # Allow relative like share/backup.zip → /share/backup.zip
-        path = Path("/") / path
+        text = DEFAULT_SHARE_IMPORT_NAME
+    # Users type a bare filename most of the time
+    name = Path(text).name
+    if not name or name in (".", "..") or "/" in name or "\\" in name:
+        # If they pasted /share/foo.zip, take only the basename after validating prefix
+        p = Path(text)
+        if p.is_absolute():
+            name = p.name
+        else:
+            raise ValueError("Use a file name in /share (e.g. hassai-import.zip)")
+    if ".." in name:
+        raise ValueError("Invalid file name")
+    root = _share_root()
     try:
-        resolved = path.resolve()
+        root_res = root.resolve()
     except OSError as exc:
-        raise ValueError(f"Invalid path: {exc}") from exc
-    allowed = False
-    for root in _share_roots():
-        try:
-            if not root.exists():
-                continue
-            resolved.relative_to(root.resolve())
-            allowed = True
-            break
-        except (OSError, ValueError):
-            continue
-    if not allowed:
-        raise ValueError("Path must be under /share or /media")
-    if not resolved.is_file():
-        raise ValueError("File not found")
-    size = resolved.stat().st_size
+        raise ValueError(f"/share is not available: {exc}") from exc
+    if not root_res.is_dir():
+        raise ValueError("/share is not available on this add-on")
+    path = (root_res / name).resolve()
+    try:
+        path.relative_to(root_res)
+    except ValueError as exc:
+        raise ValueError("Path must be a file directly under /share") from exc
+    if not path.is_file():
+        raise ValueError(f"File not found: /share/{name}")
+    size = path.stat().st_size
     if size <= 0 or size > MAX_IMPORT_BYTES:
         raise ValueError(f"Invalid file size (max {MAX_IMPORT_BYTES // (1024 * 1024)}MB)")
-    return resolved
+    return path
 
 
 def import_from_share_path(raw: str) -> dict:
-    """Restore from a ZIP/DB already on the HA host (/share or /media)."""
+    """Restore from a ZIP/DB already on /share (Companion-safe, no file picker)."""
     path = resolve_share_import_path(raw)
     name = path.name.lower()
+    close_db_connections()
     if name.endswith(".zip"):
         result = restore_export_zip(path)
-        result["source"] = str(path)
+        result["source"] = f"/share/{path.name}"
         result["kind"] = "zip"
         return result
     if name.endswith(".db") or name.endswith(".sqlite") or name.endswith(".sqlite3"):
         result = restore_database_file(path)
-        result["source"] = str(path)
+        result["source"] = f"/share/{path.name}"
         result["kind"] = "db"
         return result
     raise ValueError("Only .zip or .db files are supported")
@@ -209,6 +222,7 @@ def finish_chunked_upload(upload_id: str) -> dict:
                 f"Incomplete upload: got {meta['received']} of {meta['size']} bytes"
             )
         kind = meta.get("kind") or "zip"
+        close_db_connections()
         if kind == "db":
             return restore_database_file(path)
         return restore_export_zip(path)
@@ -218,47 +232,47 @@ def finish_chunked_upload(upload_id: str) -> dict:
 
 def restore_database_file(db_path: Path) -> dict:
     """Replace hassai.db from an uploaded SQLite file path."""
-    import shutil
-
     from database import DB_PATH
 
-    raw = Path(db_path).read_bytes()
-    if not raw[:16].startswith(b"SQLite format 3"):
+    src = Path(db_path)
+    # Validate with a short header read + separate check connection (not the live pool)
+    with open(src, "rb") as fh:
+        header = fh.read(16)
+    if not header.startswith(b"SQLite format 3"):
         raise ValueError("Invalid SQLite database file")
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-        tmp.write(raw)
-        check_path = Path(tmp.name)
+    conn = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
     try:
-        conn = sqlite3.connect(str(check_path))
-        try:
-            tables = {
-                r[0]
-                for r in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                ).fetchall()
-            }
-        finally:
-            conn.close()
+        tables = {
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
     finally:
-        check_path.unlink(missing_ok=True)
+        conn.close()
     required = {"memories", "conversations"}
     missing = required - tables
     if missing:
         raise ValueError(f"Invalid HASSAI backup: missing tables {missing}")
 
+    close_db_connections()
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     backup_path = DB_PATH.with_suffix(".db.bak")
     if DB_PATH.exists():
         shutil.copy2(DB_PATH, backup_path)
-    with open(DB_PATH, "wb") as out:
-        out.write(raw)
+    # Stream copy — avoid loading the whole DB into RAM
+    tmp_dest = DB_PATH.with_suffix(".db.restoring")
+    shutil.copy2(src, tmp_dest)
+    os.replace(tmp_dest, DB_PATH)
     for suffix in ("-wal", "-shm"):
         side = Path(str(DB_PATH) + suffix)
         if side.exists():
             side.unlink(missing_ok=True)
+    size = DB_PATH.stat().st_size
     return {
         "status": "ok",
         "message": "Database restored successfully",
-        "size": len(raw),
+        "size": size,
     }
 
 
@@ -448,16 +462,19 @@ def restore_export_zip(zip_path: Path) -> dict:
         if not isinstance(cfg, dict):
             raise ValueError("config.json must be an object")
 
-        # Validate DB if present
+        # Validate + stage DB once (stream out of zip — avoid double RAM load)
         has_db = "hassai.db" in names
+        db_tmp: Path | None = None
         if has_db:
             with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
-                tmp.write(zf.read("hassai.db"))
-                tmp_path = Path(tmp.name)
+                db_tmp = Path(tmp.name)
+                with zf.open("hassai.db") as src:
+                    shutil.copyfileobj(src, tmp)
             try:
-                if not tmp_path.read_bytes()[:16].startswith(b"SQLite format 3"):
-                    raise ValueError("Invalid SQLite database in export")
-                conn = sqlite3.connect(str(tmp_path))
+                with open(db_tmp, "rb") as fh:
+                    if not fh.read(16).startswith(b"SQLite format 3"):
+                        raise ValueError("Invalid SQLite database in export")
+                conn = sqlite3.connect(f"file:{db_tmp}?mode=ro", uri=True)
                 try:
                     tables = {
                         r[0]
@@ -471,24 +488,32 @@ def restore_export_zip(zip_path: Path) -> dict:
                 missing = required - tables
                 if missing:
                     raise ValueError(f"Invalid HASSAI database: missing tables {missing}")
-            finally:
-                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                if db_tmp is not None:
+                    db_tmp.unlink(missing_ok=True)
+                raise
+
+        close_db_connections()
 
         # Apply config first
         save_config(cfg)
 
-        # Database
-        if has_db:
-            backup_path = DB_PATH.with_suffix(".db.bak")
-            if DB_PATH.exists():
-                shutil.copy2(DB_PATH, backup_path)
-            with open(DB_PATH, "wb") as out:
-                out.write(zf.read("hassai.db"))
-            # Drop WAL leftovers so the restored file is authoritative
-            for suffix in ("-wal", "-shm"):
-                side = Path(str(DB_PATH) + suffix)
-                if side.exists():
-                    side.unlink(missing_ok=True)
+        # Database — atomic replace from staged temp
+        if has_db and db_tmp is not None:
+            try:
+                backup_path = DB_PATH.with_suffix(".db.bak")
+                if DB_PATH.exists():
+                    shutil.copy2(DB_PATH, backup_path)
+                DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(db_tmp, DB_PATH)
+                db_tmp = None
+                for suffix in ("-wal", "-shm"):
+                    side = Path(str(DB_PATH) + suffix)
+                    if side.exists():
+                        side.unlink(missing_ok=True)
+            finally:
+                if db_tmp is not None:
+                    db_tmp.unlink(missing_ok=True)
 
         # Uploads — replace tree when present in export
         if any(n.startswith("uploads/chat/") for n in names):

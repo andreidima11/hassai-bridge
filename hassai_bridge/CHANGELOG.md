@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.73-beta
+
+### Fix
+- **Backup rework** — opening Backup no longer scans `/media` (that crashed the add-on). One simple card: Export, browser Import, or Import from `/share` by filename. Restore closes DB connections and copies safely.
+
 ## 0.2.72-beta
 
 ### Fix
