@@ -1,5 +1,16 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.75-beta
+
+### Feature
+- **Background chat** — replies keep generating on the server if you leave the HA panel; return to see the finished answer in the same chat (Stop still cancels)
+
+### Fix
+- **Streaming on Ingress** — live tokens via activity poll (Grok / DeepSeek no longer wait for the full JSON blob)
+- **Grok Imagine** — truncated/invalid image model ids resolve to a real Imagine model; Imagine models filtered out of the chat picker
+- **Imagine + Ingress 504** — skip a second LLM round after image-only tool calls; clearer gateway timeout message
+- **Grok reasoning_effort** — only sent for models that support it (avoids HTTP 400 on build/older reasoning models)
+
 ## 0.2.74-beta
 
 ### Fix

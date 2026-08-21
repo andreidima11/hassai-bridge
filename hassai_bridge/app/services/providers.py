@@ -291,6 +291,26 @@ def _skip_temperature(provider: dict, thinking: dict | None) -> bool:
     return bool(thinking and thinking.get("enabled") and provider.get("type") == "deepseek")
 
 
+def _assert_usable_chat_model(provider: dict, used_model: str) -> None:
+    if provider.get("type") != "grok":
+        return
+    from services import grok as gk
+
+    if gk.is_imagine_model(used_model):
+        raise ValueError(
+            f"'{used_model}' is an Imagine image model, not a chat model. "
+            "Set the provider Model to grok-4.6 (or another chat model). "
+            "Image generation uses Imagine automatically via the generate_image tool."
+        )
+
+
+def resolve_provider_chat_model(provider: dict, model: str | None = None) -> str:
+    cfg_model = provider.get("model", "default")
+    used_model = cfg_model if cfg_model and cfg_model != "default" else (model or "default")
+    _assert_usable_chat_model(provider, used_model)
+    return used_model
+
+
 async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,
                           tools: list | None = None, tool_choice: str | dict | None = None,
                           provider: dict | None = None, thinking: dict | None = None,
@@ -303,9 +323,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
     headers = _provider_request_headers(provider, cache_conv_id)
     timeout = provider.get("timeout", 120)
 
-    # Model priority: provider config > request param > default
-    cfg_model = provider.get("model", "default")
-    used_model = cfg_model if cfg_model and cfg_model != "default" else (model or "default")
+    used_model = resolve_provider_chat_model(provider, model)
 
     payload = {
         "model": used_model,
@@ -381,6 +399,7 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
 
     cfg_model = provider.get("model", "default")
     used_model = cfg_model if cfg_model and cfg_model != "default" else (model or "default")
+    used_model = resolve_provider_chat_model(provider, model)
 
     payload = {
         "model": used_model,
@@ -460,7 +479,25 @@ async def list_models(provider: dict | None = None) -> list[dict]:
         from services.provider_errors import friendly_provider_error
 
         raise ValueError(friendly_provider_error(resp.status_code, body, provider=provider, action="model list")) from exc
-    return normalize_model_list(data)
+    models = normalize_model_list(data)
+    return filter_models_for_chat(provider, models)
+
+
+def filter_models_for_chat(provider: dict | None, models: list[dict]) -> list[dict]:
+    """Drop Imagine/voice models from Grok chat picker (they are not chat completions)."""
+    if not isinstance(provider, dict) or provider.get("type") != "grok":
+        return models
+    from services import grok as gk
+
+    out: list[dict] = []
+    for row in models or []:
+        mid = str((row or {}).get("id") or "").strip()
+        if not mid:
+            continue
+        if not gk.is_chat_model(mid):
+            continue
+        out.append(row)
+    return out
 
 
 def looks_like_html_body(text: str) -> bool:

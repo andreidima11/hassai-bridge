@@ -11,6 +11,20 @@ from services import deepseek as ds
 THINKING_MODES = ds.THINKING_MODES
 GROK_EFFORTS = ("low", "medium", "high", "xhigh")
 _XHIGH_MODELS = re.compile(r"grok-4\.6|grok-4\.20-multi-agent", re.I)
+# Only these families accept reasoning_effort / reasoningEffort (xAI docs).
+# Dedicated reasoning builds (grok-4.20-*-reasoning) and grok-build reject it with HTTP 400.
+_REASONING_EFFORT_MODELS = re.compile(
+    r"^(grok-4\.6|grok-4\.5|grok-4\.20-multi-agent)(\b|$)",
+    re.I,
+)
+
+# Official Imagine image models (https://docs.x.ai/developers/models)
+IMAGE_MODELS = (
+    "grok-imagine-image-2.0",
+    "grok-imagine-image-quality",
+    "grok-imagine-image",
+)
+DEFAULT_IMAGE_MODEL = "grok-imagine-image-2.0"
 
 
 def is_grok_provider(provider: dict | None) -> bool:
@@ -23,6 +37,15 @@ def normalize_thinking_mode(value: str | None, default: str = "auto") -> str:
 
 def supports_xhigh(model: str | None) -> bool:
     return bool(model and _XHIGH_MODELS.search(str(model)))
+
+
+def supports_reasoning_effort(model: str | None) -> bool:
+    """True when the chat Completions API accepts reasoning_effort for this model."""
+    mid = str(model or "").strip()
+    if not mid:
+        return False
+    # multi-agent is matched by the regex; bare grok-4.20 / *-reasoning / grok-build are not
+    return bool(_REASONING_EFFORT_MODELS.search(mid))
 
 
 def _grok_effort(mode: str, auto: dict, model: str) -> str:
@@ -68,24 +91,35 @@ def resolve_thinking(
 
 
 def apply_thinking_payload(payload: dict, thinking: dict | None, *, provider: dict | None = None, has_images: bool = False) -> None:
-    if has_images:
-        # Multimodal chat: keep reasoning low — high/xhigh + images can fail upstream.
-        payload["reasoning_effort"] = "low"
-        payload.pop("temperature", None)
-        payload.pop("presence_penalty", None)
-        payload.pop("frequency_penalty", None)
-        payload.pop("stop", None)
-        return
-    if not thinking:
-        return
-    effort = thinking.get("effort") or "high"
-    if effort not in GROK_EFFORTS:
-        effort = "high"
-    payload["reasoning_effort"] = effort
+    model = ""
+    if isinstance(provider, dict):
+        model = str(provider.get("model") or payload.get("model") or "")
+    elif isinstance(payload.get("model"), str):
+        model = payload.get("model") or ""
+
+    # Always drop params that conflict with Grok reasoning-style models
     payload.pop("temperature", None)
     payload.pop("presence_penalty", None)
     payload.pop("frequency_penalty", None)
     payload.pop("stop", None)
+
+    if not supports_reasoning_effort(model):
+        payload.pop("reasoning_effort", None)
+        return
+
+    if has_images:
+        # Multimodal chat: keep reasoning low — high/xhigh + images can fail upstream.
+        payload["reasoning_effort"] = "low"
+        return
+    if not thinking:
+        payload.pop("reasoning_effort", None)
+        return
+    effort = thinking.get("effort") or "high"
+    if effort not in GROK_EFFORTS:
+        effort = "high"
+    if effort == "xhigh" and not supports_xhigh(model):
+        effort = "high"
+    payload["reasoning_effort"] = effort
 
 
 def assistant_turn(message: dict) -> dict:
@@ -130,12 +164,55 @@ def grok_conv_header(session_id: str | None) -> dict[str, str]:
     return {"x-grok-conv-id": sid[:128]}
 
 
+def is_imagine_model(model: str | None) -> bool:
+    return str(model or "").strip().lower().startswith("grok-imagine")
+
+
+def is_chat_model(model: str | None) -> bool:
+    """True for Grok language models (excludes Imagine / voice)."""
+    mid = str(model or "").strip().lower()
+    if not mid:
+        return False
+    if is_imagine_model(mid):
+        return False
+    if "voice" in mid or mid.startswith("grok-tts") or mid.startswith("grok-stt"):
+        return False
+    return True
+
+
 def default_image_model(provider: dict | None) -> str:
     if isinstance(provider, dict):
         configured = str(provider.get("image_model") or "").strip()
-        if configured:
-            return configured
-    return "grok-imagine-image-2.0"
+        resolved = resolve_image_model(configured, fallback=DEFAULT_IMAGE_MODEL)
+        if configured and resolved:
+            return resolved
+    return DEFAULT_IMAGE_MODEL
+
+
+def resolve_image_model(requested: str | None, *, fallback: str | None = None) -> str:
+    """Map LLM/tool/provider model ids to a valid Imagine image model.
+
+    Models sometimes truncate enum values (e.g. grok-imagine-imag) or pass a
+    chat model id — never send those to /v1/images/generations.
+    """
+    default = fallback or DEFAULT_IMAGE_MODEL
+    if default not in IMAGE_MODELS:
+        default = DEFAULT_IMAGE_MODEL
+    raw = str(requested or "").strip()
+    if not raw:
+        return default
+    lowered = raw.lower()
+    for mid in IMAGE_MODELS:
+        if lowered == mid.lower():
+            return mid
+    # Prefix match for truncated ids from tool calls
+    matches = [mid for mid in IMAGE_MODELS if mid.lower().startswith(lowered)]
+    if len(matches) == 1:
+        return matches[0]
+    if lowered.startswith("grok-imagine-image"):
+        return default
+    # Chat / video / unknown → ignore and use default
+    return default
 
 
 async def generate_image(
@@ -155,6 +232,7 @@ async def generate_image(
 
     from services import provider_capabilities as pc
     from services import providers as prov
+    from services.provider_errors import friendly_provider_error
 
     log = getLogger("hassai.providers")
     if not is_grok_provider(provider):
@@ -166,7 +244,7 @@ async def generate_image(
     if not clean_prompt:
         raise ValueError("empty image prompt")
 
-    used_model = str(model or default_image_model(provider)).strip() or default_image_model(provider)
+    used_model = resolve_image_model(model, fallback=default_image_model(provider))
     count = max(1, min(4, int(n or 1)))
 
     url = prov._build_url(provider, "/v1/images/generations")
@@ -181,12 +259,21 @@ async def generate_image(
     client = prov._get_client()
     resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
     if resp.status_code >= 400:
+        body = resp.text or ""
         log.error(
-            "Grok image generation failed (%s): %s",
+            "Grok image generation failed (%s) model=%s: %s",
             resp.status_code,
-            resp.text[:500],
+            used_model,
+            body[:500],
         )
-    resp.raise_for_status()
+        raise ValueError(
+            friendly_provider_error(
+                resp.status_code,
+                body,
+                provider=provider,
+                action="image generation",
+            )
+        )
     data = resp.json()
 
     attachments: list[dict] = []
@@ -223,8 +310,11 @@ async def generate_image(
         attachments.append(att)
         public_urls.append(cm.attachment_public_url(att["id"], session_id or ""))
 
-    if not public_urls:
+    if not attachments and not public_urls:
         raise ValueError("image generation returned no usable images")
+    if not public_urls and attachments:
+        for att in attachments:
+            public_urls.append(cm.attachment_public_url(att["id"], session_id or ""))
 
     lines = [
         "[Generated image — show each image in your reply using markdown: ![description](url)]",

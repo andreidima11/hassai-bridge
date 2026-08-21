@@ -16,6 +16,30 @@ def test_build_image_generation_tool():
     tool = pc.build_image_generation_tool({"type": "grok", "image_model": "grok-imagine-image-2.0"})
     assert tool["function"]["name"] == "generate_image"
     assert "prompt" in tool["function"]["parameters"]["properties"]
+    # model enum removed — bridge validates server-side (LLM was truncating ids)
+    assert "enum" not in (tool["function"]["parameters"]["properties"].get("model") or {})
+
+
+def test_resolve_image_model_truncation_and_defaults():
+    assert grok.resolve_image_model("grok-imagine-imag") == "grok-imagine-image-2.0"
+    assert grok.resolve_image_model("grok-imagine-image") == "grok-imagine-image"
+    assert grok.resolve_image_model("grok-imagine-image-quality") == "grok-imagine-image-quality"
+    assert grok.resolve_image_model("grok-4.6") == "grok-imagine-image-2.0"
+    assert grok.resolve_image_model("") == "grok-imagine-image-2.0"
+    assert not grok.is_chat_model("grok-imagine-image-2.0")
+    assert grok.is_chat_model("grok-4.6")
+
+
+def test_filter_models_for_chat_drops_imagine():
+    from services import providers as prov
+
+    rows = [
+        {"id": "grok-4.6", "name": "grok-4.6"},
+        {"id": "grok-imagine-image-2.0", "name": "imagine"},
+        {"id": "grok-imagine-video", "name": "video"},
+    ]
+    out = prov.filter_models_for_chat({"type": "grok"}, rows)
+    assert [r["id"] for r in out] == ["grok-4.6"]
 
 
 def test_generate_image_persists_b64(monkeypatch, tmp_path):
