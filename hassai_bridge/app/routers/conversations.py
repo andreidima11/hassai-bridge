@@ -64,11 +64,13 @@ async def me(request: Request):
     from services.providers import get_active_provider
     active = get_active_provider()
     from services.provider_capabilities import provider_chat_capabilities
+    from services import atmosphere as atm
 
     return {
         "user": _public_profile(match),
         "language": cfg.get("language") or "en",
         "build": BUILD_ID,
+        "atmosphere": await atm.snapshot(),
         "chat": {
             "provider_id": active.get("id", ""),
             "provider_type": active.get("type", ""),

@@ -2,4 +2,4 @@ build_from:
   aarch64: ghcr.io/home-assistant/aarch64-base-python:3.12-alpine3.20
   amd64: ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.20
 args:
-  HASSAI_VERSION: 0.2.76-beta
+  HASSAI_VERSION: 0.2.78-beta

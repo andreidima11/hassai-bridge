@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.78-beta
+
+### Feature
+- **Dynamic chat greetings** — empty chat shows a rotating title/hint based on time of day, holidays (e.g. Paște), and HA weather when available; no LLM calls
+- **Softer composer placeholder** — “Scrie ceva…” / “Ask anything…” instead of “Mesaj către HASSAI…”
+
 ## 0.2.76-beta
 
 ### Feature

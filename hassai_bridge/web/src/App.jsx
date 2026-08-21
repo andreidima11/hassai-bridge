@@ -20,6 +20,7 @@ import {
 import { syncHaTheme } from "./lib/theme.js";
 import { finishThinkingLabel, persistLang, readStoredLang, tr } from "./lib/i18n.js";
 import { canSendMessage, clearDraftAttachments, persistDraftAttachments, readDraftAttachments } from "./lib/images.js";
+import { pickGreeting } from "./lib/greetings.js";
 import { applyActivity, emptyThinking } from "./lib/thinking.js";
 import {
   defaultThinkingMode,
@@ -49,6 +50,8 @@ function mapStoredAttachments(items) {
 
 export default function App() {
   const [lang, setLang] = useState(readStoredLang);
+  const [atmosphere, setAtmosphere] = useState({});
+  const [greetingNonce, setGreetingNonce] = useState(() => Date.now() % 100000);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState(() => readDraftAttachments());
@@ -89,6 +92,7 @@ export default function App() {
 
   const t = useCallback((key, params) => tr(lang, key, params), [lang]);
   const settingsHref = `${window.HASSAI_BASE || ""}/settings`;
+  const greeting = useMemo(() => pickGreeting(lang, atmosphere, new Date(), greetingNonce), [lang, atmosphere, greetingNonce]);
 
   const listedSessions = useMemo(() => {
     const inDb = sessions.some((s) => s.session_id === sessionId);
@@ -126,6 +130,7 @@ export default function App() {
       setAttachments([]);
       clearDraftAttachments();
       setSidebarOpen(false);
+      if (persist) setGreetingNonce((n) => n + 1);
     },
     [user.username],
   );
@@ -279,6 +284,7 @@ export default function App() {
         const nextUser = data.user || { username: "default", display_name: "default" };
         username = nextUser.username || "default";
         setUser(nextUser);
+        setAtmosphere(data.atmosphere && typeof data.atmosphere === "object" ? data.atmosphere : {});
         const chat = data.chat || {};
         const caps = chat.capabilities || {};
         setChatCapabilities(caps);
@@ -685,7 +691,7 @@ export default function App() {
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <Messages
-            greeting={<WelcomeHero hint={t("welcomeHint")} title={t("welcome")} />}
+            greeting={<WelcomeHero hint={greeting.hint} title={greeting.title} />}
             lang={lang}
             messages={messages}
           />
