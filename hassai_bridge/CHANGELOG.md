@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.84-beta
+
+### Fix
+- **OpenAI / ChatGPT** — send `max_completion_tokens` instead of `max_tokens` (fixes HTTP 400 on current models); omit temperature on o-series / GPT-5 where the API rejects it
+
 ## 0.2.83-beta
 
 ### Fix
