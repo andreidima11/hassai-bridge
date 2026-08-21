@@ -1,7 +1,7 @@
 import { useScrollToBottom } from "../hooks/useScrollToBottom.js";
 import { MessageBubble } from "./MessageBubble.jsx";
 
-export function Messages({ messages, lang, greeting }) {
+export function Messages({ messages, lang, greeting, onReusePrompt }) {
   const { containerRef, endRef } = useScrollToBottom();
   const empty = messages.length === 0;
 
@@ -19,7 +19,7 @@ export function Messages({ messages, lang, greeting }) {
       >
         <div className="mx-auto flex min-h-full min-w-0 max-w-4xl flex-col gap-6 px-3 py-6 md:gap-8 md:px-4">
           {messages.map((message) => (
-            <MessageBubble key={message.id} lang={lang} message={message} />
+            <MessageBubble key={message.id} lang={lang} message={message} onReusePrompt={onReusePrompt} />
           ))}
           <div ref={endRef} className="min-h-6 min-w-6 shrink-0" />
         </div>

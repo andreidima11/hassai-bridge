@@ -688,6 +688,13 @@ export default function App() {
             greeting={<WelcomeHero hint={t("welcomeHint")} title={t("welcome")} />}
             lang={lang}
             messages={messages}
+            onReusePrompt={(text) => {
+              setInput(String(text || ""));
+              window.requestAnimationFrame(() => {
+                const el = document.getElementById("hassai-composer-input");
+                el?.focus?.({ preventScroll: true });
+              });
+            }}
           />
           <Composer
             attachLabel={t("attachImage")}

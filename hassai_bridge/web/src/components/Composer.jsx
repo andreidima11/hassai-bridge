@@ -169,6 +169,7 @@ export function Composer({
             <ImageIcon />
           </label>
           <textarea
+            id="hassai-composer-input"
             ref={ref}
             className="block max-h-40 min-h-6 w-full flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground/50"
             enterKeyHint="send"
