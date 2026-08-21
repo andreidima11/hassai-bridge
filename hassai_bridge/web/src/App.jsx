@@ -606,6 +606,7 @@ export default function App() {
         role: "assistant",
         content: "",
         createdAt: now,
+        model: providerInfo.model || providerInfo.name || "",
         streaming: true,
         thinking: { ...emptyThinking(t("thinking")), visible: true, active: true },
       },
@@ -748,6 +749,8 @@ export default function App() {
             greeting={<WelcomeHero hint={greeting.hint} title={greeting.title} />}
             lang={lang}
             messages={messages}
+            modelLabel={providerInfo.model || providerInfo.name || ""}
+            userLabel={user.display_name || user.username || ""}
             onReuseMessage={reuseMessage}
           />
           <Composer

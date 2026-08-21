@@ -49,7 +49,14 @@ async function writeClipboard(text) {
   }
 }
 
-export function MessageActions({ message, lang, onReuse, onClose }) {
+export function MessageActions({
+  message,
+  lang,
+  onReuse,
+  onClose,
+  userLabel = "",
+  modelLabel = "",
+}) {
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const isUser = message.role === "user";
@@ -58,6 +65,9 @@ export function MessageActions({ message, lang, onReuse, onClose }) {
   const steps = toolSteps(message.thinking?.steps);
   const when = formatWhen(message.createdAt, lang);
   const canReuse = Boolean(text) || attachments.length > 0;
+  const fromLabel = isUser
+    ? String(userLabel || message.userLabel || tr(lang, "messageRoleYou")).trim()
+    : String(message.model || modelLabel || tr(lang, "messageRoleAssistant")).trim();
 
   useEffect(() => {
     if (!copied) return undefined;
@@ -127,7 +137,7 @@ export function MessageActions({ message, lang, onReuse, onClose }) {
           <dl className={`grid gap-1.5 ${isUser ? "justify-items-end" : "justify-items-start"}`}>
             <div>
               <dt className="text-[11px] uppercase tracking-wide text-muted-foreground/70">{tr(lang, "messageRole")}</dt>
-              <dd className="text-foreground/90">{isUser ? tr(lang, "messageRoleYou") : tr(lang, "messageRoleAssistant")}</dd>
+              <dd className="text-foreground/90">{fromLabel}</dd>
             </div>
             {when ? (
               <div>

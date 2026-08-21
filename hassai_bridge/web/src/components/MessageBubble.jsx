@@ -90,6 +90,8 @@ export function MessageBubble({
   selected = false,
   onSelect,
   onReuse,
+  userLabel = "",
+  modelLabel = "",
 }) {
   const isUser = message.role === "user";
   const streaming = Boolean(message.streaming);
@@ -115,6 +117,8 @@ export function MessageBubble({
       <MessageActions
         lang={lang}
         message={{ ...message, content: rawContent }}
+        modelLabel={modelLabel}
+        userLabel={userLabel}
         onClose={() => onSelect?.(null)}
         onReuse={onReuse}
       />
