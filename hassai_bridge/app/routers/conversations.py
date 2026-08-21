@@ -15,7 +15,6 @@ from database import (
 from services import chat_content as cc
 from services import chat_files as cf
 from services import chat_media as cm
-from services import upload_links as ul
 
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
 
@@ -185,28 +184,6 @@ async def chat_upload(request: Request, file: UploadFile = File(...)):
     except ValueError as exc:
         return _save_error(exc)
     return _attachment_payload(user_id, att, file.filename or "")
-
-
-@router.post("/api/chat/upload-link")
-async def chat_upload_link(request: Request):
-    """One-time link so the phone browser can upload when the app's dialog fails."""
-    from routers.settings import _get_local_ip
-
-    user_id = _current_username(request)
-    link = ul.create(user_id)
-    host = _get_local_ip()
-    return {
-        "token": link["token"],
-        "expires_in": link["expires_in"],
-        "url": f"http://{host}:8899/u/{link['token']}",
-    }
-
-
-@router.get("/api/chat/upload-link/{token}")
-async def chat_upload_link_files(request: Request, token: str):
-    """Files uploaded through the link so far; returned once, then cleared."""
-    user_id = _current_username(request)
-    return ul.take_files(token, user_id)
 
 
 @router.get("/api/chat/files")

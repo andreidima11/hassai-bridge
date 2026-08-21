@@ -12,8 +12,6 @@ import {
   prepareDocumentFile,
   prepareImageFile,
 } from "../lib/images.js";
-import { attachmentFromServer } from "../lib/images.js";
-import { createUploadLink, fetchUploadLinkFiles, readUploadLink, rememberUploadLink } from "../lib/chatFiles.js";
 import { tr } from "../lib/i18n.js";
 import { ProviderQuickSettings } from "./ProviderQuickSettings.jsx";
 
@@ -55,7 +53,6 @@ export function Composer({
   const [uploading, setUploading] = useState(false);
   const [browseKind, setBrowseKind] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [linkToken, setLinkToken] = useState(() => readUploadLink()?.token || "");
   const companionApp = isHaCompanionApp();
 
   useEffect(() => {
@@ -155,49 +152,6 @@ export function Composer({
     });
   };
 
-  const startBrowserUpload = async () => {
-    setMenuOpen(false);
-    setAttachError("");
-    try {
-      const link = await createUploadLink();
-      rememberUploadLink(link);
-      setLinkToken(link.token);
-      window.open(link.url, "_blank", "noopener");
-    } catch {
-      setAttachError(tr(lang, "browserUploadFailed"));
-    }
-  };
-
-  // Files sent from the phone browser arrive server-side; pull them into the composer.
-  useEffect(() => {
-    if (!linkToken) return undefined;
-    let stopped = false;
-    const tick = async () => {
-      if (stopped || document.visibilityState === "hidden") return;
-      try {
-        const out = await fetchUploadLinkFiles(linkToken);
-        if (out?.expired) {
-          rememberUploadLink(null);
-          setLinkToken("");
-          return;
-        }
-        for (const file of out?.files || []) addAttachment(attachmentFromServer(file));
-      } catch {
-        /* retry on the next tick */
-      }
-    };
-    const id = window.setInterval(tick, 3000);
-    const onVisible = () => tick();
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
-    tick();
-    return () => {
-      stopped = true;
-      window.clearInterval(id);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
-    };
-  }, [linkToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="sticky bottom-0 z-[1] mx-auto flex w-full max-w-4xl flex-col bg-background px-3 pb-3 md:px-4 md:pb-4">
@@ -213,8 +167,6 @@ export function Composer({
             setBrowseKind("any");
           }}
           onClose={() => setMenuOpen(false)}
-          showBrowserUpload={companionApp}
-          onBrowserUpload={startBrowserUpload}
           onFiles={async (event, kind) => {
             setMenuOpen(false);
             await handleFileInput(event, kind);
@@ -354,21 +306,6 @@ export function Composer({
           )}
         </div>
         {attachError ? <div className="pb-1 text-[12px] text-amber-400/90">{attachError}</div> : null}
-        {linkToken && !attachError ? (
-          <div className="flex items-center gap-2 pb-1 text-[12px] text-muted-foreground">
-            <span className="animate-pulse">{tr(lang, "browserUploadWaiting")}</span>
-            <button
-              type="button"
-              className="rounded-md px-1.5 py-0.5 text-foreground/70 hover:bg-white/10 hover:text-foreground"
-              onClick={() => {
-                rememberUploadLink(null);
-                setLinkToken("");
-              }}
-            >
-              <XIcon size={10} />
-            </button>
-          </div>
-        ) : null}
       </form>
     </div>
   );

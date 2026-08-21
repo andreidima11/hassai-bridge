@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.81-beta
+
+### Feature
+- **HASSAI can work with your files** — ask it to look through `/media` and `/share`, read a document or a photo, or delete a file (deleting always needs a confirmation)
+
+### Removed
+- **Send from the phone browser** — the link did not open from the Home Assistant app, so the option is gone
+
 ## 0.2.80-beta
 
 ### Feature
