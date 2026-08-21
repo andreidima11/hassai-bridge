@@ -2228,6 +2228,57 @@ function onImportZipPicked(event) {
   if (file) uploadFullImportFile(file);
 }
 
+function _fmtBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`;
+  return `${n} B`;
+}
+
+async function toggleShareImport() {
+  const box = document.getElementById('shareImportList');
+  if (!box) return;
+  if (box.style.display !== 'none') {
+    box.style.display = 'none';
+    return;
+  }
+  box.style.display = '';
+  box.innerHTML = `<p class="card-muted hint">${escapeHtml(t('toast.loading'))}</p>`;
+  try {
+    const data = await api('GET', '/api/settings/import/share');
+    const files = data.files || [];
+    if (!files.length) {
+      box.innerHTML = `<p class="card-muted hint">${escapeHtml(t('settings.importFromShareEmpty'))}</p>`;
+      return;
+    }
+    box.innerHTML = files
+      .map(
+        (f) =>
+          `<div class="btn-row" style="align-items:center;gap:8px;margin-top:6px">
+             <button type="button" class="btn btn-sm btn-success" onclick="importFromShare('${escapeHtml(f.name)}')">${escapeHtml(t('settings.importFull'))}</button>
+             <span class="card-muted">${escapeHtml(f.name)} · ${escapeHtml(_fmtBytes(f.size))}</span>
+           </div>`,
+      )
+      .join('');
+  } catch (e) {
+    box.innerHTML = `<p class="card-muted hint">${escapeHtml(e.message)}</p>`;
+  }
+}
+
+async function importFromShare(name) {
+  if (!confirm(t('confirm.fullImport'))) return;
+  try {
+    setBackupStatus(t('toast.importProgress', { pct: 0 }));
+    await api('POST', '/api/settings/import/share', { name });
+    setBackupStatus('');
+    toast(t('toast.fullImportDone'));
+    await refreshAfterImport();
+  } catch (e) {
+    setBackupStatus('');
+    toast(t('toast.restoreError', { msg: e.message }), true);
+  }
+}
+
 async function uploadFullImportFile(file) {
   if (!file) return;
   if (!_looksLikeZip(file)) {
