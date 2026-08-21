@@ -1,5 +1,17 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.79-beta
+
+### Fix
+- **Attach files in the Home Assistant app** — the file input now sits on top of the attach buttons (the picker that works in the Companion WebView), the accept list is wider there, and drafts survive a WebView restart
+- **Files already on Home Assistant** — folder button in the composer attaches photos and documents from `/share` and `/media`, with no file dialog at all
+- **Backup import from /share** — back in Settings → Backup, for when the native dialog closes the add-on
+- **Night greeting** — HA `clear-night` no longer greets with „Frumos și însorit” at midnight
+
+### Feature
+- **Enlarge images** — tap a chat photo for a full-screen view with download
+- **Message details** — „De la” shows your username for your messages and the model for HASSAI's
+
 ## 0.2.78-beta
 
 ### Feature
