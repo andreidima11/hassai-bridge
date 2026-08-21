@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.76-beta
+
+### Feature
+- **Smooth streaming** — assistant text flows continuously (ChatGPT-like) instead of jumping in chunks; soft caret while generating
+
 ## 0.2.75-beta
 
 ### Feature
