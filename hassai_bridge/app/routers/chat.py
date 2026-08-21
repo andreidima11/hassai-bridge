@@ -2189,7 +2189,7 @@ async def chat_completions(request: Request):
             if not full_response:
                 return
             now = time.time()
-            if not force and (now - last_content_push) < 0.12:
+            if not force and (now - last_content_push) < 0.05:
                 return
             last_content_push = now
             await on_stream_activity({
