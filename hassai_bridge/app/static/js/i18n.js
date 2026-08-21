@@ -193,6 +193,8 @@ const TRANSLATIONS = {
     'settings.save': 'Save',
     'settings.checkConnection': 'Check Connection',
     'settings.language': 'Language',
+    'settings.dynamicGreetings': 'Dynamic greetings',
+    'settings.dynamicGreetingsDesc': 'Rotate empty-chat titles by time, holidays, and weather.',
 
     // Users
     'users.title': 'Users',
@@ -619,6 +621,8 @@ const TRANSLATIONS = {
     'settings.save': 'Salvează',
     'settings.checkConnection': 'Verifică conexiune',
     'settings.language': 'Limbă',
+    'settings.dynamicGreetings': 'Saluturi dinamice',
+    'settings.dynamicGreetingsDesc': 'Rotire titluri pe chat gol după oră, sărbători și vreme.',
 
     // Users
     'users.title': 'Utilizatori',

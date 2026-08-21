@@ -66,11 +66,13 @@ async def me(request: Request):
     from services.provider_capabilities import provider_chat_capabilities
     from services import atmosphere as atm
 
+    dynamic = cfg.get("dynamic_greetings") is not False
     return {
         "user": _public_profile(match),
         "language": cfg.get("language") or "en",
+        "dynamic_greetings": dynamic,
         "build": BUILD_ID,
-        "atmosphere": await atm.snapshot(),
+        "atmosphere": await atm.snapshot() if dynamic else {},
         "chat": {
             "provider_id": active.get("id", ""),
             "provider_type": active.get("type", ""),

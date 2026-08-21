@@ -51,6 +51,7 @@ function mapStoredAttachments(items) {
 export default function App() {
   const [lang, setLang] = useState(readStoredLang);
   const [atmosphere, setAtmosphere] = useState({});
+  const [dynamicGreetings, setDynamicGreetings] = useState(true);
   const [greetingNonce, setGreetingNonce] = useState(() => Date.now() % 100000);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -92,7 +93,12 @@ export default function App() {
 
   const t = useCallback((key, params) => tr(lang, key, params), [lang]);
   const settingsHref = `${window.HASSAI_BASE || ""}/settings`;
-  const greeting = useMemo(() => pickGreeting(lang, atmosphere, new Date(), greetingNonce), [lang, atmosphere, greetingNonce]);
+  const greeting = useMemo(() => {
+    if (!dynamicGreetings) {
+      return { title: t("welcome"), hint: t("welcomeHint") };
+    }
+    return pickGreeting(lang, atmosphere, new Date(), greetingNonce);
+  }, [dynamicGreetings, lang, atmosphere, greetingNonce, t]);
 
   const listedSessions = useMemo(() => {
     const inDb = sessions.some((s) => s.session_id === sessionId);
@@ -130,9 +136,9 @@ export default function App() {
       setAttachments([]);
       clearDraftAttachments();
       setSidebarOpen(false);
-      if (persist) setGreetingNonce((n) => n + 1);
+      if (persist && dynamicGreetings) setGreetingNonce((n) => n + 1);
     },
-    [user.username],
+    [user.username, dynamicGreetings],
   );
 
   const openSession = useCallback(
@@ -284,6 +290,7 @@ export default function App() {
         const nextUser = data.user || { username: "default", display_name: "default" };
         username = nextUser.username || "default";
         setUser(nextUser);
+        setDynamicGreetings(data.dynamic_greetings !== false);
         setAtmosphere(data.atmosphere && typeof data.atmosphere === "object" ? data.atmosphere : {});
         const chat = data.chat || {};
         const caps = chat.capabilities || {};

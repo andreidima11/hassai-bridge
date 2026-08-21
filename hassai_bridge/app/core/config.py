@@ -95,6 +95,7 @@ DEFAULT_CONFIG = {
     "skills_disabled": [],
     "knowledge_cutoff": "2024-01",
     "language": "en",
+    "dynamic_greetings": True,
     "users": {
         "default_user": "",
         "api_keys": {},

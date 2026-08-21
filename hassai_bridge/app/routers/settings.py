@@ -50,6 +50,7 @@ class SettingsUpdate(BaseModel):
     ha_agent_prompt: str | None = None
     knowledge_cutoff: str | None = None
     language: str | None = None
+    dynamic_greetings: bool | None = None
     active_provider: str | None = None
     providers: list | None = None
 
@@ -86,6 +87,8 @@ async def update_settings(data: SettingsUpdate):
         cfg["knowledge_cutoff"] = data.knowledge_cutoff
     if data.language is not None:
         cfg["language"] = data.language
+    if data.dynamic_greetings is not None:
+        cfg["dynamic_greetings"] = bool(data.dynamic_greetings)
     if data.active_provider is not None:
         cfg["active_provider"] = data.active_provider
     if data.providers is not None:
