@@ -33,6 +33,32 @@ def test_grok_apply_thinking_low_on_multimodal():
     assert "temperature" not in payload
 
 
+def test_grok_skips_reasoning_effort_on_unsupported_models():
+    for mid in (
+        "grok-4.20-0309-reasoning",
+        "grok-4.20-reasoning",
+        "grok-build-0.1",
+        "grok-4.3",
+        "grok-4.20-0309-non-reasoning",
+    ):
+        payload = {"model": mid, "temperature": 0.7}
+        grok.apply_thinking_payload(
+            payload,
+            {"effort": "high", "enabled": True},
+            provider={"type": "grok", "model": mid},
+        )
+        assert "reasoning_effort" not in payload, mid
+        assert "temperature" not in payload, mid
+
+
+def test_grok_reasoning_effort_allowlist():
+    assert grok.supports_reasoning_effort("grok-4.6")
+    assert grok.supports_reasoning_effort("grok-4.5")
+    assert grok.supports_reasoning_effort("grok-4.20-multi-agent-0309")
+    assert not grok.supports_reasoning_effort("grok-4.20-0309-reasoning")
+    assert not grok.supports_reasoning_effort("grok-build-0.1")
+
+
 def test_grok_cache_tokens_from_usage():
     hit, miss = grok.cache_tokens_from_usage({
         "prompt_tokens": 200,

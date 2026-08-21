@@ -725,26 +725,28 @@ async function streamChat(userText) {
   showThinkingPanel(thinkingEl, true);
   const traceId = `${newSessionId()}${newSessionId()}`;
   const ui = { wrap, bubble, traceEl, thinkingEl, traceId };
-  const stopPoll = startActivityPoll(traceId, (ev) => applyActivity(traceEl, ev));
+  const stopPoll = startActivityPoll(traceId, (ev) => {
+    if (ev?.name === "assistant" && typeof ev.detail === "string" && ev.detail) {
+      setBubbleText(bubble, ev.detail);
+      return;
+    }
+    applyActivity(traceEl, ev);
+  });
   let full = "";
 
   try {
-    // Companion app / Ingress WebViews often drop SSE → empty reply.
-    // Use JSON there; stream on direct :8899. Activity still arrives via poll.
-    if (ON_INGRESS) {
+    // Prefer SSE; Ingress may buffer it. Activity poll still carries live tokens when streaming.
+    // Fall back to JSON if the stream body is empty / dropped (some Companion WebViews).
+    try {
+      full = await completeStream(ui, userText);
+    } catch (e) {
+      full = "";
+      if (!String(e.message || "").includes("Empty reply")) {
+        /* stream transport error — fall through */
+      }
+    }
+    if (!full) {
       full = await completeNonStream(ui, userText);
-    } else {
-      try {
-        full = await completeStream(ui, userText);
-      } catch (e) {
-        full = "";
-        if (!String(e.message || "").includes("Empty reply")) {
-          /* stream transport error — fall through */
-        }
-      }
-      if (!full) {
-        full = await completeNonStream(ui, userText);
-      }
     }
   } catch (err) {
     wrap.classList.add("msg-error");

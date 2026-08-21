@@ -36,7 +36,7 @@ def preset_capabilities(provider_type: str) -> dict:
             },
             IMAGE_GENERATION: {
                 "endpoint": "/v1/images/generations",
-                "models": ["grok-imagine-image-2.0", "grok-imagine-image"],
+                "models": list(gk.IMAGE_MODELS),
             },
         }
     return {}
@@ -78,16 +78,18 @@ def image_generation_models(provider: dict | None) -> list[str]:
 
 
 def build_image_generation_tool(provider: dict | None) -> dict:
-    models = image_generation_models(provider) or ["grok-imagine-image-2.0"]
+    models = image_generation_models(provider) or list(gk.IMAGE_MODELS)
     default_model = gk.default_image_model(provider if isinstance(provider, dict) else None)
     return {
         "type": "function",
         "function": {
             "name": "generate_image",
             "description": (
-                "Generate a new image from a detailed text prompt using Grok Imagine. "
+                "Generate a new image from a detailed text prompt using Grok Imagine "
+                f"(server uses {default_model}). "
                 "Use when the user asks to create, draw, design, or visualize something. "
-                "Do not use for editing an uploaded photo unless the user explicitly asks to generate a new image."
+                "Do not use for editing an uploaded photo unless the user explicitly asks to generate a new image. "
+                "Do not invent or pass a model id — the bridge selects a valid Imagine model."
             ),
             "parameters": {
                 "type": "object",
@@ -102,10 +104,13 @@ def build_image_generation_tool(provider: dict | None) -> dict:
                         "minimum": 1,
                         "maximum": 4,
                     },
+                    # Optional for backward compatibility; bridge validates/ignores bad values
                     "model": {
                         "type": "string",
-                        "enum": models,
-                        "description": f"Imagine model to use. Default: {default_model}.",
+                        "description": (
+                            f"Optional Imagine model id. Prefer omitting; default is {default_model}. "
+                            f"Allowed: {', '.join(models)}."
+                        ),
                     },
                 },
                 "required": ["prompt"],

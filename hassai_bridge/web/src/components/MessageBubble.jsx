@@ -1,19 +1,45 @@
+import { useMemo } from "react";
 import { SparklesIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
 import { Thinking } from "./Thinking.jsx";
 import { tr } from "../lib/i18n.js";
 
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Remove markdown images that already appear in the attachments gallery (avoids double images). */
+export function stripDuplicateAttachmentMarkdown(text, attachments) {
+  let out = String(text || "");
+  if (!out || !attachments?.length) return out;
+  for (const att of attachments) {
+    const id = String(att?.id || "").trim();
+    const urls = [att?.previewUrl, att?.url, att?.dataUrl].filter(Boolean).map(String);
+    if (id) {
+      out = out.replace(new RegExp(`!\\[[^\\]]*\\]\\([^\\)]*${escapeRegExp(id)}[^\\)]*\\)`, "gi"), "");
+    }
+    for (const url of urls) {
+      out = out.replace(new RegExp(`!\\[[^\\]]*\\]\\(\\s*${escapeRegExp(url)}\\s*\\)`, "gi"), "");
+    }
+  }
+  return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function MessageBubble({ message, lang }) {
   const isUser = message.role === "user";
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  const content = useMemo(
+    () => (isUser ? message.content : stripDuplicateAttachmentMarkdown(message.content, attachments)),
+    [isUser, message.content, attachments],
+  );
 
   if (isUser) {
-    const images = Array.isArray(message.attachments) ? message.attachments : [];
     return (
       <div className="group/message w-full" data-role="user">
         <div className="flex flex-col items-end gap-2">
-          {images.length ? (
+          {attachments.length ? (
             <div className="flex max-w-[min(80%,56ch)] flex-wrap justify-end gap-2">
-              {images.map((img) => (
+              {attachments.map((img) => (
                 <img
                   key={img.id || img.url || img.previewUrl}
                   alt=""
@@ -43,9 +69,9 @@ export function MessageBubble({ message, lang }) {
           {message.thinking?.visible ? (
             <Thinking thinking={message.thinking} lang={lang} streaming={Boolean(message.streaming)} />
           ) : null}
-          {Array.isArray(message.attachments) && message.attachments.length ? (
+          {attachments.length ? (
             <div className="flex max-w-full flex-wrap gap-2">
-              {message.attachments.map((img) => (
+              {attachments.map((img) => (
                 <img
                   key={img.id || img.url || img.previewUrl}
                   alt=""
@@ -55,12 +81,12 @@ export function MessageBubble({ message, lang }) {
               ))}
             </div>
           ) : null}
-          {message.content ? (
+          {content ? (
             <MarkdownBody
               copiedLabel={tr(lang, "copied")}
               copyLabel={tr(lang, "copy")}
               cursor={message.streaming ? <span className="ml-0.5 animate-pulse text-muted-foreground">▍</span> : null}
-              text={message.content}
+              text={content}
             />
           ) : message.streaming && !message.thinking?.visible ? (
             <div className="flex min-h-7 items-center text-[15px] font-medium text-muted-foreground">…</div>

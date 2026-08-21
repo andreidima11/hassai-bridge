@@ -8,13 +8,14 @@ import {
   apiJson,
   apiUrl,
   cancelChat,
+  clearPendingTrace,
   ensureFreshBuild,
-  extractText,
   newId,
-  ON_INGRESS,
+  persistPendingTrace,
   postChat,
   readError,
-  startActivityPoll,
+  readPendingTrace,
+  waitForChatJob,
 } from "./lib/api.js";
 import { syncHaTheme } from "./lib/theme.js";
 import { finishThinkingLabel, persistLang, readStoredLang, tr } from "./lib/i18n.js";
@@ -44,63 +45,6 @@ function mapStoredAttachments(items) {
     previewUrl: apiUrl(item.url),
     url: apiUrl(item.url),
   }));
-}
-
-async function completeNonStream(payload, sessionId, traceId, onActivity, signal, thinkingMode) {
-  const resp = await postChat(false, payload, sessionId, traceId, signal, thinkingMode);
-  if (!resp.ok) throw new Error(await readError(resp));
-  const data = await resp.json();
-  if (data.hassai_cancelled) throw new DOMException("Aborted", "AbortError");
-  if (Array.isArray(data.hassai_activity)) data.hassai_activity.forEach(onActivity);
-  const text = extractText(data);
-  if (!text) {
-    const hasImages = Array.isArray(payload?.images) && payload.images.length > 0;
-    if (hasImages) return "";
-    throw new Error("empty");
-  }
-  return text;
-}
-
-async function completeStream(payload, sessionId, traceId, onActivity, onDelta, signal, thinkingMode) {
-  const resp = await postChat(true, payload, sessionId, traceId, signal, thinkingMode);
-  if (!resp.ok) throw new Error(await readError(resp));
-  if (!resp.body) throw new Error("No stream body");
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let full = "";
-  while (true) {
-    if (signal?.aborted) {
-      await reader.cancel().catch(() => {});
-      throw new DOMException("Aborted", "AbortError");
-    }
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n");
-    buffer = parts.pop() || "";
-    for (const line of parts) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) continue;
-      const payload = trimmed.slice(5).trim();
-      if (payload === "[DONE]") continue;
-      try {
-        const chunk = JSON.parse(payload);
-        if (chunk && chunk.hassai === "activity") {
-          onActivity(chunk);
-          continue;
-        }
-        const delta = extractText(chunk);
-        if (delta) {
-          full += delta;
-          onDelta(full);
-        }
-      } catch {
-        /* keepalive */
-      }
-    }
-  }
-  return full;
 }
 
 export default function App() {
@@ -187,11 +131,12 @@ export default function App() {
   );
 
   const openSession = useCallback(
-    async (id) => {
+    async (id, usernameOverride) => {
+      const uname = usernameOverride || user.username;
       setSessionId(id);
       sessionIdRef.current = id;
       try {
-        localStorage.setItem(sessionStoreKey(user.username), id);
+        localStorage.setItem(sessionStoreKey(uname), id);
       } catch {
         /* ignore */
       }
@@ -217,7 +162,7 @@ export default function App() {
         } else {
           const content = m.content === "(image)" ? "" : m.content || "";
           const row = { id: newId(), role: m.role, content };
-          if (m.role === "user" && Array.isArray(m.attachments) && m.attachments.length) {
+          if (Array.isArray(m.attachments) && m.attachments.length) {
             row.attachments = mapStoredAttachments(m.attachments);
           }
           msgs.push(row);
@@ -226,13 +171,104 @@ export default function App() {
       setMessages(msgs);
       setAttachments([]);
       setSidebarOpen(false);
+      return msgs;
     },
     [user.username, lang, t],
   );
 
+  const finishAssistantMessage = useCallback(
+    (assistantId, full, { error = false } = {}) => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== assistantId) return m;
+          const thinking = m.thinking || emptyThinking(t("thinking"));
+          const label = finishThinkingLabel(lang, thinking);
+          const content = error
+            ? full || "Request failed"
+            : full?.trim()
+              ? full
+              : m.content || "";
+          return {
+            ...m,
+            content,
+            error: Boolean(error),
+            streaming: false,
+            thinking: label
+              ? { ...thinking, active: false, collapsed: true, visible: true, label }
+              : { ...emptyThinking(t("thinking")), visible: false },
+          };
+        }),
+      );
+    },
+    [lang, t],
+  );
+
+  const watchBackgroundJob = useCallback(
+    async ({ traceId, sessionId: sid, assistantId, signal, username }) => {
+      const seenActivity = new Set();
+      const patchAssistant = (fn) => {
+        setMessages((prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
+      };
+      const onActivity = (ev) => {
+        if (typeof ev?.i === "number") {
+          if (seenActivity.has(ev.i)) return;
+          seenActivity.add(ev.i);
+        }
+        if (ev?.name === "assistant" && typeof ev.detail === "string" && ev.detail) {
+          patchAssistant((m) => ({ ...m, content: ev.detail }));
+          return;
+        }
+        patchAssistant((m) => ({
+          ...m,
+          thinking: applyActivity(m.thinking || emptyThinking(t("thinking")), ev, t("thinking")),
+        }));
+      };
+      try {
+        const full = await waitForChatJob(traceId, {
+          onActivity,
+          onDelta: (delta) => patchAssistant((m) => ({ ...m, content: delta })),
+          signal,
+        });
+        if (signal?.aborted) return;
+        finishAssistantMessage(assistantId, full);
+        clearPendingTrace(username);
+        if (sid) {
+          try {
+            await openSession(sid, username);
+          } catch {
+            /* keep live message */
+          }
+        }
+        refreshSessions().catch(() => {});
+      } catch (err) {
+        if (err?.name === "AbortError" || signal?.aborted) {
+          clearPendingTrace(username);
+          return;
+        }
+        finishAssistantMessage(assistantId, err.message || "Request failed", { error: true });
+        clearPendingTrace(username);
+      } finally {
+        if (abortRef.current && abortRef.current.signal === signal) abortRef.current = null;
+        setBusy(false);
+        if (traceIdRef.current === traceId) traceIdRef.current = "";
+      }
+    },
+    [finishAssistantMessage, openSession, refreshSessions, t],
+  );
+
+  const openSessionRef = useRef(openSession);
+  const watchJobRef = useRef(watchBackgroundJob);
+  useEffect(() => {
+    openSessionRef.current = openSession;
+  }, [openSession]);
+  useEffect(() => {
+    watchJobRef.current = watchBackgroundJob;
+  }, [watchBackgroundJob]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      let username = "default";
       try {
         const data = await apiJson("/api/me");
         if (cancelled) return;
@@ -240,7 +276,9 @@ export default function App() {
         const nextLang = data.language === "ro" ? "ro" : "en";
         setLang(nextLang);
         persistLang(nextLang);
-        setUser(data.user || { username: "default", display_name: "default" });
+        const nextUser = data.user || { username: "default", display_name: "default" };
+        username = nextUser.username || "default";
+        setUser(nextUser);
         const chat = data.chat || {};
         const caps = chat.capabilities || {};
         setChatCapabilities(caps);
@@ -266,13 +304,109 @@ export default function App() {
           /* ignore */
         }
       }
-      if (!cancelled) {
+      if (cancelled) return;
+
+      let sid = "";
+      try {
+        sid = localStorage.getItem(sessionStoreKey(username)) || "";
+      } catch {
+        sid = "";
+      }
+      const pending = readPendingTrace(username);
+
+      if (sid) {
+        try {
+          await openSessionRef.current(sid, username);
+        } catch {
+          const id = newId();
+          setSessionId(id);
+          sessionIdRef.current = id;
+          setMessages([]);
+          sid = id;
+        }
+      } else {
         const id = newId();
         setSessionId(id);
         sessionIdRef.current = id;
         setMessages([]);
-        bootDone.current = true;
+        sid = id;
       }
+
+      if (pending?.traceId) {
+        let job = null;
+        try {
+          job = await apiJson(`/v1/chat/jobs/${encodeURIComponent(pending.traceId)}`);
+        } catch {
+          job = null;
+        }
+        if (job && !job.done && !job.cancelled && job.status === "running") {
+          const resumeSid = pending.sessionId || job.session_id || sid;
+          if (resumeSid && resumeSid !== sessionIdRef.current) {
+            try {
+              await openSessionRef.current(resumeSid, username);
+            } catch {
+              /* keep current */
+            }
+          }
+          let assistantId = newId();
+          const existing = messagesRef.current[messagesRef.current.length - 1];
+          if (existing?.role === "assistant") {
+            assistantId = existing.id;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      streaming: true,
+                      thinking: {
+                        ...(m.thinking || emptyThinking(tr(readStoredLang(), "thinking"))),
+                        visible: true,
+                        active: true,
+                      },
+                    }
+                  : m,
+              ),
+            );
+          } else {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: assistantId,
+                role: "assistant",
+                content: "",
+                streaming: true,
+                thinking: {
+                  ...emptyThinking(tr(readStoredLang(), "thinking")),
+                  visible: true,
+                  active: true,
+                },
+              },
+            ]);
+          }
+          traceIdRef.current = pending.traceId;
+          setBusy(true);
+          const controller = new AbortController();
+          abortRef.current = controller;
+          watchJobRef.current({
+            traceId: pending.traceId,
+            sessionId: resumeSid,
+            assistantId,
+            signal: controller.signal,
+            username,
+          });
+        } else {
+          clearPendingTrace(username);
+          if (sid) {
+            try {
+              await openSessionRef.current(sid, username);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+      }
+
+      bootDone.current = true;
     })();
     return () => {
       cancelled = true;
@@ -281,6 +415,39 @@ export default function App() {
 
   useEffect(() => {
     const shouldSkipReset = () => Date.now() < pickerGuardUntil.current;
+    const syncAfterReturn = async () => {
+      if (busy || !bootDone.current) return;
+      const pending = readPendingTrace(user.username);
+      const sid = sessionIdRef.current;
+      if (pending?.traceId) {
+        try {
+          const job = await apiJson(`/v1/chat/jobs/${encodeURIComponent(pending.traceId)}`);
+          if (job?.done || job?.cancelled || job?.status === "error") {
+            clearPendingTrace(user.username);
+            if (sid) await openSession(sid, user.username);
+            refreshSessions().catch(() => {});
+          }
+        } catch {
+          /* job expired — reload session anyway */
+          clearPendingTrace(user.username);
+          if (sid) {
+            try {
+              await openSession(sid, user.username);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        return;
+      }
+      if (sid && messagesRef.current.some((m) => m.streaming)) {
+        try {
+          await openSession(sid, user.username);
+        } catch {
+          /* ignore */
+        }
+      }
+    };
     const onVis = () => {
       if (document.visibilityState === "hidden") {
         hiddenAt.current = Date.now();
@@ -290,6 +457,7 @@ export default function App() {
         hiddenAt.current = 0;
         return;
       }
+      syncAfterReturn().catch(() => {});
       if (!bootDone.current || busy) {
         hiddenAt.current = 0;
         return;
@@ -306,6 +474,7 @@ export default function App() {
     const onPageShow = () => {
       const drafts = readDraftAttachments();
       if (drafts.length) setAttachments(drafts);
+      syncAfterReturn().catch(() => {});
     };
     document.addEventListener("visibilitychange", onVis);
     window.addEventListener("focus", onFocus);
@@ -315,11 +484,12 @@ export default function App() {
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("pageshow", onPageShow);
     };
-  }, [busy, input, startNewChat]);
+  }, [busy, input, openSession, refreshSessions, startNewChat, user.username]);
 
   const stopGeneration = useCallback(() => {
     const traceId = traceIdRef.current;
     if (traceId) cancelChat(traceId).catch(() => {});
+    clearPendingTrace(user.username);
     abortRef.current?.abort();
     stopPollRef.current?.();
     stopPollRef.current = null;
@@ -340,7 +510,7 @@ export default function App() {
         };
       }),
     );
-  }, [lang, t]);
+  }, [lang, t, user.username]);
 
   const send = async (event) => {
     event.preventDefault();
@@ -384,73 +554,41 @@ export default function App() {
     setAttachments([]);
     clearDraftAttachments();
     setBusy(true);
+    persistPendingTrace(user.username, traceId, sid);
 
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     const { signal } = controller;
 
-    const seenActivity = new Set();
-    const patchAssistant = (fn) => {
-      setMessages((prev) => prev.map((m) => (m.id === assistantId ? fn(m) : m)));
-    };
-    const onActivity = (ev) => {
-      if (typeof ev?.i === "number") {
-        if (seenActivity.has(ev.i)) return;
-        seenActivity.add(ev.i);
-      }
-      patchAssistant((m) => ({
-        ...m,
-        thinking: applyActivity(m.thinking || emptyThinking(t("thinking")), ev, t("thinking")),
-      }));
-    };
-    const stopPoll = startActivityPoll(traceId, onActivity);
-    stopPollRef.current = stopPoll;
-
     const thinkingOverride = hasThinkingCapability(chatCapabilities) ? thinkingMode : undefined;
 
     try {
-      let full = "";
-      if (ON_INGRESS) {
-        full = await completeNonStream(payload, sid, traceId, onActivity, signal, thinkingOverride);
-      } else {
-        try {
-          full = await completeStream(payload, sid, traceId, onActivity, (delta) => {
-            patchAssistant((m) => ({ ...m, content: delta }));
-          }, signal, thinkingOverride);
-        } catch (err) {
-          if (err?.name === "AbortError") throw err;
-          full = "";
-        }
-        if (!full && !signal.aborted) {
-          full = await completeNonStream(payload, sid, traceId, onActivity, signal, thinkingOverride);
-        }
-      }
-      if (signal.aborted) return;
-      patchAssistant((m) => {
-        const thinking = m.thinking || emptyThinking(t("thinking"));
-        const label = finishThinkingLabel(lang, thinking);
-        const content = full?.trim() ? full : images.length ? t("emptyReply") : full;
-        return {
-          ...m,
-          content,
-          streaming: false,
-          thinking: label
-            ? { ...thinking, active: false, collapsed: true, visible: true, label }
-            : { ...emptyThinking(t("thinking")), visible: false },
-        };
+      const resp = await postChat(false, payload, sid, traceId, signal, thinkingOverride, {
+        background: true,
       });
-      refreshSessions().catch(() => {});
+      if (!resp.ok) throw new Error(await readError(resp));
+      await resp.json().catch(() => ({}));
     } catch (err) {
-      if (err?.name === "AbortError" || signal.aborted) return;
-      const msg = String(err.message || "") === "empty" ? t("emptyReply") : err.message || "Request failed";
-      patchAssistant((m) => ({ ...m, content: msg, error: true, streaming: false }));
-    } finally {
-      stopPoll();
-      stopPollRef.current = null;
-      if (abortRef.current === controller) abortRef.current = null;
+      if (err?.name === "AbortError" || signal.aborted) {
+        clearPendingTrace(user.username);
+        setBusy(false);
+        return;
+      }
+      finishAssistantMessage(assistantId, err.message || "Request failed", { error: true });
+      clearPendingTrace(user.username);
       setBusy(false);
+      return;
     }
+
+    // Job runs on the server; polling survives panel close / return.
+    await watchBackgroundJob({
+      traceId,
+      sessionId: sid,
+      assistantId,
+      signal,
+      username: user.username,
+    });
   };
 
   const refreshChatProvider = useCallback(async () => {

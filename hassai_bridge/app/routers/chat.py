@@ -329,6 +329,8 @@ def _tool_detail(name: str, args: dict) -> str:
 
 _TRACE_TTL = 600.0
 _traces: dict[str, dict] = {}
+# One active background job per conversation session (session_id → trace_id).
+_session_jobs: dict[str, str] = {}
 
 
 class TraceCancelled(Exception):
@@ -350,14 +352,31 @@ def _trace_gc() -> None:
     now = time.time()
     stale = [key for key, bucket in _traces.items() if now - bucket.get("ts", 0) > _TRACE_TTL]
     for key in stale:
-        _traces.pop(key, None)
+        bucket = _traces.pop(key, None) or {}
+        sid = str(bucket.get("session_id") or "")
+        if sid and _session_jobs.get(sid) == key:
+            _session_jobs.pop(sid, None)
 
 
-def _trace_start(trace_id: str) -> None:
+def _trace_start(
+    trace_id: str,
+    *,
+    session_id: str | None = None,
+    user_id: str | None = None,
+) -> None:
     if not trace_id:
         return
     _trace_gc()
-    _traces[trace_id] = {"events": [], "done": False, "cancelled": False, "ts": time.time()}
+    _traces[trace_id] = {
+        "events": [],
+        "done": False,
+        "cancelled": False,
+        "ts": time.time(),
+        "session_id": str(session_id or ""),
+        "user_id": str(user_id or ""),
+        "status": "running",
+        "error": "",
+    }
 
 
 def _trace_cancelled(trace_id: str) -> bool:
@@ -373,6 +392,7 @@ def _trace_cancel(trace_id: str) -> bool:
     if bucket.get("done") or bucket.get("cancelled"):
         return False
     bucket["cancelled"] = True
+    bucket["status"] = "cancelled"
     bucket["ts"] = time.time()
     return True
 
@@ -390,6 +410,63 @@ def _trace_push(trace_id: str, event: dict) -> dict:
         bucket["events"].append(payload)
         bucket["ts"] = time.time()
     return payload
+
+
+def _trace_done(trace_id: str, *, error: str = "") -> None:
+    if not trace_id or trace_id not in _traces:
+        return
+    bucket = _traces[trace_id]
+    bucket["done"] = True
+    bucket["ts"] = time.time()
+    if error:
+        bucket["error"] = str(error)[:500]
+        if not bucket.get("cancelled"):
+            bucket["status"] = "error"
+    elif bucket.get("cancelled"):
+        bucket["status"] = "cancelled"
+    else:
+        bucket["status"] = "done"
+    sid = str(bucket.get("session_id") or "")
+    if sid and _session_jobs.get(sid) == trace_id:
+        _session_jobs.pop(sid, None)
+
+
+def _session_job_running(session_id: str | None) -> str | None:
+    """Return active trace_id for session, or None."""
+    sid = str(session_id or "").strip()
+    if not sid:
+        return None
+    tid = _session_jobs.get(sid)
+    if not tid:
+        return None
+    bucket = _traces.get(tid)
+    if not bucket or bucket.get("done"):
+        _session_jobs.pop(sid, None)
+        return None
+    return tid
+
+
+def _register_session_job(session_id: str | None, trace_id: str) -> None:
+    sid = str(session_id or "").strip()
+    if sid and trace_id:
+        _session_jobs[sid] = trace_id
+
+
+def _activity_status_payload(bucket: dict | None, after: int = -1) -> dict:
+    if not bucket:
+        return {"events": [], "after": after, "done": False, "cancelled": False, "status": "unknown"}
+    events = [ev for ev in bucket["events"] if int(ev.get("i", 0)) > after]
+    last = events[-1]["i"] if events else after
+    status = bucket.get("status") or ("done" if bucket.get("done") else "running")
+    return {
+        "events": events,
+        "after": last,
+        "done": bool(bucket.get("done")),
+        "cancelled": bool(bucket.get("cancelled")),
+        "status": status,
+        "session_id": bucket.get("session_id") or "",
+        "error": bucket.get("error") or "",
+    }
 
 
 _REASONING_DETAIL_MAX = 8000
@@ -416,6 +493,9 @@ def _compact_activity(events: list | None) -> list[dict]:
     order: list[str] = []
     for ev in events:
         if not isinstance(ev, dict):
+            continue
+        # Live token previews are for the UI poll only — don't persist the full reply.
+        if ev.get("name") == "assistant":
             continue
         eid = str(ev.get("id") or "")
         if not eid:
@@ -474,10 +554,34 @@ def _markdown_for_generated_attachments(
     return "\n\n".join(parts)
 
 
-def _trace_done(trace_id: str) -> None:
-    if trace_id and trace_id in _traces:
-        _traces[trace_id]["done"] = True
-        _traces[trace_id]["ts"] = time.time()
+def _finalize_image_only_result(
+    *,
+    model: str | None,
+    session_id: str | None,
+    generated_attachments: list[dict],
+    activity_events: list | None = None,
+) -> dict:
+    """Build a chat.completion payload after Imagine — no second LLM round (avoids Ingress 504)."""
+    md = _markdown_for_generated_attachments(generated_attachments, session_id, "")
+    content = md or "Image generated."
+    return {
+        "id": f"img-{int(time.time())}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model or "hassai-bridge",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": content},
+            "finish_reason": "stop",
+        }],
+        "hassai_activity": activity_events or [],
+        "hassai_generated_attachments": generated_attachments,
+    }
+
+
+def _only_image_gen_tools(tool_calls: list[dict]) -> bool:
+    names = [n for n in _tool_names(tool_calls) if n]
+    return bool(names) and all(n == "generate_image" for n in names)
 
 
 def _cancelled_openai_response(model, activity_events: list | None = None) -> dict:
@@ -1570,16 +1674,25 @@ async def chat_activity(trace_id: str, request: Request, after: int = -1):
     _trace_gc()
     safe_id = _sanitize_trace_id(trace_id)
     bucket = _traces.get(safe_id) if safe_id else None
+    return _activity_status_payload(bucket, after)
+
+
+@router.get("/v1/chat/jobs/{trace_id}")
+async def chat_job_status(trace_id: str, request: Request):
+    """Background chat job status (same bucket as activity)."""
+    _validate_api_key(request)
+    _trace_gc()
+    safe_id = _sanitize_trace_id(trace_id)
+    bucket = _traces.get(safe_id) if safe_id else None
+    payload = _activity_status_payload(bucket, -1)
+    payload.pop("events", None)
+    payload.pop("after", None)
     if not bucket:
-        return {"events": [], "after": after, "done": False}
-    events = [ev for ev in bucket["events"] if int(ev.get("i", 0)) > after]
-    last = events[-1]["i"] if events else after
-    return {
-        "events": events,
-        "after": last,
-        "done": bool(bucket.get("done")),
-        "cancelled": bool(bucket.get("cancelled")),
-    }
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"message": "Job not found", "type": "not_found"}, **payload},
+        )
+    return payload
 
 
 @router.post("/v1/chat/cancel/{trace_id}")
@@ -1603,6 +1716,7 @@ async def chat_completions(request: Request):
     messages = body.get("messages", [])
     model = body.get("model")
     stream = body.get("stream", False)
+    background = bool(body.get("background"))
     tools = body.get("tools")
     tool_choice = body.get("tool_choice")
     user_id = _extract_user_id(request, body)
@@ -1636,6 +1750,20 @@ async def chat_completions(request: Request):
 
     # Authenticate when an API key is configured
     _validate_api_key(request)
+
+    if background and session_id:
+        busy_tid = _session_job_running(session_id)
+        if busy_tid:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": {
+                        "message": "A reply is already generating for this chat. Wait or press Stop.",
+                        "type": "conflict",
+                        "trace_id": busy_tid,
+                    },
+                },
+            )
 
     # ── Message size validation (#16) ──
     total_size = sum(cc.content_size(m.get("content")) for m in messages)
@@ -1671,7 +1799,10 @@ async def chat_completions(request: Request):
         return JSONResponse(content=_command_response_openai(cmd_result, model))
 
     # ── Build augmented message list ──
-    log.info(f"[{user_id}] Request: \"{last_user_msg[:80]}\" (provider={active.get('name','?')}, stream={stream})")
+    log.info(
+        f"[{user_id}] Request: \"{last_user_msg[:80]}\" "
+        f"(provider={active.get('name','?')}, stream={stream}, background={background})"
+    )
     augmented: list[dict] = []
 
     # 1) System prompt (per-provider overrides global)
@@ -1802,7 +1933,7 @@ async def chat_completions(request: Request):
     _search_used = False
     _secondary_used_for_recall = False  # tracks if secondary/vision handled a re-call (search/skill)
     _image_provider_used = image_provider is not None
-    _trace_start(trace_id)
+    _trace_start(trace_id, session_id=session_id, user_id=user_id)
     activity_events: list[dict] = []
 
     async def on_activity(event: dict):
@@ -1819,7 +1950,7 @@ async def chat_completions(request: Request):
             payload["ms"] = int((time.time() - started) * 1000)
         await on_activity(payload)
 
-    if not stream:
+    if not stream and not background:
         think_t0 = time.time()
         await emit_think("think-0", "running")
         try:
@@ -1889,6 +2020,21 @@ async def chat_completions(request: Request):
                     generated_attachments=generated_attachments,
                 ):
                     _search_used = True
+
+                # Imagine can take 30–90s; a second LLM round often trips HA Ingress 504.
+                # When this round was only generate_image and we have images, finish now.
+                if generated_attachments and _only_image_gen_tools(internal_calls):
+                    result = _finalize_image_only_result(
+                        model=model,
+                        session_id=session_id,
+                        generated_attachments=generated_attachments,
+                        activity_events=activity_events,
+                    )
+                    log.info(
+                        "Finalizing after image generation without LLM recall (%s image(s))",
+                        len(generated_attachments),
+                    )
+                    break
 
                 re_provider = _recall_provider(
                     internal_calls, active, secondary,
@@ -2027,6 +2173,7 @@ async def chat_completions(request: Request):
         sse_buf: list[str] = []
         round_i = 0
         stream_call_provider = chat_provider
+        last_content_push = 0.0
 
         async def on_stream_activity(event: dict):
             pushed = _trace_push(trace_id, event)
@@ -2035,6 +2182,22 @@ async def chat_completions(request: Request):
         async def flush_activity():
             while sse_buf:
                 yield sse_buf.pop(0)
+
+        async def push_assistant_preview(force: bool = False):
+            """Ingress often buffers SSE; activity poll carries live token text."""
+            nonlocal last_content_push
+            if not full_response:
+                return
+            now = time.time()
+            if not force and (now - last_content_push) < 0.12:
+                return
+            last_content_push = now
+            await on_stream_activity({
+                "id": "assistant-out",
+                "name": "assistant",
+                "detail": full_response,
+                "status": "running",
+            })
 
         current_gen = providers.chat_completion_stream(
             augmented,
@@ -2126,6 +2289,9 @@ async def chat_completions(request: Request):
                                 async for part in flush_activity():
                                     yield part
                             full_response += content
+                            await push_assistant_preview()
+                            async for part in flush_activity():
+                                yield part
                         yield chunk
 
                     elif chunk.strip() == "data: [DONE]":
@@ -2144,6 +2310,10 @@ async def chat_completions(request: Request):
                     })
                     async for part in flush_activity():
                         yield part
+
+                await push_assistant_preview(force=True)
+                async for part in flush_activity():
+                    yield part
 
                 if not (has_tool_calls and tc_accum):
                     yield "data: [DONE]\n\n"
@@ -2214,6 +2384,15 @@ async def chat_completions(request: Request):
                 async for part in flush_activity():
                     yield part
 
+                # Same Ingress-safe shortcut as non-stream: don't start another LLM round
+                if generated_attachments and _only_image_gen_tools(internal_tcs):
+                    log.info(
+                        "Stream finalize after image generation without LLM recall (%s image(s))",
+                        len(generated_attachments),
+                    )
+                    yield "data: [DONE]\n\n"
+                    break
+
                 await _check_trace(trace_id)
                 re_provider = _recall_provider(
                     internal_tcs, active, secondary,
@@ -2276,8 +2455,65 @@ async def chat_completions(request: Request):
             async for part in flush_activity():
                 yield part
             yield "data: [DONE]\n\n"
+        except Exception as e:
+            from services.provider_errors import sanitize_error_message
+
+            safe = sanitize_error_message(f"Provider error: {e}")
+            log.error("[%s] Stream/background job failed: %s", user_id, e)
+            await on_stream_activity({
+                "id": "assistant-out",
+                "name": "assistant",
+                "detail": safe,
+                "status": "done",
+            })
+            async for part in flush_activity():
+                yield part
+            _trace_done(trace_id, error=safe)
+            yield "data: [DONE]\n\n"
         finally:
-            _trace_done(trace_id)
+            if trace_id and trace_id in _traces and not _traces[trace_id].get("done"):
+                _trace_done(trace_id)
+
+    if background:
+        if not trace_id:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": {
+                        "message": "background requires a valid trace_id",
+                        "type": "invalid_request_error",
+                    },
+                },
+            )
+        _register_session_job(session_id, trace_id)
+
+        async def _background_job():
+            try:
+                async for _chunk in stream_wrapper():
+                    pass
+            except Exception as e:
+                log.error("[%s] Background chat job crashed: %s", user_id, e)
+                if trace_id in _traces and not _traces[trace_id].get("done"):
+                    _trace_done(trace_id, error=str(e)[:500])
+            finally:
+                if session_id and _session_jobs.get(session_id) == trace_id:
+                    _session_jobs.pop(session_id, None)
+
+        asyncio.create_task(_background_job())
+        log.info("[%s] Background chat job started trace=%s session=%s", user_id, trace_id, session_id)
+        return JSONResponse(
+            status_code=202,
+            content={
+                "id": f"hassai-job-{trace_id}",
+                "object": "hassai.chat.job",
+                "created": int(time.time()),
+                "model": model or chat_provider.get("model", ""),
+                "status": "running",
+                "session_id": session_id,
+                "trace_id": trace_id,
+                "choices": [],
+            },
+        )
 
     async def _guarded_stream():
         try:
@@ -2285,11 +2521,19 @@ async def chat_completions(request: Request):
                 yield chunk
         except Exception as e:
             log.error(f"[{user_id}] Stream failed: {e}")
-            _trace_done(trace_id)
+            _trace_done(trace_id, error=str(e)[:500])
             async for chunk in _sse_error(f"Provider error: {e}"):
                 yield chunk
 
-    return StreamingResponse(_guarded_stream(), media_type="text/event-stream")
+    return StreamingResponse(
+        _guarded_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 async def _sse_error(message: str):

@@ -209,6 +209,16 @@ async def add_provider(data: dict):
 
     if not name:
         raise HTTPException(status_code=400, detail="Provider name is required")
+    if ptype == "grok":
+        from services import grok as gk
+        if gk.is_imagine_model(model):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"'{model}' is an Imagine image model. Use grok-4.6 (or another chat model) "
+                    "for the provider Model — Imagine is used automatically for image generation."
+                ),
+            )
     if not base_url:
         preset = PROVIDER_PRESETS.get(ptype, {})
         base_url = preset.get("base_url", "http://localhost:1234")
@@ -262,6 +272,17 @@ async def update_provider(provider_id: str, data: dict):
                     p[key] = data[key]
             if p.get("base_url"):
                 p["base_url"] = providers.normalize_provider_base_url(p["base_url"])
+            if (p.get("type") or data.get("type")) == "grok":
+                from services import grok as gk
+                mid = str(p.get("model") or "").strip()
+                if gk.is_imagine_model(mid):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"'{mid}' is an Imagine image model. Use grok-4.6 (or another chat model) "
+                            "for the provider Model — Imagine is used automatically for image generation."
+                        ),
+                    )
             save_config(cfg)
             return {"status": "ok", "provider": p}
     raise HTTPException(status_code=404, detail="Provider not found")
