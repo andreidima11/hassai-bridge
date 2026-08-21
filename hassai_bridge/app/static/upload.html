@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>__T_TITLE__</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: #111;
+      color: #ededed;
+      font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    .card {
+      width: min(420px, 100%);
+      background: #1c1c1c;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 20px;
+      padding: 22px;
+      text-align: center;
+    }
+    h1 { margin: 0 0 6px; font-size: 19px; }
+    p { margin: 0 0 18px; color: rgba(237,237,237,.6); font-size: 13.5px; }
+    .pick { position: relative; display: block; overflow: hidden; border-radius: 999px; }
+    .pick span {
+      display: block;
+      padding: 14px 18px;
+      background: #fff;
+      color: #111;
+      font-weight: 600;
+      border-radius: 999px;
+    }
+    .pick input {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      opacity: 0; font-size: 64px; cursor: pointer;
+    }
+    #status { margin: 16px 0 0; min-height: 20px; font-size: 13.5px; color: rgba(237,237,237,.75); }
+    #status.ok { color: #7ddba3; }
+    #status.err { color: #f0b46a; }
+    ul { margin: 12px 0 0; padding: 0; list-style: none; font-size: 13px; color: rgba(237,237,237,.6); }
+    .ver { margin-top: 18px; font-size: 11px; color: rgba(237,237,237,.3); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>__T_TITLE__</h1>
+    <p>__T_INTRO__</p>
+    <label class="pick">
+      <span>__T_PICK__</span>
+      <input id="file" type="file" accept="*/*" multiple />
+    </label>
+    <p id="status"></p>
+    <ul id="sent"></ul>
+    <div class="ver">HASSAI __VERSION__</div>
+  </div>
+  <script>
+    var TOKEN = "__TOKEN__";
+    var T = { sending: "__T_SENDING__", done: "__T_DONE__", failed: "__T_FAILED__" };
+    var statusEl = document.getElementById('status');
+    var sentEl = document.getElementById('sent');
+
+    function setStatus(text, kind) {
+      statusEl.textContent = text;
+      statusEl.className = kind || '';
+    }
+
+    document.getElementById('file').addEventListener('change', async function (event) {
+      var files = Array.prototype.slice.call(event.target.files || []);
+      event.target.value = '';
+      if (!files.length) return;
+      for (var i = 0; i < files.length; i++) {
+        var file = files[i];
+        setStatus(T.sending + ' ' + file.name);
+        try {
+          var form = new FormData();
+          form.append('file', file, file.name || 'file');
+          var resp = await fetch('/u/' + TOKEN + '/upload', { method: 'POST', body: form });
+          if (!resp.ok) {
+            var err = await resp.json().catch(function () { return {}; });
+            throw new Error(err.detail || ('HTTP ' + resp.status));
+          }
+          var item = document.createElement('li');
+          item.textContent = '✓ ' + (file.name || '');
+          sentEl.appendChild(item);
+          setStatus(T.done, 'ok');
+        } catch (e) {
+          setStatus(T.failed + ': ' + e.message, 'err');
+          return;
+        }
+      }
+    });
+  </script>
+</body>
+</html>

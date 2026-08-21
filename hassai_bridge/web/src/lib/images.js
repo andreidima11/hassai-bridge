@@ -142,6 +142,32 @@ export function persistDraftAttachments(items) {
   }
 }
 
+const DRAFT_TEXT_KEY = "hassai.chat.draftText";
+
+export function readDraftText() {
+  for (const store of draftStores()) {
+    try {
+      const text = store.getItem(DRAFT_TEXT_KEY);
+      if (text) return text;
+    } catch {
+      continue;
+    }
+  }
+  return "";
+}
+
+export function persistDraftText(text) {
+  const value = String(text || "");
+  for (const store of draftStores()) {
+    try {
+      if (value) store.setItem(DRAFT_TEXT_KEY, value);
+      else store.removeItem(DRAFT_TEXT_KEY);
+    } catch {
+      /* quota or private mode */
+    }
+  }
+}
+
 export function clearDraftAttachments() {
   for (const store of draftStores()) {
     try {

@@ -1,5 +1,15 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.80-beta
+
+### Feature
+- **One + button in the composer** — opens a modal above everything with Photo, Document and Home Assistant files, instead of three icons in the bar
+- **Send from the phone browser** — in the Home Assistant app, a one-time link opens the phone browser; the file you pick there lands in the chat by itself, so the native dialog never touches the add-on
+
+### Fix
+- **Document picker in the Home Assistant app** — a wildcard accept list keeps the in-app chooser instead of launching a separate file-manager app, which is what tore down the panel
+- **Nothing is lost if the panel restarts** — typed message and pending attachments are restored when you come back
+
 ## 0.2.79-beta
 
 ### Fix

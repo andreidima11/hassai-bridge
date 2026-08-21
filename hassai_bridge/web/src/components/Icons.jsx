@@ -119,6 +119,16 @@ export function XIcon({ size = 12 }) {
   );
 }
 
+export function PhoneIcon({ size = 18 }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" aria-hidden="true">
+      <rect x="6.75" y="2.75" width="10.5" height="18.5" rx="2.5" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M10.75 5.75h2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path d="M12 18.25h.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function FolderIcon({ size = 16 }) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" aria-hidden="true">

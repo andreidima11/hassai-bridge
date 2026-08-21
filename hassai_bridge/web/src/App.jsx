@@ -19,7 +19,15 @@ import {
 } from "./lib/api.js";
 import { syncHaTheme } from "./lib/theme.js";
 import { finishThinkingLabel, persistLang, readStoredLang, tr } from "./lib/i18n.js";
-import { canSendMessage, clearDraftAttachments, persistDraftAttachments, readDraftAttachments, MAX_CHAT_IMAGES } from "./lib/images.js";
+import {
+  canSendMessage,
+  clearDraftAttachments,
+  persistDraftAttachments,
+  persistDraftText,
+  readDraftAttachments,
+  readDraftText,
+  MAX_CHAT_IMAGES,
+} from "./lib/images.js";
 import { pickGreeting } from "./lib/greetings.js";
 import { applyActivity, emptyThinking } from "./lib/thinking.js";
 import {
@@ -55,7 +63,7 @@ export default function App() {
   const [dynamicGreetings, setDynamicGreetings] = useState(true);
   const [greetingNonce, setGreetingNonce] = useState(() => Date.now() % 100000);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => readDraftText());
   const [attachments, setAttachments] = useState(() => readDraftAttachments());
   const [busy, setBusy] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -91,6 +99,11 @@ export default function App() {
     attachmentsRef.current = attachments;
     persistDraftAttachments(attachments);
   }, [attachments]);
+
+  // The Companion WebView can restart while a file picker is open — keep the typed message.
+  useEffect(() => {
+    persistDraftText(input);
+  }, [input]);
 
   const t = useCallback((key, params) => tr(lang, key, params), [lang]);
   const settingsHref = `${window.HASSAI_BASE || ""}/settings`;
