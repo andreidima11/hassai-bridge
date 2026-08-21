@@ -43,6 +43,7 @@ function mapStoredAttachments(items) {
     id: item.id,
     mime: item.mime,
     name: item.name || "",
+    kind: item.kind || (String(item.mime || "").startsWith("image/") ? "image" : "document"),
     previewUrl: apiUrl(item.url),
     url: apiUrl(item.url),
   }));
@@ -504,15 +505,18 @@ export default function App() {
     const text = String(message?.content || "").trim();
     if (text) setInput(text);
     const images = (Array.isArray(message?.attachments) ? message.attachments : [])
-      .filter((img) => img?.previewUrl || img?.dataUrl || img?.url)
+      .filter((img) => img?.previewUrl || img?.dataUrl || img?.url || img?.text)
       .slice(0, MAX_CHAT_IMAGES)
       .map((img) => ({
         id: img.id || newId(),
         mime: img.mime || "",
         name: img.name || "",
+        kind: img.kind || (img.text ? "document" : "image"),
         previewUrl: img.previewUrl || img.url || img.dataUrl,
         dataUrl: img.dataUrl || "",
         url: img.url || "",
+        text: img.text || "",
+        chars: img.chars,
       }));
     if (images.length) setAttachments(images);
     window.requestAnimationFrame(() => {
@@ -579,7 +583,17 @@ export default function App() {
       role: "user",
       content: text,
       createdAt: now,
-      attachments: images.map((img) => ({ id: img.id, previewUrl: img.previewUrl, dataUrl: img.dataUrl })),
+      attachments: images.map((img) => ({
+        id: img.id,
+        name: img.name || "",
+        mime: img.mime || "",
+        kind: img.kind || "image",
+        previewUrl: img.previewUrl,
+        dataUrl: img.dataUrl,
+        text: img.text || "",
+        chars: img.chars,
+        url: img.url || "",
+      })),
     };
     const assistantId = newId();
     const traceId = `${newId()}${newId()}`;
@@ -737,13 +751,16 @@ export default function App() {
             onReuseMessage={reuseMessage}
           />
           <Composer
+            attachDocLabel={t("attachDocument")}
             attachLabel={t("attachImage")}
             attachments={attachments}
             busy={busy}
+            docTooLargeLabel={t("docTooLarge")}
             imageTooLargeLabel={t("imageTooLarge")}
             lang={lang}
             maxImagesLabel={t("maxImages")}
             placeholder={t("placeholder")}
+            removeDocLabel={t("removeDocument")}
             removeImageLabel={t("removeImage")}
             providerCapabilities={chatCapabilities}
             providerId={providerInfo.id}
@@ -751,6 +768,7 @@ export default function App() {
             providerName={providerInfo.name}
             stopLabel={t("stop")}
             thinkingMode={thinkingMode}
+            unsupportedDocLabel={t("unsupportedDocument")}
             unsupportedImageLabel={t("unsupportedImage")}
             value={input}
             onAttachmentsChange={setAttachments}

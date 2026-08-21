@@ -1,7 +1,9 @@
 import { apiUrl } from "./api.js";
 
 export const MAX_CHAT_IMAGES = 4;
+export const MAX_CHAT_ATTACHMENTS = MAX_CHAT_IMAGES;
 export const MAX_IMAGE_BYTES = 1_200_000;
+export const MAX_DOC_BYTES = 4_000_000;
 const DRAFT_ATTACHMENTS_KEY = "hassai.chat.draftAttachments";
 
 const ALLOWED_TYPES = new Set([
@@ -12,6 +14,27 @@ const ALLOWED_TYPES = new Set([
   "image/heic",
   "image/heif",
 ]);
+
+const DOC_ACCEPT =
+  ".pdf,.txt,.md,.markdown,.csv,.json,.xml,.html,.htm,.log,.rtf,application/pdf,text/plain,text/markdown,text/csv,application/json,text/html,application/xml,text/xml,application/rtf,text/rtf";
+
+const DOC_EXT = new Set([
+  ".pdf",
+  ".txt",
+  ".md",
+  ".markdown",
+  ".csv",
+  ".json",
+  ".xml",
+  ".html",
+  ".htm",
+  ".log",
+  ".rtf",
+]);
+
+export function documentAcceptAttr() {
+  return DOC_ACCEPT;
+}
 
 function resolveImageMime(file) {
   const type = String(file?.type || "").trim().toLowerCase();
@@ -67,8 +90,11 @@ export function persistDraftAttachments(items) {
           id: item.id,
           mime: item.mime,
           name: item.name,
+          kind: item.kind || (String(item.mime || "").startsWith("image/") ? "image" : "document"),
           previewUrl: item.previewUrl,
           dataUrl: item.dataUrl,
+          text: item.kind === "document" ? item.text : undefined,
+          chars: item.chars,
         })),
       ),
     );
@@ -147,9 +173,9 @@ async function compressWithBitmap(file, mimeHint = "image/jpeg") {
   }
 }
 
-async function uploadImageFile(file) {
+async function uploadChatFile(file, fallbackName = "file") {
   const form = new FormData();
-  form.append("file", file, file.name || "photo.jpg");
+  form.append("file", file, file.name || fallbackName);
   const resp = await fetch(apiUrl("/api/chat/upload"), {
     method: "POST",
     credentials: "same-origin",
@@ -168,12 +194,17 @@ async function uploadImageFile(file) {
       throw err;
     }
   }
-  const data = await resp.json();
+  return resp.json();
+}
+
+async function uploadImageFile(file) {
+  const data = await uploadChatFile(file, "photo.jpg");
   const previewUrl = data.url ? apiUrl(data.url) : data.dataUrl;
   return {
     id: data.id,
     name: data.name || file.name || "image",
     mime: data.mime || "image/jpeg",
+    kind: "image",
     previewUrl,
     dataUrl: data.dataUrl || "",
   };
@@ -216,8 +247,43 @@ async function prepareImageFileClient(file) {
     id: crypto.randomUUID?.() || String(Date.now()),
     name: file.name || "image",
     mime: outMime,
+    kind: "image",
     previewUrl: dataUrl,
     dataUrl,
+  };
+}
+
+function isAllowedDocument(file) {
+  const name = String(file?.name || "").trim().toLowerCase();
+  const mime = String(file?.type || "").trim().toLowerCase();
+  if ([...DOC_EXT].some((ext) => name.endsWith(ext))) return true;
+  if (mime.startsWith("text/")) return true;
+  if (mime === "application/pdf" || mime === "application/json" || mime === "application/xml") return true;
+  if (mime === "application/rtf" || mime === "text/rtf") return true;
+  return false;
+}
+
+export async function prepareDocumentFile(file) {
+  if (!file || !isAllowedDocument(file)) {
+    throw new Error("unsupported");
+  }
+  if (file.size > MAX_DOC_BYTES) {
+    throw new Error("too_large");
+  }
+  // Always server-side: extract text + store file (also survives Companion WebView reload).
+  const data = await uploadChatFile(file, "document.txt");
+  if (data.kind !== "document" && !data.text) {
+    throw new Error("unsupported");
+  }
+  return {
+    id: data.id,
+    name: data.name || file.name || "document",
+    mime: data.mime || "text/plain",
+    kind: "document",
+    text: data.text || "",
+    chars: data.chars || String(data.text || "").length,
+    previewUrl: data.url ? apiUrl(data.url) : "",
+    dataUrl: "",
   };
 }
 
@@ -232,15 +298,31 @@ export async function prepareImageFile(file) {
   return prepareImageFileClient(file);
 }
 
+function formatDocBlock(att) {
+  const id = String(att?.id || "").trim();
+  const name = String(att?.name || "document").replace(/"/g, "'");
+  const mime = String(att?.mime || "text/plain").replace(/"/g, "");
+  const text = String(att?.text || "");
+  if (!id || !text) return "";
+  return `<<<HASSAI_DOC id="${id}" name="${name}" mime="${mime}">>>\n${text}\n<<<END_HASSAI_DOC>>>`;
+}
+
 export function buildUserContent(text, images) {
   const parts = [];
   const trimmed = String(text || "").trim();
   if (trimmed) parts.push({ type: "text", text: trimmed });
-  for (const img of images || []) {
-    if (img?.dataUrl) {
-      parts.push({ type: "image_url", image_url: { url: img.dataUrl, detail: "auto" } });
+  const docs = [];
+  for (const att of images || []) {
+    if (att?.kind === "document" || (att?.text && !String(att?.mime || "").startsWith("image/"))) {
+      const block = formatDocBlock(att);
+      if (block) docs.push(block);
+      continue;
+    }
+    if (att?.dataUrl) {
+      parts.push({ type: "image_url", image_url: { url: att.dataUrl, detail: "auto" } });
     }
   }
+  if (docs.length) parts.push({ type: "text", text: docs.join("\n\n") });
   if (!parts.length) return null;
   if (parts.length === 1 && parts[0].type === "text") return parts[0].text;
   return parts;
@@ -248,4 +330,8 @@ export function buildUserContent(text, images) {
 
 export function canSendMessage(text, images) {
   return Boolean(String(text || "").trim()) || (images?.length || 0) > 0;
+}
+
+export function isDocumentAttachment(item) {
+  return item?.kind === "document" || (item?.text && !String(item?.mime || "").startsWith("image/"));
 }

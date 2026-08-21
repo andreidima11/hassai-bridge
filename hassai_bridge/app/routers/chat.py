@@ -1874,7 +1874,13 @@ async def chat_completions(request: Request):
     # Save only the latest user turn. Clients (Web UI / Assist) may send a
     # full transcript; re-inserting every message would duplicate the thread.
     if last_user_message is not None:
-        stored_text = last_user_msg or ("(image)" if user_attachments else "")
+        stored_text = last_user_msg or (
+            "(image)" if user_attachments and any(
+                (a.get("kind") or "image") != "document" for a in user_attachments
+            ) else "(document)" if user_attachments else ""
+        )
+        if stored_text:
+            stored_text = cm.strip_document_blocks(stored_text)
         user_meta = {"attachments": user_attachments} if user_attachments else None
         add_conversation_message(user_id, "user", stored_text, session_id=session_id, meta=user_meta)
 

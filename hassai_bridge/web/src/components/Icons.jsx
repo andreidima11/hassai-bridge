@@ -96,6 +96,21 @@ export function ImageIcon() {
   );
 }
 
+export function DocumentIcon({ size = 18 }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" aria-hidden="true">
+      <path
+        d="M7 3.75h7.5L19 8.25V20a1.25 1.25 0 0 1-1.25 1.25H7A1.25 1.25 0 0 1 5.75 20V5A1.25 1.25 0 0 1 7 3.75z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path d="M14.5 3.75V8.5H19" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+      <path d="M9 12.5h6M9 16h6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function XIcon({ size = 12 }) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">

@@ -7,6 +7,7 @@
 - **Softer composer placeholder** — “Scrie ceva…” / “Ask anything…” instead of “Mesaj către HASSAI…”
 - **Settings toggle** — General → Dynamic greetings (on by default); off restores the classic fixed welcome
 - **Message actions** — tap a message for Copy, Reuse / Use in composer, and Details (time, length, tools)
+- **Document attach** — paperclip-style document button next to photos; PDF/TXT/MD/CSV/JSON (text extracted for the model)
 
 ## 0.2.76-beta
 

@@ -1,8 +1,9 @@
 import { useMemo } from "react";
 import { MessageActions } from "./MessageActions.jsx";
-import { SparklesIcon } from "./Icons.jsx";
+import { DocumentIcon, SparklesIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
 import { Thinking } from "./Thinking.jsx";
+import { isDocumentAttachment } from "../lib/images.js";
 import { tr } from "../lib/i18n.js";
 import { useSmoothStreamText } from "../lib/smoothStream.js";
 
@@ -25,6 +26,54 @@ export function stripDuplicateAttachmentMarkdown(text, attachments) {
     }
   }
   return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function AttachmentGallery({ attachments, align = "start" }) {
+  if (!attachments?.length) return null;
+  const images = attachments.filter((item) => !isDocumentAttachment(item));
+  const docs = attachments.filter((item) => isDocumentAttachment(item));
+  return (
+    <div
+      className={`flex max-w-full flex-col gap-2 ${
+        align === "end" ? "items-end" : "items-start"
+      }`}
+    >
+      {images.length ? (
+        <div className={`flex max-w-full flex-wrap gap-2 ${align === "end" ? "justify-end" : ""}`}>
+          {images.map((img) => (
+            <img
+              key={img.id || img.url || img.previewUrl}
+              alt=""
+              className={
+                align === "end"
+                  ? "max-h-56 max-w-full rounded-[18px] border border-white/10 object-cover"
+                  : "max-h-80 max-w-full rounded-xl border border-white/10 object-cover"
+              }
+              src={img.previewUrl || img.url || img.dataUrl}
+            />
+          ))}
+        </div>
+      ) : null}
+      {docs.length ? (
+        <div className={`flex max-w-full flex-wrap gap-2 ${align === "end" ? "justify-end" : ""}`}>
+          {docs.map((doc) => (
+            <div
+              key={doc.id || doc.name}
+              className="flex max-w-[16rem] items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2"
+            >
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white/10">
+                <DocumentIcon size={15} />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] text-foreground/90">{doc.name || "document"}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">{doc.mime || "document"}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function isInteractiveTarget(target) {
@@ -82,18 +131,7 @@ export function MessageBubble({
         onClick={handleSelect}
       >
         <div className="flex flex-col items-end gap-2 px-1 py-1">
-          {attachments.length ? (
-            <div className="flex max-w-[min(80%,56ch)] flex-wrap justify-end gap-2">
-              {attachments.map((img) => (
-                <img
-                  key={img.id || img.url || img.previewUrl}
-                  alt=""
-                  className="max-h-56 max-w-full rounded-[18px] border border-white/10 object-cover"
-                  src={img.previewUrl || img.url || img.dataUrl}
-                />
-              ))}
-            </div>
-          ) : null}
+          <AttachmentGallery attachments={attachments} align="end" />
           {message.content ? (
             <div className="w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-[22px] bg-secondary px-5 py-2.5 text-[15px] leading-7 whitespace-pre-wrap">
               {message.content}
@@ -122,18 +160,7 @@ export function MessageBubble({
           {message.thinking?.visible ? (
             <Thinking thinking={message.thinking} lang={lang} streaming={streaming} />
           ) : null}
-          {attachments.length ? (
-            <div className="flex max-w-full flex-wrap gap-2">
-              {attachments.map((img) => (
-                <img
-                  key={img.id || img.url || img.previewUrl}
-                  alt=""
-                  className="max-h-80 max-w-full rounded-xl border border-white/10 object-cover"
-                  src={img.previewUrl || img.url || img.dataUrl}
-                />
-              ))}
-            </div>
-          ) : null}
+          <AttachmentGallery attachments={attachments} align="start" />
           {content ? (
             <MarkdownBody
               className={streaming ? "is-streaming" : ""}
