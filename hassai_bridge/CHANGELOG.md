@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.82-beta
+
+### Fix
+- **Attach menu** — Home Assistant files hint is just “Din /share și /media”, without the “doesn’t leave the add-on” line
+
 ## 0.2.81-beta
 
 ### Feature
