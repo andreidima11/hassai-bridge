@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useScrollToBottom } from "../hooks/useScrollToBottom.js";
 import { MessageBubble } from "./MessageBubble.jsx";
 
-export function Messages({ messages, lang, greeting, onReuseMessage }) {
+export function Messages({ messages, lang, greeting, onReuseMessage, userLabel = "", modelLabel = "" }) {
   const { containerRef, endRef } = useScrollToBottom();
   const [selectedId, setSelectedId] = useState(null);
   const empty = messages.length === 0;
@@ -48,7 +48,9 @@ export function Messages({ messages, lang, greeting, onReuseMessage }) {
               key={message.id}
               lang={lang}
               message={message}
+              modelLabel={modelLabel}
               selected={selectedId === message.id}
+              userLabel={userLabel}
               onReuse={onReuseMessage}
               onSelect={setSelectedId}
             />

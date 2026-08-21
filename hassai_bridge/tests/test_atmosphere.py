@@ -9,7 +9,7 @@ def test_map_weather_known_states():
     assert _map_weather("rainy") == "rainy"
     assert _map_weather("pouring") == "rainy"
     assert _map_weather("sunny") == "sunny"
-    assert _map_weather("clear-night") == "sunny"
+    assert _map_weather("clear-night") == "clear_night"
     assert _map_weather("unknown") is None
 
 

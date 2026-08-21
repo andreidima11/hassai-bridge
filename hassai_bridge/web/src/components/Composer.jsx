@@ -1,14 +1,17 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { ArrowUpIcon, DocumentIcon, ImageIcon, StopIcon, XIcon } from "./Icons.jsx";
+import { useEffect, useRef, useState } from "react";
+import { ChatImage } from "./ChatImage.jsx";
+import { HaFileBrowser } from "./HaFileBrowser.jsx";
+import { ArrowUpIcon, DocumentIcon, FolderIcon, ImageIcon, StopIcon, XIcon } from "./Icons.jsx";
 import {
   documentAcceptAttr,
   isDocumentAttachment,
   isHaCompanionApp,
+  looksLikeImage,
   MAX_CHAT_ATTACHMENTS,
   prepareDocumentFile,
   prepareImageFile,
 } from "../lib/images.js";
+import { tr } from "../lib/i18n.js";
 import { ProviderQuickSettings } from "./ProviderQuickSettings.jsx";
 
 export function Composer({
@@ -42,15 +45,12 @@ export function Composer({
   onPickerOpen,
   onPickerSettled,
 }) {
-  const attachInputId = useId();
-  const docInputId = useId();
   const ref = useRef(null);
-  const fileRef = useRef(null);
-  const docRef = useRef(null);
   const processingRef = useRef(false);
   const [tall, setTall] = useState(false);
   const [attachError, setAttachError] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [browseKind, setBrowseKind] = useState("");
   const companionApp = isHaCompanionApp();
 
   useEffect(() => {
@@ -120,8 +120,15 @@ export function Composer({
     }
     processingRef.current = true;
     try {
-      if (kind === "document") await addDocFiles(picked);
-      else await addImageFiles(picked);
+      // The Companion picker uses a broad accept list, so trust the file, not the button.
+      const images = picked.filter((file) => looksLikeImage(file));
+      const docs = picked.filter((file) => !looksLikeImage(file));
+      if (kind === "document" && !images.length) await addDocFiles(picked);
+      else if (kind === "image" && !docs.length) await addImageFiles(picked);
+      else {
+        if (images.length) await addImageFiles(images);
+        if (docs.length) await addDocFiles(docs);
+      }
     } finally {
       processingRef.current = false;
       input.value = "";
@@ -134,40 +141,51 @@ export function Composer({
     setAttachError("");
   };
 
-  const imageInput = (
-    <input
-      ref={fileRef}
-      id={attachInputId}
-      type="file"
-      accept="image/*"
-      multiple={!companionApp}
-      tabIndex={-1}
-      aria-hidden="true"
-      style={{ position: "fixed", top: "-10000px", left: 0, width: 1, height: 1, opacity: 0 }}
-      disabled={attachDisabled}
-      onChange={(e) => handleFileInput(e, "image")}
-    />
-  );
+  const addAttachment = (attachment) => {
+    if (!attachment || !onAttachmentsChange) return;
+    onAttachmentsChange((current) => {
+      const base = current || [];
+      if (base.length >= MAX_CHAT_ATTACHMENTS) return base;
+      return [...base, attachment];
+    });
+  };
 
-  const docInput = (
-    <input
-      ref={docRef}
-      id={docInputId}
-      type="file"
-      accept={documentAcceptAttr()}
-      multiple={!companionApp}
-      tabIndex={-1}
-      aria-hidden="true"
-      style={{ position: "fixed", top: "-10000px", left: 0, width: 1, height: 1, opacity: 0 }}
-      disabled={attachDisabled}
-      onChange={(e) => handleFileInput(e, "document")}
-    />
+  /** Transparent input sitting on top of the button — the only reliable picker in the Companion WebView. */
+  const attachButton = ({ kind, icon, label, accept }) => (
+    <span
+      className={`relative mb-0 grid size-8 shrink-0 place-items-center overflow-hidden rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground ${
+        attachDisabled ? "cursor-not-allowed opacity-40" : "cursor-pointer"
+      } ${uploading ? "animate-pulse" : ""}`}
+      title={label}
+    >
+      {icon}
+      <input
+        type="file"
+        accept={accept}
+        multiple={!companionApp}
+        aria-label={label}
+        className="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
+        style={{ fontSize: 48 }}
+        disabled={attachDisabled}
+        onClick={() => {
+          if (attachDisabled) return;
+          onPickerOpen?.();
+        }}
+        onChange={(e) => handleFileInput(e, kind)}
+      />
+    </span>
   );
 
   return (
     <div className="sticky bottom-0 z-[1] mx-auto flex w-full max-w-4xl flex-col bg-background px-3 pb-3 md:px-4 md:pb-4">
-      {typeof document !== "undefined" ? createPortal(imageInput, document.body) : imageInput}
-      {typeof document !== "undefined" ? createPortal(docInput, document.body) : docInput}
+      {browseKind ? (
+        <HaFileBrowser
+          kind={browseKind === "any" ? "" : browseKind}
+          lang={lang}
+          onAttached={addAttachment}
+          onClose={() => setBrowseKind("")}
+        />
+      ) : null}
       <form
         className={`flex w-full flex-col gap-2 border border-white/[0.08] bg-composer px-3 shadow-composer transition-[border-radius] duration-200 focus-within:border-white/15 ${
           tall ? "rounded-3xl py-2" : "rounded-full py-1"
@@ -198,7 +216,15 @@ export function Composer({
                       </span>
                     </>
                   ) : (
-                    <img alt="" className="size-full object-cover" src={item.previewUrl || item.dataUrl} />
+                    <ChatImage
+                      alt={item.name || ""}
+                      className="size-full object-cover"
+                      filename={item.name || ""}
+                      lang={lang}
+                      mime={item.mime || ""}
+                      src={item.previewUrl || item.dataUrl}
+                      wrapperClassName="size-full"
+                    />
                   )}
                   {!busy && !uploading ? (
                     <button
@@ -217,34 +243,33 @@ export function Composer({
           </div>
         ) : null}
         <div className={`flex w-full gap-1.5 ${tall ? "items-end" : "items-center"}`}>
-          <label
-            htmlFor={attachInputId}
-            className={`relative mb-0 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground ${
-              attachDisabled ? "cursor-not-allowed opacity-40" : "cursor-pointer"
-            } ${uploading ? "animate-pulse" : ""}`}
-            aria-label={attachLabel}
-            title={attachLabel}
-            onClick={() => {
-              if (attachDisabled) return;
-              onPickerOpen?.();
-            }}
-          >
-            <ImageIcon />
-          </label>
-          <label
-            htmlFor={docInputId}
-            className={`relative mb-0 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground ${
-              attachDisabled ? "cursor-not-allowed opacity-40" : "cursor-pointer"
-            } ${uploading ? "animate-pulse" : ""}`}
-            aria-label={attachDocLabel || "Attach document"}
-            title={attachDocLabel || "Attach document"}
-            onClick={() => {
-              if (attachDisabled) return;
-              onPickerOpen?.();
-            }}
-          >
-            <DocumentIcon />
-          </label>
+          {attachButton({
+            kind: "image",
+            icon: <ImageIcon />,
+            label: attachLabel,
+            accept: "image/*",
+          })}
+          {attachButton({
+            kind: "document",
+            icon: <DocumentIcon />,
+            label: attachDocLabel || "Attach document",
+            // The Companion WebView filters out most documents with a narrow accept list.
+            accept: companionApp ? "*/*" : documentAcceptAttr(),
+          })}
+          {companionApp ? (
+            <button
+              type="button"
+              className={`mb-0 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground ${
+                attachDisabled ? "cursor-not-allowed opacity-40" : ""
+              }`}
+              aria-label={tr(lang, "haFiles")}
+              disabled={attachDisabled}
+              title={tr(lang, "haFiles")}
+              onClick={() => setBrowseKind("any")}
+            >
+              <FolderIcon size={17} />
+            </button>
+          ) : null}
           <textarea
             ref={ref}
             className="block max-h-40 min-h-6 w-full flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground/50"

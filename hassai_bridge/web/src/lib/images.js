@@ -58,6 +58,13 @@ function isAllowedImage(file) {
   return false;
 }
 
+export function looksLikeImage(file) {
+  const mime = String(file?.type || "").trim().toLowerCase();
+  if (mime.startsWith("image/")) return true;
+  const name = String(file?.name || "").trim().toLowerCase();
+  return /\.(jpe?g|png|webp|gif|heic|heif)$/.test(name);
+}
+
 export function isHaCompanionApp() {
   return /Home Assistant/i.test(navigator.userAgent || "");
 }
@@ -66,48 +73,82 @@ export function useServerImageUpload() {
   return isHaCompanionApp();
 }
 
-export function readDraftAttachments() {
+const DRAFT_MAX_CHARS = 2_000_000; // localStorage quota is ~5MB per origin
+
+// localStorage, not sessionStorage: the Companion WebView can be restarted by the
+// native file picker, which starts a brand new session.
+function draftStores() {
+  const stores = [];
   try {
-    const raw = sessionStorage.getItem(DRAFT_ATTACHMENTS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (window.localStorage) stores.push(window.localStorage);
   } catch {
-    return [];
+    /* blocked */
   }
+  try {
+    if (window.sessionStorage) stores.push(window.sessionStorage);
+  } catch {
+    /* blocked */
+  }
+  return stores;
+}
+
+export function readDraftAttachments() {
+  for (const store of draftStores()) {
+    try {
+      const raw = store.getItem(DRAFT_ATTACHMENTS_KEY);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    } catch {
+      continue;
+    }
+  }
+  return [];
 }
 
 export function persistDraftAttachments(items) {
-  try {
-    if (!items?.length) {
-      sessionStorage.removeItem(DRAFT_ATTACHMENTS_KEY);
-      return;
+  const stores = draftStores();
+  if (!items?.length) {
+    for (const store of stores) {
+      try {
+        store.removeItem(DRAFT_ATTACHMENTS_KEY);
+      } catch {
+        /* ignore */
+      }
     }
-    sessionStorage.setItem(
-      DRAFT_ATTACHMENTS_KEY,
-      JSON.stringify(
-        items.map((item) => ({
-          id: item.id,
-          mime: item.mime,
-          name: item.name,
-          kind: item.kind || (String(item.mime || "").startsWith("image/") ? "image" : "document"),
-          previewUrl: item.previewUrl,
-          dataUrl: item.dataUrl,
-          text: item.kind === "document" ? item.text : undefined,
-          chars: item.chars,
-        })),
-      ),
-    );
-  } catch {
-    /* quota or private mode */
+    return;
+  }
+  const slim = items.map((item) => ({
+    id: item.id,
+    mime: item.mime,
+    name: item.name,
+    kind: item.kind || (String(item.mime || "").startsWith("image/") ? "image" : "document"),
+    previewUrl: item.previewUrl,
+    // A stored file is re-fetchable by URL; keep the heavy data URL only when it is the only copy.
+    dataUrl: item.previewUrl && item.previewUrl !== item.dataUrl ? "" : item.dataUrl,
+    text: item.kind === "document" ? item.text : undefined,
+    chars: item.chars,
+  }));
+  let payload = JSON.stringify(slim);
+  if (payload.length > DRAFT_MAX_CHARS) {
+    payload = JSON.stringify(slim.map((item) => ({ ...item, dataUrl: "", text: undefined })));
+  }
+  for (const store of stores) {
+    try {
+      store.setItem(DRAFT_ATTACHMENTS_KEY, payload);
+    } catch {
+      /* quota or private mode */
+    }
   }
 }
 
 export function clearDraftAttachments() {
-  try {
-    sessionStorage.removeItem(DRAFT_ATTACHMENTS_KEY);
-  } catch {
-    /* ignore */
+  for (const store of draftStores()) {
+    try {
+      store.removeItem(DRAFT_ATTACHMENTS_KEY);
+    } catch {
+      /* ignore */
+    }
   }
 }
 
@@ -197,17 +238,34 @@ async function uploadChatFile(file, fallbackName = "file") {
   return resp.json();
 }
 
-async function uploadImageFile(file) {
-  const data = await uploadChatFile(file, "photo.jpg");
-  const previewUrl = data.url ? apiUrl(data.url) : data.dataUrl;
+/** Map an /api/chat/upload or /api/chat/files/attach response to a draft attachment. */
+export function attachmentFromServer(data, fallbackName = "") {
+  if (data?.kind === "document") {
+    const text = data.text || "";
+    return {
+      id: data.id,
+      name: data.name || fallbackName || "document",
+      mime: data.mime || "text/plain",
+      kind: "document",
+      text,
+      chars: data.chars || text.length,
+      previewUrl: data.url ? apiUrl(data.url) : "",
+      dataUrl: "",
+    };
+  }
   return {
     id: data.id,
-    name: data.name || file.name || "image",
+    name: data.name || fallbackName || "image",
     mime: data.mime || "image/jpeg",
     kind: "image",
-    previewUrl,
+    previewUrl: data.url ? apiUrl(data.url) : data.dataUrl,
     dataUrl: data.dataUrl || "",
   };
+}
+
+async function uploadImageFile(file) {
+  const data = await uploadChatFile(file, "photo.jpg");
+  return attachmentFromServer(data, file.name || "image");
 }
 
 async function prepareImageFileClient(file) {
@@ -275,16 +333,7 @@ export async function prepareDocumentFile(file) {
   if (data.kind !== "document" && !data.text) {
     throw new Error("unsupported");
   }
-  return {
-    id: data.id,
-    name: data.name || file.name || "document",
-    mime: data.mime || "text/plain",
-    kind: "document",
-    text: data.text || "",
-    chars: data.chars || String(data.text || "").length,
-    previewUrl: data.url ? apiUrl(data.url) : "",
-    dataUrl: "",
-  };
+  return attachmentFromServer(data, file.name || "document");
 }
 
 export async function prepareImageFile(file) {

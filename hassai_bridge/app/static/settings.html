@@ -664,7 +664,10 @@
             <span class="file-btn-label" data-i18n="settings.importFull">Import ZIP…</span>
             <input id="importZipInput" type="file" accept=".zip,application/zip,*/*" class="file-btn-input" aria-label="Import ZIP" onchange="onImportZipPicked(event)">
           </span>
+          <button type="button" class="btn btn-sm" onclick="toggleShareImport()" data-i18n="settings.importFromShare">Import from /share</button>
         </div>
+        <p class="card-muted hint" style="margin-top:8px" data-i18n="settings.importFromShareDesc">In the Home Assistant app the file dialog closes the add-on. Copy the ZIP to the Home Assistant <code>/share</code> folder and pick it from the list instead.</p>
+        <div id="shareImportList" style="display:none;margin-top:8px"></div>
         <p id="backupImportStatus" class="card-muted hint" style="margin-top:8px;display:none"></p>
       </div>
     </div>
