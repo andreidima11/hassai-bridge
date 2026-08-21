@@ -12,7 +12,7 @@ _CACHE: dict[str, Any] = {"ts": 0.0, "payload": None}
 _CACHE_TTL = 900.0  # 15 minutes — greeting context, not realtime dashboard
 
 _WEATHER_MAP = {
-    "clear-night": "sunny",
+    "clear-night": "clear_night",
     "cloudy": "cloudy",
     "fog": "foggy",
     "hail": "stormy",

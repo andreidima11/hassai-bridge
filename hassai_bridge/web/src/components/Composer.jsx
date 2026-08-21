@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { ChatImage } from "./ChatImage.jsx";
 import { ArrowUpIcon, DocumentIcon, ImageIcon, StopIcon, XIcon } from "./Icons.jsx";
 import {
   documentAcceptAttr,
@@ -198,7 +199,15 @@ export function Composer({
                       </span>
                     </>
                   ) : (
-                    <img alt="" className="size-full object-cover" src={item.previewUrl || item.dataUrl} />
+                    <ChatImage
+                      alt={item.name || ""}
+                      className="size-full object-cover"
+                      filename={item.name || ""}
+                      lang={lang}
+                      mime={item.mime || ""}
+                      src={item.previewUrl || item.dataUrl}
+                      wrapperClassName="size-full"
+                    />
                   )}
                   {!busy && !uploading ? (
                     <button

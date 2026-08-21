@@ -116,7 +116,7 @@ function pickIndex(seed, length) {
 
 /**
  * Greeting catalog. Tags: general | morning | afternoon | evening | night |
- * rainy | snowy | sunny | stormy | foggy | cloudy | windy | hot | cold |
+ * rainy | snowy | sunny | clear_night | stormy | foggy | cloudy | windy | hot | cold |
  * easter | christmas | new_year | new_year_eve | valentine | halloween |
  * national_day | labor_day | martisor | womens_day | pentecost | assumption | st_andrew | union_day
  */
@@ -227,6 +227,11 @@ const GREETINGS = [
     hint: { en: "Good day to get things done — or just enjoy it.", ro: "Zi bună de făcut treabă — sau doar de savurat." },
   },
   {
+    tags: ["clear_night"],
+    title: { en: "Clear night sky.", ro: "Cer senin noaptea." },
+    hint: { en: "Quiet outside — ask me anything before you turn in.", ro: "Liniște afară — întreabă-mă orice înainte să te culci." },
+  },
+  {
     tags: ["stormy"],
     title: { en: "Stormy weather.", ro: "Vreme de furtună." },
     hint: { en: "Stay safe inside. I can help while it passes.", ro: "Stai în siguranță în casă. Te ajut până trece." },
@@ -330,15 +335,17 @@ const GREETINGS = [
   },
 ];
 
-function weatherTags(atmosphere) {
+function weatherTags(atmosphere, period = "") {
   const tags = [];
-  const weather = String(atmosphere?.weather || "").toLowerCase();
+  let weather = String(atmosphere?.weather || "").toLowerCase();
+  // Never use daytime "sunny" copy after dark (HA clear-night used to map to sunny).
+  if (weather === "sunny" && period === "night") weather = "clear_night";
   if (weather) tags.push(weather);
   const temp = atmosphere?.temp;
   const unit = String(atmosphere?.temp_unit || "°C").toUpperCase();
   if (typeof temp === "number" && Number.isFinite(temp)) {
     const celsius = unit.includes("F") ? ((temp - 32) * 5) / 9 : temp;
-    if (celsius >= 28) tags.push("hot");
+    if (celsius >= 28 && period !== "night") tags.push("hot");
     if (celsius <= 3) tags.push("cold");
   }
   return tags;
@@ -350,8 +357,11 @@ function scoreGreeting(entry, activeTags) {
     if (!activeTags.has(tag)) continue;
     if (tag === "general") score += 1;
     else if (["morning", "afternoon", "evening", "night"].includes(tag)) score += 4;
-    else if (["rainy", "snowy", "sunny", "stormy", "foggy", "cloudy", "windy", "hot", "cold"].includes(tag)) score += 8;
-    else score += 20; // holidays win
+    else if (
+      ["rainy", "snowy", "sunny", "clear_night", "stormy", "foggy", "cloudy", "windy", "hot", "cold"].includes(tag)
+    ) {
+      score += 8;
+    } else score += 20; // holidays win
   }
   return score;
 }
@@ -363,7 +373,7 @@ function scoreGreeting(entry, activeTags) {
 export function pickGreeting(lang = "en", atmosphere = {}, date = new Date(), nonce = 0) {
   const period = dayPeriod(date);
   const holiday = holidayId(lang, date);
-  const wx = weatherTags(atmosphere);
+  const wx = weatherTags(atmosphere, period);
   const active = new Set(["general", period, ...wx]);
   if (holiday) active.add(holiday);
 

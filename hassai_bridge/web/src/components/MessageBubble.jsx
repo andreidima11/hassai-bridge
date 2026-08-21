@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { ChatImage } from "./ChatImage.jsx";
 import { MessageActions } from "./MessageActions.jsx";
 import { DocumentIcon, SparklesIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
@@ -28,7 +29,7 @@ export function stripDuplicateAttachmentMarkdown(text, attachments) {
   return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-function AttachmentGallery({ attachments, align = "start" }) {
+function AttachmentGallery({ attachments, align = "start", lang = "en" }) {
   if (!attachments?.length) return null;
   const images = attachments.filter((item) => !isDocumentAttachment(item));
   const docs = attachments.filter((item) => isDocumentAttachment(item));
@@ -41,14 +42,17 @@ function AttachmentGallery({ attachments, align = "start" }) {
       {images.length ? (
         <div className={`flex max-w-full flex-wrap gap-2 ${align === "end" ? "justify-end" : ""}`}>
           {images.map((img) => (
-            <img
+            <ChatImage
               key={img.id || img.url || img.previewUrl}
-              alt=""
+              alt={img.name || ""}
               className={
                 align === "end"
                   ? "max-h-56 max-w-full rounded-[18px] border border-white/10 object-cover"
                   : "max-h-80 max-w-full rounded-xl border border-white/10 object-cover"
               }
+              filename={img.name || ""}
+              lang={lang}
+              mime={img.mime || ""}
               src={img.previewUrl || img.url || img.dataUrl}
             />
           ))}
@@ -135,7 +139,7 @@ export function MessageBubble({
         onClick={handleSelect}
       >
         <div className="flex flex-col items-end gap-2 px-1 py-1">
-          <AttachmentGallery attachments={attachments} align="end" />
+          <AttachmentGallery attachments={attachments} align="end" lang={lang} />
           {message.content ? (
             <div className="w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-[22px] bg-secondary px-5 py-2.5 text-[15px] leading-7 whitespace-pre-wrap">
               {message.content}
@@ -164,13 +168,14 @@ export function MessageBubble({
           {message.thinking?.visible ? (
             <Thinking thinking={message.thinking} lang={lang} streaming={streaming} />
           ) : null}
-          <AttachmentGallery attachments={attachments} align="start" />
+          <AttachmentGallery attachments={attachments} align="start" lang={lang} />
           {content ? (
             <MarkdownBody
               className={streaming ? "is-streaming" : ""}
               copiedLabel={tr(lang, "copied")}
               copyLabel={tr(lang, "copy")}
               cursor={streaming ? <span className="stream-cursor" aria-hidden="true" /> : null}
+              lang={lang}
               text={content}
             />
           ) : streaming && !message.thinking?.visible ? (

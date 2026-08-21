@@ -119,6 +119,20 @@ export function XIcon({ size = 12 }) {
   );
 }
 
+export function DownloadIcon({ size = 18 }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" aria-hidden="true">
+      <path
+        d="M12 4v11M7 11l5 5 5-5M5 19.5h14"
+        stroke="currentColor"
+        strokeWidth="1.85"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function CopyIcon({ size = 14 }) {
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} fill="none" aria-hidden="true">
