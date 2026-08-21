@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ChatImage } from "./ChatImage.jsx";
 import { resolveMediaUrl } from "../lib/api.js";
 
 const REMARK_PLUGINS = [remarkGfm];
@@ -36,7 +37,7 @@ function CodeBlock({ language, children, copyLabel, copiedLabel }) {
   );
 }
 
-function makeComponents(copyLabel, copiedLabel) {
+function makeComponents(copyLabel, copiedLabel, lang) {
   return {
     pre: ({ children }) => children,
     code({ className, children, ...props }) {
@@ -70,8 +71,16 @@ function makeComponents(copyLabel, copiedLabel) {
       );
     },
     img({ src, alt }) {
+      const url = resolveMediaUrl(src);
       return (
-        <img alt={alt || ""} className="my-2 max-h-80 max-w-full rounded-xl border border-white/10" src={resolveMediaUrl(src)} />
+        <ChatImage
+          alt={alt || ""}
+          className="max-h-80 max-w-full rounded-xl border border-white/10"
+          filename={alt || ""}
+          lang={lang}
+          src={url}
+          wrapperClassName="my-2"
+        />
       );
     },
     input({ type, checked, ...props }) {
@@ -83,8 +92,11 @@ function makeComponents(copyLabel, copiedLabel) {
   };
 }
 
-export function MarkdownBody({ text, copyLabel, copiedLabel, cursor, className = "" }) {
-  const components = useMemo(() => makeComponents(copyLabel, copiedLabel), [copyLabel, copiedLabel]);
+export function MarkdownBody({ text, copyLabel, copiedLabel, cursor, className = "", lang = "en" }) {
+  const components = useMemo(
+    () => makeComponents(copyLabel, copiedLabel, lang),
+    [copyLabel, copiedLabel, lang],
+  );
 
   return (
     <div className={`md-body min-w-0 break-words text-[15px] leading-7 text-foreground ${className}`.trim()}>

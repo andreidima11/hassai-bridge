@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { ChatImage } from "./ChatImage.jsx";
 import { SparklesIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
 import { Thinking } from "./Thinking.jsx";
@@ -43,10 +44,13 @@ export function MessageBubble({ message, lang }) {
           {attachments.length ? (
             <div className="flex max-w-[min(80%,56ch)] flex-wrap justify-end gap-2">
               {attachments.map((img) => (
-                <img
+                <ChatImage
                   key={img.id || img.url || img.previewUrl}
-                  alt=""
+                  alt={img.name || ""}
                   className="max-h-56 max-w-full rounded-[18px] border border-white/10 object-cover"
+                  filename={img.name || ""}
+                  lang={lang}
+                  mime={img.mime || ""}
                   src={img.previewUrl || img.url || img.dataUrl}
                 />
               ))}
@@ -75,10 +79,13 @@ export function MessageBubble({ message, lang }) {
           {attachments.length ? (
             <div className="flex max-w-full flex-wrap gap-2">
               {attachments.map((img) => (
-                <img
+                <ChatImage
                   key={img.id || img.url || img.previewUrl}
-                  alt=""
+                  alt={img.name || ""}
                   className="max-h-80 max-w-full rounded-xl border border-white/10 object-cover"
+                  filename={img.name || ""}
+                  lang={lang}
+                  mime={img.mime || ""}
                   src={img.previewUrl || img.url || img.dataUrl}
                 />
               ))}
@@ -90,6 +97,7 @@ export function MessageBubble({ message, lang }) {
               copiedLabel={tr(lang, "copied")}
               copyLabel={tr(lang, "copy")}
               cursor={streaming ? <span className="stream-cursor" aria-hidden="true" /> : null}
+              lang={lang}
               text={content}
             />
           ) : streaming && !message.thinking?.visible ? (

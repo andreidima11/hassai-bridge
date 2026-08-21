@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.77-beta
+
+### Feature
+- **Image viewer** — click a chat photo to enlarge it; download button in the overlay (also works for generated images)
+
 ## 0.2.76-beta
 
 ### Feature
