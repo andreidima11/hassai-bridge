@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { ChatImage } from "./ChatImage.jsx";
 import { ArrowUpIcon, ImageIcon, StopIcon, XIcon } from "./Icons.jsx";
 import { isHaCompanionApp, MAX_CHAT_IMAGES, prepareImageFile } from "../lib/images.js";
 import { ProviderQuickSettings } from "./ProviderQuickSettings.jsx";
@@ -137,11 +138,19 @@ export function Composer({
           <div className="flex flex-wrap gap-2 pt-1">
             {attachments.map((item) => (
               <div key={item.id} className="relative size-16 overflow-hidden rounded-xl border border-white/10 bg-black/20">
-                <img alt="" className="size-full object-cover" src={item.previewUrl || item.dataUrl} />
+                <ChatImage
+                  alt={item.name || ""}
+                  className="size-full object-cover"
+                  filename={item.name || ""}
+                  lang={lang}
+                  mime={item.mime || ""}
+                  src={item.previewUrl || item.dataUrl}
+                  wrapperClassName="size-full"
+                />
                 {!busy && !uploading ? (
                   <button
                     type="button"
-                    className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-black/60 text-white/90 hover:bg-black/80"
+                    className="absolute right-1 top-1 z-10 grid size-5 place-items-center rounded-full bg-black/60 text-white/90 hover:bg-black/80"
                     aria-label={removeImageLabel}
                     title={removeImageLabel}
                     onClick={() => removeAttachment(item.id)}
