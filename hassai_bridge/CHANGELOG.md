@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.83-beta
+
+### Fix
+- **Mobile header icons** — chats and settings sit further in from the edges so they line up with the Home Assistant hamburger, with equal spacing on both sides
+
 ## 0.2.82-beta
 
 ### Fix
