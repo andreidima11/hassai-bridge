@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { MessageActions } from "./MessageActions.jsx";
 import { SparklesIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
 import { Thinking } from "./Thinking.jsx";
@@ -26,7 +27,21 @@ export function stripDuplicateAttachmentMarkdown(text, attachments) {
   return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-export function MessageBubble({ message, lang }) {
+function isInteractiveTarget(target) {
+  return Boolean(
+    target?.closest?.(
+      "a, button, input, textarea, select, summary, [role='button'], [role='toolbar'], .group\\/code",
+    ),
+  );
+}
+
+export function MessageBubble({
+  message,
+  lang,
+  selected = false,
+  onSelect,
+  onReuse,
+}) {
   const isUser = message.role === "user";
   const streaming = Boolean(message.streaming);
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
@@ -35,11 +50,38 @@ export function MessageBubble({ message, lang }) {
     [isUser, message.content, attachments],
   );
   const content = useSmoothStreamText(rawContent, !isUser && streaming);
+  const canSelect = !streaming;
+
+  const handleSelect = (event) => {
+    if (!canSelect) return;
+    if (isInteractiveTarget(event.target)) return;
+    // Ignore accidental text selection drags
+    const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
+    if (sel && String(sel.toString() || "").trim()) return;
+    onSelect?.(selected ? null : message.id);
+  };
+
+  const actions =
+    selected && canSelect ? (
+      <MessageActions
+        lang={lang}
+        message={{ ...message, content: rawContent }}
+        onClose={() => onSelect?.(null)}
+        onReuse={onReuse}
+      />
+    ) : null;
 
   if (isUser) {
     return (
-      <div className="group/message w-full" data-role="user">
-        <div className="flex flex-col items-end gap-2">
+      <div
+        className={`group/message w-full rounded-2xl outline-none transition ${
+          selected ? "bg-white/[0.03] ring-1 ring-white/10" : ""
+        } ${canSelect ? "cursor-pointer" : ""}`}
+        data-role="user"
+        data-selected={selected ? "true" : undefined}
+        onClick={handleSelect}
+      >
+        <div className="flex flex-col items-end gap-2 px-1 py-1">
           {attachments.length ? (
             <div className="flex max-w-[min(80%,56ch)] flex-wrap justify-end gap-2">
               {attachments.map((img) => (
@@ -57,14 +99,22 @@ export function MessageBubble({ message, lang }) {
               {message.content}
             </div>
           ) : null}
+          {actions}
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`group/message w-full ${message.error ? "text-destructive" : ""}`} data-role="assistant">
-      <div className="flex items-start gap-3">
+    <div
+      className={`group/message w-full rounded-2xl outline-none transition ${
+        message.error ? "text-destructive" : ""
+      } ${selected ? "bg-white/[0.03] ring-1 ring-white/10" : ""} ${canSelect ? "cursor-pointer" : ""}`}
+      data-role="assistant"
+      data-selected={selected ? "true" : undefined}
+      onClick={handleSelect}
+    >
+      <div className="flex items-start gap-3 px-1 py-1">
         <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-foreground">
           <SparklesIcon size={13} />
         </div>
@@ -97,6 +147,7 @@ export function MessageBubble({ message, lang }) {
               <span className="stream-cursor stream-cursor--alone" aria-hidden="true" />
             </div>
           ) : null}
+          {actions}
         </div>
       </div>
     </div>

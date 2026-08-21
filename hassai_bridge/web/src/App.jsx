@@ -19,7 +19,7 @@ import {
 } from "./lib/api.js";
 import { syncHaTheme } from "./lib/theme.js";
 import { finishThinkingLabel, persistLang, readStoredLang, tr } from "./lib/i18n.js";
-import { canSendMessage, clearDraftAttachments, persistDraftAttachments, readDraftAttachments } from "./lib/images.js";
+import { canSendMessage, clearDraftAttachments, persistDraftAttachments, readDraftAttachments, MAX_CHAT_IMAGES } from "./lib/images.js";
 import { pickGreeting } from "./lib/greetings.js";
 import { applyActivity, emptyThinking } from "./lib/thinking.js";
 import {
@@ -165,6 +165,7 @@ export default function App() {
             id: newId(),
             role: m.role,
             content: m.content || "",
+            createdAt: m.created_at || null,
             thinking: label ? next : emptyThinking(t("thinking")),
             ...(Array.isArray(m.attachments) && m.attachments.length
               ? { attachments: mapStoredAttachments(m.attachments) }
@@ -172,7 +173,7 @@ export default function App() {
           });
         } else {
           const content = m.content === "(image)" ? "" : m.content || "";
-          const row = { id: newId(), role: m.role, content };
+          const row = { id: newId(), role: m.role, content, createdAt: m.created_at || null };
           if (Array.isArray(m.attachments) && m.attachments.length) {
             row.attachments = mapStoredAttachments(m.attachments);
           }
@@ -499,6 +500,35 @@ export default function App() {
     };
   }, [busy, input, openSession, refreshSessions, startNewChat, user.username]);
 
+  const reuseMessage = useCallback((message) => {
+    const text = String(message?.content || "").trim();
+    if (text) setInput(text);
+    const images = (Array.isArray(message?.attachments) ? message.attachments : [])
+      .filter((img) => img?.previewUrl || img?.dataUrl || img?.url)
+      .slice(0, MAX_CHAT_IMAGES)
+      .map((img) => ({
+        id: img.id || newId(),
+        mime: img.mime || "",
+        name: img.name || "",
+        previewUrl: img.previewUrl || img.url || img.dataUrl,
+        dataUrl: img.dataUrl || "",
+        url: img.url || "",
+      }));
+    if (images.length) setAttachments(images);
+    window.requestAnimationFrame(() => {
+      const el = document.querySelector("textarea");
+      if (el && typeof el.focus === "function") {
+        el.focus();
+        const len = el.value.length;
+        try {
+          el.setSelectionRange(len, len);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  }, []);
+
   const stopGeneration = useCallback(() => {
     const traceId = traceIdRef.current;
     if (traceId) cancelChat(traceId).catch(() => {});
@@ -542,11 +572,13 @@ export default function App() {
       }
     }
 
+    const now = Date.now() / 1000;
     const payload = { text, images };
     const userMsg = {
       id: newId(),
       role: "user",
       content: text,
+      createdAt: now,
       attachments: images.map((img) => ({ id: img.id, previewUrl: img.previewUrl, dataUrl: img.dataUrl })),
     };
     const assistantId = newId();
@@ -559,6 +591,7 @@ export default function App() {
         id: assistantId,
         role: "assistant",
         content: "",
+        createdAt: now,
         streaming: true,
         thinking: { ...emptyThinking(t("thinking")), visible: true, active: true },
       },
@@ -701,6 +734,7 @@ export default function App() {
             greeting={<WelcomeHero hint={greeting.hint} title={greeting.title} />}
             lang={lang}
             messages={messages}
+            onReuseMessage={reuseMessage}
           />
           <Composer
             attachLabel={t("attachImage")}
