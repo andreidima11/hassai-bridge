@@ -11,7 +11,9 @@ def test_preset_capabilities_deepseek_only():
     grok_caps = pc.preset_capabilities("grok")
     assert "thinking" in grok_caps
     assert "kv_cache" in grok_caps
-    assert pc.preset_capabilities("openai") == {}
+    openai_caps = pc.preset_capabilities("openai")
+    assert "kv_cache" in openai_caps
+    assert "thinking" not in openai_caps
     assert pc.preset_capabilities("local") == {}
 
 
