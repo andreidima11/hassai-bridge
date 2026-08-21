@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.86-beta
+
+### Polish
+- **Provider / model pickers** — themed listboxes in the chat bar settings (no native OS select chrome); thinking chips match the same surface language
+
 ## 0.2.84-beta
 
 ### Fix

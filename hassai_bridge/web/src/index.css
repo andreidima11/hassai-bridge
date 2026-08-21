@@ -45,8 +45,21 @@ body {
 
 textarea:focus,
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+.theme-select__trigger:focus-visible {
   outline: none;
+}
+
+/* Themed select (provider / model) — kill leftover native chrome if any */
+.theme-select__trigger {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.theme-select__menu {
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.14) transparent;
 }
 
 .md-body > *:first-child {
