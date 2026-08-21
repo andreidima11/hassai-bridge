@@ -13,6 +13,7 @@ from database import (
     get_session_messages,
 )
 from services import chat_content as cc
+from services import chat_files as cf
 from services import chat_media as cm
 
 MAX_UPLOAD_BYTES = 4 * 1024 * 1024
@@ -135,6 +136,35 @@ async def chat_media(request: Request, attachment_id: str):
     return FileResponse(path, media_type=mime, filename=path.name)
 
 
+def _attachment_payload(user_id: str, att: dict, fallback_name: str = "") -> dict:
+    public_url = cm.attachment_public_url(att["id"])
+    if str(att.get("kind") or "image") == "document":
+        text = cm.read_extracted_text(user_id, att) or ""
+        return {
+            "id": att["id"],
+            "mime": att.get("mime") or "text/plain",
+            "name": att.get("name") or fallback_name or "document",
+            "kind": "document",
+            "url": public_url,
+            "text": text,
+            "chars": len(text),
+        }
+    return {
+        "id": att["id"],
+        "mime": att.get("mime") or "image/jpeg",
+        "name": att.get("name") or fallback_name or "image",
+        "kind": "image",
+        "url": public_url,
+        "dataUrl": cm.attachment_data_url(user_id, att),
+    }
+
+
+def _save_error(exc: ValueError) -> JSONResponse:
+    msg = str(exc)
+    code = 413 if "too large" in msg.lower() else 400
+    return JSONResponse(status_code=code, content={"error": msg})
+
+
 @router.post("/api/chat/upload")
 async def chat_upload(request: Request, file: UploadFile = File(...)):
     """Upload a chat image or document via multipart form."""
@@ -152,31 +182,34 @@ async def chat_upload(request: Request, file: UploadFile = File(...)):
             content_type=file.content_type or "",
         )
     except ValueError as exc:
-        msg = str(exc)
-        code = 413 if "too large" in msg.lower() else 400
-        return JSONResponse(status_code=code, content={"error": msg})
-    kind = str(att.get("kind") or "image")
-    public_url = cm.attachment_public_url(att["id"])
-    if kind == "document":
-        text = cm.read_extracted_text(user_id, att) or ""
-        return {
-            "id": att["id"],
-            "mime": att.get("mime") or "text/plain",
-            "name": att.get("name") or file.filename or "document",
-            "kind": "document",
-            "url": public_url,
-            "text": text,
-            "chars": len(text),
-        }
-    data_url = cm.attachment_data_url(user_id, att)
-    return {
-        "id": att["id"],
-        "mime": att.get("mime") or "image/jpeg",
-        "name": att.get("name") or file.filename or "image",
-        "kind": "image",
-        "url": public_url,
-        "dataUrl": data_url,
-    }
+        return _save_error(exc)
+    return _attachment_payload(user_id, att, file.filename or "")
+
+
+@router.get("/api/chat/files")
+async def chat_files(request: Request, path: str = "", kind: str = ""):
+    """Browse /share and /media (Companion app has no working native file picker)."""
+    _current_username(request)
+    try:
+        return cf.list_dir(path, kind=kind)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+
+
+@router.post("/api/chat/files/attach")
+async def chat_files_attach(request: Request, data: dict):
+    """Attach a file that already lives on /share or /media — no upload dialog."""
+    user_id = _current_username(request)
+    raw_path = str((data or {}).get("path") or "").strip()
+    try:
+        raw, name = cf.read_file(raw_path)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    try:
+        att = cm.save_uploaded_file(user_id, raw, filename=name)
+    except ValueError as exc:
+        return _save_error(exc)
+    return _attachment_payload(user_id, att, name)
 
 
 @router.delete("/api/conversations/{session_id}")
