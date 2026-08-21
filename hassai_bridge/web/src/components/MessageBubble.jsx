@@ -1,7 +1,9 @@
 import { useMemo } from "react";
-import { SparklesIcon } from "./Icons.jsx";
+import { MessageActions } from "./MessageActions.jsx";
+import { DocumentIcon, SparklesIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
 import { Thinking } from "./Thinking.jsx";
+import { isDocumentAttachment } from "../lib/images.js";
 import { tr } from "../lib/i18n.js";
 import { useSmoothStreamText } from "../lib/smoothStream.js";
 
@@ -26,7 +28,69 @@ export function stripDuplicateAttachmentMarkdown(text, attachments) {
   return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-export function MessageBubble({ message, lang }) {
+function AttachmentGallery({ attachments, align = "start" }) {
+  if (!attachments?.length) return null;
+  const images = attachments.filter((item) => !isDocumentAttachment(item));
+  const docs = attachments.filter((item) => isDocumentAttachment(item));
+  return (
+    <div
+      className={`flex max-w-full flex-col gap-2 ${
+        align === "end" ? "items-end" : "items-start"
+      }`}
+    >
+      {images.length ? (
+        <div className={`flex max-w-full flex-wrap gap-2 ${align === "end" ? "justify-end" : ""}`}>
+          {images.map((img) => (
+            <img
+              key={img.id || img.url || img.previewUrl}
+              alt=""
+              className={
+                align === "end"
+                  ? "max-h-56 max-w-full rounded-[18px] border border-white/10 object-cover"
+                  : "max-h-80 max-w-full rounded-xl border border-white/10 object-cover"
+              }
+              src={img.previewUrl || img.url || img.dataUrl}
+            />
+          ))}
+        </div>
+      ) : null}
+      {docs.length ? (
+        <div className={`flex max-w-full flex-wrap gap-2 ${align === "end" ? "justify-end" : ""}`}>
+          {docs.map((doc) => (
+            <div
+              key={doc.id || doc.name}
+              className="flex max-w-[16rem] items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2"
+            >
+              <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white/10">
+                <DocumentIcon size={15} />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-[13px] text-foreground/90">{doc.name || "document"}</span>
+                <span className="block truncate text-[11px] text-muted-foreground">{doc.mime || "document"}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function isInteractiveTarget(target) {
+  return Boolean(
+    target?.closest?.(
+      "a, button, input, textarea, select, summary, [role='button'], [role='toolbar'], .group\\/code",
+    ),
+  );
+}
+
+export function MessageBubble({
+  message,
+  lang,
+  selected = false,
+  onSelect,
+  onReuse,
+}) {
   const isUser = message.role === "user";
   const streaming = Boolean(message.streaming);
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
@@ -35,36 +99,60 @@ export function MessageBubble({ message, lang }) {
     [isUser, message.content, attachments],
   );
   const content = useSmoothStreamText(rawContent, !isUser && streaming);
+  const canSelect = !streaming;
+
+  const handleSelect = (event) => {
+    if (!canSelect) return;
+    if (isInteractiveTarget(event.target)) return;
+    // Ignore accidental text selection drags
+    const sel = typeof window.getSelection === "function" ? window.getSelection() : null;
+    if (sel && String(sel.toString() || "").trim()) return;
+    onSelect?.(selected ? null : message.id);
+  };
+
+  const actions =
+    selected && canSelect ? (
+      <MessageActions
+        lang={lang}
+        message={{ ...message, content: rawContent }}
+        onClose={() => onSelect?.(null)}
+        onReuse={onReuse}
+      />
+    ) : null;
 
   if (isUser) {
     return (
-      <div className="group/message w-full" data-role="user">
-        <div className="flex flex-col items-end gap-2">
-          {attachments.length ? (
-            <div className="flex max-w-[min(80%,56ch)] flex-wrap justify-end gap-2">
-              {attachments.map((img) => (
-                <img
-                  key={img.id || img.url || img.previewUrl}
-                  alt=""
-                  className="max-h-56 max-w-full rounded-[18px] border border-white/10 object-cover"
-                  src={img.previewUrl || img.url || img.dataUrl}
-                />
-              ))}
-            </div>
-          ) : null}
+      <div
+        className={`group/message w-full rounded-2xl outline-none transition ${
+          selected ? "bg-white/[0.03] ring-1 ring-white/10" : ""
+        } ${canSelect ? "cursor-pointer" : ""}`}
+        data-role="user"
+        data-selected={selected ? "true" : undefined}
+        onClick={handleSelect}
+      >
+        <div className="flex flex-col items-end gap-2 px-1 py-1">
+          <AttachmentGallery attachments={attachments} align="end" />
           {message.content ? (
             <div className="w-fit max-w-[min(80%,56ch)] overflow-hidden break-words rounded-[22px] bg-secondary px-5 py-2.5 text-[15px] leading-7 whitespace-pre-wrap">
               {message.content}
             </div>
           ) : null}
+          {actions}
         </div>
       </div>
     );
   }
 
   return (
-    <div className={`group/message w-full ${message.error ? "text-destructive" : ""}`} data-role="assistant">
-      <div className="flex items-start gap-3">
+    <div
+      className={`group/message w-full rounded-2xl outline-none transition ${
+        message.error ? "text-destructive" : ""
+      } ${selected ? "bg-white/[0.03] ring-1 ring-white/10" : ""} ${canSelect ? "cursor-pointer" : ""}`}
+      data-role="assistant"
+      data-selected={selected ? "true" : undefined}
+      onClick={handleSelect}
+    >
+      <div className="flex items-start gap-3 px-1 py-1">
         <div className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-foreground">
           <SparklesIcon size={13} />
         </div>
@@ -72,18 +160,7 @@ export function MessageBubble({ message, lang }) {
           {message.thinking?.visible ? (
             <Thinking thinking={message.thinking} lang={lang} streaming={streaming} />
           ) : null}
-          {attachments.length ? (
-            <div className="flex max-w-full flex-wrap gap-2">
-              {attachments.map((img) => (
-                <img
-                  key={img.id || img.url || img.previewUrl}
-                  alt=""
-                  className="max-h-80 max-w-full rounded-xl border border-white/10 object-cover"
-                  src={img.previewUrl || img.url || img.dataUrl}
-                />
-              ))}
-            </div>
-          ) : null}
+          <AttachmentGallery attachments={attachments} align="start" />
           {content ? (
             <MarkdownBody
               className={streaming ? "is-streaming" : ""}
@@ -97,6 +174,7 @@ export function MessageBubble({ message, lang }) {
               <span className="stream-cursor stream-cursor--alone" aria-hidden="true" />
             </div>
           ) : null}
+          {actions}
         </div>
       </div>
     </div>

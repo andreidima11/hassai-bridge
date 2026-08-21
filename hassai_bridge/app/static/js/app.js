@@ -689,6 +689,8 @@ async function loadSettings() {
     if (langEl) langEl.value = savedLang;
     const topLang = document.getElementById('langSelect');
     if (topLang) topLang.value = savedLang;
+    const dynEl = document.getElementById('settingsDynamicGreetings');
+    if (dynEl) dynEl.checked = cfg.dynamic_greetings !== false;
 
     // Providers
     _allProviders = cfg.providers || [];
@@ -771,6 +773,7 @@ async function saveSettings() {
       })(),
       knowledge_cutoff: document.getElementById('knowledgeCutoff').value,
       language: document.getElementById('settingsLang').value,
+      dynamic_greetings: document.getElementById('settingsDynamicGreetings')?.checked !== false,
     });
     toast(t('toast.settingsSaved'));
     persistLanguage(document.getElementById('settingsLang')?.value || currentLang);

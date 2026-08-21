@@ -19,7 +19,8 @@ import {
 } from "./lib/api.js";
 import { syncHaTheme } from "./lib/theme.js";
 import { finishThinkingLabel, persistLang, readStoredLang, tr } from "./lib/i18n.js";
-import { canSendMessage, clearDraftAttachments, persistDraftAttachments, readDraftAttachments } from "./lib/images.js";
+import { canSendMessage, clearDraftAttachments, persistDraftAttachments, readDraftAttachments, MAX_CHAT_IMAGES } from "./lib/images.js";
+import { pickGreeting } from "./lib/greetings.js";
 import { applyActivity, emptyThinking } from "./lib/thinking.js";
 import {
   defaultThinkingMode,
@@ -42,6 +43,7 @@ function mapStoredAttachments(items) {
     id: item.id,
     mime: item.mime,
     name: item.name || "",
+    kind: item.kind || (String(item.mime || "").startsWith("image/") ? "image" : "document"),
     previewUrl: apiUrl(item.url),
     url: apiUrl(item.url),
   }));
@@ -49,6 +51,9 @@ function mapStoredAttachments(items) {
 
 export default function App() {
   const [lang, setLang] = useState(readStoredLang);
+  const [atmosphere, setAtmosphere] = useState({});
+  const [dynamicGreetings, setDynamicGreetings] = useState(true);
+  const [greetingNonce, setGreetingNonce] = useState(() => Date.now() % 100000);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState(() => readDraftAttachments());
@@ -89,6 +94,12 @@ export default function App() {
 
   const t = useCallback((key, params) => tr(lang, key, params), [lang]);
   const settingsHref = `${window.HASSAI_BASE || ""}/settings`;
+  const greeting = useMemo(() => {
+    if (!dynamicGreetings) {
+      return { title: t("welcome"), hint: t("welcomeHint") };
+    }
+    return pickGreeting(lang, atmosphere, new Date(), greetingNonce);
+  }, [dynamicGreetings, lang, atmosphere, greetingNonce, t]);
 
   const listedSessions = useMemo(() => {
     const inDb = sessions.some((s) => s.session_id === sessionId);
@@ -126,8 +137,9 @@ export default function App() {
       setAttachments([]);
       clearDraftAttachments();
       setSidebarOpen(false);
+      if (persist && dynamicGreetings) setGreetingNonce((n) => n + 1);
     },
-    [user.username],
+    [user.username, dynamicGreetings],
   );
 
   const openSession = useCallback(
@@ -154,6 +166,7 @@ export default function App() {
             id: newId(),
             role: m.role,
             content: m.content || "",
+            createdAt: m.created_at || null,
             thinking: label ? next : emptyThinking(t("thinking")),
             ...(Array.isArray(m.attachments) && m.attachments.length
               ? { attachments: mapStoredAttachments(m.attachments) }
@@ -161,7 +174,7 @@ export default function App() {
           });
         } else {
           const content = m.content === "(image)" ? "" : m.content || "";
-          const row = { id: newId(), role: m.role, content };
+          const row = { id: newId(), role: m.role, content, createdAt: m.created_at || null };
           if (Array.isArray(m.attachments) && m.attachments.length) {
             row.attachments = mapStoredAttachments(m.attachments);
           }
@@ -279,6 +292,8 @@ export default function App() {
         const nextUser = data.user || { username: "default", display_name: "default" };
         username = nextUser.username || "default";
         setUser(nextUser);
+        setDynamicGreetings(data.dynamic_greetings !== false);
+        setAtmosphere(data.atmosphere && typeof data.atmosphere === "object" ? data.atmosphere : {});
         const chat = data.chat || {};
         const caps = chat.capabilities || {};
         setChatCapabilities(caps);
@@ -486,6 +501,38 @@ export default function App() {
     };
   }, [busy, input, openSession, refreshSessions, startNewChat, user.username]);
 
+  const reuseMessage = useCallback((message) => {
+    const text = String(message?.content || "").trim();
+    if (text) setInput(text);
+    const images = (Array.isArray(message?.attachments) ? message.attachments : [])
+      .filter((img) => img?.previewUrl || img?.dataUrl || img?.url || img?.text)
+      .slice(0, MAX_CHAT_IMAGES)
+      .map((img) => ({
+        id: img.id || newId(),
+        mime: img.mime || "",
+        name: img.name || "",
+        kind: img.kind || (img.text ? "document" : "image"),
+        previewUrl: img.previewUrl || img.url || img.dataUrl,
+        dataUrl: img.dataUrl || "",
+        url: img.url || "",
+        text: img.text || "",
+        chars: img.chars,
+      }));
+    if (images.length) setAttachments(images);
+    window.requestAnimationFrame(() => {
+      const el = document.querySelector("textarea");
+      if (el && typeof el.focus === "function") {
+        el.focus();
+        const len = el.value.length;
+        try {
+          el.setSelectionRange(len, len);
+        } catch {
+          /* ignore */
+        }
+      }
+    });
+  }, []);
+
   const stopGeneration = useCallback(() => {
     const traceId = traceIdRef.current;
     if (traceId) cancelChat(traceId).catch(() => {});
@@ -529,12 +576,24 @@ export default function App() {
       }
     }
 
+    const now = Date.now() / 1000;
     const payload = { text, images };
     const userMsg = {
       id: newId(),
       role: "user",
       content: text,
-      attachments: images.map((img) => ({ id: img.id, previewUrl: img.previewUrl, dataUrl: img.dataUrl })),
+      createdAt: now,
+      attachments: images.map((img) => ({
+        id: img.id,
+        name: img.name || "",
+        mime: img.mime || "",
+        kind: img.kind || "image",
+        previewUrl: img.previewUrl,
+        dataUrl: img.dataUrl,
+        text: img.text || "",
+        chars: img.chars,
+        url: img.url || "",
+      })),
     };
     const assistantId = newId();
     const traceId = `${newId()}${newId()}`;
@@ -546,6 +605,7 @@ export default function App() {
         id: assistantId,
         role: "assistant",
         content: "",
+        createdAt: now,
         streaming: true,
         thinking: { ...emptyThinking(t("thinking")), visible: true, active: true },
       },
@@ -685,18 +745,22 @@ export default function App() {
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <Messages
-            greeting={<WelcomeHero hint={t("welcomeHint")} title={t("welcome")} />}
+            greeting={<WelcomeHero hint={greeting.hint} title={greeting.title} />}
             lang={lang}
             messages={messages}
+            onReuseMessage={reuseMessage}
           />
           <Composer
+            attachDocLabel={t("attachDocument")}
             attachLabel={t("attachImage")}
             attachments={attachments}
             busy={busy}
+            docTooLargeLabel={t("docTooLarge")}
             imageTooLargeLabel={t("imageTooLarge")}
             lang={lang}
             maxImagesLabel={t("maxImages")}
             placeholder={t("placeholder")}
+            removeDocLabel={t("removeDocument")}
             removeImageLabel={t("removeImage")}
             providerCapabilities={chatCapabilities}
             providerId={providerInfo.id}
@@ -704,6 +768,7 @@ export default function App() {
             providerName={providerInfo.name}
             stopLabel={t("stop")}
             thinkingMode={thinkingMode}
+            unsupportedDocLabel={t("unsupportedDocument")}
             unsupportedImageLabel={t("unsupportedImage")}
             value={input}
             onAttachmentsChange={setAttachments}

@@ -1,5 +1,14 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.78-beta
+
+### Feature
+- **Dynamic chat greetings** — empty chat shows a rotating title/hint based on time of day, holidays (e.g. Paște), and HA weather when available; no LLM calls
+- **Softer composer placeholder** — “Scrie ceva…” / “Ask anything…” instead of “Mesaj către HASSAI…”
+- **Settings toggle** — General → Dynamic greetings (on by default); off restores the classic fixed welcome
+- **Message actions** — tap a message for Copy, Reuse / Use in composer, and Details (time, length, tools)
+- **Document attach** — paperclip-style document button next to photos; PDF/TXT/MD/CSV/JSON (text extracted for the model)
+
 ## 0.2.76-beta
 
 ### Feature

@@ -1,7 +1,14 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUpIcon, ImageIcon, StopIcon, XIcon } from "./Icons.jsx";
-import { isHaCompanionApp, MAX_CHAT_IMAGES, prepareImageFile } from "../lib/images.js";
+import { ArrowUpIcon, DocumentIcon, ImageIcon, StopIcon, XIcon } from "./Icons.jsx";
+import {
+  documentAcceptAttr,
+  isDocumentAttachment,
+  isHaCompanionApp,
+  MAX_CHAT_ATTACHMENTS,
+  prepareDocumentFile,
+  prepareImageFile,
+} from "../lib/images.js";
 import { ProviderQuickSettings } from "./ProviderQuickSettings.jsx";
 
 export function Composer({
@@ -15,10 +22,14 @@ export function Composer({
   attachments,
   onAttachmentsChange,
   attachLabel,
+  attachDocLabel,
   removeImageLabel,
+  removeDocLabel,
   imageTooLargeLabel,
+  docTooLargeLabel,
   maxImagesLabel,
   unsupportedImageLabel,
+  unsupportedDocLabel,
   providerId = "",
   providerName = "",
   providerModel = "",
@@ -32,8 +43,10 @@ export function Composer({
   onPickerSettled,
 }) {
   const attachInputId = useId();
+  const docInputId = useId();
   const ref = useRef(null);
   const fileRef = useRef(null);
+  const docRef = useRef(null);
   const processingRef = useRef(false);
   const [tall, setTall] = useState(false);
   const [attachError, setAttachError] = useState("");
@@ -50,13 +63,13 @@ export function Composer({
   }, [value, attachments]);
 
   const canSend = Boolean(value.trim()) || (attachments?.length || 0) > 0;
-  const attachDisabled = busy || uploading || (attachments?.length || 0) >= MAX_CHAT_IMAGES;
+  const attachDisabled = busy || uploading || (attachments?.length || 0) >= MAX_CHAT_ATTACHMENTS;
 
   const finishPicking = () => {
     onPickerSettled?.();
   };
 
-  const addFiles = async (files) => {
+  const addPrepared = async (files, prepare, labels) => {
     if (!files?.length || !onAttachmentsChange) {
       finishPicking();
       return;
@@ -66,26 +79,37 @@ export function Composer({
     let added = 0;
     for (const file of files) {
       try {
-        const prepared = await prepareImageFile(file);
+        const prepared = await prepare(file);
         onAttachmentsChange((current) => {
           const base = current || [];
-          if (base.length >= MAX_CHAT_IMAGES) return base;
+          if (base.length >= MAX_CHAT_ATTACHMENTS) return base;
           return [...base, prepared];
         });
         added += 1;
       } catch (err) {
         const code = String(err?.message || "");
-        if (code === "too_large") setAttachError(imageTooLargeLabel);
-        else if (code === "unsupported") setAttachError(unsupportedImageLabel);
-        else setAttachError(unsupportedImageLabel);
+        if (code === "too_large") setAttachError(labels.tooLarge);
+        else setAttachError(labels.unsupported);
       }
     }
-    if (added >= MAX_CHAT_IMAGES) setAttachError(maxImagesLabel);
+    if (added >= MAX_CHAT_ATTACHMENTS) setAttachError(maxImagesLabel);
     setUploading(false);
     finishPicking();
   };
 
-  const handleFileInput = async (event) => {
+  const addImageFiles = (files) =>
+    addPrepared(files, prepareImageFile, {
+      tooLarge: imageTooLargeLabel,
+      unsupported: unsupportedImageLabel,
+    });
+
+  const addDocFiles = (files) =>
+    addPrepared(files, prepareDocumentFile, {
+      tooLarge: docTooLargeLabel || imageTooLargeLabel,
+      unsupported: unsupportedDocLabel || unsupportedImageLabel,
+    });
+
+  const handleFileInput = async (event, kind) => {
     if (processingRef.current) return;
     const input = event.currentTarget;
     const picked = Array.from(input.files || []);
@@ -96,7 +120,8 @@ export function Composer({
     }
     processingRef.current = true;
     try {
-      await addFiles(picked);
+      if (kind === "document") await addDocFiles(picked);
+      else await addImageFiles(picked);
     } finally {
       processingRef.current = false;
       input.value = "";
@@ -109,7 +134,7 @@ export function Composer({
     setAttachError("");
   };
 
-  const fileInput = (
+  const imageInput = (
     <input
       ref={fileRef}
       id={attachInputId}
@@ -120,13 +145,29 @@ export function Composer({
       aria-hidden="true"
       style={{ position: "fixed", top: "-10000px", left: 0, width: 1, height: 1, opacity: 0 }}
       disabled={attachDisabled}
-      onChange={handleFileInput}
+      onChange={(e) => handleFileInput(e, "image")}
+    />
+  );
+
+  const docInput = (
+    <input
+      ref={docRef}
+      id={docInputId}
+      type="file"
+      accept={documentAcceptAttr()}
+      multiple={!companionApp}
+      tabIndex={-1}
+      aria-hidden="true"
+      style={{ position: "fixed", top: "-10000px", left: 0, width: 1, height: 1, opacity: 0 }}
+      disabled={attachDisabled}
+      onChange={(e) => handleFileInput(e, "document")}
     />
   );
 
   return (
     <div className="sticky bottom-0 z-[1] mx-auto flex w-full max-w-4xl flex-col bg-background px-3 pb-3 md:px-4 md:pb-4">
-      {typeof document !== "undefined" ? createPortal(fileInput, document.body) : fileInput}
+      {typeof document !== "undefined" ? createPortal(imageInput, document.body) : imageInput}
+      {typeof document !== "undefined" ? createPortal(docInput, document.body) : docInput}
       <form
         className={`flex w-full flex-col gap-2 border border-white/[0.08] bg-composer px-3 shadow-composer transition-[border-radius] duration-200 focus-within:border-white/15 ${
           tall ? "rounded-3xl py-2" : "rounded-full py-1"
@@ -135,25 +176,47 @@ export function Composer({
       >
         {attachments?.length ? (
           <div className="flex flex-wrap gap-2 pt-1">
-            {attachments.map((item) => (
-              <div key={item.id} className="relative size-16 overflow-hidden rounded-xl border border-white/10 bg-black/20">
-                <img alt="" className="size-full object-cover" src={item.previewUrl || item.dataUrl} />
-                {!busy && !uploading ? (
-                  <button
-                    type="button"
-                    className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-black/60 text-white/90 hover:bg-black/80"
-                    aria-label={removeImageLabel}
-                    title={removeImageLabel}
-                    onClick={() => removeAttachment(item.id)}
-                  >
-                    <XIcon size={10} />
-                  </button>
-                ) : null}
-              </div>
-            ))}
+            {attachments.map((item) => {
+              const isDoc = isDocumentAttachment(item);
+              return (
+                <div
+                  key={item.id}
+                  className={`relative overflow-hidden rounded-xl border border-white/10 bg-black/20 ${
+                    isDoc ? "flex h-16 min-w-[9.5rem] max-w-[14rem] items-center gap-2 px-2.5" : "size-16"
+                  }`}
+                >
+                  {isDoc ? (
+                    <>
+                      <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-white/10 text-foreground">
+                        <DocumentIcon size={16} />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[12px] text-foreground/90">{item.name || "document"}</span>
+                        <span className="block truncate text-[11px] text-muted-foreground">
+                          {item.chars ? `${item.chars} chars` : item.mime || "document"}
+                        </span>
+                      </span>
+                    </>
+                  ) : (
+                    <img alt="" className="size-full object-cover" src={item.previewUrl || item.dataUrl} />
+                  )}
+                  {!busy && !uploading ? (
+                    <button
+                      type="button"
+                      className="absolute right-1 top-1 z-10 grid size-5 place-items-center rounded-full bg-black/60 text-white/90 hover:bg-black/80"
+                      aria-label={isDoc ? removeDocLabel || removeImageLabel : removeImageLabel}
+                      title={isDoc ? removeDocLabel || removeImageLabel : removeImageLabel}
+                      onClick={() => removeAttachment(item.id)}
+                    >
+                      <XIcon size={10} />
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         ) : null}
-        <div className={`flex w-full gap-2 ${tall ? "items-end" : "items-center"}`}>
+        <div className={`flex w-full gap-1.5 ${tall ? "items-end" : "items-center"}`}>
           <label
             htmlFor={attachInputId}
             className={`relative mb-0 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground ${
@@ -168,6 +231,20 @@ export function Composer({
           >
             <ImageIcon />
           </label>
+          <label
+            htmlFor={docInputId}
+            className={`relative mb-0 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground ${
+              attachDisabled ? "cursor-not-allowed opacity-40" : "cursor-pointer"
+            } ${uploading ? "animate-pulse" : ""}`}
+            aria-label={attachDocLabel || "Attach document"}
+            title={attachDocLabel || "Attach document"}
+            onClick={() => {
+              if (attachDisabled) return;
+              onPickerOpen?.();
+            }}
+          >
+            <DocumentIcon />
+          </label>
           <textarea
             ref={ref}
             className="block max-h-40 min-h-6 w-full flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground/50"
@@ -180,7 +257,7 @@ export function Composer({
               const files = Array.from(e.clipboardData?.files || []).filter((f) => f.type.startsWith("image/"));
               if (!files.length) return;
               e.preventDefault();
-              addFiles(files);
+              addImageFiles(files);
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
