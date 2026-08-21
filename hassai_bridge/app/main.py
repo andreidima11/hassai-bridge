@@ -13,7 +13,7 @@ import uvicorn
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from datetime import datetime
-from fastapi import FastAPI, File, Request, Query, Depends, HTTPException, UploadFile
+from fastapi import FastAPI, Request, Query, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from pathlib import Path
@@ -21,7 +21,6 @@ from pathlib import Path
 from database import init_db, cleanup_old_conversations, get_all_users
 from core.auth import get_ingress_path, require_api_key_or_webui, _INGRESS_RE
 from core.config import VERSION, BUILD_ID, load_config
-from services import upload_links
 from services.knowledge_graph import init_graph_tables
 from services.memory_engine import consolidate_memories
 from services.providers import get_active_provider, get_secondary_provider
@@ -323,86 +322,6 @@ async def build_info():
 async def settings_page(request: Request):
     """Legacy / full settings Web UI."""
     return _render_html("settings.html", request)
-
-
-# ── Upload links (phone browser → chat, for the Companion app) ──
-_UPLOAD_PAGE_TEXT = {
-    "en": {
-        "title": "Send to HASSAI",
-        "intro": "Pick a photo or document. It shows up in your chat right away.",
-        "pick": "Choose file",
-        "sending": "Sending…",
-        "done": "Sent — go back to HASSAI",
-        "expired": "This link expired. Open a new one from the chat.",
-        "failed": "Upload failed",
-    },
-    "ro": {
-        "title": "Trimite către HASSAI",
-        "intro": "Alege o poză sau un document. Apare imediat în conversație.",
-        "pick": "Alege fișier",
-        "sending": "Se trimite…",
-        "done": "Trimis — întoarce-te în HASSAI",
-        "expired": "Linkul a expirat. Deschide altul din chat.",
-        "failed": "Încărcarea a eșuat",
-    },
-}
-
-
-def _upload_page_lang() -> dict:
-    from core.config import load_config
-
-    try:
-        lang = str(load_config().get("language") or "en").lower()
-    except Exception:
-        lang = "en"
-    return _UPLOAD_PAGE_TEXT.get(lang, _UPLOAD_PAGE_TEXT["en"])
-
-
-@app.get("/u/{token}")
-async def upload_link_page(token: str):
-    """Upload page for a short-lived link — the token is the only credential."""
-    strings = _upload_page_lang()
-    if not upload_links.owner(token):
-        return HTMLResponse(
-            f"<!doctype html><meta charset=utf-8><title>{strings['title']}</title>"
-            f"<body style='font-family:system-ui;background:#111;color:#eee;padding:32px'>"
-            f"<p>{strings['expired']}</p>",
-            status_code=404,
-            headers=_NO_STORE_HEADERS,
-        )
-    html = (STATIC_DIR / "upload.html").read_text(encoding="utf-8")
-    html = html.replace("__TOKEN__", token).replace("__VERSION__", VERSION)
-    for key, value in strings.items():
-        html = html.replace(f"__T_{key.upper()}__", value)
-    return HTMLResponse(content=html, headers=_NO_STORE_HEADERS)
-
-
-@app.post("/u/{token}/upload")
-async def upload_link_receive(token: str, file: UploadFile = File(...)):
-    """Receive one file from the phone browser and park it for the chat."""
-    from routers.conversations import MAX_UPLOAD_BYTES, _attachment_payload
-    from services import chat_media as cm
-
-    username = upload_links.owner(token)
-    if not username:
-        raise HTTPException(status_code=404, detail="Link expired")
-    raw = await file.read()
-    if not raw:
-        raise HTTPException(status_code=400, detail="Empty file")
-    if len(raw) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="File too large")
-    try:
-        att = cm.save_uploaded_file(
-            username,
-            raw,
-            filename=file.filename or "",
-            content_type=file.content_type or "",
-        )
-        payload = _attachment_payload(username, att, file.filename or "")
-        upload_links.add_file(token, payload)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return {"status": "ok", "name": payload.get("name") or ""}
 
 
 # ── Graceful shutdown ──

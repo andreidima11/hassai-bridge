@@ -49,7 +49,8 @@ log = logging.getLogger("hassai.chat")
 router = APIRouter()
 
 _HA_TOOL_NAMES = ha_api.HA_TOOL_NAMES
-_INTERNAL_TOOLS = {"search_web", "run_skill", "generate_image"} | _HA_TOOL_NAMES
+_MEDIA_TOOL_NAMES = {"media_list", "media_read", "media_delete"}
+_INTERNAL_TOOLS = {"search_web", "run_skill", "generate_image"} | _MEDIA_TOOL_NAMES | _HA_TOOL_NAMES
 
 # Identical tool+args this many times → skip and tell the model to move on.
 _AGENT_REPEAT_LIMIT = 2
@@ -217,6 +218,8 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(args.get("prompt"))
     if name == "run_skill":
         return _clip_detail(args.get("skill_name"))
+    if name in {"media_list", "media_read", "media_delete"}:
+        return _clip_detail(args.get("path") or args.get("search") or "")
     if name == "ha_call_service":
         call = f"{args.get('domain') or ''}.{args.get('service') or ''}".strip(".")
         entity = str(args.get("entity_id") or "").strip()
@@ -688,6 +691,9 @@ async def _invoke_internal_tool(
             else f"Error: {skill_result.get('message', 'unknown error')}"
         )
         return f"[Skill '{skill_name}' result]\n{body}", False
+
+    if fn_name in _MEDIA_TOOL_NAMES:
+        return await _run_media_tool(fn_name, args, user_id, generated_attachments), False
 
     if fn_name in _HA_TOOL_NAMES:
         log.info("AI requested HA tool '%s': %s", fn_name, args)
@@ -1513,6 +1519,98 @@ def _trim_messages_kv_friendly(messages: list[dict], max_tokens: int) -> list[di
 # Like hass_memory/brain/toolbox.py — reliable, no marker parsing.
 # ══════════════════════════════════════════════════
 
+_MEDIA_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "media_list",
+            "description": (
+                "List files and folders in the Home Assistant /media and /share folders "
+                "(photos, videos, documents). Call with no path to see the roots, then pass a path "
+                "to open a folder. search= looks for a name inside that folder."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "Folder under /media or /share"},
+                    "search": {"type": "string", "description": "Match part of a file name"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_read",
+            "description": (
+                "Open one file from /media or /share. Documents (PDF, TXT, MD, CSV, JSON, YAML) come "
+                "back as text; a photo is shown in the chat. Videos and audio return details only."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File under /media or /share"},
+                },
+                "required": ["path"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "media_delete",
+            "description": (
+                "Delete one file from /media or /share. Irreversible — confirm=true is required, "
+                "and only when the user asked for the deletion."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "File under /media or /share"},
+                    "confirm": {"type": "boolean"},
+                },
+                "required": ["path", "confirm"],
+            },
+        },
+    },
+]
+
+
+async def _run_media_tool(
+    fn_name: str,
+    args: dict,
+    user_id: str,
+    generated_attachments: list | None,
+) -> str:
+    from services import media_tools as mt
+
+    path = str(args.get("path") or "").strip()
+    log.info("AI requested media tool '%s': %s", fn_name, path or "(roots)")
+    try:
+        if fn_name == "media_list":
+            return mt.list_media(path, search=str(args.get("search") or ""))
+        if fn_name == "media_delete":
+            return mt.delete_media(path, confirm=args.get("confirm") is True)
+
+        info = mt.read_media(path)
+        kind = info.get("kind")
+        if kind == "document":
+            return f"[{info['name']}]\n{info.get('text') or '(empty file)'}"
+        if kind == "image":
+            att = cm.save_uploaded_file(user_id, info["bytes"], filename=info["name"])
+            if generated_attachments is not None:
+                generated_attachments.append(att)
+            return f"Showing {info['name']} in the chat."
+        return (
+            f"{info['name']} — {kind}, {info['size']} bytes. "
+            "Binary file; it cannot be read as text."
+        )
+    except ValueError as exc:
+        return f"Error: {exc}"
+    except OSError as exc:
+        return f"Error: {exc}"
+
+
 _SEARCH_WEB_TOOL = {
     "type": "function",
     "function": {
@@ -1731,6 +1829,7 @@ async def chat_completions(request: Request):
     if search_enabled:
         all_tools.append(_SEARCH_WEB_TOOL)
     all_tools.extend(_build_skill_tools())
+    all_tools.extend(_MEDIA_TOOLS)
     all_tools.extend(ha_api.build_ha_tools())
     active = get_active_provider()
     request_has_images = cc.messages_have_images(messages)

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import { DocumentIcon, FolderIcon, ImageIcon, PhoneIcon, XIcon } from "./Icons.jsx";
+import { DocumentIcon, FolderIcon, ImageIcon, XIcon } from "./Icons.jsx";
 import { tr } from "../lib/i18n.js";
 
 function Row({ icon, title, hint, children, onClick }) {
@@ -53,9 +53,7 @@ export function AttachMenu({
   photoAccept = "image/*",
   docAccept = "*/*",
   multiple = false,
-  showBrowserUpload = false,
   onBrowseHa,
-  onBrowserUpload,
   onClose,
   onFiles,
   onPickerOpen,
@@ -118,15 +116,6 @@ export function AttachMenu({
           title={tr(lang, "haFiles")}
           onClick={onBrowseHa}
         />
-
-        {showBrowserUpload ? (
-          <Row
-            hint={tr(lang, "browserUploadHint")}
-            icon={<PhoneIcon size={18} />}
-            title={tr(lang, "browserUpload")}
-            onClick={onBrowserUpload}
-          />
-        ) : null}
       </div>
     </div>,
     document.body,
