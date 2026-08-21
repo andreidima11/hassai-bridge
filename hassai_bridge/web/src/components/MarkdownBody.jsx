@@ -83,11 +83,11 @@ function makeComponents(copyLabel, copiedLabel) {
   };
 }
 
-export function MarkdownBody({ text, copyLabel, copiedLabel, cursor }) {
+export function MarkdownBody({ text, copyLabel, copiedLabel, cursor, className = "" }) {
   const components = useMemo(() => makeComponents(copyLabel, copiedLabel), [copyLabel, copiedLabel]);
 
   return (
-    <div className="md-body min-w-0 break-words text-[15px] leading-7 text-foreground">
+    <div className={`md-body min-w-0 break-words text-[15px] leading-7 text-foreground ${className}`.trim()}>
       <Markdown components={components} remarkPlugins={REMARK_PLUGINS}>
         {text}
       </Markdown>

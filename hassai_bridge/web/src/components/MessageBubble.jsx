@@ -3,6 +3,7 @@ import { SparklesIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
 import { Thinking } from "./Thinking.jsx";
 import { tr } from "../lib/i18n.js";
+import { useSmoothStreamText } from "../lib/smoothStream.js";
 
 function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -27,11 +28,13 @@ export function stripDuplicateAttachmentMarkdown(text, attachments) {
 
 export function MessageBubble({ message, lang }) {
   const isUser = message.role === "user";
+  const streaming = Boolean(message.streaming);
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-  const content = useMemo(
+  const rawContent = useMemo(
     () => (isUser ? message.content : stripDuplicateAttachmentMarkdown(message.content, attachments)),
     [isUser, message.content, attachments],
   );
+  const content = useSmoothStreamText(rawContent, !isUser && streaming);
 
   if (isUser) {
     return (
@@ -67,7 +70,7 @@ export function MessageBubble({ message, lang }) {
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
           {message.thinking?.visible ? (
-            <Thinking thinking={message.thinking} lang={lang} streaming={Boolean(message.streaming)} />
+            <Thinking thinking={message.thinking} lang={lang} streaming={streaming} />
           ) : null}
           {attachments.length ? (
             <div className="flex max-w-full flex-wrap gap-2">
@@ -83,13 +86,16 @@ export function MessageBubble({ message, lang }) {
           ) : null}
           {content ? (
             <MarkdownBody
+              className={streaming ? "is-streaming" : ""}
               copiedLabel={tr(lang, "copied")}
               copyLabel={tr(lang, "copy")}
-              cursor={message.streaming ? <span className="ml-0.5 animate-pulse text-muted-foreground">▍</span> : null}
+              cursor={streaming ? <span className="stream-cursor" aria-hidden="true" /> : null}
               text={content}
             />
-          ) : message.streaming && !message.thinking?.visible ? (
-            <div className="flex min-h-7 items-center text-[15px] font-medium text-muted-foreground">…</div>
+          ) : streaming && !message.thinking?.visible ? (
+            <div className="flex min-h-7 items-center gap-1 text-[15px] text-muted-foreground">
+              <span className="stream-cursor stream-cursor--alone" aria-hidden="true" />
+            </div>
           ) : null}
         </div>
       </div>

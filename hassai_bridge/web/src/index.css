@@ -228,10 +228,47 @@ input:focus-visible {
   }
 }
 
+/* Soft caret while the assistant reply is streaming in */
+.stream-cursor {
+  display: inline-block;
+  width: 0.55ch;
+  height: 1.05em;
+  margin-left: 0.12em;
+  vertical-align: -0.12em;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--foreground) 72%, transparent);
+  animation: stream-caret 1.05s steps(1, end) infinite;
+}
+
+.stream-cursor--alone {
+  margin-left: 0;
+  vertical-align: middle;
+}
+
+.md-body.is-streaming > :last-child {
+  margin-bottom: 0;
+}
+
+@keyframes stream-caret {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .welcome-hero,
   .welcome-title,
   .welcome-hint {
     animation: none;
+  }
+
+  .stream-cursor {
+    animation: none;
+    opacity: 0.7;
   }
 }

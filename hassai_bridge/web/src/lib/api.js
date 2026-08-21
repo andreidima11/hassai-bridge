@@ -187,7 +187,7 @@ export async function waitForChatJob(traceId, { onActivity, onDelta, signal } = 
       return full;
     }
     if (data.status === "error" && data.error) throw new Error(data.error);
-    await sleep(ON_INGRESS ? 220 : 280, signal);
+    await sleep(ON_INGRESS ? 140 : 180, signal);
   }
 }
 
@@ -213,7 +213,7 @@ export function startActivityPoll(traceId, onEvent) {
     } catch {
       /* retry */
     }
-    if (!stopped) setTimeout(tick, ON_INGRESS ? 240 : 320);
+    if (!stopped) setTimeout(tick, ON_INGRESS ? 160 : 200);
   };
   tick();
   return () => {
