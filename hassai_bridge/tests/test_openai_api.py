@@ -11,11 +11,28 @@ def test_detects_openai_by_type_and_base_url():
     assert oai.is_openai_provider({"type": "openai"})
     assert oai.is_openai_provider({"type": "custom", "base_url": "https://api.openai.com/v1"})
     assert oai.is_openai_provider({"type": "custom", "name": "ChatGPT", "base_url": "https://gateway.example/v1"})
+    assert oai.is_openai_provider({"type": "custom", "name": "ChatGPT"})
     assert not oai.is_openai_provider({"type": "deepseek", "base_url": "https://api.deepseek.com"})
     assert not oai.is_openai_provider({"type": "local"})
     assert not oai.is_openai_provider(
         {"type": "local", "name": "ChatGPT", "base_url": "http://localhost:1234"}
     )
+
+
+def test_chatgpt_without_base_url_remaps_gpt4o():
+    provider = {"type": "custom", "name": "ChatGPT", "model": "gpt-4o", "max_tokens": 1024}
+    payload = {"model": "gpt-4o"}
+    _apply_token_limit(payload, provider)
+    oai.sanitize_outbound_chat_payload(payload, provider)
+    assert "max_tokens" not in payload
+    assert payload["max_completion_tokens"] == 1024
+
+
+def test_sanitize_drops_duplicate_max_tokens():
+    payload = {"model": "gpt-4o", "max_tokens": 500, "max_completion_tokens": 800}
+    oai.sanitize_outbound_chat_payload(payload, {"type": "openai", "model": "gpt-4o"})
+    assert "max_tokens" not in payload
+    assert payload["max_completion_tokens"] == 800
 
 
 def test_remaps_max_tokens_to_max_completion_tokens():

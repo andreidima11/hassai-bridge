@@ -18,9 +18,9 @@ _RESTRICTED_SAMPLING = re.compile(
     re.IGNORECASE,
 )
 
-# Models known to reject `max_tokens` on OpenAI-compatible cloud APIs.
-_NEEDS_MAX_COMPLETION = re.compile(
-    r"^(gpt-5|gpt-4\.1|chatgpt-|o1|o3|o4)",
+# OpenAI / ChatGPT model ids that reject `max_tokens` on the official API.
+_OPENAI_CHAT_MODEL = re.compile(
+    r"^(gpt-|chatgpt-|o[1-9]([.-]|$)|o[1-9]-)",
     re.IGNORECASE,
 )
 
@@ -29,6 +29,20 @@ log = getLogger("hassai.providers")
 
 def _norm(value) -> str:
     return str(value or "").strip().lower()
+
+
+def _provider_type(provider: dict | None) -> str:
+    if not isinstance(provider, dict):
+        return ""
+    return _norm(provider.get("type"))
+
+
+def _is_local_provider(provider: dict | None) -> bool:
+    ptype = _provider_type(provider)
+    if ptype in ("local", "ollama", "lmstudio"):
+        return True
+    base = _norm(provider.get("base_url")) if isinstance(provider, dict) else ""
+    return bool(base and _is_local_base(base))
 
 
 def _is_local_base(base: str) -> bool:
@@ -48,34 +62,35 @@ def _is_local_base(base: str) -> bool:
 def is_openai_provider(provider: dict | None) -> bool:
     if not isinstance(provider, dict):
         return False
-    if _norm(provider.get("type")) == "openai":
+    if _provider_type(provider) == "openai":
         return True
+    if _is_local_provider(provider):
+        return False
     base = _norm(provider.get("base_url"))
-    if "api.openai.com" in base or "openai.azure.com" in base:
+    if "openai.com" in base or "openai.azure.com" in base:
         return True
-    # Users often rename the provider to "ChatGPT" — treat non-local URLs as OpenAI.
+    # Renamed providers ("ChatGPT") — do not require base_url to be set.
     name = _norm(provider.get("name"))
-    if ("chatgpt" in name or name == "openai" or name.startswith("openai ")) and base and not _is_local_base(base):
+    if "chatgpt" in name or name == "openai" or name.startswith("openai "):
         return True
     return False
+
+
+def looks_like_openai_model(model: str | None) -> bool:
+    mid = _norm(model)
+    if not mid or mid == "default":
+        return False
+    return bool(_OPENAI_CHAT_MODEL.match(mid))
 
 
 def uses_max_completion_tokens(provider: dict | None, model: str = "") -> bool:
     """True when the upstream API wants max_completion_tokens instead of max_tokens."""
     if is_openai_provider(provider):
         return True
-    # Misconfigured type/URL but an OpenAI model id that rejects max_tokens.
+    if _is_local_provider(provider):
+        return False
     mid = _norm(model) or (_norm(provider.get("model")) if isinstance(provider, dict) else "")
-    if mid and _NEEDS_MAX_COMPLETION.match(mid):
-        base = _norm(provider.get("base_url")) if isinstance(provider, dict) else ""
-        # Avoid remapping for local Ollama/LM Studio named like gpt-*.
-        if base and _is_local_base(base):
-            return False
-        ptype = _norm(provider.get("type")) if isinstance(provider, dict) else ""
-        if ptype in ("local", "ollama", "lmstudio"):
-            return False
-        return True
-    return False
+    return looks_like_openai_model(mid)
 
 
 def is_restricted_sampling_model(model: str | None) -> bool:
@@ -102,8 +117,17 @@ def remap_token_limit(payload: dict, provider: dict | None) -> None:
     model = str(payload.get("model") or (provider or {}).get("model") or "")
     if not uses_max_completion_tokens(provider, model):
         return
-    if "max_tokens" in payload:
+    if "max_tokens" not in payload:
+        return
+    if "max_completion_tokens" not in payload:
         payload["max_completion_tokens"] = payload.pop("max_tokens")
+    else:
+        payload.pop("max_tokens", None)
+
+
+def sanitize_outbound_chat_payload(payload: dict, provider: dict | None) -> None:
+    """Last gate before HTTP — never send max_tokens to OpenAI chat models."""
+    remap_token_limit(payload, provider)
 
 
 def apply_request_payload(
@@ -114,7 +138,6 @@ def apply_request_payload(
 ) -> None:
     """Mutate a chat/completions JSON body for OpenAI compatibility + cache."""
     model = str(payload.get("model") or (provider or {}).get("model") or "")
-    # Token remap even when provider typing is messy (ChatGPT name / custom URL).
     remap_token_limit(payload, provider)
     openaiish = is_openai_provider(provider) or uses_max_completion_tokens(provider, model)
     if not openaiish:
@@ -137,6 +160,7 @@ def apply_request_payload(
             opts = dict(opts)
         opts["include_usage"] = True
         payload["stream_options"] = opts
+    sanitize_outbound_chat_payload(payload, provider)
 
 
 def cache_tokens_from_usage(usage: dict | None) -> tuple[int, int]:
