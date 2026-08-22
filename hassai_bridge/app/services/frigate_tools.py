@@ -211,20 +211,32 @@ async def list_cameras() -> str:
 def _event_line(ev: dict) -> str:
     cam = ev.get("camera") or "?"
     label = ev.get("label") or "?"
+    sub = str(ev.get("sub_label") or "").strip()
+    if sub:
+        label = f"{label}/{sub}"
     score = ev.get("top_score") or ev.get("score")
     score_s = f"{float(score):.0%}" if isinstance(score, (int, float)) else "—"
     start = _fmt_ts(ev.get("start_time"))
     end = ev.get("end_time")
-    status = "in progress" if end is None else f"ended {_fmt_ts(end)}"
+    if end is None:
+        status = "still on camera (in progress)"
+    else:
+        status = f"left {_fmt_ts(end)}"
+    if ev.get("stationary") or ev.get("motionless"):
+        status += ", stationary"
+    zones = ev.get("current_zones") or ev.get("entered_zones") or ev.get("zones") or []
+    zone_s = ""
+    if isinstance(zones, list) and zones:
+        zone_s = f" — zone: {', '.join(str(z) for z in zones[:3])}"
     eid = ev.get("id") or ""
     snap = "yes" if ev.get("has_snapshot") else "no"
     return (
-        f"• {start} — {cam} / {label} ({score_s}) — {status} — "
+        f"• {start} — {cam} / {label} ({score_s}) — {status}{zone_s} — "
         f"snapshot={snap} — id={eid}"
     )
 
 
-_MAX_ATTACHED_SNAPSHOTS = 6
+_MAX_ATTACHED_SNAPSHOTS = 1
 
 
 async def list_events(
@@ -276,28 +288,23 @@ async def list_events(
     lines = [header] + [_event_line(ev) for ev in events]
     images: list[dict] = []
     if include_snapshot:
-        for ev in events:
-            if len(images) >= _MAX_ATTACHED_SNAPSHOTS:
-                break
-            eid = str(ev.get("id") or "")
-            if not eid or not ev.get("has_snapshot"):
-                continue
+        top = events[0]
+        eid = str(top.get("id") or "")
+        if eid and top.get("has_snapshot"):
             try:
                 data, mime = await _get_bytes(f"/api/events/{eid}/snapshot.jpg")
-                cam_name = ev.get("camera") or "camera"
+                cam_name = top.get("camera") or "camera"
                 images.append({
                     "bytes": data,
                     "filename": f"frigate-{cam_name}-{eid[:12]}.jpg",
                     "mime": mime or "image/jpeg",
                 })
                 lines.append(
-                    f"Attached snapshot: {cam_name} / {ev.get('label')} (id={eid})."
+                    f"Attached snapshot for latest event: {cam_name} / {top.get('label')}."
                 )
             except Exception as snap_err:
                 lines.append(f"(Could not fetch snapshot for {eid}: {snap_err})")
         if not images:
-            # Fall back to live latest.jpg for the top camera
-            top = events[0]
             cname = _normalize_camera(top.get("camera") or cam)
             if cname:
                 try:
@@ -366,16 +373,16 @@ async def _events_from_media(camera: str, limit: int, *, include_snapshot: bool)
 
     images: list[dict] = []
     if include_snapshot and files:
-        for path in files[:_MAX_ATTACHED_SNAPSHOTS]:
-            try:
-                images.append({
-                    "bytes": path.read_bytes(),
-                    "filename": path.name,
-                    "mime": "image/jpeg",
-                })
-                lines.append(f"Attached {path.name}.")
-            except OSError as exc:
-                lines.append(f"(Could not read {path.name}: {exc})")
+        path = files[0]
+        try:
+            images.append({
+                "bytes": path.read_bytes(),
+                "filename": path.name,
+                "mime": "image/jpeg",
+            })
+            lines.append(f"Attached {path.name}.")
+        except OSError as exc:
+            lines.append(f"(Could not read {path.name}: {exc})")
 
     return {
         "text": "\n".join(lines),
@@ -451,10 +458,10 @@ def system_hint() -> str:
     if not is_enabled():
         return ""
     return (
-        "Frigate cameras (real NVR photos — never use generate_image / Imagine for these): "
-        "for outdoors, cameras, detections, persons/cars seen, or “show me those snaps”, "
-        "use frigate_list_cameras, frigate_events (label=person etc., include_snapshot=true "
-        "to attach the real Frigate snapshots), or frigate_snapshot (camera or event_id). "
-        "When you already listed events and the user asks for the photos, call frigate_events "
-        "again with the same filters and include_snapshot=true (or frigate_snapshot per event_id)."
+        "Frigate cameras (real NVR — never use generate_image / Imagine): "
+        "When the user asks what was detected (people, cars, times, parked/still on camera), "
+        "call frigate_events with include_snapshot=false and answer in natural language from the "
+        "event list — do not attach photos unless they explicitly ask to see/show snaps or a photo. "
+        "Only then use include_snapshot=true (one newest snap) or frigate_snapshot for a specific "
+        "camera or event_id. Do not call frigate_events with include_snapshot on every turn."
     )
