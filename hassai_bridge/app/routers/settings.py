@@ -1,3 +1,4 @@
+import asyncio
 import time
 import socket
 from pathlib import Path
@@ -461,11 +462,13 @@ async def check_secondary_provider_health(provider_id: str):
 @router.get("/health")
 async def health():
     active = get_active_provider()
-    provider_ok = await providers.health_check(active)
-    sx_ok = await searxng.health_check()
     from services import frigate_tools as ft
 
-    fr_ok = await ft.api_reachable() if ft.is_enabled() else False
+    provider_ok, sx_ok, fr = await asyncio.gather(
+        providers.health_check(active),
+        searxng.health_check(),
+        ft.health_status(),
+    )
     return {
         "provider": "connected" if provider_ok else "unreachable",
         "provider_name": active.get("name", "?"),
@@ -473,7 +476,7 @@ async def health():
         # Keep lmstudio key for backward compatibility
         "lmstudio": "connected" if provider_ok else "unreachable",
         "searxng": "connected" if sx_ok else "unreachable",
-        "frigate": "connected" if fr_ok else "unreachable",
+        "frigate": fr.get("status") or "unreachable",
     }
 
 
@@ -482,23 +485,19 @@ async def frigate_health():
     """Test Frigate API connectivity (uses saved settings)."""
     from services import frigate_tools as ft
 
-    cfg = load_config().get("frigate") or {}
-    enabled = cfg.get("enabled") is not False
-    url = ft.base_url()
-    if not enabled:
-        return {"status": "disabled", "url": url, "enabled": False, "cameras": []}
-    ok = await ft.api_reachable()
+    fr = await ft.health_status(probe_timeout=5.0)
     cameras: list[str] = []
-    if ok:
+    if fr.get("status") == "connected" and fr.get("via") == "api":
         try:
-            data = await ft._get_json("/api/config")
+            data = await asyncio.wait_for(ft._get_json("/api/config"), timeout=5.0)
             cameras = sorted((data.get("cameras") or {}).keys())
         except Exception:
             cameras = []
     return {
-        "status": "connected" if ok else "unreachable",
-        "url": url,
-        "enabled": True,
+        "status": fr.get("status") or "unreachable",
+        "url": fr.get("url") or ft.base_url(),
+        "enabled": bool(fr.get("enabled")),
+        "via": fr.get("via") or "",
         "cameras": cameras,
     }
 
@@ -530,19 +529,23 @@ async def system_info():
             (time.time() - 86400,),
         ).fetchone()["c"]
 
-    lm_ok = await providers.health_check()
-    sx_ok = await searxng.health_check()
     from services import frigate_tools as ft
 
-    fr_cfg = cfg.get("frigate") or {}
-    fr_enabled = fr_cfg.get("enabled") is not False
-    fr_ok = await ft.api_reachable() if fr_enabled else False
-    active = get_active_provider()
+    async def _ha_ping():
+        if ha_api.is_available():
+            return await ha_api.ping()
+        return False, "standalone"
 
-    ha_connected = False
-    ha_detail = "standalone"
-    if ha_api.is_available():
-        ha_connected, ha_detail = await ha_api.ping()
+    lm_ok, sx_ok, fr, ha_ping = await asyncio.gather(
+        providers.health_check(),
+        searxng.health_check(),
+        ft.health_status(),
+        _ha_ping(),
+    )
+    fr_status = fr.get("status") or "unreachable"
+    fr_enabled = bool(fr.get("enabled"))
+    active = get_active_provider()
+    ha_connected, ha_detail = ha_ping
 
     # Mask API keys in response (#10)
     safe_providers = []
@@ -596,9 +599,10 @@ async def system_info():
                 "url": cfg["searxng"]["base_url"],
             },
             "frigate": {
-                "status": "connected" if fr_ok else "unreachable",
+                "status": fr_status,
                 "enabled": fr_enabled,
-                "url": ft.base_url(),
+                "url": fr.get("url") or ft.base_url(),
+                "via": fr.get("via") or "",
             },
             "memory": {
                 "enabled": cfg["memory"]["enabled"],

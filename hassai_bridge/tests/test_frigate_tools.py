@@ -118,3 +118,42 @@ def test_system_hint_when_enabled():
         hint = ft.system_hint()
         assert "frigate_events" in hint
         assert "frigate_snapshot" in hint
+
+
+def test_health_status_media_fallback(tmp_path: Path):
+    media = tmp_path / "media"
+    (media / "frigate" / "clips").mkdir(parents=True)
+
+    cf.set_roots_for_test((str(media),))
+    try:
+        async def boom():
+            raise RuntimeError("no api")
+
+        async def _run():
+            with (
+                patch.object(ft, "_cfg", return_value={"enabled": True, "base_url": "http://frigate:5000", "timeout": 12}),
+                patch("httpx.AsyncClient") as client_cls,
+            ):
+                # Make httpx client raise on get
+                instance = client_cls.return_value
+                instance.__aenter__.return_value = instance
+                instance.__aexit__.return_value = None
+                instance.get = AsyncMock(side_effect=RuntimeError("down"))
+                return await ft.health_status(probe_timeout=0.5)
+
+        result = asyncio.run(_run())
+        assert result["status"] == "connected"
+        assert result["via"] == "media"
+        assert result["enabled"] is True
+    finally:
+        cf.set_roots_for_test(None)
+
+
+def test_health_status_disabled():
+    async def _run():
+        with patch.object(ft, "_cfg", return_value={"enabled": False, "base_url": "http://x"}):
+            return await ft.health_status(probe_timeout=0.2)
+
+    result = asyncio.run(_run())
+    assert result["status"] == "disabled"
+    assert result["enabled"] is False

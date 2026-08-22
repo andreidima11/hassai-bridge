@@ -282,6 +282,7 @@ async function loadSystemInfo() {
       lmCard.className = 'service-card ' + (lmOnline ? 'online' : 'offline');
       const st = lmCard.querySelector('.svc-status');
       if (st) {
+        st.removeAttribute('data-i18n');
         st.className = 'svc-status ' + (lmOnline ? 'online' : 'offline');
         st.textContent = lmOnline ? t('status.connected') : t('status.unavailable');
       }
@@ -295,6 +296,7 @@ async function loadSystemInfo() {
       sxCard.className = 'service-card ' + (sx.enabled ? (sxOnline ? 'online' : 'offline') : '');
       const sxStatusEl = sxCard.querySelector('.svc-status');
       if (sxStatusEl) {
+        sxStatusEl.removeAttribute('data-i18n');
         if (!sx.enabled) {
           sxStatusEl.className = 'svc-status disabled';
           sxStatusEl.textContent = t('status.disabled');
@@ -309,16 +311,21 @@ async function loadSystemInfo() {
     const fr = services.frigate || {};
     const frCard = document.getElementById('svcFrigate');
     const frOnline = fr.status === 'connected';
+    const frDisabled = fr.enabled === false || fr.status === 'disabled';
     if (frCard) {
-      frCard.className = 'service-card ' + (fr.enabled ? (frOnline ? 'online' : 'offline') : '');
+      frCard.className = 'service-card ' + (frDisabled ? '' : (frOnline ? 'online' : 'offline'));
       const frStatusEl = frCard.querySelector('.svc-status');
       if (frStatusEl) {
-        if (!fr.enabled) {
+        frStatusEl.removeAttribute('data-i18n');
+        if (frDisabled) {
           frStatusEl.className = 'svc-status disabled';
           frStatusEl.textContent = t('status.disabled');
         } else {
           frStatusEl.className = 'svc-status ' + (frOnline ? 'online' : 'offline');
-          frStatusEl.textContent = frOnline ? t('status.connected') : t('status.unavailable');
+          const label = frOnline ? t('status.connected') : t('status.unavailable');
+          frStatusEl.textContent = fr.via === 'media' && frOnline
+            ? `${label} (media)`
+            : label;
         }
       }
     }
@@ -328,6 +335,7 @@ async function loadSystemInfo() {
       memCard.className = 'service-card ' + (mem.enabled ? 'online' : '');
       const memStatusEl = memCard.querySelector('.svc-status');
       if (memStatusEl) {
+        memStatusEl.removeAttribute('data-i18n');
         if (mem.enabled) {
           memStatusEl.className = 'svc-status online';
           memStatusEl.textContent = mem.auto_extract ? t('status.activeAutoExtract') : t('status.active');

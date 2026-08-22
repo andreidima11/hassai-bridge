@@ -6,6 +6,7 @@ when the API is unreachable but the media folder is mounted.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone
@@ -124,6 +125,44 @@ async def api_reachable() -> bool:
             return True
         except Exception:
             return False
+
+
+async def health_status(*, probe_timeout: float = 2.5) -> dict:
+    """Fast status for Settings dashboard (must not hang Ingress).
+
+    Returns {"status": connected|unreachable|disabled, "via": api|media|"", "url": str, "enabled": bool}
+    """
+    cfg = _cfg()
+    enabled = cfg.get("enabled") is not False
+    url = base_url()
+    if not enabled:
+        return {"status": "disabled", "via": "", "url": url, "enabled": False}
+
+    async def _probe_api() -> bool:
+        timeout = min(float(probe_timeout), _timeout())
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                resp = await client.get(f"{url}/api/version")
+                if resp.status_code < 400:
+                    return True
+                resp = await client.get(f"{url}/api/config")
+                return resp.status_code < 400
+        except Exception:
+            return False
+
+    try:
+        ok = await asyncio.wait_for(_probe_api(), timeout=float(probe_timeout) + 0.5)
+    except Exception:
+        ok = False
+
+    if ok:
+        return {"status": "connected", "via": "api", "url": url, "enabled": True}
+
+    # Tools still work via /media/frigate — treat as connected for the dashboard.
+    if media_frigate_root():
+        return {"status": "connected", "via": "media", "url": url, "enabled": True}
+
+    return {"status": "unreachable", "via": "", "url": url, "enabled": True}
 
 
 async def list_cameras() -> str:
