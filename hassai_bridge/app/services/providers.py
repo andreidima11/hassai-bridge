@@ -87,6 +87,22 @@ def provider_supports_vision(provider: dict | None) -> bool:
     return bool(model and _VISION_MODEL_HINTS.search(model))
 
 
+def _coerce_provider_record(provider: dict) -> dict:
+    """Fix common misconfigurations before outbound API calls."""
+    if not isinstance(provider, dict):
+        return provider
+    from services import openai_api as oai
+
+    p = dict(provider)
+    base = str(p.get("base_url") or "").strip()
+    ptype = oai._provider_type(p)
+    if oai._is_openai_cloud_url(base) and ptype in ("local", "ollama", "lmstudio"):
+        p["type"] = "openai"
+    if oai.is_openai_provider(p) and not base:
+        p["base_url"] = "https://api.openai.com/v1"
+    return p
+
+
 def get_active_provider() -> dict:
     """Get the currently active provider config."""
     cfg = load_config()
@@ -96,7 +112,7 @@ def get_active_provider() -> dict:
     # Find active provider
     for p in providers:
         if p.get("id") == active_id:
-            return p
+            return _coerce_provider_record(p)
 
     # Fallback: migrate from old lmstudio config
     if not providers:
@@ -114,7 +130,7 @@ def get_active_provider() -> dict:
         }
 
     # Return first provider if active_id not found
-    return providers[0] if providers else {}
+    return _coerce_provider_record(providers[0]) if providers else {}
 
 
 def get_provider_by_id(provider_id: str) -> dict | None:
@@ -122,7 +138,7 @@ def get_provider_by_id(provider_id: str) -> dict | None:
     cfg = load_config()
     for p in cfg.get("providers", []):
         if p.get("id") == provider_id:
-            return p
+            return _coerce_provider_record(p)
     return None
 
 
@@ -222,7 +238,7 @@ def get_secondary_provider_by_id(provider_id: str) -> dict | None:
     cfg = load_config()
     for p in cfg.get("secondary_providers", []):
         if p.get("id") == provider_id:
-            return p
+            return _coerce_provider_record(p)
     return None
 
 
@@ -390,6 +406,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
     from services import openai_api as oai
 
     oai.sanitize_outbound_chat_payload(payload, provider, request_url=url)
+    oai.finalize_http_payload(payload, provider, request_url=url)
 
     client = _get_client()
     # Retry on transient errors (#20)
@@ -470,6 +487,7 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
     from services import openai_api as oai
 
     oai.sanitize_outbound_chat_payload(payload, provider, request_url=url)
+    oai.finalize_http_payload(payload, provider, request_url=url)
 
     client = _get_client()
     try:
