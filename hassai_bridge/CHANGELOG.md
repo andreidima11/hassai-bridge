@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.2
+
+### Features
+- **HA admin tools** — backups (list/create/restore), add-on lifecycle, updates, Core/host restart, network ping/port check, binary upload, ZHA/Z-Wave mesh actions, native automation/script create/edit
+- **HA tool permissions** — Settings → General toggles per capability (all on by default); disabled tools are hidden from the AI
+
 ## 1.0.1
 
 ### Fix

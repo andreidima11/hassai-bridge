@@ -48,15 +48,16 @@ from services import chat_media as cm
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
 
-_HA_TOOL_NAMES = ha_api.HA_TOOL_NAMES
 _MEDIA_TOOL_NAMES = {"media_list", "media_read", "media_delete"}
 _FRIGATE_TOOL_NAMES = {"frigate_list_cameras", "frigate_events", "frigate_snapshot"}
-_INTERNAL_TOOLS = (
-    {"search_web", "run_skill", "generate_image"}
-    | _MEDIA_TOOL_NAMES
-    | _FRIGATE_TOOL_NAMES
-    | _HA_TOOL_NAMES
-)
+
+
+def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
+    if fn_name in ("search_web", "run_skill", "generate_image"):
+        return True
+    if fn_name in _MEDIA_TOOL_NAMES or fn_name in _FRIGATE_TOOL_NAMES:
+        return True
+    return ha_api.is_ha_tool(fn_name, cfg)
 
 # Identical tool+args this many times → skip and tell the model to move on.
 _AGENT_REPEAT_LIMIT = 2
@@ -708,7 +709,7 @@ async def _invoke_internal_tool(
     if fn_name in _FRIGATE_TOOL_NAMES:
         return await _run_frigate_tool(fn_name, args, user_id, generated_attachments), False
 
-    if fn_name in _HA_TOOL_NAMES:
+    if ha_api.is_ha_tool(fn_name):
         log.info("AI requested HA tool '%s': %s", fn_name, args)
         ha_result = await ha_api.run_ha_tool(fn_name, args)
         return f"[Home Assistant — {fn_name}]\n{ha_result}", False
@@ -729,14 +730,17 @@ async def _append_internal_tool_results(
     user_id: str = "",
     session_id: str | None = None,
     generated_attachments: list | None = None,
+    cfg: dict | None = None,
 ) -> bool:
     """Append tool-role messages for internal calls. Returns search_used."""
+    if cfg is None:
+        cfg = load_config()
     search_used = False
     for tc in tool_calls:
         await _check_trace(trace_id)
         fn = tc.get("function") or {}
         fn_name = fn.get("name") or ""
-        if fn_name not in _INTERNAL_TOOLS:
+        if not _is_internal_tool(fn_name, cfg):
             continue
         tc_id = tc.get("id") or f"call_{fn_name}"
         args = _parse_tool_args(fn.get("arguments"))
@@ -1969,7 +1973,7 @@ async def chat_completions(request: Request):
 
     if ft.is_enabled():
         all_tools.extend(_FRIGATE_TOOLS)
-    all_tools.extend(ha_api.build_ha_tools())
+    all_tools.extend(ha_api.build_ha_tools(cfg))
     active = get_active_provider()
     request_has_images = cc.messages_have_images(messages)
     image_gen_provider = providers.resolve_image_generation_provider(active)
@@ -2248,7 +2252,7 @@ async def chat_completions(request: Request):
 
                 internal_calls = [
                     tc for tc in tool_calls
-                    if (tc.get("function") or {}).get("name") in _INTERNAL_TOOLS
+                    if _is_internal_tool((tc.get("function") or {}).get("name") or "", cfg)
                 ]
                 if not internal_calls:
                     msg["content"] = ""
@@ -2271,6 +2275,7 @@ async def chat_completions(request: Request):
                     user_id=user_id,
                     session_id=session_id,
                     generated_attachments=generated_attachments,
+                    cfg=cfg,
                 ):
                     _search_used = True
 
@@ -2334,10 +2339,13 @@ async def chat_completions(request: Request):
         pending_internal = [
             (tc.get("function") or {}).get("name")
             for tc in (final_msg.get("tool_calls") or [])
-            if (tc.get("function") or {}).get("name") in _INTERNAL_TOOLS
+            if _is_internal_tool((tc.get("function") or {}).get("name") or "", cfg)
         ]
         if final_msg.get("tool_calls"):
-            remaining = [tc for tc in final_msg["tool_calls"] if tc.get("function", {}).get("name") not in _INTERNAL_TOOLS]
+            remaining = [
+                tc for tc in final_msg["tool_calls"]
+                if not _is_internal_tool(tc.get("function", {}).get("name") or "", cfg)
+            ]
             if remaining:
                 final_msg["tool_calls"] = remaining
                 final_msg["content"] = ""
@@ -2578,7 +2586,7 @@ async def chat_completions(request: Request):
                 if rounds_left <= 0:
                     pending = [
                         td["name"] for td in tc_accum.values()
-                        if td.get("name") in _INTERNAL_TOOLS
+                        if _is_internal_tool(td.get("name") or "", cfg)
                     ]
                     if pending:
                         notice = _agent_incomplete_notice(pending)
@@ -2603,7 +2611,7 @@ async def chat_completions(request: Request):
                         "function": {"name": td["name"], "arguments": td["arguments"]},
                     }
                     for idx, td in sorted(tc_accum.items())
-                    if td["name"] in _INTERNAL_TOOLS
+                    if _is_internal_tool(td["name"], cfg)
                 ]
                 if not internal_tcs:
                     for tc_chunk in tc_chunks:
@@ -2629,6 +2637,7 @@ async def chat_completions(request: Request):
                     user_id=user_id,
                     session_id=session_id,
                     generated_attachments=generated_attachments,
+                    cfg=cfg,
                 ):
                     search_used = True
                 new_generated = generated_attachments[prev_generated:]

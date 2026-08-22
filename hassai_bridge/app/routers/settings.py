@@ -53,6 +53,7 @@ class SettingsUpdate(BaseModel):
     knowledge_cutoff: str | None = None
     language: str | None = None
     dynamic_greetings: bool | None = None
+    ha_tools: dict | None = None
     active_provider: str | None = None
     providers: list | None = None
 
@@ -66,6 +67,12 @@ async def get_settings():
 async def ha_agent_prompt_default():
     from services.entity_tools import DEFAULT_HA_AGENT_PROMPT
     return {"prompt": DEFAULT_HA_AGENT_PROMPT}
+
+
+@router.get("/ha-tool-categories")
+async def ha_tool_categories():
+    from services.ha_tool_access import CATEGORY_KEYS
+    return {"categories": CATEGORY_KEYS}
 
 
 @router.put("/")
@@ -93,6 +100,8 @@ async def update_settings(data: SettingsUpdate):
         cfg["language"] = data.language
     if data.dynamic_greetings is not None:
         cfg["dynamic_greetings"] = bool(data.dynamic_greetings)
+    if data.ha_tools is not None:
+        cfg.setdefault("ha_tools", {}).update(data.ha_tools)
     if data.active_provider is not None:
         cfg["active_provider"] = data.active_provider
     if data.providers is not None:
@@ -574,7 +583,7 @@ async def system_info():
             "available": ha_api.is_available(),
             "connected": ha_connected,
             "detail": ha_detail,
-            "tools": sorted(ha_api.HA_TOOL_NAMES) if ha_api.is_available() else [],
+            "tools": sorted(ha_api.ha_tool_names(cfg)) if ha_api.is_available() else [],
         },
         "active_provider": cfg.get("active_provider", ""),
         "providers": safe_providers,

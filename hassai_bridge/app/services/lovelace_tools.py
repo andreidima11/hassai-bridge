@@ -55,6 +55,23 @@ HA_MUTATING_TOOLS = frozenset({
     "ha_delete_scene",
     "ha_reload_config_entry",
     "ha_reload",
+    "ha_create_automation",
+    "ha_update_automation",
+    "ha_create_script",
+    "ha_update_script",
+    "ha_create_backup",
+    "ha_restore_backup",
+    "ha_start_addon",
+    "ha_stop_addon",
+    "ha_restart_addon",
+    "ha_update_core",
+    "ha_update_addon",
+    "ha_update_supervisor",
+    "ha_update_os",
+    "ha_restart_core",
+    "ha_reboot_host",
+    "ha_upload_file",
+    "ha_mesh_network",
 })
 
 
