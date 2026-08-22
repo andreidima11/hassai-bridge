@@ -299,15 +299,30 @@ def _skip_temperature(provider: dict, thinking: dict | None, *, model: str = "")
 
 def _apply_token_limit(payload: dict, provider: dict) -> None:
     max_tokens = provider.get("max_tokens")
-    if max_tokens:
+    if not max_tokens:
+        return
+    from services import openai_api as oai
+
+    model = str(payload.get("model") or provider.get("model") or "")
+    if oai.uses_max_completion_tokens(provider, model):
+        payload["max_completion_tokens"] = max_tokens
+        payload.pop("max_tokens", None)
+    else:
         payload["max_tokens"] = max_tokens
 
 
-def _finalize_chat_payload(payload: dict, provider: dict) -> None:
-    """Provider-specific last-mile tweaks (OpenAI max_completion_tokens, etc.)."""
+def _finalize_chat_payload(
+    payload: dict,
+    provider: dict,
+    *,
+    cache_conv_id: str | None = None,
+) -> None:
+    """Provider-specific last-mile tweaks (OpenAI tokens, prompt cache, etc.)."""
     from services import openai_api as oai
 
-    oai.apply_request_payload(payload, provider)
+    # Belt-and-suspenders: strip max_tokens even if an earlier step re-added it.
+    oai.apply_request_payload(payload, provider, cache_conv_id=cache_conv_id)
+    oai.remap_token_limit(payload, provider)
 
 
 def _assert_usable_chat_model(provider: dict, used_model: str) -> None:
@@ -369,7 +384,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
             has_images=cc.messages_have_images(messages),
         )
 
-    _finalize_chat_payload(payload, provider)
+    _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id)
 
     client = _get_client()
     # Retry on transient errors (#20)
@@ -445,7 +460,7 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
             has_images=cc.messages_have_images(messages),
         )
 
-    _finalize_chat_payload(payload, provider)
+    _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id)
 
     client = _get_client()
     try:

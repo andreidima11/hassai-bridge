@@ -39,6 +39,13 @@ def preset_capabilities(provider_type: str) -> dict:
                 "models": list(gk.IMAGE_MODELS),
             },
         }
+    if provider_type == "openai":
+        return {
+            KV_CACHE: {
+                # Leave headroom under typical 128K context for output + tools.
+                "context_budget": 120000,
+            },
+        }
     return {}
 
 
@@ -47,6 +54,11 @@ def provider_chat_capabilities(provider: dict | None) -> dict:
     if not isinstance(provider, dict):
         return {}
     caps = preset_capabilities(provider.get("type", ""))
+    if not caps:
+        from services import openai_api as oai
+
+        if oai.is_openai_provider(provider):
+            caps = preset_capabilities("openai")
     if THINKING in caps:
         thinking = dict(caps[THINKING])
         ptype = provider.get("type", "")
@@ -135,6 +147,10 @@ def cache_tokens_from_usage(provider: dict | None, usage: dict | None) -> tuple[
         return hit, miss
     if ptype == "grok":
         return gk.cache_tokens_from_usage(usage)
+    from services import openai_api as oai
+
+    if oai.is_openai_provider(provider):
+        return oai.cache_tokens_from_usage(usage)
     return 0, 0
 
 
@@ -199,3 +215,8 @@ def log_provider_usage(provider: dict | None, usage: dict | None, *, user_id: st
         ds.log_cache_usage(provider, usage, user_id=user_id)
     elif provider.get("type") == "grok":
         gk.log_cache_usage(provider, usage, user_id=user_id)
+    else:
+        from services import openai_api as oai
+
+        if oai.is_openai_provider(provider):
+            oai.log_cache_usage(provider, usage, user_id=user_id)

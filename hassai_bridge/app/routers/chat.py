@@ -2279,6 +2279,7 @@ async def chat_completions(request: Request):
         round_i = 0
         stream_call_provider = chat_provider
         last_content_push = 0.0
+        stream_usage: dict = {}
 
         async def on_stream_activity(event: dict):
             pushed = _trace_push(trace_id, event)
@@ -2333,6 +2334,8 @@ async def chat_completions(request: Request):
                     if chunk.startswith("data: ") and chunk.strip() != "data: [DONE]":
                         try:
                             data = json.loads(chunk[6:])
+                            if isinstance(data.get("usage"), dict):
+                                stream_usage = data["usage"]
                             delta = data.get("choices", [{}])[0].get("delta", {})
                         except (json.JSONDecodeError, IndexError, KeyError):
                             yield chunk
@@ -2542,17 +2545,47 @@ async def chat_completions(request: Request):
                     if _image_provider_used
                     else (secondary if secondary_used and secondary else active)
                 )
-                add_usage_stat(
-                    user_id=user_id, provider_id=stat_prov.get("id", ""),
-                    provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
-                    model=model or stat_prov.get("model", ""),
-                    tokens_prompt=_prompt_tokens, tokens_completion=_estimate_tokens(full_response),
-                    tokens_total=_prompt_tokens + _estimate_tokens(full_response),
-                    response_time_ms=int((time.time() - _req_start) * 1000),
-                    stream=True, search_used=search_used,
-                    eco_mode=bool(active.get("eco_mode")),
-                    secondary_used=secondary_used,
-                )
+                if stream_usage:
+                    pc.log_provider_usage(stat_prov, stream_usage, user_id=user_id)
+                    cache_hit, cache_miss = pc.cache_tokens_from_usage(stat_prov, stream_usage)
+                    add_usage_stat(
+                        user_id=user_id, provider_id=stat_prov.get("id", ""),
+                        provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
+                        model=model or stream_usage.get("model") or stat_prov.get("model", ""),
+                        tokens_prompt=int(stream_usage.get("prompt_tokens") or _prompt_tokens),
+                        tokens_completion=int(
+                            stream_usage.get("completion_tokens")
+                            or _estimate_tokens(full_response)
+                        ),
+                        tokens_total=int(
+                            stream_usage.get("total_tokens")
+                            or (
+                                int(stream_usage.get("prompt_tokens") or _prompt_tokens)
+                                + int(
+                                    stream_usage.get("completion_tokens")
+                                    or _estimate_tokens(full_response)
+                                )
+                            )
+                        ),
+                        response_time_ms=int((time.time() - _req_start) * 1000),
+                        stream=True, search_used=search_used,
+                        eco_mode=bool(active.get("eco_mode")),
+                        secondary_used=secondary_used,
+                        cache_hit_tokens=cache_hit,
+                        cache_miss_tokens=cache_miss,
+                    )
+                else:
+                    add_usage_stat(
+                        user_id=user_id, provider_id=stat_prov.get("id", ""),
+                        provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
+                        model=model or stat_prov.get("model", ""),
+                        tokens_prompt=_prompt_tokens, tokens_completion=_estimate_tokens(full_response),
+                        tokens_total=_prompt_tokens + _estimate_tokens(full_response),
+                        response_time_ms=int((time.time() - _req_start) * 1000),
+                        stream=True, search_used=search_used,
+                        eco_mode=bool(active.get("eco_mode")),
+                        secondary_used=secondary_used,
+                    )
             except Exception:
                 pass
         except TraceCancelled:
