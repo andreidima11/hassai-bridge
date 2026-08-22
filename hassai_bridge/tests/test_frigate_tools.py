@@ -71,16 +71,44 @@ def test_list_events_api_with_snapshot():
 
     result = asyncio.run(_run())
     assert "person" in result["text"]
-    assert len(result["images"]) == 2
+    assert len(result["images"]) == 1
     assert result["image"]["filename"].startswith("frigate-front-")
     assert result["image"]["bytes"].startswith(b"\xff\xd8")
+
+
+def test_list_events_snapshot_only_one_even_with_many_events():
+    events = [
+        {"id": "evt-1", "camera": "front", "label": "person", "has_snapshot": True, "start_time": 1.0},
+        {"id": "evt-2", "camera": "front", "label": "car", "has_snapshot": True, "start_time": 2.0},
+    ]
+
+    async def fake_json(path, params=None):
+        return events
+
+    calls = []
+
+    async def fake_bytes(path, params=None):
+        calls.append(path)
+        return b"\xff\xd8\xff", "image/jpeg"
+
+    async def _run():
+        with (
+            patch.object(ft, "_get_json", side_effect=fake_json),
+            patch.object(ft, "_get_bytes", side_effect=fake_bytes),
+        ):
+            return await ft.list_events(include_snapshot=True, limit=5)
+
+    result = asyncio.run(_run())
+    assert len(result["images"]) == 1
+    assert len(calls) == 1
+    assert "evt-1" in calls[0]
 
 
 def test_system_hint_mentions_no_imagine():
     with patch.object(ft, "is_enabled", return_value=True):
         hint = ft.system_hint()
     assert "generate_image" in hint
-    assert "include_snapshot" in hint
+    assert "include_snapshot=false" in hint
 
 
 def test_snapshot_latest_jpg():

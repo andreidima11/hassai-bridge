@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.1
+
+### Fix
+- **Frigate chat spam** — detection questions answer in text only ( by default); only one snapshot when the user explicitly asks for a photo (reverts 1.0.0 multi-snap gallery)
+- Richer event lines (zones, still on camera, stationary)
+
+
 ## 1.0.0
 
 First stable release (end of beta).

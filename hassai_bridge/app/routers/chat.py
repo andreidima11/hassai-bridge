@@ -1642,10 +1642,10 @@ _FRIGATE_TOOLS = [
             "name": "frigate_events",
             "description": (
                 "Recent Frigate detections (person, car, animal, …) from the real NVR — "
-                "not AI image generation. Pass camera= / label= (e.g. person) to filter. "
-                "Set include_snapshot=true when the user wants the actual snapshot photos "
-                "(attaches up to several event snaps in chat). Prefer this over generate_image "
-                "for any camera / detection / outdoor / person-on-camera request."
+                "not AI image generation. Default: text-only summary for the user "
+                "(who/when/camera/still on camera). Pass camera= / label= to filter. "
+                "Set include_snapshot=true only when the user explicitly asks to see/show "
+                "a photo or snap — attaches one newest snapshot, not every event."
             ),
             "parameters": {
                 "type": "object",
@@ -1660,13 +1660,13 @@ _FRIGATE_TOOLS = [
                     },
                     "limit": {
                         "type": "integer",
-                        "description": "How many events (default 8, max 25).",
+                        "description": "How many events to list in text (default 8, max 25).",
                     },
                     "include_snapshot": {
                         "type": "boolean",
                         "description": (
-                            "Attach real Frigate snapshots for the listed events "
-                            "(up to 6) into the chat."
+                            "Default false. True only when the user wants a photo — "
+                            "attaches one newest snapshot, not a gallery."
                         ),
                     },
                 },
@@ -1737,10 +1737,7 @@ async def _run_frigate_tool(
                 )
                 generated_attachments.append(att)
             if "Attached" not in text and "Showing" not in text:
-                n = len(images)
-                text = (
-                    f"{text}\nShowing {n} snapshot{'s' if n != 1 else ''} in the chat."
-                )
+                text = f"{text}\nShowing snapshot in the chat."
         return text
     except ValueError as exc:
         return f"Error: {exc}"
