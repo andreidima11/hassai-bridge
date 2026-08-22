@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.94-beta
+
+### Feature
+- **Frigate in Settings** — new Cameras tab: enable/disable, API URL, timeout, Test button; status card on Info dashboard
+
 ## 0.2.93-beta
 
 ### Feature
