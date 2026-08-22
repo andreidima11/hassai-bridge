@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.85-beta
+
+### Feature
+- **OpenAI prompt cache** — send `prompt_cache_key` (session id) for better cache hits; KV-friendly trim (~120K budget); log/track `cached_tokens` (and stream `include_usage`)
+
+### Fix
+- **OpenAI / ChatGPT `max_tokens`** — harder remap to `max_completion_tokens` (provider named ChatGPT, Azure URL, or gpt-5/o-series model ids) so HTTP 400 no longer slips through
+
 ## 0.2.84-beta
 
 ### Fix
