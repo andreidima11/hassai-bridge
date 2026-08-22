@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.93-beta
+
+### Feature
+- **Frigate cameras** — agent tools `frigate_list_cameras`, `frigate_events`, `frigate_snapshot`: last detections + snapshot attached in chat (Frigate API, with `/media/frigate` fallback). Ask “ce se vede pe cameră / ce e pe afară” and the model can answer with time + photo.
+
 ## 0.2.92-beta
 
 ### Fix

@@ -50,7 +50,13 @@ router = APIRouter()
 
 _HA_TOOL_NAMES = ha_api.HA_TOOL_NAMES
 _MEDIA_TOOL_NAMES = {"media_list", "media_read", "media_delete"}
-_INTERNAL_TOOLS = {"search_web", "run_skill", "generate_image"} | _MEDIA_TOOL_NAMES | _HA_TOOL_NAMES
+_FRIGATE_TOOL_NAMES = {"frigate_list_cameras", "frigate_events", "frigate_snapshot"}
+_INTERNAL_TOOLS = (
+    {"search_web", "run_skill", "generate_image"}
+    | _MEDIA_TOOL_NAMES
+    | _FRIGATE_TOOL_NAMES
+    | _HA_TOOL_NAMES
+)
 
 # Identical tool+args this many times → skip and tell the model to move on.
 _AGENT_REPEAT_LIMIT = 2
@@ -220,6 +226,10 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(args.get("skill_name"))
     if name in {"media_list", "media_read", "media_delete"}:
         return _clip_detail(args.get("path") or args.get("search") or "")
+    if name in _FRIGATE_TOOL_NAMES:
+        return _clip_detail(
+            args.get("camera") or args.get("event_id") or args.get("label") or ""
+        )
     if name == "ha_call_service":
         call = f"{args.get('domain') or ''}.{args.get('service') or ''}".strip(".")
         entity = str(args.get("entity_id") or "").strip()
@@ -694,6 +704,9 @@ async def _invoke_internal_tool(
 
     if fn_name in _MEDIA_TOOL_NAMES:
         return await _run_media_tool(fn_name, args, user_id, generated_attachments), False
+
+    if fn_name in _FRIGATE_TOOL_NAMES:
+        return await _run_frigate_tool(fn_name, args, user_id, generated_attachments), False
 
     if fn_name in _HA_TOOL_NAMES:
         log.info("AI requested HA tool '%s': %s", fn_name, args)
@@ -1611,6 +1624,118 @@ async def _run_media_tool(
         return f"Error: {exc}"
 
 
+_FRIGATE_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "frigate_list_cameras",
+            "description": (
+                "List Frigate camera names. Use before asking about a specific camera "
+                "when the name is unclear (front yard, driveway, etc.)."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "frigate_events",
+            "description": (
+                "Recent Frigate detections (person, car, animal, …). "
+                "Pass camera= for one camera. Set include_snapshot=true to attach the latest "
+                "detection photo in the chat — use this when the user asks what is outside, "
+                "what the cameras saw, or the last detection."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "camera": {
+                        "type": "string",
+                        "description": "Frigate camera name (e.g. front_door). Optional.",
+                    },
+                    "label": {
+                        "type": "string",
+                        "description": "Object label filter: person, car, dog, … Optional.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "How many events (default 8, max 25).",
+                    },
+                    "include_snapshot": {
+                        "type": "boolean",
+                        "description": "Attach the newest event snapshot to the chat.",
+                    },
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "frigate_snapshot",
+            "description": (
+                "Fetch a camera snapshot into the chat. Prefer camera= for the latest frame "
+                "(and last-detection summary). Or pass event_id= from frigate_events."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "camera": {"type": "string", "description": "Frigate camera name"},
+                    "event_id": {"type": "string", "description": "Frigate event id"},
+                },
+            },
+        },
+    },
+]
+
+
+async def _run_frigate_tool(
+    fn_name: str,
+    args: dict,
+    user_id: str,
+    generated_attachments: list | None,
+) -> str:
+    from services import frigate_tools as ft
+
+    log.info("AI requested Frigate tool '%s': %s", fn_name, args)
+    try:
+        if fn_name == "frigate_list_cameras":
+            return await ft.list_cameras()
+
+        if fn_name == "frigate_events":
+            result = await ft.list_events(
+                camera=str(args.get("camera") or ""),
+                label=str(args.get("label") or ""),
+                limit=args.get("limit") or 8,
+                include_snapshot=bool(args.get("include_snapshot")),
+            )
+        elif fn_name == "frigate_snapshot":
+            result = await ft.snapshot(
+                camera=str(args.get("camera") or ""),
+                event_id=str(args.get("event_id") or ""),
+            )
+        else:
+            return f"Error: unknown Frigate tool {fn_name}"
+
+        text = result.get("text") or "OK"
+        image = result.get("image")
+        if image and generated_attachments is not None:
+            att = cm.save_uploaded_file(
+                user_id,
+                image["bytes"],
+                filename=image.get("filename") or "frigate.jpg",
+            )
+            generated_attachments.append(att)
+            if "Attached" not in text and "Showing" not in text:
+                text = f"{text}\nShowing snapshot in the chat."
+        return text
+    except ValueError as exc:
+        return f"Error: {exc}"
+    except Exception as exc:
+        log.error("Frigate tool %s failed: %s", fn_name, exc)
+        return f"Error: Frigate request failed — {exc}"
+
+
 _SEARCH_WEB_TOOL = {
     "type": "function",
     "function": {
@@ -1830,6 +1955,10 @@ async def chat_completions(request: Request):
         all_tools.append(_SEARCH_WEB_TOOL)
     all_tools.extend(_build_skill_tools())
     all_tools.extend(_MEDIA_TOOLS)
+    from services import frigate_tools as ft
+
+    if ft.is_enabled():
+        all_tools.extend(_FRIGATE_TOOLS)
     all_tools.extend(ha_api.build_ha_tools())
     active = get_active_provider()
     request_has_images = cc.messages_have_images(messages)
@@ -1950,6 +2079,11 @@ async def chat_completions(request: Request):
     ha_hint = ha_api.ha_system_hint(cfg)
     if ha_hint:
         volatile_parts.append(ha_hint)
+    from services import frigate_tools as ft
+
+    frigate_hint = ft.system_hint()
+    if frigate_hint:
+        volatile_parts.append(frigate_hint)
 
     if stable_parts:
         augmented.append({"role": "system", "content": "\n\n".join(stable_parts)})

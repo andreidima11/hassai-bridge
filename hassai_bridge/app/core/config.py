@@ -77,6 +77,11 @@ DEFAULT_CONFIG = {
         "max_pages_to_fetch": 2,
         "cache_ttl": 300,
     },
+    "frigate": {
+        "enabled": True,
+        "base_url": "http://ccab4aaf-frigate:5000",
+        "timeout": 12,
+    },
     "memory": {
         "enabled": True,
         "auto_extract": True,
