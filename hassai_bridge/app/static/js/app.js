@@ -694,6 +694,46 @@ async function loadUsageStats() {
 // ══════════════════════════════════════════════════
 
 let _haAgentPromptDefault = '';
+let _haToolCategoryKeys = [];
+
+async function loadHaToolCategories() {
+  if (_haToolCategoryKeys.length) return _haToolCategoryKeys;
+  try {
+    const data = await api('GET', '/api/settings/ha-tool-categories');
+    _haToolCategoryKeys = Object.keys(data.categories || {});
+  } catch {
+    _haToolCategoryKeys = [
+      'entities', 'control', 'registry', 'automations', 'integrations',
+      'dashboards', 'config_files', 'diagnostics', 'backups', 'addons',
+      'updates', 'restart', 'network', 'upload', 'zigbee',
+    ];
+  }
+  return _haToolCategoryKeys;
+}
+
+function renderHaToolAccess(cfg) {
+  const list = document.getElementById('haToolAccessList');
+  if (!list) return;
+  const flags = cfg.ha_tools || {};
+  const keys = _haToolCategoryKeys.length ? _haToolCategoryKeys : Object.keys(flags);
+  if (!keys.length) return;
+  list.innerHTML = keys.map((key) => {
+    const label = t(`settings.haTools.${key}`) || key;
+    const on = flags[key] !== false;
+    return `<div class="toggle-row" style="margin-bottom:10px">
+      <span>${label}</span>
+      <label class="toggle"><input type="checkbox" data-ha-tool="${key}" ${on ? 'checked' : ''}><span class="slider"></span></label>
+    </div>`;
+  }).join('');
+}
+
+function collectHaTools() {
+  const out = {};
+  document.querySelectorAll('[data-ha-tool]').forEach((el) => {
+    out[el.dataset.haTool] = el.checked;
+  });
+  return out;
+}
 
 async function loadHaAgentPromptDefault() {
   if (_haAgentPromptDefault) return _haAgentPromptDefault;
@@ -775,6 +815,8 @@ async function loadSettings() {
     // System prompt
     document.getElementById('systemPrompt').value = cfg.system_prompt || '';
     const haDefault = await loadHaAgentPromptDefault();
+    await loadHaToolCategories();
+    renderHaToolAccess(cfg);
     document.getElementById('haAgentPrompt').value = cfg.ha_agent_prompt || haDefault;
   } catch (e) {
     toast(t('toast.settingsError', { msg: e.message }), true);
@@ -821,6 +863,7 @@ async function saveSettings() {
       knowledge_cutoff: document.getElementById('knowledgeCutoff').value,
       language: document.getElementById('settingsLang').value,
       dynamic_greetings: document.getElementById('settingsDynamicGreetings')?.checked !== false,
+      ha_tools: collectHaTools(),
     });
     toast(t('toast.settingsSaved'));
     persistLanguage(document.getElementById('settingsLang')?.value || currentLang);

@@ -588,6 +588,14 @@ def get_conversation_history(user_id, limit=20, session_id: str | None = None):
         attachments = meta.get("attachments")
         if isinstance(attachments, list) and attachments:
             item["attachments"] = attachments
+        reasoning = meta.get("reasoning_content")
+        if not reasoning:
+            for ev in reversed(meta.get("activity") or []):
+                if isinstance(ev, dict) and ev.get("name") == "think" and ev.get("detail"):
+                    reasoning = ev.get("detail")
+                    break
+        if reasoning:
+            item["reasoning_content"] = reasoning
         out.append(item)
     return out
 

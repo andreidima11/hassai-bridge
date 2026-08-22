@@ -82,3 +82,39 @@ def test_assistant_turn_preserves_reasoning():
 
     plain = pc.assistant_turn({"type": "openai"}, msg)
     assert "reasoning_content" not in plain
+
+
+def test_assistant_turn_keeps_empty_reasoning_with_tool_calls():
+    msg = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "x", "arguments": "{}"}}],
+    }
+    out = pc.assistant_turn({"type": "deepseek"}, msg)
+    assert out["reasoning_content"] == ""
+
+
+def test_prepare_messages_for_tools_adds_reasoning_field():
+    msgs = [
+        {"role": "user", "content": "hi"},
+        {"role": "assistant", "content": "hello"},
+        {"role": "user", "content": "cameras?"},
+    ]
+    out = ds.prepare_messages_for_tools(msgs)
+    assert "reasoning_content" not in out[0]
+    assert out[1]["reasoning_content"] == ""
+    assert out[1]["content"] == "hello"
+
+
+def test_prepare_messages_for_request_only_deepseek_tools_thinking():
+    msgs = [{"role": "assistant", "content": "x"}]
+    thinking = {"enabled": True, "effort": "high"}
+    shaped = pc.prepare_messages_for_request(
+        {"type": "deepseek"}, msgs, tools=[{"type": "function"}], thinking=thinking,
+    )
+    assert shaped[0]["reasoning_content"] == ""
+
+    untouched = pc.prepare_messages_for_request(
+        {"type": "openai"}, msgs, tools=[{"type": "function"}], thinking=thinking,
+    )
+    assert "reasoning_content" not in untouched[0]

@@ -48,15 +48,16 @@ from services import chat_media as cm
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
 
-_HA_TOOL_NAMES = ha_api.HA_TOOL_NAMES
 _MEDIA_TOOL_NAMES = {"media_list", "media_read", "media_delete"}
 _FRIGATE_TOOL_NAMES = {"frigate_list_cameras", "frigate_events", "frigate_snapshot"}
-_INTERNAL_TOOLS = (
-    {"search_web", "run_skill", "generate_image"}
-    | _MEDIA_TOOL_NAMES
-    | _FRIGATE_TOOL_NAMES
-    | _HA_TOOL_NAMES
-)
+
+
+def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
+    if fn_name in ("search_web", "run_skill", "generate_image"):
+        return True
+    if fn_name in _MEDIA_TOOL_NAMES or fn_name in _FRIGATE_TOOL_NAMES:
+        return True
+    return ha_api.is_ha_tool(fn_name, cfg)
 
 # Identical tool+args this many times → skip and tell the model to move on.
 _AGENT_REPEAT_LIMIT = 2
@@ -534,6 +535,7 @@ def _activity_meta(
     trace_id: str,
     events: list | None = None,
     attachments: list | None = None,
+    reasoning_content: str | None = None,
 ) -> dict | None:
     merged = list(events or [])
     if trace_id and trace_id in _traces:
@@ -546,7 +548,28 @@ def _activity_meta(
         meta["activity"] = compact
     if attachments:
         meta["attachments"] = attachments
+    reasoning = _clip_reasoning(reasoning_content)
+    if reasoning:
+        meta["reasoning_content"] = reasoning
+    elif not reasoning and compact:
+        # Recover CoT from the last think activity step when explicit field missing
+        for ev in reversed(compact):
+            if ev.get("name") == "think" and ev.get("detail"):
+                meta["reasoning_content"] = _clip_reasoning(str(ev.get("detail") or ""))
+                break
     return meta or None
+
+
+def _reasoning_from_row_meta(meta: dict | None) -> str:
+    if not isinstance(meta, dict):
+        return ""
+    direct = _clip_reasoning(meta.get("reasoning_content") or "")
+    if direct:
+        return direct
+    for ev in reversed(meta.get("activity") or []):
+        if isinstance(ev, dict) and ev.get("name") == "think" and ev.get("detail"):
+            return _clip_reasoning(str(ev.get("detail") or ""))
+    return ""
 
 
 def _markdown_for_generated_attachments(
@@ -708,7 +731,7 @@ async def _invoke_internal_tool(
     if fn_name in _FRIGATE_TOOL_NAMES:
         return await _run_frigate_tool(fn_name, args, user_id, generated_attachments), False
 
-    if fn_name in _HA_TOOL_NAMES:
+    if ha_api.is_ha_tool(fn_name):
         log.info("AI requested HA tool '%s': %s", fn_name, args)
         ha_result = await ha_api.run_ha_tool(fn_name, args)
         return f"[Home Assistant — {fn_name}]\n{ha_result}", False
@@ -729,14 +752,17 @@ async def _append_internal_tool_results(
     user_id: str = "",
     session_id: str | None = None,
     generated_attachments: list | None = None,
+    cfg: dict | None = None,
 ) -> bool:
     """Append tool-role messages for internal calls. Returns search_used."""
+    if cfg is None:
+        cfg = load_config()
     search_used = False
     for tc in tool_calls:
         await _check_trace(trace_id)
         fn = tc.get("function") or {}
         fn_name = fn.get("name") or ""
-        if fn_name not in _INTERNAL_TOOLS:
+        if not _is_internal_tool(fn_name, cfg):
             continue
         tc_id = tc.get("id") or f"call_{fn_name}"
         args = _parse_tool_args(fn.get("arguments"))
@@ -1445,6 +1471,13 @@ def _sanitize_message_roles(messages: list[dict]) -> list[dict]:
                 cleaned[-1]["content"] = prev_content + "\n" + next_content
             elif next_content:
                 cleaned[-1]["content"] = next_content
+            # Keep DeepSeek/Grok CoT when merging consecutive assistants
+            prev_r = cleaned[-1].get("reasoning_content") or ""
+            next_r = m.get("reasoning_content") or ""
+            if next_r and next_r not in prev_r:
+                cleaned[-1]["reasoning_content"] = (
+                    f"{prev_r}\n{next_r}".strip() if prev_r else next_r
+                )
         else:
             cleaned.append(dict(m))
 
@@ -1969,7 +2002,7 @@ async def chat_completions(request: Request):
 
     if ft.is_enabled():
         all_tools.extend(_FRIGATE_TOOLS)
-    all_tools.extend(ha_api.build_ha_tools())
+    all_tools.extend(ha_api.build_ha_tools(cfg))
     active = get_active_provider()
     request_has_images = cc.messages_have_images(messages)
     image_gen_provider = providers.resolve_image_generation_provider(active)
@@ -2248,7 +2281,7 @@ async def chat_completions(request: Request):
 
                 internal_calls = [
                     tc for tc in tool_calls
-                    if (tc.get("function") or {}).get("name") in _INTERNAL_TOOLS
+                    if _is_internal_tool((tc.get("function") or {}).get("name") or "", cfg)
                 ]
                 if not internal_calls:
                     msg["content"] = ""
@@ -2271,6 +2304,7 @@ async def chat_completions(request: Request):
                     user_id=user_id,
                     session_id=session_id,
                     generated_attachments=generated_attachments,
+                    cfg=cfg,
                 ):
                     _search_used = True
 
@@ -2334,10 +2368,13 @@ async def chat_completions(request: Request):
         pending_internal = [
             (tc.get("function") or {}).get("name")
             for tc in (final_msg.get("tool_calls") or [])
-            if (tc.get("function") or {}).get("name") in _INTERNAL_TOOLS
+            if _is_internal_tool((tc.get("function") or {}).get("name") or "", cfg)
         ]
         if final_msg.get("tool_calls"):
-            remaining = [tc for tc in final_msg["tool_calls"] if tc.get("function", {}).get("name") not in _INTERNAL_TOOLS]
+            remaining = [
+                tc for tc in final_msg["tool_calls"]
+                if not _is_internal_tool(tc.get("function", {}).get("name") or "", cfg)
+            ]
             if remaining:
                 final_msg["tool_calls"] = remaining
                 final_msg["content"] = ""
@@ -2373,7 +2410,12 @@ async def chat_completions(request: Request):
             add_conversation_message(
                 user_id, "assistant", assistant_content,
                 session_id=session_id,
-                meta=_activity_meta(trace_id, activity_events, generated_attachments),
+                meta=_activity_meta(
+                    trace_id,
+                    activity_events,
+                    generated_attachments,
+                    reasoning_content=_message_reasoning(final_msg),
+                ),
             )
             if assistant_content:
                 all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
@@ -2428,6 +2470,7 @@ async def chat_completions(request: Request):
         stream_call_provider = chat_provider
         last_content_push = 0.0
         stream_usage: dict = {}
+        last_think_reasoning = ""
 
         async def on_stream_activity(event: dict):
             pushed = _trace_push(trace_id, event)
@@ -2515,6 +2558,7 @@ async def chat_completions(request: Request):
 
                         if reasoning:
                             think_reasoning += reasoning
+                            last_think_reasoning = think_reasoning
                             now = time.time()
                             if think_open and (
                                 now - last_reasoning_push >= 0.35
@@ -2535,6 +2579,8 @@ async def chat_completions(request: Request):
                         if content:
                             if think_open:
                                 think_open = False
+                                if think_reasoning:
+                                    last_think_reasoning = think_reasoning
                                 await on_stream_activity({
                                     "id": think_id,
                                     "name": "think",
@@ -2557,6 +2603,8 @@ async def chat_completions(request: Request):
 
                 if think_open:
                     think_open = False
+                    if think_reasoning:
+                        last_think_reasoning = think_reasoning
                     await on_stream_activity({
                         "id": think_id,
                         "name": "think",
@@ -2578,7 +2626,7 @@ async def chat_completions(request: Request):
                 if rounds_left <= 0:
                     pending = [
                         td["name"] for td in tc_accum.values()
-                        if td.get("name") in _INTERNAL_TOOLS
+                        if _is_internal_tool(td.get("name") or "", cfg)
                     ]
                     if pending:
                         notice = _agent_incomplete_notice(pending)
@@ -2603,7 +2651,7 @@ async def chat_completions(request: Request):
                         "function": {"name": td["name"], "arguments": td["arguments"]},
                     }
                     for idx, td in sorted(tc_accum.items())
-                    if td["name"] in _INTERNAL_TOOLS
+                    if _is_internal_tool(td["name"], cfg)
                 ]
                 if not internal_tcs:
                     for tc_chunk in tc_chunks:
@@ -2613,8 +2661,9 @@ async def chat_completions(request: Request):
 
                 log.info("Agent stream round — %s tool(s), %s left", len(internal_tcs), rounds_left)
                 assistant_turn = {"role": "assistant", "content": None, "tool_calls": internal_tcs}
-                if think_reasoning and pc.needs_reasoning_in_tool_loop(stream_call_provider):
-                    assistant_turn["reasoning_content"] = think_reasoning
+                # DeepSeek/Grok thinking + tools: reasoning_content must always be present
+                if pc.needs_reasoning_in_tool_loop(stream_call_provider):
+                    assistant_turn["reasoning_content"] = think_reasoning or ""
                 augmented.append(assistant_turn)
                 prev_generated = len(generated_attachments)
                 if await _append_internal_tool_results(
@@ -2629,6 +2678,7 @@ async def chat_completions(request: Request):
                     user_id=user_id,
                     session_id=session_id,
                     generated_attachments=generated_attachments,
+                    cfg=cfg,
                 ):
                     search_used = True
                 new_generated = generated_attachments[prev_generated:]
@@ -2679,7 +2729,11 @@ async def chat_completions(request: Request):
                 add_conversation_message(
                     user_id, "assistant", clean_response,
                     session_id=session_id,
-                    meta=_activity_meta(trace_id, attachments=generated_attachments),
+                    meta=_activity_meta(
+                        trace_id,
+                        attachments=generated_attachments,
+                        reasoning_content=last_think_reasoning,
+                    ),
                 )
                 if clean_response:
                     all_msgs = messages + [{"role": "assistant", "content": clean_response}]

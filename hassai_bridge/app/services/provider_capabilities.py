@@ -187,6 +187,24 @@ def thinking_for_provider(thinking_cfg: dict | None, provider: dict) -> dict | N
     return thinking_cfg
 
 
+def prepare_messages_for_request(
+    provider: dict,
+    messages: list[dict],
+    *,
+    tools: list | None = None,
+    thinking: dict | None = None,
+) -> list[dict]:
+    """Provider-specific message shaping before chat completions."""
+    if (
+        provider.get("type") == "deepseek"
+        and tools
+        and thinking
+        and thinking.get("enabled")
+    ):
+        return ds.prepare_messages_for_tools(messages)
+    return messages
+
+
 def apply_provider_payload_extras(payload: dict, provider: dict, thinking: dict | None, *, has_images: bool = False) -> None:
     ptype = provider.get("type", "")
     if ptype == "deepseek":

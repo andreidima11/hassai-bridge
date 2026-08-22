@@ -199,7 +199,12 @@ def row_to_message(row: dict, *, user_id: str) -> dict:
         user_id=user_id,
         include_images=include_images,
     )
-    return {"role": role, "content": content}
+    msg: dict = {"role": role, "content": content}
+    # DeepSeek thinking + tools: prior assistant CoT must be replayed.
+    reasoning = row.get("reasoning_content")
+    if reasoning and role == "assistant":
+        msg["reasoning_content"] = str(reasoning)
+    return msg
 
 
 def public_attachments(attachments: list[dict] | None, session_id: str = "") -> list[dict]:
