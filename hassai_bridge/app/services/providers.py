@@ -27,13 +27,9 @@ def _get_client() -> httpx.AsyncClient:
     """Return a shared httpx client. Timeout is set per-request, not per-client."""
     global _client
     if _client is None or _client.is_closed:
-        from services import openai_api as oai
-
         _client = httpx.AsyncClient(
             timeout=300,  # generous default; callers override per-request
             limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-            # Wire-level rewrite: max_tokens → max_completion_tokens for OpenAI URLs.
-            event_hooks={"request": [oai.rewrite_openai_request_body]},
         )
     return _client
 

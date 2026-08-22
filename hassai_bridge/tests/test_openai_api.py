@@ -231,6 +231,15 @@ def test_finalize_http_payload_openai_type():
     assert payload["max_completion_tokens"] == 512
 
 
+def test_httpx_client_has_no_sync_request_hooks():
+    """AsyncClient awaits hooks — a sync hook returns None and crashes every request."""
+    import services.providers as prov
+
+    prov._client = None
+    client = prov._get_client()
+    assert list(client.event_hooks.get("request") or []) == []
+
+
 def test_restricted_model_detection():
     assert oai.is_restricted_sampling_model("o1")
     assert oai.is_restricted_sampling_model("o3-mini")

@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.92-beta
+
+### Fix
+- **Critical** — remove broken httpx AsyncClient request hook from 0.2.91 that caused `object NoneType can't be used in 'await' expression` on every chat (all providers). Token remap still runs in `finalize_http_payload` before POST.
+- **Ingress 502/504 message** — no longer blames Grok Imagine; 502 means add-on unreachable, 504 means Ingress timeout
+
 ## 0.2.91-beta
 
 ### Fix
