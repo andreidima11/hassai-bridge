@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import errno
 import json
+import os
+import shutil
 import sqlite3
 import zipfile
 from pathlib import Path
@@ -141,6 +144,41 @@ def test_restore_rejects_non_zip(tmp_path):
     bad.write_bytes(b"not-a-zip")
     with pytest.raises(ValueError, match="ZIP"):
         ei.restore_export_zip(bad)
+
+
+def test_restore_export_zip_cross_device_replace(data_env, tmp_path, monkeypatch):
+    """Temp staging on /tmp and DB on data dir must not use bare os.rename."""
+    zip_path = tmp_path / "out.zip"
+    ei.build_export_zip(zip_path)
+    data_env["cfg_path"].write_text(json.dumps({"api_key": "wiped", "providers": []}), encoding="utf-8")
+
+    def fake_replace(src, dst):
+        raise OSError(errno.EXDEV, "Cross-device link")
+
+    monkeypatch.setattr(os, "replace", fake_replace)
+
+    result = ei.restore_export_zip(zip_path)
+    assert result["status"] == "ok"
+    restored = json.loads(data_env["cfg_path"].read_text(encoding="utf-8"))
+    assert restored["api_key"] == "hab_test"
+    assert data_env["db_path"].read_bytes()[:16].startswith(b"SQLite format 3")
+
+
+def test_restore_database_file_cross_device_replace(data_env, tmp_path, monkeypatch):
+    src = tmp_path / "backup.db"
+    shutil.copy2(data_env["db_path"], src)
+    wiped = data_env["db_path"].read_bytes()
+    data_env["db_path"].write_bytes(b"")
+
+    def fake_replace(src_path, dst_path):
+        raise OSError(errno.EXDEV, "Cross-device link")
+
+    monkeypatch.setattr(os, "replace", fake_replace)
+
+    result = ei.restore_database_file(src)
+    assert result["status"] == "ok"
+    assert data_env["db_path"].read_bytes()[:16].startswith(b"SQLite format 3")
+    assert len(data_env["db_path"].read_bytes()) == len(wiped)
 
 
 def test_chunked_db_upload_roundtrip(data_env, tmp_path):

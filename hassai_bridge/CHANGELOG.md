@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.87-beta
+
+### Fix
+- **Backup restore** — fix “cross-device link” when restoring from ZIP or upload (`/tmp` staging vs `/config` database); copy fallback instead of `rename` across mounts
+
 ## 0.2.86-beta
 
 ### Polish
