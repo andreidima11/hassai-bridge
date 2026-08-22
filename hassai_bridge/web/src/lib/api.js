@@ -33,11 +33,17 @@ export async function readError(resp) {
     return j?.error?.message || j?.detail || `HTTP ${resp.status}`;
   } catch {
     if (/^\s*</.test(errText) || /<!doctype/i.test(errText)) {
-      if (resp.status === 504 || resp.status === 502 || resp.status === 524) {
+      if (resp.status === 504 || resp.status === 524) {
         return (
-          `HTTP ${resp.status}: gateway timeout while waiting for the model ` +
-          `(common with Grok Imagine under HA Ingress). ` +
+          `HTTP ${resp.status}: Home Assistant Ingress timed out waiting for the add-on. ` +
+          `Check that HASSAI Bridge is running, then try again. ` +
           `If you asked for an image, refresh this chat — it may already be saved.`
+        );
+      }
+      if (resp.status === 502) {
+        return (
+          `HTTP 502: Home Assistant cannot reach the add-on (restarting or crashed). ` +
+          `Open the add-on page, confirm it is Started, check Logs, then retry.`
         );
       }
       return `HTTP ${resp.status}: server returned HTML instead of JSON. Check provider URL and API key.`;

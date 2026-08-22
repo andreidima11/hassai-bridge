@@ -273,10 +273,11 @@ def apply_request_payload(
 
 
 def rewrite_openai_request_body(request: httpx.Request) -> None:
-    """httpx request hook: rewrite JSON body so max_tokens never reaches OpenAI.
+    """Rewrite JSON body so max_tokens never reaches OpenAI (sync helper for tests).
 
-    This is the wire-level safety net — runs on every POST to openai.com / Azure
-    regardless of how the payload dict was built.
+    Do NOT register this as an httpx AsyncClient event hook — AsyncClient always
+    `await`s hooks, so a sync hook raises:
+    TypeError: object NoneType can't be used in 'await' expression
     """
     url = str(request.url).lower()
     if "openai.com" not in url and "openai.azure.com" not in url:
@@ -309,16 +310,11 @@ def rewrite_openai_request_body(request: httpx.Request) -> None:
     body = json.dumps(data).encode("utf-8")
     request._content = body
     request.stream = httpx.ByteStream(body)
-    # Update length so servers accept the rewritten body.
     try:
         request.headers["content-length"] = str(len(body))
     except Exception:
         pass
-    log.info(
-        "OpenAI wire rewrite: model=%s keys=%s",
-        data.get("model"),
-        sorted(k for k in data if k != "messages"),
-    )
+
 
 
 def cache_tokens_from_usage(usage: dict | None) -> tuple[int, int]:
