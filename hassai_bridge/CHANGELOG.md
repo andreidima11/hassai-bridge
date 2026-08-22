@@ -2,6 +2,8 @@
 
 ## 1.0.2
 
+Stable patch release: HA admin tools, DeepSeek tool-loop fix, and add-on logo.
+
 ### Features
 - **HA admin tools** — backups (list/create/restore), add-on lifecycle, updates, Core/host restart, network ping/port check, binary upload, ZHA/Z-Wave mesh actions, native automation/script create/edit
 - **HA tool permissions** — Settings → General toggles per capability (all on by default); disabled tools are hidden from the AI
