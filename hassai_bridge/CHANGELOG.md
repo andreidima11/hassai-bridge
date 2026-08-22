@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.2
+
+### Polish
+- **Add-on logo** — new HassAI Bridge mark (house–cloud bridge icon) for `icon.png` and `logo.png` in the store
+
 ## 1.0.1
 
 ### Fix
