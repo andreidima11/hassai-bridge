@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.97-beta
+
+### Polish
+- **Image lightbox** — blurred/dimmed backdrop; pinch zoom applies to the photo only (page zoom blocked while open)
+
+
 ## 0.2.94-beta
 
 ### Feature
