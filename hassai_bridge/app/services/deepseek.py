@@ -133,8 +133,10 @@ def assistant_turn(message: dict) -> dict:
 def prepare_messages_for_tools(messages: list[dict] | None) -> list[dict]:
     """Ensure every assistant message carries reasoning_content when tools are used.
 
-    DeepSeek requires prior reasoning_content to be passed back on all subsequent
-    requests that include ``tools``, even for assistant turns without tool_calls.
+    DeepSeek docs (Thinking Mode → Tool Calls): when a request carries ``tools``,
+    the reasoning_content of every intermediate assistant turn must be passed
+    back — including turns that did not call a tool. Missing field → HTTP 400.
+    Assistant turns with no recorded CoT use an empty string.
     """
     out: list[dict] = []
     for msg in messages or []:
@@ -145,12 +147,33 @@ def prepare_messages_for_tools(messages: list[dict] | None) -> list[dict]:
             out.append(msg)
             continue
         row = dict(msg)
-        if "reasoning_content" not in row:
-            row["reasoning_content"] = ""
-        elif row.get("reasoning_content") is None:
-            row["reasoning_content"] = ""
+        reasoning = row.get("reasoning_content")
+        row["reasoning_content"] = str(reasoning) if reasoning else ""
         out.append(row)
     return out
+
+
+def strip_reasoning(messages: list[dict] | None) -> list[dict]:
+    """Drop reasoning_content everywhere (fallback when pass-back is rejected)."""
+    out: list[dict] = []
+    for msg in messages or []:
+        if not isinstance(msg, dict) or "reasoning_content" not in msg:
+            out.append(msg)
+            continue
+        row = dict(msg)
+        row.pop("reasoning_content", None)
+        out.append(row)
+    return out
+
+
+def is_reasoning_passback_error(status_code: int, body: str | None) -> bool:
+    """True for DeepSeek's 'reasoning_content must be passed back' HTTP 400."""
+    if status_code != 400:
+        return False
+    text = (body or "").lower()
+    return "reasoning_content" in text and (
+        "passed back" in text or "thinking mode" in text
+    )
 
 
 def log_cache_usage(provider: dict | None, usage: dict | None, *, user_id: str = "") -> None:

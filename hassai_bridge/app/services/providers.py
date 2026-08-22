@@ -364,6 +364,25 @@ def resolve_provider_chat_model(provider: dict, model: str | None = None) -> str
     return used_model
 
 
+def _deepseek_reasoning_fallback(payload: dict, provider: dict, status: int, body: str) -> bool:
+    """Repair a payload rejected by DeepSeek's reasoning_content rule.
+
+    Retries without thinking and without reasoning_content, which DeepSeek
+    always accepts — used when a stored conversation predates CoT persistence.
+    """
+    from services import deepseek as ds
+
+    if provider.get("type") != "deepseek":
+        return False
+    if not ds.is_reasoning_passback_error(status, body):
+        return False
+    payload["messages"] = ds.strip_reasoning(payload.get("messages") or [])
+    payload["thinking"] = {"type": "disabled"}
+    payload.pop("reasoning_effort", None)
+    log.warning("DeepSeek rejected reasoning_content pass-back; retrying without thinking")
+    return True
+
+
 async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,
                           tools: list | None = None, tool_choice: str | dict | None = None,
                           provider: dict | None = None, thinking: dict | None = None,
@@ -423,6 +442,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
     client = _get_client()
     # Retry on transient errors (#20)
     last_exc = None
+    reasoning_retry_used = False
     for attempt in range(_RETRY_COUNT + 1):
         try:
             resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
@@ -432,6 +452,14 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
                 continue
             if resp.status_code >= 400:
                 body = resp.text[:800]
+                if not reasoning_retry_used and _deepseek_reasoning_fallback(
+                    payload, provider, resp.status_code, body,
+                ):
+                    reasoning_retry_used = True
+                    resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
+                    if resp.status_code < 400:
+                        return resp.json()
+                    body = resp.text[:800]
                 from services.provider_errors import friendly_provider_error
 
                 log.error(
@@ -513,20 +541,26 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
 
     client = _get_client()
     try:
-        async with client.stream("POST", url, json=payload, headers=headers, timeout=timeout) as resp:
-            if resp.status_code >= 400:
-                body = (await resp.aread())[:800].decode("utf-8", "replace")
-                from services.provider_errors import friendly_provider_error
+        for attempt in range(2):
+            async with client.stream("POST", url, json=payload, headers=headers, timeout=timeout) as resp:
+                if resp.status_code >= 400:
+                    body = (await resp.aread())[:800].decode("utf-8", "replace")
+                    if attempt == 0 and _deepseek_reasoning_fallback(
+                        payload, provider, resp.status_code, body,
+                    ):
+                        continue
+                    from services.provider_errors import friendly_provider_error
 
-                log.error("Provider [%s] stream %s: %s", provider.get("name", "?"), resp.status_code, body[:500])
-                msg = friendly_provider_error(resp.status_code, body, provider=provider, action="chat stream")
-                raise httpx.HTTPStatusError(msg, request=resp.request, response=resp)
-            async for line in resp.aiter_lines():
-                if line.startswith("data: "):
-                    yield line + "\n\n"
-                elif line == "data: [DONE]":
-                    yield "data: [DONE]\n\n"
-                    break
+                    log.error("Provider [%s] stream %s: %s", provider.get("name", "?"), resp.status_code, body[:500])
+                    msg = friendly_provider_error(resp.status_code, body, provider=provider, action="chat stream")
+                    raise httpx.HTTPStatusError(msg, request=resp.request, response=resp)
+                async for line in resp.aiter_lines():
+                    if line.startswith("data: "):
+                        yield line + "\n\n"
+                    elif line == "data: [DONE]":
+                        yield "data: [DONE]\n\n"
+                        break
+            return
     except httpx.RequestError as e:
         log.error("Provider [%s] stream connection failed: %s", provider.get("name", "?"), e)
         raise

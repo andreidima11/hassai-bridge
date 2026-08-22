@@ -207,6 +207,49 @@ def row_to_message(row: dict, *, user_id: str) -> dict:
     return msg
 
 
+def _reasoning_key(text: str) -> str:
+    return " ".join((text or "").split())[:400]
+
+
+def backfill_reasoning(messages: list[dict], history_rows: list[dict] | None) -> list[dict]:
+    """Attach stored CoT to client-sent assistant turns.
+
+    Web/Assist clients replay the transcript without ``reasoning_content``, so
+    the DB copy is the only source. DeepSeek needs it back on every assistant
+    turn once a request carries tools.
+    """
+    lookup: dict[str, str] = {}
+    for row in history_rows or []:
+        if str(row.get("role") or "") != "assistant":
+            continue
+        reasoning = row.get("reasoning_content")
+        if not reasoning:
+            continue
+        key = _reasoning_key(content_text(row.get("content")))
+        if key:
+            lookup[key] = str(reasoning)
+    if not lookup:
+        return messages
+
+    out: list[dict] = []
+    for msg in messages:
+        if (
+            not isinstance(msg, dict)
+            or msg.get("role") != "assistant"
+            or msg.get("reasoning_content")
+        ):
+            out.append(msg)
+            continue
+        stored = lookup.get(_reasoning_key(content_text(msg.get("content"))))
+        if not stored:
+            out.append(msg)
+            continue
+        row = dict(msg)
+        row["reasoning_content"] = stored
+        out.append(row)
+    return out
+
+
 def public_attachments(attachments: list[dict] | None, session_id: str = "") -> list[dict]:
     out: list[dict] = []
     for att in attachments or []:
