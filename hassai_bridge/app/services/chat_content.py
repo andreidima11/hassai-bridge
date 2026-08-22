@@ -48,10 +48,34 @@ def has_images(content: Any) -> bool:
 
 
 def messages_have_images(messages: list[dict] | None) -> bool:
+    """True if any *user* message includes image_url parts (vision input).
+
+    Assistant attachments (Frigate snaps, generated images) must not count —
+    replaying them as vision content breaks providers like DeepSeek Vision
+    ("Image in assistant message is not supported").
+    """
     for msg in messages or []:
+        if msg.get("role") != "user":
+            continue
         if has_images(msg.get("content")):
             return True
     return False
+
+
+def strip_non_user_images(messages: list[dict] | None) -> list[dict]:
+    """Drop image_url parts from assistant/tool/system messages before LLM calls."""
+    out: list[dict] = []
+    for msg in messages or []:
+        role = msg.get("role") or "user"
+        content = msg.get("content")
+        if role == "user" or not has_images(content):
+            out.append(msg)
+            continue
+        text = content_text(content)
+        cleaned = dict(msg)
+        cleaned["content"] = text if text else "(image shown in chat)"
+        out.append(cleaned)
+    return out
 
 
 def content_size(content: Any) -> int:
@@ -105,16 +129,24 @@ def summary_snippet(content: Any, limit: int = 80) -> str:
     return ""
 
 
-def build_multimodal_content(text: str, attachments: list[dict] | None, *, user_id: str) -> str | list[dict]:
+def build_multimodal_content(
+    text: str,
+    attachments: list[dict] | None,
+    *,
+    user_id: str,
+    include_images: bool = True,
+) -> str | list[dict]:
     parts: list[dict] = []
     clean = chat_media.strip_document_blocks((text or "").strip())
     if clean and clean != "(image)" and clean != "(document)":
         parts.append({"type": "text", "text": clean})
     doc_chunks: list[str] = []
+    image_names: list[str] = []
     for att in attachments or []:
         kind = str(att.get("kind") or "")
         mime = str(att.get("mime") or "")
-        if kind == "document" or (mime and not mime.startswith("image/")):
+        is_doc = kind == "document" or (mime and not mime.startswith("image/"))
+        if is_doc:
             extracted = chat_media.read_extracted_text(user_id, att) or ""
             if not extracted:
                 continue
@@ -127,11 +159,27 @@ def build_multimodal_content(text: str, attachments: list[dict] | None, *, user_
                 )
             )
             continue
+        if not include_images:
+            name = str(att.get("name") or "photo").strip() or "photo"
+            image_names.append(name)
+            continue
         url = chat_media.attachment_data_url(user_id, att)
         if url:
             parts.append({"type": "image_url", "image_url": {"url": url, "detail": "auto"}})
     if doc_chunks:
         parts.append({"type": "text", "text": "\n\n".join(doc_chunks)})
+    if image_names and not include_images:
+        note = "Photos shown in chat: " + ", ".join(image_names[:12])
+        if clean:
+            # Merge into existing text part
+            for part in parts:
+                if part.get("type") == "text":
+                    part["text"] = f"{part['text']}\n\n[{note}]"
+                    break
+            else:
+                parts.append({"type": "text", "text": f"[{note}]"})
+        else:
+            parts.append({"type": "text", "text": f"[{note}]"})
     if not parts:
         return clean or ""
     if len(parts) == 1 and parts[0].get("type") == "text":
@@ -141,9 +189,17 @@ def build_multimodal_content(text: str, attachments: list[dict] | None, *, user_
 
 
 def row_to_message(row: dict, *, user_id: str) -> dict:
+    role = str(row.get("role") or "user")
     attachments = row.get("attachments") if isinstance(row.get("attachments"), list) else []
-    content = build_multimodal_content(row.get("content") or "", attachments, user_id=user_id)
-    return {"role": row.get("role") or "user", "content": content}
+    # Assistant/tool photos (Frigate, Imagine) are UI-only — never vision inputs.
+    include_images = role == "user"
+    content = build_multimodal_content(
+        row.get("content") or "",
+        attachments,
+        user_id=user_id,
+        include_images=include_images,
+    )
+    return {"role": role, "content": content}
 
 
 def public_attachments(attachments: list[dict] | None, session_id: str = "") -> list[dict]:

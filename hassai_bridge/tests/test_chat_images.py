@@ -61,6 +61,55 @@ def test_messages_have_images():
     assert cc.messages_have_images([
         {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,YQ=="}}]},
     ]) is True
+    # Assistant Frigate/Imagine snaps must not trigger vision routing
+    assert cc.messages_have_images([
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "Detected 2 people"},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,YQ=="}},
+            ],
+        },
+    ]) is False
+
+
+def test_strip_non_user_images():
+    msgs = [
+        {"role": "user", "content": [{"type": "text", "text": "hi"}, {"type": "image_url", "image_url": {"url": "data:x"}}]},
+        {
+            "role": "assistant",
+            "content": [
+                {"type": "text", "text": "snap"},
+                {"type": "image_url", "image_url": {"url": "data:y"}},
+            ],
+        },
+    ]
+    cleaned = cc.strip_non_user_images(msgs)
+    assert cc.has_images(cleaned[0]["content"]) is True
+    assert cleaned[1]["content"] == "snap"
+    assert cc.messages_have_images(cleaned) is True
+
+
+def test_row_to_message_skips_assistant_attachments(tmp_path, monkeypatch):
+    monkeypatch.setattr(cm, "UPLOADS_ROOT", tmp_path)
+    user_id = "tester"
+    tiny = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    att = cm.save_uploaded_file(user_id, tiny, filename="frigate.jpg", content_type="image/jpeg")
+    user_row = cc.row_to_message(
+        {"role": "user", "content": "what is this?", "attachments": [att]},
+        user_id=user_id,
+    )
+    asst_row = cc.row_to_message(
+        {"role": "assistant", "content": "Two people at the gate", "attachments": [att]},
+        user_id=user_id,
+    )
+    assert isinstance(user_row["content"], list)
+    assert cc.has_images(user_row["content"]) is True
+    assert isinstance(asst_row["content"], str)
+    assert "Photos shown in chat" in asst_row["content"] or "frigate" in asst_row["content"].lower()
+    assert cc.has_images(asst_row["content"]) is False
 
 
 def test_provider_supports_vision():
