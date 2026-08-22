@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.98-beta
+
+### Fix
+- **Frigate status stuck on Checking** — Settings service pills no longer reset via i18n; Frigate health uses a short probe + media fallback so dashboard status resolves when cameras work
+
+
 ## 0.2.94-beta
 
 ### Feature
