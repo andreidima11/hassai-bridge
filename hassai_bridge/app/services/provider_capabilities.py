@@ -194,13 +194,13 @@ def prepare_messages_for_request(
     tools: list | None = None,
     thinking: dict | None = None,
 ) -> list[dict]:
-    """Provider-specific message shaping before chat completions."""
-    if (
-        provider.get("type") == "deepseek"
-        and tools
-        and thinking
-        and thinking.get("enabled")
-    ):
+    """Provider-specific message shaping before chat completions.
+
+    DeepSeek requires reasoning_content on every assistant turn whenever the
+    request carries ``tools`` — independent of the current thinking toggle,
+    because earlier turns in the same conversation may have used thinking.
+    """
+    if provider.get("type") == "deepseek" and tools:
         return ds.prepare_messages_for_tools(messages)
     return messages
 

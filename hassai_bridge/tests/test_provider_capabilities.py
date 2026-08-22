@@ -118,3 +118,54 @@ def test_prepare_messages_for_request_only_deepseek_tools_thinking():
         {"type": "openai"}, msgs, tools=[{"type": "function"}], thinking=thinking,
     )
     assert "reasoning_content" not in untouched[0]
+
+
+def test_reasoning_passback_applies_when_thinking_auto_off():
+    """Short follow-ups resolve thinking=off, but tools still require pass-back."""
+    msgs = [
+        {"role": "user", "content": "ce e prin fata casei?"},
+        {"role": "assistant", "content": "nimic suspect"},
+        {"role": "user", "content": "da ultimul snap"},
+    ]
+    thinking = {"mode": "auto", "enabled": False, "effort": None}
+    shaped = pc.prepare_messages_for_request(
+        {"type": "deepseek"}, msgs, tools=[{"type": "function"}], thinking=thinking,
+    )
+    assert shaped[1]["reasoning_content"] == ""
+
+    no_thinking = pc.prepare_messages_for_request(
+        {"type": "deepseek"}, msgs, tools=[{"type": "function"}], thinking=None,
+    )
+    assert no_thinking[1]["reasoning_content"] == ""
+
+
+def test_prepare_messages_for_request_skips_when_no_tools():
+    msgs = [{"role": "assistant", "content": "x"}]
+    shaped = pc.prepare_messages_for_request({"type": "deepseek"}, msgs, tools=None)
+    assert "reasoning_content" not in shaped[0]
+
+
+def test_prepare_messages_for_tools_keeps_existing_reasoning():
+    msgs = [{"role": "assistant", "content": "x", "reasoning_content": "step 1"}]
+    out = ds.prepare_messages_for_tools(msgs)
+    assert out[0]["reasoning_content"] == "step 1"
+
+
+def test_strip_reasoning_removes_field():
+    msgs = [
+        {"role": "assistant", "content": "x", "reasoning_content": "cot"},
+        {"role": "user", "content": "hi"},
+    ]
+    out = ds.strip_reasoning(msgs)
+    assert "reasoning_content" not in out[0]
+    assert out[1] == {"role": "user", "content": "hi"}
+
+
+def test_is_reasoning_passback_error():
+    body = (
+        '{"error":{"message":"The `reasoning_content` in the thinking mode '
+        'must be passed back to the API.","type":"invalid_request_error"}}'
+    )
+    assert ds.is_reasoning_passback_error(400, body) is True
+    assert ds.is_reasoning_passback_error(500, body) is False
+    assert ds.is_reasoning_passback_error(400, '{"error":"bad key"}') is False

@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.3
+
+### Fix
+- **DeepSeek + camera/tool questions (HTTP 400)** — `reasoning_content` is now sent back on every assistant turn whenever a request carries tools, not only while thinking is on; short follow-ups like "dă ultimul snap" no longer break the conversation
+- **Chat replay** — CoT stored in history is restored on transcripts replayed by the Web UI / Assist, and is kept verbatim instead of truncated
+- **Self-healing** — if DeepSeek still rejects the pass-back (conversations started before this fix), the request retries automatically without thinking instead of surfacing a provider error
+
 ## 1.0.2
 
 Stable patch release: HA admin tools, DeepSeek tool-loop fix, and add-on logo.

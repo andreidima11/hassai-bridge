@@ -484,6 +484,8 @@ def _activity_status_payload(bucket: dict | None, after: int = -1) -> dict:
 
 
 _REASONING_DETAIL_MAX = 8000
+# Stored CoT is replayed to DeepSeek on later tool turns — keep more than the UI shows.
+_REASONING_STORE_MAX = 40_000
 
 
 def _clip_reasoning(text: str | None) -> str:
@@ -493,10 +495,21 @@ def _clip_reasoning(text: str | None) -> str:
     return raw[:_REASONING_DETAIL_MAX] + "…"
 
 
+def _store_reasoning(text: str | None) -> str:
+    raw = (text or "").strip()
+    return raw[:_REASONING_STORE_MAX]
+
+
 def _message_reasoning(message: dict | None) -> str:
     if not isinstance(message, dict):
         return ""
     return _clip_reasoning(message.get("reasoning_content") or "")
+
+
+def _message_reasoning_full(message: dict | None) -> str:
+    if not isinstance(message, dict):
+        return ""
+    return _store_reasoning(message.get("reasoning_content") or "")
 
 
 def _compact_activity(events: list | None) -> list[dict]:
@@ -548,14 +561,14 @@ def _activity_meta(
         meta["activity"] = compact
     if attachments:
         meta["attachments"] = attachments
-    reasoning = _clip_reasoning(reasoning_content)
+    reasoning = _store_reasoning(reasoning_content)
     if reasoning:
         meta["reasoning_content"] = reasoning
-    elif not reasoning and compact:
+    elif compact:
         # Recover CoT from the last think activity step when explicit field missing
         for ev in reversed(compact):
             if ev.get("name") == "think" and ev.get("detail"):
-                meta["reasoning_content"] = _clip_reasoning(str(ev.get("detail") or ""))
+                meta["reasoning_content"] = _store_reasoning(str(ev.get("detail") or ""))
                 break
     return meta or None
 
@@ -563,12 +576,12 @@ def _activity_meta(
 def _reasoning_from_row_meta(meta: dict | None) -> str:
     if not isinstance(meta, dict):
         return ""
-    direct = _clip_reasoning(meta.get("reasoning_content") or "")
+    direct = _store_reasoning(meta.get("reasoning_content") or "")
     if direct:
         return direct
     for ev in reversed(meta.get("activity") or []):
         if isinstance(ev, dict) and ev.get("name") == "think" and ev.get("detail"):
-            return _clip_reasoning(str(ev.get("detail") or ""))
+            return _store_reasoning(str(ev.get("detail") or ""))
     return ""
 
 
@@ -2140,8 +2153,9 @@ async def chat_completions(request: Request):
     if history and not has_incoming_history:
         augmented.extend(cc.row_to_message(row, user_id=user_id) for row in history)
 
-    # 5) Current messages
-    augmented.extend(messages)
+    # 5) Current messages — clients replay the transcript without CoT, so restore
+    #    it from the stored history (DeepSeek requires it back alongside tools).
+    augmented.extend(cc.backfill_reasoning(messages, history) if has_incoming_history else messages)
 
     user_attachments: list[dict] = []
     if last_user_message is not None:
@@ -2414,7 +2428,7 @@ async def chat_completions(request: Request):
                     trace_id,
                     activity_events,
                     generated_attachments,
-                    reasoning_content=_message_reasoning(final_msg),
+                    reasoning_content=_message_reasoning_full(final_msg),
                 ),
             )
             if assistant_content:
@@ -2533,7 +2547,7 @@ async def chat_completions(request: Request):
                             continue
 
                         content = delta.get("content") or ""
-                        reasoning = delta.get("reasoning_content")
+                        reasoning = delta.get("reasoning_content") or delta.get("reasoning")
                         tool_calls_delta = delta.get("tool_calls")
                         finish_reason = data.get("choices", [{}])[0].get("finish_reason")
 
@@ -2732,7 +2746,7 @@ async def chat_completions(request: Request):
                     meta=_activity_meta(
                         trace_id,
                         attachments=generated_attachments,
-                        reasoning_content=last_think_reasoning,
+                        reasoning_content=_store_reasoning(last_think_reasoning),
                     ),
                 )
                 if clean_response:
