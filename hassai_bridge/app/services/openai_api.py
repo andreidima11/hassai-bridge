@@ -159,6 +159,43 @@ def remap_token_limit(
     _strip_max_tokens(payload)
 
 
+def outbound_targets_openai_cloud(
+    provider: dict | None,
+    request_url: str = "",
+) -> bool:
+    """True when the HTTP request is headed to OpenAI / Azure OpenAI."""
+    if _is_openai_cloud_url(request_url):
+        return True
+    if isinstance(provider, dict) and _is_openai_cloud_url(provider.get("base_url", "")):
+        return True
+    return is_openai_provider(provider)
+
+
+def finalize_http_payload(
+    payload: dict,
+    provider: dict | None,
+    *,
+    request_url: str = "",
+) -> None:
+    """Absolute last mutation before httpx POST — OpenAI must never see max_tokens."""
+    model = str(payload.get("model") or (provider or {}).get("model") or "")
+    url = str(request_url or "")
+    if not (
+        outbound_targets_openai_cloud(provider, url)
+        or uses_max_completion_tokens(provider, model, request_url=url)
+    ):
+        return
+    if "max_tokens" in payload:
+        log.warning(
+            "Stripped max_tokens from outbound payload (provider=%s model=%s url=%s)",
+            (provider or {}).get("name"),
+            model,
+            url[:80],
+        )
+    _strip_max_tokens(payload)
+    payload.pop("max_tokens", None)
+
+
 def sanitize_outbound_chat_payload(
     payload: dict,
     provider: dict | None,
@@ -167,9 +204,7 @@ def sanitize_outbound_chat_payload(
 ) -> None:
     """Last gate before HTTP — never send max_tokens to OpenAI chat models."""
     remap_token_limit(payload, provider, request_url=request_url)
-    model = str(payload.get("model") or (provider or {}).get("model") or "")
-    if uses_max_completion_tokens(provider, model, request_url=request_url):
-        _strip_max_tokens(payload)
+    finalize_http_payload(payload, provider, request_url=request_url)
 
 
 def apply_request_payload(

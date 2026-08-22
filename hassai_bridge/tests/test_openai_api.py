@@ -201,6 +201,34 @@ def test_openai_kv_cache_capability():
     assert pc.kv_context_budget({"type": "openai"}) == 120000
 
 
+def test_openai_type_chatgpt_name_gpt56():
+    """User scenario: type openai, display name ChatGPT, gpt-5.6 model."""
+    provider = {
+        "type": "openai",
+        "name": "ChatGPT",
+        "model": "gpt-5.6-chat-latest",
+        "max_tokens": 2048,
+        "base_url": "https://api.openai.com/v1",
+    }
+    payload = {"model": "gpt-5.6-chat-latest", "stream": True, "max_tokens": 999}
+    url = "https://api.openai.com/v1/chat/completions"
+    oai.finalize_http_payload(payload, provider, request_url=url)
+    assert "max_tokens" not in payload
+    assert payload["max_completion_tokens"] == 999
+
+
+def test_finalize_http_payload_openai_type():
+    provider = {"type": "openai", "name": "ChatGPT", "model": "gpt-5.6"}
+    payload = {"model": "gpt-5.6", "max_tokens": 512}
+    oai.finalize_http_payload(
+        payload,
+        provider,
+        request_url="https://api.openai.com/v1/chat/completions",
+    )
+    assert "max_tokens" not in payload
+    assert payload["max_completion_tokens"] == 512
+
+
 def test_restricted_model_detection():
     assert oai.is_restricted_sampling_model("o1")
     assert oai.is_restricted_sampling_model("o3-mini")

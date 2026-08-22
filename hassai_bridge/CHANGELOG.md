@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.90-beta
+
+### Fix
+- **OpenAI `max_tokens` HTTP 400** — final `finalize_http_payload` gate immediately before every httpx POST/stream to `api.openai.com`; logs a warning if `max_tokens` had to be stripped; auto-fixes empty `base_url` on OpenAI providers
+
 ## 0.2.89-beta
 
 ### Fix
