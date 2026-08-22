@@ -1,0 +1,103 @@
+"""Tests for Frigate camera tools."""
+
+from __future__ import annotations
+
+import asyncio
+from pathlib import Path
+from unittest.mock import AsyncMock, patch
+
+from services import chat_files as cf
+from services import frigate_tools as ft
+
+
+def test_normalize_camera_entity_id():
+    assert ft._normalize_camera("camera.front_yard") == "front_yard"
+    assert ft._normalize_camera("Front Door") == "Front_Door"
+
+
+def test_events_from_media_folder(tmp_path: Path):
+    media = tmp_path / "media"
+    clips = media / "frigate" / "clips"
+    clips.mkdir(parents=True)
+    img = clips / "driveway-1234567890.1-abc.jpg"
+    img.write_bytes(b"\xff\xd8\xfffakejpeg")
+
+    cf.set_roots_for_test((str(media),))
+    try:
+        result = asyncio.run(ft._events_from_media("driveway", 5, include_snapshot=True))
+        assert "driveway-1234567890.1-abc.jpg" in result["text"]
+        assert result["image"] is not None
+        assert result["image"]["bytes"].startswith(b"\xff\xd8")
+    finally:
+        cf.set_roots_for_test(None)
+
+
+def test_list_events_api_with_snapshot():
+    events = [
+        {
+            "id": "evt-1",
+            "camera": "front",
+            "label": "person",
+            "top_score": 0.91,
+            "start_time": 1_700_000_000.0,
+            "end_time": 1_700_000_010.0,
+            "has_snapshot": True,
+        }
+    ]
+
+    async def fake_json(path, params=None):
+        assert path == "/api/events"
+        return events
+
+    async def fake_bytes(path, params=None):
+        assert "evt-1" in path
+        return b"\xff\xd8\xffsnap", "image/jpeg"
+
+    async def _run():
+        with (
+            patch.object(ft, "_get_json", side_effect=fake_json),
+            patch.object(ft, "_get_bytes", side_effect=fake_bytes),
+        ):
+            return await ft.list_events(camera="front", include_snapshot=True, limit=3)
+
+    result = asyncio.run(_run())
+    assert "person" in result["text"]
+    assert result["image"]["filename"].startswith("frigate-front-")
+    assert result["image"]["bytes"].startswith(b"\xff\xd8")
+
+
+def test_snapshot_latest_jpg():
+    async def fake_bytes(path, params=None):
+        assert path == "/api/gate/latest.jpg"
+        return b"jpegdata", "image/jpeg"
+
+    async def fake_json(path, params=None):
+        return [
+            {
+                "id": "e2",
+                "camera": "gate",
+                "label": "car",
+                "top_score": 0.8,
+                "start_time": 1_700_000_100.0,
+                "has_snapshot": True,
+            }
+        ]
+
+    async def _run():
+        with (
+            patch.object(ft, "_get_bytes", side_effect=fake_bytes),
+            patch.object(ft, "_get_json", side_effect=fake_json),
+        ):
+            return await ft.snapshot(camera="gate")
+
+    result = asyncio.run(_run())
+    assert "gate" in result["text"]
+    assert "car" in result["text"]
+    assert result["image"]["bytes"] == b"jpegdata"
+
+
+def test_system_hint_when_enabled():
+    with patch.object(ft, "is_enabled", return_value=True):
+        hint = ft.system_hint()
+        assert "frigate_events" in hint
+        assert "frigate_snapshot" in hint
