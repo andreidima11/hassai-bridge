@@ -11,7 +11,7 @@ FROM $BUILD_FROM
 
 # Bumped by scripts/sync_version.sh. Changing this ARG invalidates every
 # layer below so Supervisor cannot reuse a cached COPY of an old app/.
-ARG HASSAI_VERSION=0.2.88-beta
+ARG HASSAI_VERSION=0.2.89-beta
 
 ENV LANG=C.UTF-8
 

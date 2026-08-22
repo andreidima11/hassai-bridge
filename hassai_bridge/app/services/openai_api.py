@@ -23,6 +23,11 @@ _OPENAI_CHAT_MODEL = re.compile(
     r"^(gpt-|chatgpt-|o[1-9]([.-]|$)|o[1-9]-)",
     re.IGNORECASE,
 )
+# Gateway prefixes (OpenRouter, LiteLLM, etc.): openai/gpt-5.6, …/gpt-4o
+_OPENAI_CHAT_MODEL_SUFFIX = re.compile(
+    r"(^|/)(gpt-|chatgpt-|o[1-9]([.-]|$)|o[1-9]-)",
+    re.IGNORECASE,
+)
 
 log = getLogger("hassai.providers")
 
@@ -37,11 +42,21 @@ def _provider_type(provider: dict | None) -> str:
     return _norm(provider.get("type"))
 
 
+def _is_openai_cloud_url(url: str) -> bool:
+    u = _norm(url)
+    return bool(u and ("openai.com" in u or "openai.azure.com" in u))
+
+
 def _is_local_provider(provider: dict | None) -> bool:
+    if not isinstance(provider, dict):
+        return False
+    base = _norm(provider.get("base_url"))
+    # Mis-typed "local" with an OpenAI cloud URL should still remap tokens.
+    if base and _is_openai_cloud_url(base):
+        return False
     ptype = _provider_type(provider)
     if ptype in ("local", "ollama", "lmstudio"):
         return True
-    base = _norm(provider.get("base_url")) if isinstance(provider, dict) else ""
     return bool(base and _is_local_base(base))
 
 
@@ -67,7 +82,7 @@ def is_openai_provider(provider: dict | None) -> bool:
     if _is_local_provider(provider):
         return False
     base = _norm(provider.get("base_url"))
-    if "openai.com" in base or "openai.azure.com" in base:
+    if _is_openai_cloud_url(base):
         return True
     # Renamed providers ("ChatGPT") — do not require base_url to be set.
     name = _norm(provider.get("name"))
@@ -80,11 +95,20 @@ def looks_like_openai_model(model: str | None) -> bool:
     mid = _norm(model)
     if not mid or mid == "default":
         return False
-    return bool(_OPENAI_CHAT_MODEL.match(mid))
+    if _OPENAI_CHAT_MODEL.match(mid):
+        return True
+    return bool(_OPENAI_CHAT_MODEL_SUFFIX.search(mid))
 
 
-def uses_max_completion_tokens(provider: dict | None, model: str = "") -> bool:
+def uses_max_completion_tokens(
+    provider: dict | None,
+    model: str = "",
+    *,
+    request_url: str = "",
+) -> bool:
     """True when the upstream API wants max_completion_tokens instead of max_tokens."""
+    if _is_openai_cloud_url(request_url):
+        return True
     if is_openai_provider(provider):
         return True
     if _is_local_provider(provider):
@@ -112,11 +136,8 @@ def prompt_cache_key(session_id: str | None) -> str | None:
     return key[:128]
 
 
-def remap_token_limit(payload: dict, provider: dict | None) -> None:
-    """Ensure OpenAI payloads never keep `max_tokens` when the API rejects it."""
-    model = str(payload.get("model") or (provider or {}).get("model") or "")
-    if not uses_max_completion_tokens(provider, model):
-        return
+def _strip_max_tokens(payload: dict) -> None:
+    """Remove max_tokens; preserve an existing max_completion_tokens if set."""
     if "max_tokens" not in payload:
         return
     if "max_completion_tokens" not in payload:
@@ -125,9 +146,30 @@ def remap_token_limit(payload: dict, provider: dict | None) -> None:
         payload.pop("max_tokens", None)
 
 
-def sanitize_outbound_chat_payload(payload: dict, provider: dict | None) -> None:
+def remap_token_limit(
+    payload: dict,
+    provider: dict | None,
+    *,
+    request_url: str = "",
+) -> None:
+    """Ensure OpenAI payloads never keep `max_tokens` when the API rejects it."""
+    model = str(payload.get("model") or (provider or {}).get("model") or "")
+    if not uses_max_completion_tokens(provider, model, request_url=request_url):
+        return
+    _strip_max_tokens(payload)
+
+
+def sanitize_outbound_chat_payload(
+    payload: dict,
+    provider: dict | None,
+    *,
+    request_url: str = "",
+) -> None:
     """Last gate before HTTP — never send max_tokens to OpenAI chat models."""
-    remap_token_limit(payload, provider)
+    remap_token_limit(payload, provider, request_url=request_url)
+    model = str(payload.get("model") or (provider or {}).get("model") or "")
+    if uses_max_completion_tokens(provider, model, request_url=request_url):
+        _strip_max_tokens(payload)
 
 
 def apply_request_payload(

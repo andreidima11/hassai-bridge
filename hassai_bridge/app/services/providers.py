@@ -297,14 +297,14 @@ def _skip_temperature(provider: dict, thinking: dict | None, *, model: str = "")
     return False
 
 
-def _apply_token_limit(payload: dict, provider: dict) -> None:
+def _apply_token_limit(payload: dict, provider: dict, *, request_url: str = "") -> None:
     max_tokens = provider.get("max_tokens")
     if not max_tokens:
         return
     from services import openai_api as oai
 
     model = str(payload.get("model") or provider.get("model") or "")
-    if oai.uses_max_completion_tokens(provider, model):
+    if oai.uses_max_completion_tokens(provider, model, request_url=request_url):
         payload["max_completion_tokens"] = max_tokens
         payload.pop("max_tokens", None)
     else:
@@ -316,13 +316,14 @@ def _finalize_chat_payload(
     provider: dict,
     *,
     cache_conv_id: str | None = None,
+    request_url: str = "",
 ) -> None:
     """Provider-specific last-mile tweaks (OpenAI tokens, prompt cache, etc.)."""
     from services import openai_api as oai
 
     # Belt-and-suspenders: strip max_tokens even if an earlier step re-added it.
     oai.apply_request_payload(payload, provider, cache_conv_id=cache_conv_id)
-    oai.sanitize_outbound_chat_payload(payload, provider)
+    oai.sanitize_outbound_chat_payload(payload, provider, request_url=request_url)
 
 
 def _assert_usable_chat_model(provider: dict, used_model: str) -> None:
@@ -368,7 +369,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
         payload["tools"] = tools
     if tool_choice is not None:
         payload["tool_choice"] = tool_choice
-    _apply_token_limit(payload, provider)
+    _apply_token_limit(payload, provider, request_url=url)
     temperature = provider.get("temperature")
     if temperature is not None and not _skip_temperature(provider, thinking, model=used_model):
         payload["temperature"] = temperature
@@ -384,11 +385,11 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
             has_images=cc.messages_have_images(messages),
         )
 
-    _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id)
+    _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id, request_url=url)
 
     from services import openai_api as oai
 
-    oai.sanitize_outbound_chat_payload(payload, provider)
+    oai.sanitize_outbound_chat_payload(payload, provider, request_url=url)
 
     client = _get_client()
     # Retry on transient errors (#20)
@@ -448,7 +449,7 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
         payload["tools"] = tools
     if tool_choice is not None:
         payload["tool_choice"] = tool_choice
-    _apply_token_limit(payload, provider)
+    _apply_token_limit(payload, provider, request_url=url)
     temperature = provider.get("temperature")
     if temperature is not None and not _skip_temperature(provider, thinking, model=used_model):
         payload["temperature"] = temperature
@@ -464,11 +465,11 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
             has_images=cc.messages_have_images(messages),
         )
 
-    _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id)
+    _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id, request_url=url)
 
     from services import openai_api as oai
 
-    oai.sanitize_outbound_chat_payload(payload, provider)
+    oai.sanitize_outbound_chat_payload(payload, provider, request_url=url)
 
     client = _get_client()
     try:
