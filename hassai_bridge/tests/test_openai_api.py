@@ -83,6 +83,52 @@ def test_local_gpt_named_model_keeps_max_tokens():
     assert "max_completion_tokens" not in payload
 
 
+def test_local_type_openai_url_remaps_gpt56():
+    """Mis-typed local provider pointing at OpenAI must not send max_tokens."""
+    provider = {
+        "type": "local",
+        "name": "ChatGPT",
+        "model": "gpt-5.6-chat-latest",
+        "max_tokens": 2048,
+        "base_url": "https://api.openai.com/v1",
+    }
+    payload = {"model": "gpt-5.6-chat-latest"}
+    _apply_token_limit(payload, provider)
+    assert "max_tokens" not in payload
+    assert payload["max_completion_tokens"] == 2048
+
+
+def test_openrouter_style_model_id_remaps():
+    provider = {
+        "type": "custom",
+        "name": "OpenRouter",
+        "model": "openai/gpt-5.6",
+        "max_tokens": 1500,
+        "base_url": "https://openrouter.ai/api/v1",
+    }
+    payload = {"model": "openai/gpt-5.6"}
+    _apply_token_limit(payload, provider)
+    assert "max_tokens" not in payload
+    assert payload["max_completion_tokens"] == 1500
+
+
+def test_sanitize_by_request_url_strips_max_tokens():
+    provider = {"type": "custom", "name": "Weird", "model": "my-model", "max_tokens": 800}
+    payload = {"model": "my-model", "max_tokens": 800}
+    url = "https://api.openai.com/v1/chat/completions"
+    oai.sanitize_outbound_chat_payload(payload, provider, request_url=url)
+    assert "max_tokens" not in payload
+    assert payload["max_completion_tokens"] == 800
+
+
+def test_gpt56_model_detection():
+    assert oai.looks_like_openai_model("gpt-5.6")
+    assert oai.looks_like_openai_model("gpt-5.6-chat-latest")
+    assert oai.looks_like_openai_model("gpt-5.6-sol-high")
+    assert oai.looks_like_openai_model("openai/gpt-5.6")
+    assert oai.uses_max_completion_tokens({"type": "openai"}, "gpt-5.6")
+
+
 def test_non_openai_left_alone():
     payload = {"model": "deepseek-chat", "max_tokens": 500, "temperature": 0.2}
     oai.apply_request_payload(payload, {"type": "deepseek"})

@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.89-beta
+
+### Fix
+- **OpenAI GPT 5.6 `max_tokens` HTTP 400** — remap even when provider type is mis-set to Local/Ollama but URL is OpenAI; detect gateway model ids (`openai/gpt-5.6`); final sanitize uses request URL so `max_tokens` cannot reach `api.openai.com`
+
 ## 0.2.88-beta
 
 ### Fix
