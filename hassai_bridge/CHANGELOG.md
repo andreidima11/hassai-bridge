@@ -1,5 +1,20 @@
 # Changelog — HASSAI Bridge add-on
 
+## Unreleased
+
+### Features
+- **Memory as real tools** — the assistant can now call `memory_save`, `memory_search`, `memory_list`, `memory_update` and `memory_forget`. "Ține minte că…" writes a memory on the spot instead of depending on the background extractor, and the step shows up in the activity strip as **Memorat**
+- **Facts, not states** — memory refuses to store live device state, sensor readings and moment-scoped facts ("becul e aprins", "temperatura e 21°", "e acasă acum"); those are read live from Home Assistant every time. The extraction prompt spells the rule out and the same filter runs on whatever the extractor produces
+- **HASSAI self-awareness** — a system block tells the model it *is* the HASSAI Bridge add-on and lists what it actually runs with, so it stops guessing about itself
+- **Control HASSAI from chat** — new `hassai_status`, `hassai_get_settings`, `hassai_set_setting`, `hassai_list_providers`, `hassai_switch_provider` and `hassai_usage_stats` tools; the AI can report its version/provider/model and change allowlisted add-on settings, tool permissions, provider, model or Eco Mode (secrets stay unreadable and unwritable)
+- **Settings → HASSAI Bridge tool permissions** — three toggles (memory, self status, self control), all on by default
+
+### Fix
+- **"Remember this" was sometimes ignored** — an explicit request now bypasses the trivial-message and signal pre-filters that used to drop short commands before extraction ran
+
+### Polish
+- Activity strip labels for memory, HASSAI, Frigate and image-generation steps in both English and Romanian
+
 ## 1.0.3
 
 ### Fix

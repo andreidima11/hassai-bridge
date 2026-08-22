@@ -317,6 +317,18 @@ def get_memories(user_id, limit=50):
     return [dict(r) for r in rows]
 
 
+def get_memory(memory_id):
+    """One memory row by id, including user_id so callers can check ownership."""
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT id, user_id, category, content, keywords, importance, created_at,
+                      last_accessed, access_count, source, active
+               FROM memories WHERE id = ?""",
+            (memory_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
 def get_memories_by_category(user_id, category, limit=20):
     with get_db() as conn:
         rows = conn.execute(

@@ -107,11 +107,17 @@ DEFAULT_CONFIG = {
         "profiles": {},
     },
     "system_prompt": (
-        "You are HASSAI, an autonomous Home Assistant copilot. "
-        "Use tools to inspect and change the home; keep going until the request is done. "
+        "You are HASSAI, an autonomous Home Assistant copilot running as the HASSAI Bridge add-on. "
+        "Use tools to inspect and change the home, your own add-on settings, and your long-term "
+        "memory; keep going until the request is done. "
         "When you have memory context about the user, use it to personalize responses."
     ),
     "ha_agent_prompt": "",
+    "bridge_tools": {
+        "memory": True,
+        "status": True,
+        "control": True,
+    },
     "ha_tools": {
         "entities": True,
         "control": True,
