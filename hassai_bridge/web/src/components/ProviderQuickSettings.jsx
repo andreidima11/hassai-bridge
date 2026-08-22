@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BrainIcon } from "./Icons.jsx";
+import { ThemeSelect } from "./ThemeSelect.jsx";
 import { THINKING_MODES } from "../lib/providerCapabilities.js";
 import { apiJson } from "../lib/api.js";
 import { tr } from "../lib/i18n.js";
@@ -124,6 +125,28 @@ export function ProviderQuickSettings({
     ? tr(lang, `thinkingMode${thinkingMode.charAt(0).toUpperCase()}${thinkingMode.slice(1)}`)
     : "";
 
+  const providerOptions = (() => {
+    const rows = providers.map((row) => ({
+      value: row.id,
+      label: row.name || row.id,
+    }));
+    if (providerId && !rows.some((row) => row.value === providerId)) {
+      rows.unshift({ value: providerId, label: providerName || providerId });
+    }
+    return rows;
+  })();
+
+  const modelOptions = (() => {
+    const rows = models.map((row) => ({
+      value: row.id,
+      label: row.name && row.name !== row.id ? `${row.id} — ${row.name}` : row.id,
+    }));
+    if (model && !rows.some((row) => row.value === model)) {
+      rows.unshift({ value: model, label: model });
+    }
+    return rows;
+  })();
+
   const panel = open && panelStyle ? (
     <div
       ref={panelRef}
@@ -133,26 +156,18 @@ export function ProviderQuickSettings({
       aria-label={tr(lang, "providerSettings")}
     >
       <label className="mb-3 block">
-        <div className="mb-1 text-[12px] text-muted-foreground">{tr(lang, "providerLabel")}</div>
+        <div className="mb-1.5 text-[12px] text-muted-foreground">{tr(lang, "providerLabel")}</div>
         {loadingProviders ? (
           <div className="text-[12px] text-muted-foreground">{tr(lang, "loadingProviders")}</div>
-        ) : providers.length ? (
-          <select
-            className="w-full rounded-xl border border-white/10 bg-background px-2.5 py-2 text-[13px] text-foreground outline-none focus:border-white/20"
+        ) : providerOptions.length ? (
+          <ThemeSelect
+            aria-label={tr(lang, "providerLabel")}
             value={providerId || ""}
-            onChange={(e) => onProviderChange?.(e.target.value)}
-          >
-            {!providers.some((row) => row.id === providerId) && providerId ? (
-              <option value={providerId}>{providerName || providerId}</option>
-            ) : null}
-            {providers.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.name || row.id}
-              </option>
-            ))}
-          </select>
+            options={providerOptions}
+            onChange={(next) => onProviderChange?.(next)}
+          />
         ) : (
-          <div className="rounded-xl border border-white/10 bg-background px-2.5 py-2 text-[13px] text-foreground">
+          <div className="rounded-xl border border-white/10 bg-secondary/70 px-3 py-2.5 text-[13px] text-foreground">
             {providerName || tr(lang, "noProviders")}
           </div>
         )}
@@ -160,26 +175,18 @@ export function ProviderQuickSettings({
       </label>
 
       <label className="mb-3 block">
-        <div className="mb-1 text-[12px] text-muted-foreground">{tr(lang, "modelLabel")}</div>
+        <div className="mb-1.5 text-[12px] text-muted-foreground">{tr(lang, "modelLabel")}</div>
         {loadingModels ? (
           <div className="text-[12px] text-muted-foreground">{tr(lang, "loadingModels")}</div>
-        ) : models.length ? (
-          <select
-            className="w-full rounded-xl border border-white/10 bg-background px-2.5 py-2 text-[13px] text-foreground outline-none focus:border-white/20"
+        ) : modelOptions.length ? (
+          <ThemeSelect
+            aria-label={tr(lang, "modelLabel")}
             value={model || ""}
-            onChange={(e) => onModelChange?.(e.target.value)}
-          >
-            {!models.some((row) => row.id === model) && model ? (
-              <option value={model}>{model}</option>
-            ) : null}
-            {models.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.name && row.name !== row.id ? `${row.id} — ${row.name}` : row.id}
-              </option>
-            ))}
-          </select>
+            options={modelOptions}
+            onChange={(next) => onModelChange?.(next)}
+          />
         ) : (
-          <div className="rounded-xl border border-white/10 bg-background px-2.5 py-2 text-[13px] text-foreground">
+          <div className="rounded-xl border border-white/10 bg-secondary/70 px-3 py-2.5 text-[13px] text-foreground">
             {model || "—"}
           </div>
         )}
@@ -191,7 +198,7 @@ export function ProviderQuickSettings({
 
       {showThinking ? (
         <div>
-          <div className="mb-1 text-[12px] text-muted-foreground">{tr(lang, "thinkingLabel")}</div>
+          <div className="mb-1.5 text-[12px] text-muted-foreground">{tr(lang, "thinkingLabel")}</div>
           <div className="grid grid-cols-2 gap-1.5">
             {THINKING_MODES.map((mode) => {
               const active = mode === thinkingMode;
@@ -202,8 +209,8 @@ export function ProviderQuickSettings({
                   type="button"
                   className={`rounded-xl px-2 py-1.5 text-[12px] transition ${
                     active
-                      ? "bg-violet-500/25 text-violet-100 ring-1 ring-violet-400/30"
-                      : "bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                      ? "bg-white/14 text-foreground ring-1 ring-white/18"
+                      : "bg-white/[0.04] text-muted-foreground hover:bg-white/[0.08] hover:text-foreground"
                   }`}
                   aria-pressed={active}
                   title={label}
@@ -227,7 +234,7 @@ export function ProviderQuickSettings({
           type="button"
           className={`grid size-8 place-items-center rounded-full transition disabled:cursor-not-allowed disabled:opacity-40 ${
             open || thinkingActive
-              ? "bg-violet-500/20 text-violet-200 hover:bg-violet-500/30"
+              ? "bg-white/14 text-foreground hover:bg-white/18"
               : "text-muted-foreground hover:bg-white/10 hover:text-foreground"
           }`}
           aria-label={tr(lang, "providerSettings")}

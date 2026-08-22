@@ -1,6 +1,9 @@
 # Changelog — HASSAI Bridge add-on
 
-## 0.2.85-beta
+## 0.2.86-beta
+
+### Polish
+- **Provider / model pickers** — themed listboxes in the chat bar settings (no native OS select chrome); thinking chips match the same surface language
 
 ### Feature
 - **OpenAI prompt cache** — send `prompt_cache_key` (session id) for better cache hits; KV-friendly trim (~120K budget); log/track `cached_tokens` (and stream `include_usage`)
