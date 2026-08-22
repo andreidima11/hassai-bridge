@@ -112,6 +112,23 @@ DEFAULT_CONFIG = {
         "When you have memory context about the user, use it to personalize responses."
     ),
     "ha_agent_prompt": "",
+    "ha_tools": {
+        "entities": True,
+        "control": True,
+        "registry": True,
+        "automations": True,
+        "integrations": True,
+        "dashboards": True,
+        "config_files": True,
+        "diagnostics": True,
+        "backups": True,
+        "addons": True,
+        "updates": True,
+        "restart": True,
+        "network": True,
+        "upload": True,
+        "zigbee": True,
+    },
 }
 
 

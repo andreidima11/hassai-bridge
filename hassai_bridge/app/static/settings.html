@@ -372,6 +372,12 @@
       </div>
 
       <div class="card">
+        <h2 data-i18n="settings.haToolAccess">Home Assistant tool permissions</h2>
+        <p class="card-muted" data-i18n="settings.haToolAccessDesc">Control which HA admin capabilities the AI can use. All enabled by default.</p>
+        <div id="haToolAccessList" class="toggle-list"></div>
+      </div>
+
+      <div class="card">
         <h2 data-i18n="settings.haAgentPrompt">Home Assistant agent prompt</h2>
         <p class="card-muted" data-i18n="settings.haAgentPromptDesc">Operational instructions for entities, dashboards, and HA tools. Stored in English. Use {tools} for the live tool list. Leave empty to use the built-in default.</p>
         <textarea id="haAgentPrompt" rows="12" spellcheck="false"></textarea>
