@@ -534,6 +534,7 @@ def _activity_meta(
     trace_id: str,
     events: list | None = None,
     attachments: list | None = None,
+    reasoning_content: str | None = None,
 ) -> dict | None:
     merged = list(events or [])
     if trace_id and trace_id in _traces:
@@ -546,7 +547,28 @@ def _activity_meta(
         meta["activity"] = compact
     if attachments:
         meta["attachments"] = attachments
+    reasoning = _clip_reasoning(reasoning_content)
+    if reasoning:
+        meta["reasoning_content"] = reasoning
+    elif not reasoning and compact:
+        # Recover CoT from the last think activity step when explicit field missing
+        for ev in reversed(compact):
+            if ev.get("name") == "think" and ev.get("detail"):
+                meta["reasoning_content"] = _clip_reasoning(str(ev.get("detail") or ""))
+                break
     return meta or None
+
+
+def _reasoning_from_row_meta(meta: dict | None) -> str:
+    if not isinstance(meta, dict):
+        return ""
+    direct = _clip_reasoning(meta.get("reasoning_content") or "")
+    if direct:
+        return direct
+    for ev in reversed(meta.get("activity") or []):
+        if isinstance(ev, dict) and ev.get("name") == "think" and ev.get("detail"):
+            return _clip_reasoning(str(ev.get("detail") or ""))
+    return ""
 
 
 def _markdown_for_generated_attachments(
@@ -1445,6 +1467,13 @@ def _sanitize_message_roles(messages: list[dict]) -> list[dict]:
                 cleaned[-1]["content"] = prev_content + "\n" + next_content
             elif next_content:
                 cleaned[-1]["content"] = next_content
+            # Keep DeepSeek/Grok CoT when merging consecutive assistants
+            prev_r = cleaned[-1].get("reasoning_content") or ""
+            next_r = m.get("reasoning_content") or ""
+            if next_r and next_r not in prev_r:
+                cleaned[-1]["reasoning_content"] = (
+                    f"{prev_r}\n{next_r}".strip() if prev_r else next_r
+                )
         else:
             cleaned.append(dict(m))
 
@@ -2373,7 +2402,12 @@ async def chat_completions(request: Request):
             add_conversation_message(
                 user_id, "assistant", assistant_content,
                 session_id=session_id,
-                meta=_activity_meta(trace_id, activity_events, generated_attachments),
+                meta=_activity_meta(
+                    trace_id,
+                    activity_events,
+                    generated_attachments,
+                    reasoning_content=_message_reasoning(final_msg),
+                ),
             )
             if assistant_content:
                 all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
@@ -2428,6 +2462,7 @@ async def chat_completions(request: Request):
         stream_call_provider = chat_provider
         last_content_push = 0.0
         stream_usage: dict = {}
+        last_think_reasoning = ""
 
         async def on_stream_activity(event: dict):
             pushed = _trace_push(trace_id, event)
@@ -2515,6 +2550,7 @@ async def chat_completions(request: Request):
 
                         if reasoning:
                             think_reasoning += reasoning
+                            last_think_reasoning = think_reasoning
                             now = time.time()
                             if think_open and (
                                 now - last_reasoning_push >= 0.35
@@ -2535,6 +2571,8 @@ async def chat_completions(request: Request):
                         if content:
                             if think_open:
                                 think_open = False
+                                if think_reasoning:
+                                    last_think_reasoning = think_reasoning
                                 await on_stream_activity({
                                     "id": think_id,
                                     "name": "think",
@@ -2557,6 +2595,8 @@ async def chat_completions(request: Request):
 
                 if think_open:
                     think_open = False
+                    if think_reasoning:
+                        last_think_reasoning = think_reasoning
                     await on_stream_activity({
                         "id": think_id,
                         "name": "think",
@@ -2613,8 +2653,9 @@ async def chat_completions(request: Request):
 
                 log.info("Agent stream round — %s tool(s), %s left", len(internal_tcs), rounds_left)
                 assistant_turn = {"role": "assistant", "content": None, "tool_calls": internal_tcs}
-                if think_reasoning and pc.needs_reasoning_in_tool_loop(stream_call_provider):
-                    assistant_turn["reasoning_content"] = think_reasoning
+                # DeepSeek/Grok thinking + tools: reasoning_content must always be present
+                if pc.needs_reasoning_in_tool_loop(stream_call_provider):
+                    assistant_turn["reasoning_content"] = think_reasoning or ""
                 augmented.append(assistant_turn)
                 prev_generated = len(generated_attachments)
                 if await _append_internal_tool_results(
@@ -2679,7 +2720,11 @@ async def chat_completions(request: Request):
                 add_conversation_message(
                     user_id, "assistant", clean_response,
                     session_id=session_id,
-                    meta=_activity_meta(trace_id, attachments=generated_attachments),
+                    meta=_activity_meta(
+                        trace_id,
+                        attachments=generated_attachments,
+                        reasoning_content=last_think_reasoning,
+                    ),
                 )
                 if clean_response:
                     all_msgs = messages + [{"role": "assistant", "content": clean_response}]

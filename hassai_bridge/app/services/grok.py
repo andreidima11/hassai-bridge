@@ -124,9 +124,8 @@ def apply_thinking_payload(payload: dict, thinking: dict | None, *, provider: di
 
 def assistant_turn(message: dict) -> dict:
     out = dict(message)
-    reasoning = message.get("reasoning_content")
-    if reasoning:
-        out["reasoning_content"] = reasoning
+    if "reasoning_content" in message or out.get("tool_calls"):
+        out["reasoning_content"] = message.get("reasoning_content") or ""
     return out
 
 

@@ -118,11 +118,38 @@ def apply_thinking_payload(payload: dict, thinking: dict | None) -> None:
 
 
 def assistant_turn(message: dict) -> dict:
-    """Preserve reasoning_content for DeepSeek tool / multi-turn loops."""
+    """Preserve reasoning_content for DeepSeek tool / multi-turn loops.
+
+    When the message includes tool_calls (or already has reasoning), always
+    keep the ``reasoning_content`` key — DeepSeek returns HTTP 400 if it is
+    omitted after thinking-mode tool turns.
+    """
     out = dict(message)
-    reasoning = message.get("reasoning_content")
-    if reasoning:
-        out["reasoning_content"] = reasoning
+    if "reasoning_content" in message or out.get("tool_calls"):
+        out["reasoning_content"] = message.get("reasoning_content") or ""
+    return out
+
+
+def prepare_messages_for_tools(messages: list[dict] | None) -> list[dict]:
+    """Ensure every assistant message carries reasoning_content when tools are used.
+
+    DeepSeek requires prior reasoning_content to be passed back on all subsequent
+    requests that include ``tools``, even for assistant turns without tool_calls.
+    """
+    out: list[dict] = []
+    for msg in messages or []:
+        if not isinstance(msg, dict):
+            out.append(msg)
+            continue
+        if msg.get("role") != "assistant":
+            out.append(msg)
+            continue
+        row = dict(msg)
+        if "reasoning_content" not in row:
+            row["reasoning_content"] = ""
+        elif row.get("reasoning_content") is None:
+            row["reasoning_content"] = ""
+        out.append(row)
     return out
 
 

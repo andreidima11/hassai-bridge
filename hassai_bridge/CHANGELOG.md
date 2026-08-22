@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.2
+
+### Fix
+- **DeepSeek thinking + tools** — pass `reasoning_content` back on assistant turns (in-loop and chat history) so Frigate/tool follow-ups no longer fail with HTTP 400
+
+
 ## 1.0.1
 
 ### Fix

@@ -378,9 +378,16 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
 
     used_model = resolve_provider_chat_model(provider, model)
 
+    from services import chat_content as cc
+    from services import provider_capabilities as pc
+
+    shaped = pc.prepare_messages_for_request(
+        provider, messages, tools=tools, thinking=thinking,
+    )
+
     payload = {
         "model": used_model,
-        "messages": messages,
+        "messages": shaped,
         "stream": stream,
     }
     if tools:
@@ -392,15 +399,12 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
     if temperature is not None and not _skip_temperature(provider, thinking, model=used_model):
         payload["temperature"] = temperature
 
-    from services import chat_content as cc
-    from services import provider_capabilities as pc
-
     if thinking and pc.supports_thinking(provider):
         pc.apply_provider_payload_extras(
             payload,
             provider,
             thinking,
-            has_images=cc.messages_have_images(messages),
+            has_images=cc.messages_have_images(shaped),
         )
 
     _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id, request_url=url)
@@ -465,9 +469,16 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
     used_model = cfg_model if cfg_model and cfg_model != "default" else (model or "default")
     used_model = resolve_provider_chat_model(provider, model)
 
+    from services import chat_content as cc
+    from services import provider_capabilities as pc
+
+    shaped = pc.prepare_messages_for_request(
+        provider, messages, tools=tools, thinking=thinking,
+    )
+
     payload = {
         "model": used_model,
-        "messages": messages,
+        "messages": shaped,
         "stream": True,
     }
     if tools:
@@ -479,15 +490,12 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
     if temperature is not None and not _skip_temperature(provider, thinking, model=used_model):
         payload["temperature"] = temperature
 
-    from services import chat_content as cc
-    from services import provider_capabilities as pc
-
     if thinking and pc.supports_thinking(provider):
         pc.apply_provider_payload_extras(
             payload,
             provider,
             thinking,
-            has_images=cc.messages_have_images(messages),
+            has_images=cc.messages_have_images(shaped),
         )
 
     _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id, request_url=url)
