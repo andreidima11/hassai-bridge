@@ -299,6 +299,24 @@ async function loadSystemInfo() {
     }
     setText('svcSXDetail', sx.url || '');
 
+    const fr = services.frigate || {};
+    const frCard = document.getElementById('svcFrigate');
+    const frOnline = fr.status === 'connected';
+    if (frCard) {
+      frCard.className = 'service-card ' + (fr.enabled ? (frOnline ? 'online' : 'offline') : '');
+      const frStatusEl = frCard.querySelector('.svc-status');
+      if (frStatusEl) {
+        if (!fr.enabled) {
+          frStatusEl.className = 'svc-status disabled';
+          frStatusEl.textContent = t('status.disabled');
+        } else {
+          frStatusEl.className = 'svc-status ' + (frOnline ? 'online' : 'offline');
+          frStatusEl.textContent = frOnline ? t('status.connected') : t('status.unavailable');
+        }
+      }
+    }
+    setText('svcFrigateDetail', fr.url || '');
+
     if (memCard) {
       memCard.className = 'service-card ' + (mem.enabled ? 'online' : '');
       const memStatusEl = memCard.querySelector('.svc-status');
@@ -708,6 +726,15 @@ async function loadSettings() {
     document.getElementById('sxMaxChars').value = cfg.searxng.max_page_chars;
     document.getElementById('sxCacheTtl').value = cfg.searxng.cache_ttl || 300;
 
+    // Frigate
+    const fr = cfg.frigate || {};
+    const frEn = document.getElementById('frigateEnabled');
+    if (frEn) frEn.checked = fr.enabled !== false;
+    const frUrl = document.getElementById('frigateUrl');
+    if (frUrl) frUrl.value = fr.base_url || 'http://ccab4aaf-frigate:5000';
+    const frTo = document.getElementById('frigateTimeout');
+    if (frTo) frTo.value = fr.timeout ?? 12;
+
     // Memory
     document.getElementById('memEnabled').checked = cfg.memory.enabled;
 
@@ -753,6 +780,11 @@ async function saveSettings() {
           hour: parseInt(document.getElementById('acHour').value) || 3,
         },
         cache_ttl: parseInt(document.getElementById('sxCacheTtl').value),
+      },
+      frigate: {
+        enabled: document.getElementById('frigateEnabled')?.checked !== false,
+        base_url: (document.getElementById('frigateUrl')?.value || '').trim(),
+        timeout: parseInt(document.getElementById('frigateTimeout')?.value) || 12,
       },
       memory: {
         enabled: document.getElementById('memEnabled').checked,
@@ -833,6 +865,20 @@ async function testSearxng() {
   try {
     const h = await api('GET', '/api/settings/health');
     toast(`SearXNG: ${h.searxng === 'connected' ? '✅ ' + t('status.connected') : '❌ ' + t('status.unavailable')}`);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function testFrigate() {
+  try {
+    const h = await api('GET', '/api/settings/frigate/health');
+    const ok = h.status === 'connected';
+    const cams = Array.isArray(h.cameras) ? h.cameras.length : 0;
+    const detail = ok
+      ? `${t('status.connected')}${cams ? ` — ${cams} ${t('settings.frigateCameras')}` : ''}`
+      : t('status.unavailable');
+    toast(`Frigate: ${ok ? '✅' : '❌'} ${detail}${h.url ? ' (' + h.url + ')' : ''}`);
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }

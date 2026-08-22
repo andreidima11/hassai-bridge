@@ -43,6 +43,7 @@ def _get_local_ip() -> str:
 class SettingsUpdate(BaseModel):
     lmstudio: dict | None = None
     searxng: dict | None = None
+    frigate: dict | None = None
     memory: dict | None = None
     performance: dict | None = None
     security: dict | None = None
@@ -73,6 +74,8 @@ async def update_settings(data: SettingsUpdate):
         cfg["lmstudio"].update(data.lmstudio)
     if data.searxng is not None:
         cfg["searxng"].update(data.searxng)
+    if data.frigate is not None:
+        cfg.setdefault("frigate", {}).update(data.frigate)
     if data.memory is not None:
         cfg["memory"].update(data.memory)
     if data.performance is not None:
@@ -460,6 +463,9 @@ async def health():
     active = get_active_provider()
     provider_ok = await providers.health_check(active)
     sx_ok = await searxng.health_check()
+    from services import frigate_tools as ft
+
+    fr_ok = await ft.api_reachable() if ft.is_enabled() else False
     return {
         "provider": "connected" if provider_ok else "unreachable",
         "provider_name": active.get("name", "?"),
@@ -467,6 +473,33 @@ async def health():
         # Keep lmstudio key for backward compatibility
         "lmstudio": "connected" if provider_ok else "unreachable",
         "searxng": "connected" if sx_ok else "unreachable",
+        "frigate": "connected" if fr_ok else "unreachable",
+    }
+
+
+@router.get("/frigate/health")
+async def frigate_health():
+    """Test Frigate API connectivity (uses saved settings)."""
+    from services import frigate_tools as ft
+
+    cfg = load_config().get("frigate") or {}
+    enabled = cfg.get("enabled") is not False
+    url = ft.base_url()
+    if not enabled:
+        return {"status": "disabled", "url": url, "enabled": False, "cameras": []}
+    ok = await ft.api_reachable()
+    cameras: list[str] = []
+    if ok:
+        try:
+            data = await ft._get_json("/api/config")
+            cameras = sorted((data.get("cameras") or {}).keys())
+        except Exception:
+            cameras = []
+    return {
+        "status": "connected" if ok else "unreachable",
+        "url": url,
+        "enabled": True,
+        "cameras": cameras,
     }
 
 
@@ -499,6 +532,11 @@ async def system_info():
 
     lm_ok = await providers.health_check()
     sx_ok = await searxng.health_check()
+    from services import frigate_tools as ft
+
+    fr_cfg = cfg.get("frigate") or {}
+    fr_enabled = fr_cfg.get("enabled") is not False
+    fr_ok = await ft.api_reachable() if fr_enabled else False
     active = get_active_provider()
 
     ha_connected = False
@@ -556,6 +594,11 @@ async def system_info():
                 "status": "connected" if sx_ok else "unreachable",
                 "enabled": cfg["searxng"]["enabled"],
                 "url": cfg["searxng"]["base_url"],
+            },
+            "frigate": {
+                "status": "connected" if fr_ok else "unreachable",
+                "enabled": fr_enabled,
+                "url": ft.base_url(),
             },
             "memory": {
                 "enabled": cfg["memory"]["enabled"],
