@@ -1,16 +1,21 @@
 """OpenAI Chat Completions request quirks and prompt-cache helpers.
 
-Newer ChatGPT / GPT / o-series models reject `max_tokens` and some also reject
-a custom `temperature`. Keep the settings UI field as max_tokens; map it here.
+Per OpenAI / Azure docs (GPT-5 / o-series / GPT-5.6):
+- Use `max_completion_tokens` — `max_tokens` is rejected (HTTP 400).
+- GPT-5 / o-series reject custom temperature / top_p / penalties.
+- GPT-5.6+ with function tools on /v1/chat/completions requires
+  `reasoning_effort: "none"` (or migrate to /v1/responses).
 
-Prompt caching: set a stable `prompt_cache_key` (session id) so OpenAI routes
-related turns to the same cache; report hits from `prompt_tokens_details`.
+Settings UI still stores `max_tokens`; we map it on the way out.
 """
 
 from __future__ import annotations
 
+import json
 import re
 from logging import getLogger
+
+import httpx
 
 # Models that reject custom temperature / sampling knobs.
 _RESTRICTED_SAMPLING = re.compile(
@@ -18,14 +23,19 @@ _RESTRICTED_SAMPLING = re.compile(
     re.IGNORECASE,
 )
 
-# OpenAI / ChatGPT model ids that reject `max_tokens` on the official API.
+# OpenAI / ChatGPT model ids (and gateway prefixes like openai/gpt-5.6).
 _OPENAI_CHAT_MODEL = re.compile(
     r"^(gpt-|chatgpt-|o[1-9]([.-]|$)|o[1-9]-)",
     re.IGNORECASE,
 )
-# Gateway prefixes (OpenRouter, LiteLLM, etc.): openai/gpt-5.6, …/gpt-4o
 _OPENAI_CHAT_MODEL_SUFFIX = re.compile(
     r"(^|/)(gpt-|chatgpt-|o[1-9]([.-]|$)|o[1-9]-)",
+    re.IGNORECASE,
+)
+
+# GPT-5.6 and later: Chat Completions + function tools need reasoning_effort=none.
+_GPT56_PLUS = re.compile(
+    r"(^|/)gpt-5\.(?:[6-9]|[1-9]\d)",
     re.IGNORECASE,
 )
 
@@ -47,19 +57,6 @@ def _is_openai_cloud_url(url: str) -> bool:
     return bool(u and ("openai.com" in u or "openai.azure.com" in u))
 
 
-def _is_local_provider(provider: dict | None) -> bool:
-    if not isinstance(provider, dict):
-        return False
-    base = _norm(provider.get("base_url"))
-    # Mis-typed "local" with an OpenAI cloud URL should still remap tokens.
-    if base and _is_openai_cloud_url(base):
-        return False
-    ptype = _provider_type(provider)
-    if ptype in ("local", "ollama", "lmstudio"):
-        return True
-    return bool(base and _is_local_base(base))
-
-
 def _is_local_base(base: str) -> bool:
     b = _norm(base)
     return any(
@@ -72,6 +69,19 @@ def _is_local_base(base: str) -> bool:
             "homeassistant.local",
         )
     )
+
+
+def _is_local_provider(provider: dict | None) -> bool:
+    if not isinstance(provider, dict):
+        return False
+    base = _norm(provider.get("base_url"))
+    # Mis-typed "local" with an OpenAI cloud URL should still remap tokens.
+    if base and _is_openai_cloud_url(base):
+        return False
+    ptype = _provider_type(provider)
+    if ptype in ("local", "ollama", "lmstudio"):
+        return True
+    return bool(base and _is_local_base(base))
 
 
 def is_openai_provider(provider: dict | None) -> bool:
@@ -98,6 +108,11 @@ def looks_like_openai_model(model: str | None) -> bool:
     if _OPENAI_CHAT_MODEL.match(mid):
         return True
     return bool(_OPENAI_CHAT_MODEL_SUFFIX.search(mid))
+
+
+def is_gpt56_plus_model(model: str | None) -> bool:
+    """True for gpt-5.6 / gpt-5.6-* / openai/gpt-5.6-sol etc."""
+    return bool(_GPT56_PLUS.search(_norm(model)))
 
 
 def uses_max_completion_tokens(
@@ -171,6 +186,21 @@ def outbound_targets_openai_cloud(
     return is_openai_provider(provider)
 
 
+def apply_gpt56_tools_compat(payload: dict) -> None:
+    """GPT-5.6+ + function tools on Chat Completions requires reasoning_effort=none.
+
+    OpenAI rejects: tools + default/any reasoning on /v1/chat/completions for gpt-5.6+.
+    Docs: set reasoning_effort to 'none' or use /v1/responses.
+    """
+    model = str(payload.get("model") or "")
+    if not is_gpt56_plus_model(model):
+        return
+    if not payload.get("tools"):
+        return
+    # Keep an explicit none; never leave default reasoning active with tools.
+    payload["reasoning_effort"] = "none"
+
+
 def finalize_http_payload(
     payload: dict,
     provider: dict | None,
@@ -180,10 +210,10 @@ def finalize_http_payload(
     """Absolute last mutation before httpx POST — OpenAI must never see max_tokens."""
     model = str(payload.get("model") or (provider or {}).get("model") or "")
     url = str(request_url or "")
-    if not (
-        outbound_targets_openai_cloud(provider, url)
-        or uses_max_completion_tokens(provider, model, request_url=url)
-    ):
+    openaiish = outbound_targets_openai_cloud(provider, url) or uses_max_completion_tokens(
+        provider, model, request_url=url
+    )
+    if not openaiish:
         return
     if "max_tokens" in payload:
         log.warning(
@@ -194,6 +224,7 @@ def finalize_http_payload(
         )
     _strip_max_tokens(payload)
     payload.pop("max_tokens", None)
+    apply_gpt56_tools_compat(payload)
 
 
 def sanitize_outbound_chat_payload(
@@ -222,6 +253,7 @@ def apply_request_payload(
     if is_restricted_sampling_model(model):
         for key in ("temperature", "top_p", "presence_penalty", "frequency_penalty", "logit_bias"):
             payload.pop(key, None)
+    apply_gpt56_tools_compat(payload)
     if not is_openai_provider(provider):
         return
     cache_key = prompt_cache_key(cache_conv_id)
@@ -238,6 +270,55 @@ def apply_request_payload(
         opts["include_usage"] = True
         payload["stream_options"] = opts
     sanitize_outbound_chat_payload(payload, provider)
+
+
+def rewrite_openai_request_body(request: httpx.Request) -> None:
+    """httpx request hook: rewrite JSON body so max_tokens never reaches OpenAI.
+
+    This is the wire-level safety net — runs on every POST to openai.com / Azure
+    regardless of how the payload dict was built.
+    """
+    url = str(request.url).lower()
+    if "openai.com" not in url and "openai.azure.com" not in url:
+        return
+    if request.method.upper() != "POST":
+        return
+    raw = request.content
+    if not raw:
+        return
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError):
+        return
+    if not isinstance(data, dict):
+        return
+    changed = False
+    if "max_tokens" in data:
+        if "max_completion_tokens" not in data:
+            data["max_completion_tokens"] = data.pop("max_tokens")
+        else:
+            data.pop("max_tokens", None)
+        changed = True
+    # GPT-5.6 + tools without reasoning_effort=none also 400s.
+    if is_gpt56_plus_model(data.get("model")) and data.get("tools"):
+        if data.get("reasoning_effort") != "none":
+            data["reasoning_effort"] = "none"
+            changed = True
+    if not changed:
+        return
+    body = json.dumps(data).encode("utf-8")
+    request._content = body
+    request.stream = httpx.ByteStream(body)
+    # Update length so servers accept the rewritten body.
+    try:
+        request.headers["content-length"] = str(len(body))
+    except Exception:
+        pass
+    log.info(
+        "OpenAI wire rewrite: model=%s keys=%s",
+        data.get("model"),
+        sorted(k for k in data if k != "messages"),
+    )
 
 
 def cache_tokens_from_usage(usage: dict | None) -> tuple[int, int]:

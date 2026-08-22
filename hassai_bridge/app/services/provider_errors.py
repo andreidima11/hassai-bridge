@@ -42,27 +42,33 @@ def friendly_provider_error(
     name = str((provider or {}).get("name") or "Provider").strip() or "Provider"
     code = int(status) if status else 0
     text = str(body or "").strip()
+    try:
+        from core.config import ADDON_VERSION
+
+        ver = f" [hassai {ADDON_VERSION}]"
+    except Exception:
+        ver = ""
 
     if looks_like_html(text):
         hint = "Check the server URL (should be the API base, e.g. https://api.x.ai/v1), API key, and outbound network access."
         if code:
-            return f"{name} returned an HTML error page (HTTP {code}) during {action}. {hint}"
-        return f"{name} returned an HTML error page during {action}. {hint}"
+            return f"{name} returned an HTML error page (HTTP {code}) during {action}.{ver} {hint}"
+        return f"{name} returned an HTML error page during {action}.{ver} {hint}"
 
     parsed = _parse_json_error(text) if text.startswith("{") else ""
     if parsed:
         if code:
-            return f"{name} error (HTTP {code}): {parsed[:240]}"
-        return f"{name} error: {parsed[:240]}"
+            return f"{name} error (HTTP {code}): {parsed[:240]}{ver}"
+        return f"{name} error: {parsed[:240]}{ver}"
 
     snippet = " ".join(text.split())[:180]
     if code and snippet:
-        return f"{name} error (HTTP {code}): {snippet}"
+        return f"{name} error (HTTP {code}): {snippet}{ver}"
     if code:
-        return f"{name} error (HTTP {code}) during {action}."
+        return f"{name} error (HTTP {code}) during {action}.{ver}"
     if snippet:
-        return f"{name} error during {action}: {snippet}"
-    return f"{name} error during {action}."
+        return f"{name} error during {action}: {snippet}{ver}"
+    return f"{name} error during {action}.{ver}"
 
 
 def sanitize_error_message(message: str) -> str:

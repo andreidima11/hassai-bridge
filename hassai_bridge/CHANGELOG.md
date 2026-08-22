@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.91-beta
+
+### Fix
+- **OpenAI GPT-5.6 (docs-aligned)** — always send `max_completion_tokens` (never `max_tokens`); httpx wire hook rewrites any leftover `max_tokens` on POSTs to `openai.com`; GPT-5.6+ with function tools sets `reasoning_effort: none` (Chat Completions requirement); provider errors include add-on version for debugging
+
 ## 0.2.90-beta
 
 ### Fix
