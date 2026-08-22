@@ -27,9 +27,13 @@ def _get_client() -> httpx.AsyncClient:
     """Return a shared httpx client. Timeout is set per-request, not per-client."""
     global _client
     if _client is None or _client.is_closed:
+        from services import openai_api as oai
+
         _client = httpx.AsyncClient(
             timeout=300,  # generous default; callers override per-request
             limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+            # Wire-level rewrite: max_tokens → max_completion_tokens for OpenAI URLs.
+            event_hooks={"request": [oai.rewrite_openai_request_body]},
         )
     return _client
 
@@ -320,8 +324,10 @@ def _apply_token_limit(payload: dict, provider: dict, *, request_url: str = "") 
     from services import openai_api as oai
 
     model = str(payload.get("model") or provider.get("model") or "")
+    # OpenAI docs: GPT-5 / o-series / current ChatGPT models reject max_tokens.
+    # Prefer max_completion_tokens whenever the upstream is OpenAI-ish.
     if oai.uses_max_completion_tokens(provider, model, request_url=request_url):
-        payload["max_completion_tokens"] = max_tokens
+        payload["max_completion_tokens"] = int(max_tokens)
         payload.pop("max_tokens", None)
     else:
         payload["max_tokens"] = max_tokens
@@ -407,6 +413,12 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
 
     oai.sanitize_outbound_chat_payload(payload, provider, request_url=url)
     oai.finalize_http_payload(payload, provider, request_url=url)
+    if oai.is_openai_provider(provider) or "openai.com" in url.lower():
+        log.info(
+            "OpenAI chat POST model=%s keys=%s",
+            payload.get("model"),
+            sorted(k for k in payload if k != "messages"),
+        )
 
     client = _get_client()
     # Retry on transient errors (#20)
@@ -488,6 +500,12 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
 
     oai.sanitize_outbound_chat_payload(payload, provider, request_url=url)
     oai.finalize_http_payload(payload, provider, request_url=url)
+    if oai.is_openai_provider(provider) or "openai.com" in url.lower():
+        log.info(
+            "OpenAI chat stream model=%s keys=%s",
+            payload.get("model"),
+            sorted(k for k in payload if k != "messages"),
+        )
 
     client = _get_client()
     try:

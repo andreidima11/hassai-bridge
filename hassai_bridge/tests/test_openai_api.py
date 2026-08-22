@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from services import openai_api as oai
 from services import provider_capabilities as pc
 from services.providers import _apply_token_limit, _finalize_chat_payload, _skip_temperature
@@ -236,3 +238,60 @@ def test_restricted_model_detection():
     assert not oai.is_restricted_sampling_model("chatgpt-4o-latest")
     assert not oai.is_restricted_sampling_model("gpt-4o")
     assert not oai.is_restricted_sampling_model("gpt-4.1")
+
+
+def test_gpt56_plus_detection():
+    assert oai.is_gpt56_plus_model("gpt-5.6")
+    assert oai.is_gpt56_plus_model("gpt-5.6-chat-latest")
+    assert oai.is_gpt56_plus_model("gpt-5.6-sol")
+    assert oai.is_gpt56_plus_model("openai/gpt-5.6-terra")
+    assert oai.is_gpt56_plus_model("gpt-5.7")
+    assert not oai.is_gpt56_plus_model("gpt-5")
+    assert not oai.is_gpt56_plus_model("gpt-5.4")
+    assert not oai.is_gpt56_plus_model("gpt-4o")
+
+
+def test_gpt56_with_tools_sets_reasoning_effort_none():
+    payload = {
+        "model": "gpt-5.6-chat-latest",
+        "tools": [{"type": "function", "function": {"name": "search_web"}}],
+        "max_tokens": 1000,
+    }
+    provider = {"type": "openai", "name": "ChatGPT", "model": "gpt-5.6-chat-latest", "max_tokens": 1000}
+    oai.sanitize_outbound_chat_payload(
+        payload,
+        provider,
+        request_url="https://api.openai.com/v1/chat/completions",
+    )
+    assert "max_tokens" not in payload
+    assert payload["max_completion_tokens"] == 1000
+    assert payload["reasoning_effort"] == "none"
+
+
+def test_wire_hook_rewrites_max_tokens_in_httpx_request():
+    import httpx
+
+    req = httpx.Request(
+        "POST",
+        "https://api.openai.com/v1/chat/completions",
+        content=b'{"model":"gpt-5.6","max_tokens":512,"messages":[]}',
+        headers={"Content-Type": "application/json"},
+    )
+    oai.rewrite_openai_request_body(req)
+    body = json.loads(req.content)
+    assert "max_tokens" not in body
+    assert body["max_completion_tokens"] == 512
+
+
+def test_wire_hook_sets_reasoning_effort_for_gpt56_tools():
+    import httpx
+
+    req = httpx.Request(
+        "POST",
+        "https://api.openai.com/v1/chat/completions",
+        content=b'{"model":"gpt-5.6-sol","tools":[{"type":"function"}],"messages":[]}',
+        headers={"Content-Type": "application/json"},
+    )
+    oai.rewrite_openai_request_body(req)
+    body = json.loads(req.content)
+    assert body["reasoning_effort"] == "none"
