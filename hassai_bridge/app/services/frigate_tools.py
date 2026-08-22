@@ -6,6 +6,7 @@ when the API is unreachable but the media folder is mounted.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone
@@ -126,6 +127,44 @@ async def api_reachable() -> bool:
             return False
 
 
+async def health_status(*, probe_timeout: float = 2.5) -> dict:
+    """Fast status for Settings dashboard (must not hang Ingress).
+
+    Returns {"status": connected|unreachable|disabled, "via": api|media|"", "url": str, "enabled": bool}
+    """
+    cfg = _cfg()
+    enabled = cfg.get("enabled") is not False
+    url = base_url()
+    if not enabled:
+        return {"status": "disabled", "via": "", "url": url, "enabled": False}
+
+    async def _probe_api() -> bool:
+        timeout = min(float(probe_timeout), _timeout())
+        try:
+            async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+                resp = await client.get(f"{url}/api/version")
+                if resp.status_code < 400:
+                    return True
+                resp = await client.get(f"{url}/api/config")
+                return resp.status_code < 400
+        except Exception:
+            return False
+
+    try:
+        ok = await asyncio.wait_for(_probe_api(), timeout=float(probe_timeout) + 0.5)
+    except Exception:
+        ok = False
+
+    if ok:
+        return {"status": "connected", "via": "api", "url": url, "enabled": True}
+
+    # Tools still work via /media/frigate — treat as connected for the dashboard.
+    if media_frigate_root():
+        return {"status": "connected", "via": "media", "url": url, "enabled": True}
+
+    return {"status": "unreachable", "via": "", "url": url, "enabled": True}
+
+
 async def list_cameras() -> str:
     """List Frigate cameras (API preferred, else media folder)."""
     try:
@@ -185,6 +224,9 @@ def _event_line(ev: dict) -> str:
     )
 
 
+_MAX_ATTACHED_SNAPSHOTS = 6
+
+
 async def list_events(
     camera: str = "",
     label: str = "",
@@ -192,9 +234,13 @@ async def list_events(
     *,
     include_snapshot: bool = False,
 ) -> dict:
-    """Return recent events. Optionally attach the newest snapshot.
+    """Return recent events. Optionally attach snapshots for the listed events.
 
-    Returns {"text": str, "image": {"bytes", "filename", "mime"} | None}
+    Returns {
+      "text": str,
+      "image": first snap or None (back-compat),
+      "images": list of {"bytes", "filename", "mime"},
+    }
     """
     cam = _normalize_camera(camera) if camera else ""
     lab = str(label or "").strip().lower()
@@ -223,42 +269,53 @@ async def list_events(
         return {
             "text": f"No recent Frigate events{where}{what} with snapshots.",
             "image": None,
+            "images": [],
         }
 
     header = f"Recent Frigate events ({len(events)}):"
     lines = [header] + [_event_line(ev) for ev in events]
-    image = None
+    images: list[dict] = []
     if include_snapshot:
-        top = events[0]
-        eid = str(top.get("id") or "")
-        if eid and top.get("has_snapshot"):
+        for ev in events:
+            if len(images) >= _MAX_ATTACHED_SNAPSHOTS:
+                break
+            eid = str(ev.get("id") or "")
+            if not eid or not ev.get("has_snapshot"):
+                continue
             try:
                 data, mime = await _get_bytes(f"/api/events/{eid}/snapshot.jpg")
-                cam_name = top.get("camera") or "camera"
-                image = {
+                cam_name = ev.get("camera") or "camera"
+                images.append({
                     "bytes": data,
                     "filename": f"frigate-{cam_name}-{eid[:12]}.jpg",
                     "mime": mime or "image/jpeg",
-                }
-                lines.append(f"Attached snapshot from latest event ({cam_name} / {top.get('label')}).")
+                })
+                lines.append(
+                    f"Attached snapshot: {cam_name} / {ev.get('label')} (id={eid})."
+                )
             except Exception as snap_err:
-                lines.append(f"(Could not fetch snapshot: {snap_err})")
-        else:
-            # Fall back to live latest.jpg for that camera
+                lines.append(f"(Could not fetch snapshot for {eid}: {snap_err})")
+        if not images:
+            # Fall back to live latest.jpg for the top camera
+            top = events[0]
             cname = _normalize_camera(top.get("camera") or cam)
             if cname:
                 try:
                     data, mime = await _get_bytes(f"/api/{cname}/latest.jpg")
-                    image = {
+                    images.append({
                         "bytes": data,
                         "filename": f"frigate-{cname}-latest.jpg",
                         "mime": mime or "image/jpeg",
-                    }
+                    })
                     lines.append(f"Attached latest frame from {cname}.")
                 except Exception as snap_err:
                     lines.append(f"(Could not fetch latest frame: {snap_err})")
 
-    return {"text": "\n".join(lines), "image": image}
+    return {
+        "text": "\n".join(lines),
+        "image": images[0] if images else None,
+        "images": images,
+    }
 
 
 async def _events_from_media(camera: str, limit: int, *, include_snapshot: bool) -> dict:
@@ -270,6 +327,7 @@ async def _events_from_media(camera: str, limit: int, *, include_snapshot: bool)
                 "Set frigate.base_url in config."
             ),
             "image": None,
+            "images": [],
         }
     clips = root / "clips"
     base = clips if clips.is_dir() else root
@@ -287,12 +345,16 @@ async def _events_from_media(camera: str, limit: int, *, include_snapshot: bool)
                 continue
             files.append(path)
     except OSError as exc:
-        return {"text": f"Error reading {base}: {exc}", "image": None}
+        return {"text": f"Error reading {base}: {exc}", "image": None, "images": []}
 
     files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     files = files[:limit]
     if not files:
-        return {"text": f"No snapshot files under {base}" + (f" for {camera}" if camera else "") + ".", "image": None}
+        return {
+            "text": f"No snapshot files under {base}" + (f" for {camera}" if camera else "") + ".",
+            "image": None,
+            "images": [],
+        }
 
     lines = [f"Recent Frigate media files ({base}):"]
     for path in files:
@@ -302,20 +364,24 @@ async def _events_from_media(camera: str, limit: int, *, include_snapshot: bool)
             when = "—"
         lines.append(f"• {when} — {path.name}")
 
-    image = None
+    images: list[dict] = []
     if include_snapshot and files:
-        top = files[0]
-        try:
-            image = {
-                "bytes": top.read_bytes(),
-                "filename": top.name,
-                "mime": "image/jpeg",
-            }
-            lines.append(f"Attached {top.name}.")
-        except OSError as exc:
-            lines.append(f"(Could not read {top.name}: {exc})")
+        for path in files[:_MAX_ATTACHED_SNAPSHOTS]:
+            try:
+                images.append({
+                    "bytes": path.read_bytes(),
+                    "filename": path.name,
+                    "mime": "image/jpeg",
+                })
+                lines.append(f"Attached {path.name}.")
+            except OSError as exc:
+                lines.append(f"(Could not read {path.name}: {exc})")
 
-    return {"text": "\n".join(lines), "image": image}
+    return {
+        "text": "\n".join(lines),
+        "image": images[0] if images else None,
+        "images": images,
+    }
 
 
 async def snapshot(camera: str = "", event_id: str = "") -> dict:
@@ -323,16 +389,19 @@ async def snapshot(camera: str = "", event_id: str = "") -> dict:
     eid = str(event_id or "").strip()
     cam = _normalize_camera(camera) if camera else ""
 
+    def _one(text: str, image: dict) -> dict:
+        return {"text": text, "image": image, "images": [image]}
+
     if eid:
         data, mime = await _get_bytes(f"/api/events/{eid}/snapshot.jpg")
-        return {
-            "text": f"Snapshot for event {eid}.",
-            "image": {
+        return _one(
+            f"Snapshot for event {eid}.",
+            {
                 "bytes": data,
                 "filename": f"frigate-event-{eid[:16]}.jpg",
                 "mime": mime or "image/jpeg",
             },
-        }
+        )
 
     if not cam:
         # Latest event with snapshot across all cameras
@@ -360,14 +429,14 @@ async def snapshot(camera: str = "", event_id: str = "") -> dict:
                 )
         except Exception:
             pass
-        return {
-            "text": f"Latest snapshot from {cam}.{extra}",
-            "image": {
+        return _one(
+            f"Latest snapshot from {cam}.{extra}",
+            {
                 "bytes": data,
                 "filename": f"frigate-{cam}-latest.jpg",
                 "mime": mime or "image/jpeg",
             },
-        }
+        )
     except Exception as api_err:
         log.info("Frigate latest.jpg failed for %s (%s); media fallback", cam, api_err)
         media = await _events_from_media(cam, 1, include_snapshot=True)
@@ -382,8 +451,10 @@ def system_hint() -> str:
     if not is_enabled():
         return ""
     return (
-        "Frigate cameras: for outdoors/cameras/what was detected, use frigate_list_cameras, "
-        "frigate_events (camera optional, include_snapshot=true to attach a photo), "
-        "or frigate_snapshot (camera name or event_id). "
-        "Always attach a snapshot when the user asks what is on camera / outside / last detection."
+        "Frigate cameras (real NVR photos — never use generate_image / Imagine for these): "
+        "for outdoors, cameras, detections, persons/cars seen, or “show me those snaps”, "
+        "use frigate_list_cameras, frigate_events (label=person etc., include_snapshot=true "
+        "to attach the real Frigate snapshots), or frigate_snapshot (camera or event_id). "
+        "When you already listed events and the user asks for the photos, call frigate_events "
+        "again with the same filters and include_snapshot=true (or frigate_snapshot per event_id)."
     )

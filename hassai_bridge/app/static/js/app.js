@@ -2,6 +2,13 @@
 
 const API = (typeof window.HASSAI_BASE === "string" ? window.HASSAI_BASE : "").replace(/\/$/, "");
 
+/** API VERSION is already `v0.2.x`; avoid double `v` in the footer. */
+function formatAppVersion(version) {
+  const raw = String(version || "").trim();
+  if (!raw) return "—";
+  return /^v/i.test(raw) ? raw : `v${raw}`;
+}
+
 (function syncHaThemeFromParent() {
   const map = [
     ['--primary-background-color', '--bg'],
@@ -275,6 +282,7 @@ async function loadSystemInfo() {
       lmCard.className = 'service-card ' + (lmOnline ? 'online' : 'offline');
       const st = lmCard.querySelector('.svc-status');
       if (st) {
+        st.removeAttribute('data-i18n');
         st.className = 'svc-status ' + (lmOnline ? 'online' : 'offline');
         st.textContent = lmOnline ? t('status.connected') : t('status.unavailable');
       }
@@ -288,6 +296,7 @@ async function loadSystemInfo() {
       sxCard.className = 'service-card ' + (sx.enabled ? (sxOnline ? 'online' : 'offline') : '');
       const sxStatusEl = sxCard.querySelector('.svc-status');
       if (sxStatusEl) {
+        sxStatusEl.removeAttribute('data-i18n');
         if (!sx.enabled) {
           sxStatusEl.className = 'svc-status disabled';
           sxStatusEl.textContent = t('status.disabled');
@@ -302,16 +311,21 @@ async function loadSystemInfo() {
     const fr = services.frigate || {};
     const frCard = document.getElementById('svcFrigate');
     const frOnline = fr.status === 'connected';
+    const frDisabled = fr.enabled === false || fr.status === 'disabled';
     if (frCard) {
-      frCard.className = 'service-card ' + (fr.enabled ? (frOnline ? 'online' : 'offline') : '');
+      frCard.className = 'service-card ' + (frDisabled ? '' : (frOnline ? 'online' : 'offline'));
       const frStatusEl = frCard.querySelector('.svc-status');
       if (frStatusEl) {
-        if (!fr.enabled) {
+        frStatusEl.removeAttribute('data-i18n');
+        if (frDisabled) {
           frStatusEl.className = 'svc-status disabled';
           frStatusEl.textContent = t('status.disabled');
         } else {
           frStatusEl.className = 'svc-status ' + (frOnline ? 'online' : 'offline');
-          frStatusEl.textContent = frOnline ? t('status.connected') : t('status.unavailable');
+          const label = frOnline ? t('status.connected') : t('status.unavailable');
+          frStatusEl.textContent = fr.via === 'media' && frOnline
+            ? `${label} (media)`
+            : label;
         }
       }
     }
@@ -321,6 +335,7 @@ async function loadSystemInfo() {
       memCard.className = 'service-card ' + (mem.enabled ? 'online' : '');
       const memStatusEl = memCard.querySelector('.svc-status');
       if (memStatusEl) {
+        memStatusEl.removeAttribute('data-i18n');
         if (mem.enabled) {
           memStatusEl.className = 'svc-status online';
           memStatusEl.textContent = mem.auto_extract ? t('status.activeAutoExtract') : t('status.active');
@@ -338,13 +353,13 @@ async function loadSystemInfo() {
     setText('statConversations', stats.total_conversations);
     setText('statActions24h', stats.actions_last_24h);
 
-    if (info.version) setText('versionBadge', info.version);
+    if (info.version) setText('versionBadge', formatAppVersion(info.version));
     if (info.api_key) _apiKeyValue = info.api_key;
     updateEndpointDisplay(info.local_ip, info.port);
 
     const footerVer = document.getElementById('footerVersion');
     const footerHa = document.getElementById('footerHaStatus');
-    if (footerVer) footerVer.textContent = info.version ? `v${info.version}` : '—';
+    if (footerVer) footerVer.textContent = formatAppVersion(info.version);
     if (footerHa) {
       const ha = info.home_assistant || {};
       footerHa.className = '';
@@ -2960,7 +2975,7 @@ async function loadStatsServer() {
     _cachedInfo = info;
 
     document.getElementById('statsServerUptime').textContent = formatUptime(info.uptime_seconds);
-    document.getElementById('statsServerVersion').textContent = info.version;
+    document.getElementById('statsServerVersion').textContent = formatAppVersion(info.version);
     document.getElementById('statsServerEndpoints').textContent = info.endpoints.length;
     document.getElementById('statsServerProviders').textContent = (info.providers || []).length;
 

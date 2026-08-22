@@ -100,6 +100,8 @@ def build_image_generation_tool(provider: dict | None) -> dict:
                 "Generate a new image from a detailed text prompt using Grok Imagine "
                 f"(server uses {default_model}). "
                 "Use when the user asks to create, draw, design, or visualize something. "
+                "Do NOT use for Frigate/camera/security snapshots, outdoor detections, or "
+                "photos of people/cars already detected — use frigate_events / frigate_snapshot instead. "
                 "Do not use for editing an uploaded photo unless the user explicitly asks to generate a new image. "
                 "Do not invent or pass a model id — the bridge selects a valid Imagine model."
             ),

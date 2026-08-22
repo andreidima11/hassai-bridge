@@ -1,5 +1,22 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.0
+
+First stable release (end of beta).
+
+### Fixes
+- **Frigate snaps in follow-ups** — assistant Frigate/Imagine attachments stay visible in chat but are not replayed as `image_url` to the LLM (fixes DeepSeek Vision HTTP 400: "Image in assistant message is not supported")
+- **Camera photos vs Imagine** — Frigate tools preferred for detections; `generate_image` excludes camera/NVR photos
+- **Frigate status stuck on Checking** — Settings service pills no longer reset via i18n; fast Frigate probe + media fallback
+- **Settings footer version** — no more double `v` (`vv0.2.x` → `v1.0.0`)
+
+### Features / Polish
+- **Multiple Frigate snapshots** — `include_snapshot=true` attaches up to 6 real event snaps
+- **Image lightbox** — blurred/dimmed backdrop; pinch zoom on the photo only
+- **Chat header icons** — slightly more inset on mobile
+- **Settings sub-tabs** — General / Providers / … wrap as chips without overlapping
+
+
 ## 0.2.94-beta
 
 ### Feature

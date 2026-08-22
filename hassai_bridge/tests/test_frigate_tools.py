@@ -42,7 +42,16 @@ def test_list_events_api_with_snapshot():
             "start_time": 1_700_000_000.0,
             "end_time": 1_700_000_010.0,
             "has_snapshot": True,
-        }
+        },
+        {
+            "id": "evt-2",
+            "camera": "front",
+            "label": "person",
+            "top_score": 0.88,
+            "start_time": 1_699_999_000.0,
+            "end_time": 1_699_999_020.0,
+            "has_snapshot": True,
+        },
     ]
 
     async def fake_json(path, params=None):
@@ -50,7 +59,7 @@ def test_list_events_api_with_snapshot():
         return events
 
     async def fake_bytes(path, params=None):
-        assert "evt-1" in path
+        assert "/snapshot.jpg" in path
         return b"\xff\xd8\xffsnap", "image/jpeg"
 
     async def _run():
@@ -62,8 +71,16 @@ def test_list_events_api_with_snapshot():
 
     result = asyncio.run(_run())
     assert "person" in result["text"]
+    assert len(result["images"]) == 2
     assert result["image"]["filename"].startswith("frigate-front-")
     assert result["image"]["bytes"].startswith(b"\xff\xd8")
+
+
+def test_system_hint_mentions_no_imagine():
+    with patch.object(ft, "is_enabled", return_value=True):
+        hint = ft.system_hint()
+    assert "generate_image" in hint
+    assert "include_snapshot" in hint
 
 
 def test_snapshot_latest_jpg():
@@ -101,3 +118,42 @@ def test_system_hint_when_enabled():
         hint = ft.system_hint()
         assert "frigate_events" in hint
         assert "frigate_snapshot" in hint
+
+
+def test_health_status_media_fallback(tmp_path: Path):
+    media = tmp_path / "media"
+    (media / "frigate" / "clips").mkdir(parents=True)
+
+    cf.set_roots_for_test((str(media),))
+    try:
+        async def boom():
+            raise RuntimeError("no api")
+
+        async def _run():
+            with (
+                patch.object(ft, "_cfg", return_value={"enabled": True, "base_url": "http://frigate:5000", "timeout": 12}),
+                patch("httpx.AsyncClient") as client_cls,
+            ):
+                # Make httpx client raise on get
+                instance = client_cls.return_value
+                instance.__aenter__.return_value = instance
+                instance.__aexit__.return_value = None
+                instance.get = AsyncMock(side_effect=RuntimeError("down"))
+                return await ft.health_status(probe_timeout=0.5)
+
+        result = asyncio.run(_run())
+        assert result["status"] == "connected"
+        assert result["via"] == "media"
+        assert result["enabled"] is True
+    finally:
+        cf.set_roots_for_test(None)
+
+
+def test_health_status_disabled():
+    async def _run():
+        with patch.object(ft, "_cfg", return_value={"enabled": False, "base_url": "http://x"}):
+            return await ft.health_status(probe_timeout=0.2)
+
+    result = asyncio.run(_run())
+    assert result["status"] == "disabled"
+    assert result["enabled"] is False
