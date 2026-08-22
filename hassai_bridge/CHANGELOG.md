@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.96-beta
+
+### Polish
+- **Chat header icons** — nudge conversations and settings buttons slightly farther from the screen edges on mobile (equal inset)
+
+
 ## 0.2.94-beta
 
 ### Feature
