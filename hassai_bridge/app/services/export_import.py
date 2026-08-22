@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -50,6 +51,18 @@ def close_db_connections() -> None:
             close_kg()
     except Exception as exc:
         log.warning("close knowledge_graph connections failed: %s", exc)
+
+
+def _atomic_replace(src: Path, dst: Path) -> None:
+    """Move/replace a file; fall back to copy when /tmp and /config are different mounts."""
+    try:
+        os.replace(src, dst)
+    except OSError as exc:
+        if exc.errno != errno.EXDEV:
+            raise
+        log.info("Cross-device replace for %s -> %s; copying instead", src, dst)
+        shutil.copy2(src, dst)
+        src.unlink(missing_ok=True)
 
 
 def list_share_import_files(*, limit: int = 40) -> list[dict]:
@@ -263,7 +276,7 @@ def restore_database_file(db_path: Path) -> dict:
     # Stream copy — avoid loading the whole DB into RAM
     tmp_dest = DB_PATH.with_suffix(".db.restoring")
     shutil.copy2(src, tmp_dest)
-    os.replace(tmp_dest, DB_PATH)
+    _atomic_replace(tmp_dest, DB_PATH)
     for suffix in ("-wal", "-shm"):
         side = Path(str(DB_PATH) + suffix)
         if side.exists():
@@ -505,7 +518,7 @@ def restore_export_zip(zip_path: Path) -> dict:
                 if DB_PATH.exists():
                     shutil.copy2(DB_PATH, backup_path)
                 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-                os.replace(db_tmp, DB_PATH)
+                _atomic_replace(db_tmp, DB_PATH)
                 db_tmp = None
                 for suffix in ("-wal", "-shm"):
                     side = Path(str(DB_PATH) + suffix)
