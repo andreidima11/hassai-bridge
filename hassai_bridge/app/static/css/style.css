@@ -353,9 +353,8 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
   .stats-overview-grid{grid-template-columns:repeat(2,1fr)}
   .card{padding:16px 14px;margin-bottom:12px}
   .card h2{font-size:.95rem}
-  .settings-tabs{flex-wrap:nowrap;gap:2px;padding:3px;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;-ms-overflow-style:none}
-  .settings-tabs::-webkit-scrollbar{display:none}
-  .settings-tab{padding:8px 12px;font-size:.76rem;flex:0 0 auto;min-width:0;white-space:nowrap}
+  .settings-tabs{flex-wrap:wrap;gap:6px;padding:0;overflow:visible}
+  .settings-tab{padding:7px 12px;font-size:.78rem;flex:0 0 auto}
   .skill-card{flex-direction:column!important;align-items:flex-start!important;gap:10px}
   .skill-card>div:last-child{width:100%;justify-content:flex-end}
   .skills-toolbar .btn{white-space:nowrap}
