@@ -42,7 +42,16 @@ def test_list_events_api_with_snapshot():
             "start_time": 1_700_000_000.0,
             "end_time": 1_700_000_010.0,
             "has_snapshot": True,
-        }
+        },
+        {
+            "id": "evt-2",
+            "camera": "front",
+            "label": "person",
+            "top_score": 0.88,
+            "start_time": 1_699_999_000.0,
+            "end_time": 1_699_999_020.0,
+            "has_snapshot": True,
+        },
     ]
 
     async def fake_json(path, params=None):
@@ -50,7 +59,7 @@ def test_list_events_api_with_snapshot():
         return events
 
     async def fake_bytes(path, params=None):
-        assert "evt-1" in path
+        assert "/snapshot.jpg" in path
         return b"\xff\xd8\xffsnap", "image/jpeg"
 
     async def _run():
@@ -62,8 +71,16 @@ def test_list_events_api_with_snapshot():
 
     result = asyncio.run(_run())
     assert "person" in result["text"]
+    assert len(result["images"]) == 2
     assert result["image"]["filename"].startswith("frigate-front-")
     assert result["image"]["bytes"].startswith(b"\xff\xd8")
+
+
+def test_system_hint_mentions_no_imagine():
+    with patch.object(ft, "is_enabled", return_value=True):
+        hint = ft.system_hint()
+    assert "generate_image" in hint
+    assert "include_snapshot" in hint
 
 
 def test_snapshot_latest_jpg():

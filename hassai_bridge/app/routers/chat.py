@@ -1641,10 +1641,11 @@ _FRIGATE_TOOLS = [
         "function": {
             "name": "frigate_events",
             "description": (
-                "Recent Frigate detections (person, car, animal, …). "
-                "Pass camera= for one camera. Set include_snapshot=true to attach the latest "
-                "detection photo in the chat — use this when the user asks what is outside, "
-                "what the cameras saw, or the last detection."
+                "Recent Frigate detections (person, car, animal, …) from the real NVR — "
+                "not AI image generation. Pass camera= / label= (e.g. person) to filter. "
+                "Set include_snapshot=true when the user wants the actual snapshot photos "
+                "(attaches up to several event snaps in chat). Prefer this over generate_image "
+                "for any camera / detection / outdoor / person-on-camera request."
             ),
             "parameters": {
                 "type": "object",
@@ -1663,7 +1664,10 @@ _FRIGATE_TOOLS = [
                     },
                     "include_snapshot": {
                         "type": "boolean",
-                        "description": "Attach the newest event snapshot to the chat.",
+                        "description": (
+                            "Attach real Frigate snapshots for the listed events "
+                            "(up to 6) into the chat."
+                        ),
                     },
                 },
             },
@@ -1674,8 +1678,9 @@ _FRIGATE_TOOLS = [
         "function": {
             "name": "frigate_snapshot",
             "description": (
-                "Fetch a camera snapshot into the chat. Prefer camera= for the latest frame "
-                "(and last-detection summary). Or pass event_id= from frigate_events."
+                "Fetch a real Frigate camera/event snapshot into the chat (not Imagine). "
+                "Prefer camera= for the latest frame, or event_id= from frigate_events "
+                "when the user asks for the photo of a specific detection."
             ),
             "parameters": {
                 "type": "object",
@@ -1718,16 +1723,24 @@ async def _run_frigate_tool(
             return f"Error: unknown Frigate tool {fn_name}"
 
         text = result.get("text") or "OK"
-        image = result.get("image")
-        if image and generated_attachments is not None:
-            att = cm.save_uploaded_file(
-                user_id,
-                image["bytes"],
-                filename=image.get("filename") or "frigate.jpg",
-            )
-            generated_attachments.append(att)
+        images = list(result.get("images") or [])
+        if result.get("image") and not images:
+            images = [result["image"]]
+        if images and generated_attachments is not None:
+            for image in images:
+                if not image or not image.get("bytes"):
+                    continue
+                att = cm.save_uploaded_file(
+                    user_id,
+                    image["bytes"],
+                    filename=image.get("filename") or "frigate.jpg",
+                )
+                generated_attachments.append(att)
             if "Attached" not in text and "Showing" not in text:
-                text = f"{text}\nShowing snapshot in the chat."
+                n = len(images)
+                text = (
+                    f"{text}\nShowing {n} snapshot{'s' if n != 1 else ''} in the chat."
+                )
         return text
     except ValueError as exc:
         return f"Error: {exc}"
@@ -2131,6 +2144,10 @@ async def chat_completions(request: Request):
         augmented = _trim_messages_kv_friendly(augmented, max_ctx)
     else:
         augmented = _trim_messages(augmented, max_ctx)
+
+    # Frigate / Imagine snaps live on assistant turns for the UI. Never replay them
+    # as assistant image_url to the LLM (DeepSeek Vision HTTP 400, etc.).
+    augmented = cc.strip_non_user_images(augmented)
 
     request_has_images = cc.messages_have_images(augmented)
     image_provider: dict | None = None
