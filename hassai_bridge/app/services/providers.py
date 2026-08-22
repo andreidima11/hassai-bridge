@@ -322,7 +322,7 @@ def _finalize_chat_payload(
 
     # Belt-and-suspenders: strip max_tokens even if an earlier step re-added it.
     oai.apply_request_payload(payload, provider, cache_conv_id=cache_conv_id)
-    oai.remap_token_limit(payload, provider)
+    oai.sanitize_outbound_chat_payload(payload, provider)
 
 
 def _assert_usable_chat_model(provider: dict, used_model: str) -> None:
@@ -385,6 +385,10 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
         )
 
     _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id)
+
+    from services import openai_api as oai
+
+    oai.sanitize_outbound_chat_payload(payload, provider)
 
     client = _get_client()
     # Retry on transient errors (#20)
@@ -461,6 +465,10 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
         )
 
     _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id)
+
+    from services import openai_api as oai
+
+    oai.sanitize_outbound_chat_payload(payload, provider)
 
     client = _get_client()
     try:

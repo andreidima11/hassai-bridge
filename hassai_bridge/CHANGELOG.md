@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.88-beta
+
+### Fix
+- **OpenAI / ChatGPT `max_tokens`** — broader detection (provider named ChatGPT, all `gpt-*` / `o*` models); strip `max_tokens` on every outbound request so HTTP 400 cannot slip through
+
+### Polish
+- **Model dropdown** — opens upward when there is not enough space below (long model lists near the bottom of the screen)
+
 ## 0.2.87-beta
 
 ### Fix
