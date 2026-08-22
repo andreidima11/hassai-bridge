@@ -366,7 +366,10 @@ def _search(user_id: str, args: dict) -> str:
     query = str(args.get("query") or "").strip()
     if not query:
         return "Error: empty query."
-    limit = max(1, min(30, int(args.get("limit") or 10) if str(args.get("limit") or "").strip().lstrip("-").isdigit() else 10))
+    try:
+        limit = max(1, min(30, int(args.get("limit") or 10)))
+    except (TypeError, ValueError):
+        limit = 10
     rows = search_memories(user_id, _extract_keywords_local(query), limit=limit)
     if not rows:
         return f"No memories match '{query}'."

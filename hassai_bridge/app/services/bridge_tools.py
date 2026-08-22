@@ -124,7 +124,8 @@ TOOL_SPECS: list[dict] = [
                         "description": "Dotted setting key, e.g. 'searxng.enabled'.",
                     },
                     "value": {
-                        "description": "New value (boolean, number or string).",
+                        "type": "string",
+                        "description": "New value: 'true'/'false' for switches, a number, or text.",
                     },
                 },
                 "required": ["path", "value"],
