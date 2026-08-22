@@ -2,6 +2,13 @@
 
 const API = (typeof window.HASSAI_BASE === "string" ? window.HASSAI_BASE : "").replace(/\/$/, "");
 
+/** API VERSION is already `v0.2.x`; avoid double `v` in the footer. */
+function formatAppVersion(version) {
+  const raw = String(version || "").trim();
+  if (!raw) return "—";
+  return /^v/i.test(raw) ? raw : `v${raw}`;
+}
+
 (function syncHaThemeFromParent() {
   const map = [
     ['--primary-background-color', '--bg'],
@@ -338,13 +345,13 @@ async function loadSystemInfo() {
     setText('statConversations', stats.total_conversations);
     setText('statActions24h', stats.actions_last_24h);
 
-    if (info.version) setText('versionBadge', info.version);
+    if (info.version) setText('versionBadge', formatAppVersion(info.version));
     if (info.api_key) _apiKeyValue = info.api_key;
     updateEndpointDisplay(info.local_ip, info.port);
 
     const footerVer = document.getElementById('footerVersion');
     const footerHa = document.getElementById('footerHaStatus');
-    if (footerVer) footerVer.textContent = info.version ? `v${info.version}` : '—';
+    if (footerVer) footerVer.textContent = formatAppVersion(info.version);
     if (footerHa) {
       const ha = info.home_assistant || {};
       footerHa.className = '';
@@ -2960,7 +2967,7 @@ async function loadStatsServer() {
     _cachedInfo = info;
 
     document.getElementById('statsServerUptime').textContent = formatUptime(info.uptime_seconds);
-    document.getElementById('statsServerVersion').textContent = info.version;
+    document.getElementById('statsServerVersion').textContent = formatAppVersion(info.version);
     document.getElementById('statsServerEndpoints').textContent = info.endpoints.length;
     document.getElementById('statsServerProviders').textContent = (info.providers || []).length;
 
