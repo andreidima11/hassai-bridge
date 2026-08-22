@@ -4,6 +4,7 @@
 
 ### Polish
 - **Image lightbox** — blurred/dimmed backdrop; pinch zoom applies to the photo only (page zoom blocked while open)
+- **Settings footer** — fix double `v` in version label (`vv0.2.x` → `v0.2.x`)
 
 
 ## 0.2.94-beta
