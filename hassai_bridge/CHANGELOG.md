@@ -2,9 +2,15 @@
 
 ## 1.0.2
 
+### Features
+- **HA admin tools** — backups (list/create/restore), add-on lifecycle, updates, Core/host restart, network ping/port check, binary upload, ZHA/Z-Wave mesh actions, native automation/script create/edit
+- **HA tool permissions** — Settings → General toggles per capability (all on by default); disabled tools are hidden from the AI
+
 ### Fix
 - **DeepSeek thinking + tools** — pass `reasoning_content` back on assistant turns (in-loop and chat history) so Frigate/tool follow-ups no longer fail with HTTP 400
 
+### Polish
+- **Add-on logo** — new HassAI Bridge mark (house–cloud bridge icon) for `icon.png` and `logo.png` in the store
 
 ## 1.0.1
 
