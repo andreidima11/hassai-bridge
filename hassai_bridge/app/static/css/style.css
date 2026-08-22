@@ -419,11 +419,34 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .input-sm{padding:6px 10px;font-size:.82rem;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text)}
 
 /* ── Settings Sub-tabs ── */
-.settings-tabs{display:flex;gap:4px;margin-bottom:20px;background:var(--bg);border-radius:999px;padding:4px;overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none}
-.settings-tabs::-webkit-scrollbar{display:none}
-.settings-tab{flex:1;padding:8px 12px;text-align:center;cursor:pointer;border-radius:999px;transition:.15s;font-size:.82rem;color:var(--muted);white-space:nowrap}
-.settings-tab:hover{background:var(--accent-glow);color:var(--text)}
-.settings-tab.active{background:var(--accent);color:var(--on-accent);font-weight:600}
+.settings-tabs{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  gap:8px;
+  margin-bottom:20px;
+  padding:0;
+  background:transparent;
+  border-radius:0;
+  overflow:visible;
+}
+.settings-tab{
+  flex:0 0 auto;
+  padding:8px 14px;
+  text-align:center;
+  cursor:pointer;
+  border-radius:999px;
+  transition:background .15s,color .15s,border-color .15s;
+  font-size:.82rem;
+  line-height:1.2;
+  color:var(--muted);
+  white-space:nowrap;
+  background:var(--bg);
+  border:1px solid var(--border);
+  max-width:100%;
+}
+.settings-tab:hover{background:var(--accent-glow);color:var(--text);border-color:transparent}
+.settings-tab.active{background:var(--accent);color:var(--on-accent);font-weight:600;border-color:transparent}
 .settings-subpanel{display:none}
 .settings-subpanel.active{display:block}
 

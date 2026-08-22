@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 0.2.99-beta
+
+### Polish
+- **Settings sub-tabs** — General / Providers / … wrap as chips instead of squeezing into one overlapping pill row
+
+
 ## 0.2.94-beta
 
 ### Feature
