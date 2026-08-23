@@ -2703,7 +2703,6 @@ async function refreshConvUsers() {
       select.appendChild(opt);
     }
     if (prev && userSet.has(prev)) select.value = prev;
-    toast(t('toast.usersReloaded'));
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
