@@ -46,6 +46,19 @@ def preset_capabilities(provider_type: str) -> dict:
                 "context_budget": 120000,
             },
         }
+    if provider_type == "gemini":
+        return {
+            KV_CACHE: {
+                # Gemini 1.5/2.x long context — leave room for tools + output.
+                "context_budget": 200000,
+            },
+        }
+    if provider_type == "qwen":
+        return {
+            KV_CACHE: {
+                "context_budget": 120000,
+            },
+        }
     return {}
 
 

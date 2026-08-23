@@ -1252,6 +1252,8 @@ const PROVIDER_TYPE_LABELS = {
   grok: 'Grok (xAI)',
   deepseek: 'DeepSeek',
   glm: 'GLM (Zhipu AI)',
+  gemini: 'Gemini (Google)',
+  qwen: 'Qwen (DashScope)',
 };
 
 const PROVIDER_TYPE_URLS = {
@@ -1260,6 +1262,8 @@ const PROVIDER_TYPE_URLS = {
   grok: 'https://api.x.ai/v1',
   deepseek: 'https://api.deepseek.com/v1',
   glm: 'https://api.z.ai/api/paas/v4',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  qwen: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
 };
 
 const LEGACY_PROVIDER_URLS = [
@@ -1270,6 +1274,11 @@ const LEGACY_PROVIDER_URLS = [
   'https://api.deepseek.com',
   'https://api.deepseek.com/chat/completions',
   'https://api.deepseek.com/v1/chat/completions',
+  'https://generativelanguage.googleapis.com/v1beta/openai/',
+  'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions',
+  'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/chat/completions',
+  'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
 ];
 
 function normalizeProviderUrl(url) {
@@ -1284,6 +1293,8 @@ const PROVIDER_TYPE_NAMES = {
   grok: 'Grok',
   deepseek: 'DeepSeek',
   glm: 'GLM',
+  gemini: 'Gemini',
+  qwen: 'Qwen',
 };
 
 function renderProvidersList() {

@@ -413,7 +413,7 @@
       <div id="providersMain">
         <div class="card">
           <h2 data-i18n="settings.providers">AI Providers</h2>
-          <p class="card-muted" data-i18n="settings.providersDesc">Add and manage AI providers. Supports local servers (LM Studio, Ollama) and cloud APIs (OpenAI, Grok, DeepSeek, GLM).</p>
+          <p class="card-muted" data-i18n="settings.providersDesc">Add and manage AI providers. Supports local servers (LM Studio, Ollama) and cloud APIs (OpenAI, Grok, DeepSeek, GLM, Gemini, Qwen).</p>
           <div id="providersList"></div>
           <div style="margin-top:12px">
             <button class="btn btn-primary btn-sm" onclick="openAddProvider()" data-i18n="settings.addProvider">+ Add Provider</button>
@@ -444,6 +444,8 @@
               <option value="grok">Grok (xAI)</option>
               <option value="deepseek">DeepSeek</option>
               <option value="glm">GLM (Zhipu AI)</option>
+              <option value="gemini">Gemini (Google)</option>
+              <option value="qwen">Qwen (DashScope)</option>
             </select>
             <label data-i18n="settings.providerName">Name</label>
             <input type="text" id="provName" placeholder="e.g.: My LM Studio">
@@ -555,6 +557,8 @@
               <option value="grok">Grok (xAI)</option>
               <option value="deepseek">DeepSeek</option>
               <option value="glm">GLM (Zhipu AI)</option>
+              <option value="gemini">Gemini (Google)</option>
+              <option value="qwen">Qwen (DashScope)</option>
             </select>
             <label data-i18n="settings.providerName">Name</label>
             <input type="text" id="secProvName" placeholder="e.g.: Memory LLM">
