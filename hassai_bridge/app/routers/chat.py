@@ -2147,6 +2147,7 @@ async def chat_completions(request: Request):
     mem_ctx = build_memory_context(memories, user_id=user_id, message=last_user_msg)
 
     from core.identity import user_context_for_prompt
+    from services import prompt_context as pctx
 
     user_ctx = user_context_for_prompt(user_id, request)
 
@@ -2165,6 +2166,8 @@ async def chat_completions(request: Request):
         stable_parts.append(memory_hint)
     stable_parts.append(_agentic_instruction())
 
+    # Always inject "today" so models (DeepSeek etc.) don't need HA sensors for the date.
+    volatile_parts.append(pctx.current_datetime_context())
     if user_ctx:
         volatile_parts.append(user_ctx)
     if mem_ctx:
