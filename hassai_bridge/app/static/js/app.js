@@ -827,6 +827,28 @@ async function loadSettings() {
     const frTo = document.getElementById('frigateTimeout');
     if (frTo) frTo.value = fr.timeout ?? 12;
 
+    // Voice
+    const voice = cfg.voice || {};
+    const vEn = document.getElementById('voiceEnabled');
+    if (vEn) vEn.checked = voice.enabled === true;
+    const vKey = document.getElementById('voiceKey');
+    // Never echo the stored key back; blank means "keep it".
+    if (vKey) vKey.placeholder = voice.google_api_key ? '•••••••• (saved)' : 'AIza…';
+    const vLang = document.getElementById('voiceLanguage');
+    if (vLang) vLang.value = voice.language || 'ro-RO';
+    const vRate = document.getElementById('voiceRate');
+    if (vRate) vRate.value = voice.speaking_rate ?? 1;
+    const vMax = document.getElementById('voiceMaxChars');
+    if (vMax) vMax.value = voice.max_reply_chars ?? 800;
+    const vAuto = document.getElementById('voiceAutoplay');
+    if (vAuto) vAuto.checked = voice.autoplay !== false;
+    await loadVoiceVoices(voice.voice || 'Kore');
+    renderVoiceMicStatus();
+    if (vLang && !vLang.dataset.bound) {
+      vLang.dataset.bound = '1';
+      vLang.addEventListener('change', () => loadVoiceVoices(document.getElementById('voiceVoice')?.value));
+    }
+
     // Memory
     document.getElementById('memEnabled').checked = cfg.memory.enabled;
 
@@ -904,7 +926,13 @@ async function saveSettings() {
       dynamic_greetings: document.getElementById('settingsDynamicGreetings')?.checked !== false,
       ha_tools: collectHaTools(),
       bridge_tools: collectBridgeTools(),
+      voice: collectVoice(),
     });
+    const vKeyInput = document.getElementById('voiceKey');
+    if (vKeyInput && vKeyInput.value) {
+      vKeyInput.value = '';
+      vKeyInput.placeholder = '•••••••• (saved)';
+    }
     toast(t('toast.settingsSaved'));
     persistLanguage(document.getElementById('settingsLang')?.value || currentLang);
     loadSystemInfo();
@@ -977,6 +1005,90 @@ async function testFrigate() {
       ? `${t('status.connected')}${cams ? ` — ${cams} ${t('settings.frigateCameras')}` : ''}`
       : t('status.unavailable');
     toast(`Frigate: ${ok ? '✅' : '❌'} ${detail}${h.url ? ' (' + h.url + ')' : ''}`);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+// ══════════════════════════════════════════════════
+// VOICE
+// ══════════════════════════════════════════════════
+
+// Chirp 3: HD speakers — used until the live list loads (needs a saved key).
+const VOICE_FALLBACK_SPEAKERS = [
+  'Achernar', 'Achird', 'Algenib', 'Algieba', 'Alnilam', 'Aoede', 'Autonoe',
+  'Callirrhoe', 'Charon', 'Despina', 'Enceladus', 'Erinome', 'Fenrir', 'Gacrux',
+  'Iapetus', 'Kore', 'Laomedeia', 'Leda', 'Orus', 'Pulcherrima', 'Puck',
+  'Rasalgethi', 'Sadachbia', 'Sadaltager', 'Schedar', 'Sulafat',
+];
+
+let _voiceTestAudio = null;
+
+function renderVoiceOptions(speakers, selected) {
+  const sel = document.getElementById('voiceVoice');
+  if (!sel) return;
+  const list = speakers.length ? speakers : VOICE_FALLBACK_SPEAKERS.map((s) => ({ speaker: s }));
+  sel.innerHTML = list.map((v) => {
+    const name = v.speaker || v;
+    const gender = v.gender ? ` (${v.gender.toLowerCase()})` : '';
+    return `<option value="${name}"${name === selected ? ' selected' : ''}>${name}${gender}</option>`;
+  }).join('');
+  if (selected && !list.some((v) => (v.speaker || v) === selected)) {
+    sel.insertAdjacentHTML('afterbegin', `<option value="${selected}" selected>${selected}</option>`);
+  }
+}
+
+async function loadVoiceVoices(selected) {
+  const lang = document.getElementById('voiceLanguage')?.value || 'ro-RO';
+  renderVoiceOptions([], selected);
+  try {
+    const data = await api('GET', `/api/settings/voice/voices?language=${encodeURIComponent(lang)}`);
+    if (Array.isArray(data.voices) && data.voices.length) {
+      renderVoiceOptions(data.voices, selected);
+    }
+  } catch {
+    // Keep the built-in speaker list; the key may not be saved yet.
+  }
+}
+
+function renderVoiceMicStatus() {
+  const el = document.getElementById('voiceMicStatus');
+  if (!el) return;
+  const secure = window.isSecureContext;
+  const hasApi = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+  if (secure && hasApi) {
+    el.innerHTML = `✅ ${t('settings.voiceMicOk')}`;
+  } else {
+    el.innerHTML = `⚠️ ${t('settings.voiceMicBlocked', { origin: location.origin })}`;
+  }
+}
+
+function collectVoice() {
+  const rate = parseFloat(document.getElementById('voiceRate')?.value);
+  const maxChars = parseInt(document.getElementById('voiceMaxChars')?.value, 10);
+  return {
+    enabled: document.getElementById('voiceEnabled')?.checked || false,
+    provider: 'google',
+    google_api_key: document.getElementById('voiceKey')?.value || '',
+    language: document.getElementById('voiceLanguage')?.value || 'ro-RO',
+    voice: document.getElementById('voiceVoice')?.value || 'Kore',
+    speaking_rate: Number.isFinite(rate) ? rate : 1.0,
+    max_reply_chars: Number.isFinite(maxChars) ? maxChars : 800,
+    autoplay: document.getElementById('voiceAutoplay')?.checked !== false,
+  };
+}
+
+async function testVoice() {
+  try {
+    const data = await api('POST', '/api/settings/voice/test', {
+      google_api_key: document.getElementById('voiceKey')?.value || '',
+      language: document.getElementById('voiceLanguage')?.value || 'ro-RO',
+      voice: document.getElementById('voiceVoice')?.value || 'Kore',
+    });
+    if (_voiceTestAudio) _voiceTestAudio.pause();
+    _voiceTestAudio = new Audio(data.audio);
+    await _voiceTestAudio.play();
+    toast(`🔊 ${data.voice}`);
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }

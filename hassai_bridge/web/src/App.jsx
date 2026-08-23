@@ -29,6 +29,7 @@ import {
   MAX_CHAT_IMAGES,
 } from "./lib/images.js";
 import { pickGreeting } from "./lib/greetings.js";
+import * as voiceApi from "./lib/voice.js";
 import { applyActivity, emptyThinking } from "./lib/thinking.js";
 import {
   defaultThinkingMode,
@@ -71,6 +72,8 @@ export default function App() {
   const [sessionId, setSessionId] = useState("");
   const [user, setUser] = useState({ username: "default", display_name: "default" });
   const [chatCapabilities, setChatCapabilities] = useState({});
+  const [voiceConfig, setVoiceConfig] = useState({ enabled: false, autoplay: true });
+  const spokenTurnRef = useRef(false);
   const [providerInfo, setProviderInfo] = useState({ id: "", name: "", model: "" });
   const [thinkingMode, setThinkingMode] = useState(() => readStoredThinkingMode());
   const sessionIdRef = useRef("");
@@ -202,6 +205,25 @@ export default function App() {
     [user.username, lang, t],
   );
 
+  const speakReply = useCallback(
+    async (assistantId, text) => {
+      const clean = String(text || "").trim();
+      if (!clean) return;
+      try {
+        const data = await voiceApi.speak(clean);
+        const url = data?.url ? apiUrl(data.url) : "";
+        if (!url) return;
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, audioUrl: url } : m)),
+        );
+        if (voiceConfig.autoplay !== false) voiceApi.playAudio(url);
+      } catch {
+        // A failed TTS call must not break the written reply.
+      }
+    },
+    [voiceConfig.autoplay],
+  );
+
   const finishAssistantMessage = useCallback(
     (assistantId, full, { error = false } = {}) => {
       setMessages((prev) =>
@@ -257,6 +279,10 @@ export default function App() {
         });
         if (signal?.aborted) return;
         finishAssistantMessage(assistantId, full);
+        if (spokenTurnRef.current) {
+          spokenTurnRef.current = false;
+          speakReply(assistantId, full);
+        }
         clearPendingTrace(username);
         if (sid) {
           try {
@@ -279,7 +305,7 @@ export default function App() {
         if (traceIdRef.current === traceId) traceIdRef.current = "";
       }
     },
-    [finishAssistantMessage, openSession, refreshSessions, t],
+    [finishAssistantMessage, openSession, refreshSessions, speakReply, t],
   );
 
   const openSessionRef = useRef(openSession);
@@ -306,6 +332,7 @@ export default function App() {
         username = nextUser.username || "default";
         setUser(nextUser);
         setDynamicGreetings(data.dynamic_greetings !== false);
+        setVoiceConfig(data.voice && typeof data.voice === "object" ? data.voice : { enabled: false });
         setAtmosphere(data.atmosphere && typeof data.atmosphere === "object" ? data.atmosphere : {});
         const chat = data.chat || {};
         const caps = chat.capabilities || {};
@@ -572,11 +599,13 @@ export default function App() {
     );
   }, [lang, t, user.username]);
 
-  const send = async (event) => {
-    event.preventDefault();
-    const text = input.trim();
-    const images = attachments;
+  const send = async (event, options = {}) => {
+    event?.preventDefault?.();
+    const text = (options.text ?? input).trim();
+    const images = options.text ? [] : attachments;
     if (!canSendMessage(text, images) || busy) return;
+    // Only a spoken question gets a spoken answer.
+    spokenTurnRef.current = Boolean(options.spoken);
     let sid = sessionIdRef.current;
     if (!sid) {
       startNewChat({ ephemeral: false });
@@ -805,6 +834,8 @@ export default function App() {
               setThinkingMode(mode);
               persistThinkingMode(mode);
             }}
+            voiceEnabled={voiceConfig.enabled === true}
+            onVoiceTranscript={(text) => send(null, { text, spoken: true })}
           />
         </div>
       </div>
