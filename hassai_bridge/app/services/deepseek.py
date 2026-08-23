@@ -35,6 +35,46 @@ _MAX_RE = re.compile(
     re.I,
 )
 
+# Home / device / camera / add-on control. Short commands like "aprinde lumina"
+# must not fall through to thinking=off — weaker DeepSeek models then skip tools
+# and invent that they flipped the switch.
+_CONTROL_RE = re.compile(
+    r"(?:"
+    # English verbs / intents
+    r"\b(?:turn|switch|toggle|set|dim|brighten|open|close|lock|unlock|arm|disarm|"
+    r"start|stop|pause|resume|run|trigger|activate|deactivate|enable|disable|"
+    r"call|invoke|reboot|restart|reload|update|install|create|delete|remove|"
+    r"add|rename|move|assign|expose|hide|play|mute|unmute|volume|"
+    r"remember|forget|memorize)\b"
+    r"|"
+    # Romanian verbs / intents (diacritics optional)
+    r"\b(?:aprinde|stinge|porne[sș]te|pornit[ie]?|opre[sș]te|oprit[ie]?|"
+    r"deschide|închide|inchide|încuie|incuie|descuie|"
+    r"seteaz[aă]|schimb[aă]|ajusteaz[aă]|cre[sș]te|scade|"
+    r"activeaz[aă]|dezactiveaz[aă]|ruleaz[aă]|declan[sș]eaz[aă]|"
+    r"reîncarc[aă]|reincarc[aă]|reporne[sș]te|actualizeaz[aă]|"
+    r"creeaz[aă]|[sș]terge|sterge|adaug[aă]|redenume[sș]te|"
+    r"memoreaz[aă]|memoreaza|re[tț]ine|retine|[tț]ine[\s-]minte|tine[\s-]minte|uit[aă])\b"
+    r"|"
+    # Nouns that almost always mean "do something with HA / cameras / the add-on"
+    r"\b(?:light|lights|lamp|switch|switches|thermostat|climate|cover|blinds|"
+    r"shutter|lock|scene|script|automation|entity|entities|dashboard|lovelace|"
+    r"camera|cameras|frigate|snapshot|snap|detection|backup|add-?on|addon|"
+    r"lumin[aăi]|lumini|bec(?:ul|uri)?|lamp[aă]|întrerup[aă]tor|intrerupator|"
+    r"termostat|climatizare|jaluzele|rulou|u[sș][aă]|poart[aă]|yal[aă]|"
+    r"scen[aă]|script|automatiza(?:re|rii)|entitat(?:e|i)|dashboard|"
+    r"camer[aă]|camere|detec[tț]ie|backup|add-?on)\b"
+    r"|"
+    # Phrases that ask the model to act on HA / itself without a strong verb
+    r"(?:ce (?:e|este) (?:pe|în|in) (?:camer|afara|afar[aă])|"
+    r"what(?:'?s| is) (?:on|at) (?:the )?(?:camera|front|door|driveway)|"
+    r"ultim(?:ul|a) (?:snap|snapshot|detec)|"
+    r"last (?:snap|snapshot|detection)|"
+    r"home assistant|hassai|has ?ai)\b"
+    r")",
+    re.I,
+)
+
 
 def is_deepseek_provider(provider: dict | None) -> bool:
     return isinstance(provider, dict) and provider.get("type") == "deepseek"
@@ -46,7 +86,12 @@ def normalize_thinking_mode(value: str | None, default: str = "auto") -> str:
 
 
 def auto_thinking_decision(user_text: str, *, tools_active: bool = False) -> dict:
-    """Heuristic: simple chat off, planning/architecture on."""
+    """Heuristic: simple chat off, planning / HA control on.
+
+    Short control phrases ("aprinde lumina", "turn on the lights") used to fall
+    into the ``simple`` / ``default_off`` buckets and leave thinking disabled.
+    Weaker DeepSeek models then skip tool calls and invent that they acted.
+    """
     text = (user_text or "").strip()
     compact = re.sub(r"\s+", " ", text)
     lower = compact.lower()
@@ -57,7 +102,17 @@ def auto_thinking_decision(user_text: str, *, tools_active: bool = False) -> dic
     if _MAX_RE.search(lower) or (len(_PLANNING_RE.findall(lower)) >= 2 and len(compact) > 120):
         return {"enabled": True, "effort": "max", "reason": "complex"}
 
-    if _SIMPLE_RE.match(compact) or (len(compact) < 28 and not _PLANNING_RE.search(lower)):
+    # Pure greetings/acks stay cheap — even if HA tools are loaded on every request.
+    if _SIMPLE_RE.match(compact):
+        return {"enabled": False, "effort": None, "reason": "simple"}
+
+    # Device / HA / camera / memory intents need thinking so the model actually
+    # calls tools instead of narrating a fake action. Check before the short-message
+    # off path, otherwise "aprinde lumina" (14 chars) never gets here.
+    if tools_active and _CONTROL_RE.search(lower):
+        return {"enabled": True, "effort": "high", "reason": "control"}
+
+    if len(compact) < 28 and not _PLANNING_RE.search(lower):
         return {"enabled": False, "effort": None, "reason": "simple"}
 
     if _PLANNING_RE.search(lower):
