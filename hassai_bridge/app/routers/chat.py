@@ -44,6 +44,8 @@ from services import lovelace_tools as lt
 from services import entity_tools as et
 from services import chat_content as cc
 from services import chat_media as cm
+from services import memory_tools as mt
+from services import bridge_tools as bt
 
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
@@ -56,6 +58,8 @@ def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
     if fn_name in ("search_web", "run_skill", "generate_image"):
         return True
     if fn_name in _MEDIA_TOOL_NAMES or fn_name in _FRIGATE_TOOL_NAMES:
+        return True
+    if fn_name in mt.TOOL_NAMES or bt.is_bridge_tool(fn_name):
         return True
     return ha_api.is_ha_tool(fn_name, cfg)
 
@@ -231,6 +235,10 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(
             args.get("camera") or args.get("event_id") or args.get("label") or ""
         )
+    if name in mt.TOOL_NAMES:
+        return _clip_detail(mt.tool_detail(name, args))
+    if bt.is_bridge_tool(name):
+        return _clip_detail(bt.tool_detail(name, args))
     if name == "ha_call_service":
         call = f"{args.get('domain') or ''}.{args.get('service') or ''}".strip(".")
         entity = str(args.get("entity_id") or "").strip()
@@ -743,6 +751,14 @@ async def _invoke_internal_tool(
 
     if fn_name in _FRIGATE_TOOL_NAMES:
         return await _run_frigate_tool(fn_name, args, user_id, generated_attachments), False
+
+    if fn_name in mt.TOOL_NAMES:
+        log.info("AI requested memory tool '%s': %s", fn_name, args)
+        return await asyncio.to_thread(mt.run_tool, fn_name, args, user_id), False
+
+    if bt.is_bridge_tool(fn_name):
+        log.info("AI requested bridge tool '%s': %s", fn_name, args)
+        return await bt.run_tool(fn_name, args, user_id=user_id), False
 
     if ha_api.is_ha_tool(fn_name):
         log.info("AI requested HA tool '%s': %s", fn_name, args)
@@ -2015,6 +2031,8 @@ async def chat_completions(request: Request):
 
     if ft.is_enabled():
         all_tools.extend(_FRIGATE_TOOLS)
+    all_tools.extend(mt.build_tools(cfg))
+    all_tools.extend(bt.build_tools(cfg))
     all_tools.extend(ha_api.build_ha_tools(cfg))
     active = get_active_provider()
     request_has_images = cc.messages_have_images(messages)
@@ -2124,6 +2142,12 @@ async def chat_completions(request: Request):
         stable_parts.append(system_prompt)
     if eco_instruction:
         stable_parts.append(eco_instruction)
+    bridge_hint = bt.system_hint(cfg)
+    if bridge_hint:
+        stable_parts.append(bridge_hint)
+    memory_hint = mt.system_hint(cfg)
+    if memory_hint:
+        stable_parts.append(memory_hint)
     stable_parts.append(_agentic_instruction())
 
     if user_ctx:
