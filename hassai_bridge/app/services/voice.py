@@ -35,6 +35,10 @@ _HR = re.compile(r"^\s*([-*_]\s*){3,}$", re.MULTILINE)
 _EMOJI = re.compile(
     "[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF\u2190-\u21FF\u2B00-\u2BFF]"
 )
+# Chirp (and most TTS) spells ALL-CAPS brands letter by letter. Speak the name
+# as a word instead of "H A S S A I".
+_BRAND_SAY = re.compile(r"\bHASSAI\b", re.IGNORECASE)
+_BRAND_SPOKEN = "Hassai"
 
 
 def _engine(raw: dict, key: str) -> str:
@@ -140,6 +144,8 @@ def speakable_text(text: str, limit: int = DEFAULT_MAX_REPLY_CHARS) -> str:
     raw = _BULLET.sub("", raw)
     raw = _EMPHASIS.sub("", raw)
     raw = _EMOJI.sub(" ", raw)
+    # Brand first so a truncated reply does not cut mid-"HASSAI".
+    raw = _BRAND_SAY.sub(_BRAND_SPOKEN, raw)
     clean = " ".join(raw.split())
     if len(clean) <= limit:
         return clean
