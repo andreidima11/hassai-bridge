@@ -913,11 +913,6 @@ async function saveSettings() {
         base_url: document.getElementById('sxUrl').value,
         max_results: parseInt(document.getElementById('sxMaxResults').value),
         max_page_chars: parseInt(document.getElementById('sxMaxChars').value),
-        auto_consolidation: {
-          enabled: document.getElementById('acEnabled').checked,
-          schedule: document.getElementById('acSchedule').value,
-          hour: parseInt(document.getElementById('acHour').value) || 3,
-        },
         cache_ttl: parseInt(document.getElementById('sxCacheTtl').value),
       },
       frigate: {
@@ -929,6 +924,11 @@ async function saveSettings() {
         enabled: document.getElementById('memEnabled').checked,
         auto_extract: document.getElementById('memAutoExtract').checked,
         max_memories_per_user: parseInt(document.getElementById('memMax').value),
+        auto_consolidation: {
+          enabled: document.getElementById('acEnabled').checked,
+          schedule: document.getElementById('acSchedule').value,
+          hour: parseInt(document.getElementById('acHour').value) || 3,
+        },
       },
       performance: {
         history_limit: parseInt(document.getElementById('perfHistoryLimit').value),

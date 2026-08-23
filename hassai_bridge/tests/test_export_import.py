@@ -107,14 +107,20 @@ def test_build_and_restore_export_roundtrip(data_env, tmp_path):
     assert manifest["counts"]["profiles"] == 1
     assert manifest["counts"]["upload_files"] == 1
     assert manifest["counts"]["generated_skills"] == 1
+    assert manifest["includes"]["settings_voice"] is True
+    assert manifest["secrets"]["include_google_voice_api_key"] is True
 
     with zipfile.ZipFile(zip_path) as zf:
         names = set(zf.namelist())
         assert "manifest.json" in names
         assert "config.json" in names
+        assert "README.txt" in names
         assert "hassai.db" in names
         assert any(n.startswith("uploads/chat/") for n in names)
         assert any(n.startswith("skills/generated/") for n in names)
+        readme = zf.read("README.txt").decode("utf-8")
+        assert "Voice" in readme
+        assert "Google key" in readme
 
     # Mutate live data then restore
     data_env["cfg_path"].write_text(json.dumps({"api_key": "wiped", "providers": []}), encoding="utf-8")
@@ -137,6 +143,57 @@ def test_build_and_restore_export_roundtrip(data_env, tmp_path):
     conn.close()
     assert "memories" in tables
     assert "conversations" in tables
+
+
+def test_export_includes_voice_settings_and_google_key(data_env, tmp_path):
+    """Voice (engines, local URLs, Chirp key) must ride inside config.json."""
+    cfg = json.loads(data_env["cfg_path"].read_text(encoding="utf-8"))
+    cfg["voice"] = {
+        "enabled": True,
+        "stt_engine": "local",
+        "tts_engine": "google",
+        "google_api_key": "AIzaSyVoiceBackupTest",
+        "language": "ro-RO",
+        "voice": "Kore",
+        "controls": "mic",
+        "local_stt": {"url": "core_whisper:10300", "model": "base-int8", "timeout": 90},
+        "local_tts": {"url": "core_piper:10200", "voice": "ro_RO-mihai-medium", "timeout": 60},
+    }
+    cfg["frigate"] = {"enabled": True, "base_url": "http://frigate:5000", "timeout": 12}
+    cfg["ha_tools"] = {"backups": False}
+    data_env["cfg_path"].write_text(json.dumps(cfg), encoding="utf-8")
+
+    from core import config as core_cfg
+
+    core_cfg._config_cache = None
+    core_cfg._config_mtime = 0.0
+
+    zip_path = tmp_path / "voice.zip"
+    manifest = ei.build_export_zip(zip_path)
+    inv = manifest["config_inventory"]
+    assert inv["sections"]["voice"] is True
+    assert inv["sections"]["frigate"] is True
+    assert inv["voice"]["stt_engine"] == "local"
+    assert inv["voice"]["tts_engine"] == "google"
+    assert inv["voice"]["has_google_api_key"] is True
+    assert inv["voice"]["local_stt_url"] == "core_whisper:10300"
+    assert inv["secrets"]["google_voice_api_key"] is True
+
+    # Wipe voice then restore — key and engines must come back.
+    data_env["cfg_path"].write_text(
+        json.dumps({"api_key": "hab_test", "providers": cfg["providers"], "voice": {"enabled": False}}),
+        encoding="utf-8",
+    )
+    core_cfg._config_cache = None
+    result = ei.restore_export_zip(zip_path)
+    assert result["status"] == "ok"
+    restored = json.loads(data_env["cfg_path"].read_text(encoding="utf-8"))
+    assert restored["voice"]["google_api_key"] == "AIzaSyVoiceBackupTest"
+    assert restored["voice"]["stt_engine"] == "local"
+    assert restored["voice"]["local_stt"]["model"] == "base-int8"
+    assert restored["voice"]["local_tts"]["voice"] == "ro_RO-mihai-medium"
+    assert restored["frigate"]["base_url"] == "http://frigate:5000"
+    assert restored["ha_tools"]["backups"] is False
 
 
 def test_restore_rejects_non_zip(tmp_path):
