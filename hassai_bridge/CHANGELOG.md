@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## Unreleased
+
+### Fix
+- **Thinking Auto + short HA commands** — phrases like "aprinde lumina" / "turn on the lights" no longer leave thinking off under Auto. Weaker DeepSeek models were skipping tools and inventing that they acted; Auto now forces thinking=high for control/camera/memory intents while greetings stay cheap
+
 ## 1.0.4
 
 Memory as real tools, HASSAI self-awareness/self-control from chat, and header icon alignment.
