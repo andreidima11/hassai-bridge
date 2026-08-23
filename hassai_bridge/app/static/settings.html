@@ -419,6 +419,42 @@
             <button class="btn btn-primary btn-sm" onclick="openAddProvider()" data-i18n="settings.addProvider">+ Add Provider</button>
           </div>
         </div>
+
+        <div class="card" style="margin-top:16px">
+          <h2 data-i18n="settings.autoRouting">Auto mode</h2>
+          <p class="card-muted" data-i18n="settings.autoRoutingDesc">Pick the provider per message instead of always using the active one: cheap models for short chat and device commands, a stronger one for planning, a vision-capable one for photos. A conversation stays on its provider so prompt caching keeps working.</p>
+          <div class="toggle-row">
+            <span data-i18n="settings.autoRoutingEnabled">Enabled — choose the provider automatically</span>
+            <label class="toggle"><input type="checkbox" id="routingAuto" onchange="onRoutingModeChange()"><span class="slider"></span></label>
+          </div>
+          <div id="routingOptions" style="display:none">
+            <label data-i18n="settings.autoRoutingProfile">Profile</label>
+            <select id="routingProfile">
+              <option value="cheap" data-i18n="settings.autoRoutingCheap">Cheapest</option>
+              <option value="balanced" data-i18n="settings.autoRoutingBalanced">Balanced</option>
+              <option value="quality" data-i18n="settings.autoRoutingQuality">Best quality</option>
+            </select>
+            <div class="toggle-row">
+              <div>
+                <div data-i18n="settings.autoRoutingSticky">Keep a conversation on one provider</div>
+                <p class="card-muted" style="margin:4px 0 0" data-i18n="settings.autoRoutingStickyDesc">Recommended. Switching mid-conversation throws away the cached prompt, which usually costs more than it saves.</p>
+              </div>
+              <label class="toggle"><input type="checkbox" id="routingSticky" checked><span class="slider"></span></label>
+            </div>
+            <h3 style="margin-top:14px" data-i18n="settings.autoRoutingRoles">Roles</h3>
+            <p class="card-muted hint" data-i18n="settings.autoRoutingRolesDesc">Leave on Automatic to let the bridge choose from your configured providers.</p>
+            <label data-i18n="settings.autoRoutingFast">Short chat and device commands</label>
+            <select id="routingRoleFast"></select>
+            <label data-i18n="settings.autoRoutingDeep">Planning and long context</label>
+            <select id="routingRoleDeep"></select>
+            <label data-i18n="settings.autoRoutingVision">Photos</label>
+            <select id="routingRoleVision"></select>
+            <p class="card-muted hint" id="routingPricingNote" style="margin-top:12px"></p>
+          </div>
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn btn-primary btn-sm" onclick="saveRouting()" data-i18n="settings.save">Save</button>
+          </div>
+        </div>
         <div class="card" style="margin-top:16px">
           <h2 data-i18n="settings.secondaryProviders">Secondary Providers</h2>
           <p class="card-muted" data-i18n="settings.secondaryProvidersDesc">Secondary providers handle memory operations (extraction, consolidation) and can be assigned to primary providers for tool call re-processing.</p>

@@ -152,6 +152,18 @@ def kv_context_budget(provider: dict | None) -> int:
     return int(kv.get("context_budget") or 98000)
 
 
+def context_budget(provider: dict | None) -> int:
+    """Prompt budget for a provider — KV window, or a multiple of max_tokens."""
+    if supports_kv_cache(provider):
+        return kv_context_budget(provider)
+    if not isinstance(provider, dict):
+        return 2048 * 3
+    try:
+        return int(provider.get("max_tokens", 2048)) * 3
+    except (TypeError, ValueError):
+        return 2048 * 3
+
+
 def cache_tokens_from_usage(provider: dict | None, usage: dict | None) -> tuple[int, int]:
     if not isinstance(provider, dict) or not isinstance(usage, dict):
         return 0, 0

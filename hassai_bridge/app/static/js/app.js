@@ -809,6 +809,7 @@ async function loadSettings() {
     await loadProviderPresets();
     renderProvidersList();
     renderSecondaryProvidersList();
+    await loadRouting();
 
     // SearXNG
     document.getElementById('sxEnabled').checked = cfg.searxng.enabled;
@@ -1226,6 +1227,81 @@ let _allSecondaryProviders = [];
 let _activeProviderId = '';
 let _editingProviderId = null; // null = adding new, string = editing existing
 let _editingSecProviderId = null; // null = adding new, string = editing existing
+
+// ── Auto mode (per-message provider selection) ──
+
+const ROUTING_ROLES = ['fast', 'deep', 'vision'];
+let _routingDerived = {};
+
+function onRoutingModeChange() {
+  const on = document.getElementById('routingAuto')?.checked;
+  const box = document.getElementById('routingOptions');
+  if (box) box.style.display = on ? '' : 'none';
+}
+
+function _routingRoleSelect(role) {
+  return document.getElementById(`routingRole${role.charAt(0).toUpperCase()}${role.slice(1)}`);
+}
+
+function _fillRoutingRoleSelect(role, chosen) {
+  const sel = _routingRoleSelect(role);
+  if (!sel) return;
+  const auto = _routingDerived[role];
+  const autoName = auto ? (_allProviders.find(p => p.id === auto)?.name || auto) : t('settings.autoRoutingNone');
+  sel.innerHTML = `<option value="">${t('settings.autoRoutingAutomatic', { name: autoName })}</option>`;
+  for (const p of _allProviders) {
+    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.id)}</option>`;
+  }
+  sel.value = chosen || '';
+}
+
+async function loadRouting() {
+  let data;
+  try {
+    data = await api('GET', '/api/settings/routing');
+  } catch {
+    return;
+  }
+  const conf = data.routing || {};
+  _routingDerived = data.roles_derived || {};
+  const autoEl = document.getElementById('routingAuto');
+  if (autoEl) autoEl.checked = conf.mode === 'auto';
+  const profileEl = document.getElementById('routingProfile');
+  if (profileEl) profileEl.value = conf.profile || 'balanced';
+  const stickyEl = document.getElementById('routingSticky');
+  if (stickyEl) stickyEl.checked = conf.sticky_session !== false;
+  for (const role of ROUTING_ROLES) _fillRoutingRoleSelect(role, (conf.roles || {})[role]);
+
+  const note = document.getElementById('routingPricingNote');
+  if (note) {
+    const p = data.pricing || {};
+    const onPeak = Object.entries(p.on_peak || {}).filter(([, v]) => v).map(([k]) => k);
+    const parts = [t('settings.autoRoutingPrices', { date: p.updated_at || '—' })];
+    if (p.stale) parts.push(t('settings.autoRoutingPricesStale'));
+    if (onPeak.length) parts.push(t('settings.autoRoutingPeakNow', { list: onPeak.join(', ') }));
+    note.textContent = parts.join(' ');
+  }
+  onRoutingModeChange();
+}
+
+async function saveRouting() {
+  const roles = {};
+  for (const role of ROUTING_ROLES) roles[role] = _routingRoleSelect(role)?.value || '';
+  try {
+    await api('PUT', '/api/settings/', {
+      routing: {
+        mode: document.getElementById('routingAuto')?.checked ? 'auto' : 'manual',
+        profile: document.getElementById('routingProfile')?.value || 'balanced',
+        sticky_session: document.getElementById('routingSticky')?.checked !== false,
+        roles,
+      },
+    });
+    toast(t('toast.settingsSaved'));
+    await loadRouting();
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
 
 function providerTypeCapabilities(ptype) {
   return _providerPresets[ptype]?.capabilities || {};
