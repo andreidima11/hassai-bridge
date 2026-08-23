@@ -23,6 +23,32 @@ MAX_IMPORT_BYTES = 200 * 1024 * 1024
 CHUNK_UPLOAD_TTL_SEC = 3600
 _pending_uploads: dict[str, dict] = {}
 
+# Top-level config keys that a full backup is expected to carry. Listed in the
+# manifest so a restore can confirm voice, Frigate, tool permissions, etc. came
+# along — not just providers and the database.
+CONFIG_SECTIONS = (
+    "api_key",
+    "active_provider",
+    "providers",
+    "secondary_providers",
+    "users",
+    "language",
+    "dynamic_greetings",
+    "system_prompt",
+    "ha_agent_prompt",
+    "knowledge_cutoff",
+    "voice",
+    "memory",
+    "frigate",
+    "searxng",
+    "performance",
+    "security",
+    "ha_tools",
+    "bridge_tools",
+    "skills_disabled",
+    "lmstudio",
+)
+
 # Only /share, and only the top level — never recurse into /media (OOM/hang on HA).
 SHARE_IMPORT_ROOT = Path("/share")
 _SHARE_IMPORT_ROOT_OVERRIDE: Path | None = None
@@ -345,6 +371,74 @@ def _add_tree(zf: zipfile.ZipFile, src_dir: Path, arc_prefix: str) -> int:
     return count
 
 
+def _config_inventory(cfg: dict) -> dict:
+    """Summarize which settings sections and secrets landed in the export."""
+    voice = cfg.get("voice") if isinstance(cfg.get("voice"), dict) else {}
+    local_stt = voice.get("local_stt") if isinstance(voice.get("local_stt"), dict) else {}
+    local_tts = voice.get("local_tts") if isinstance(voice.get("local_tts"), dict) else {}
+    sections = {key: key in cfg for key in CONFIG_SECTIONS}
+    return {
+        "sections": sections,
+        "voice": {
+            "enabled": bool(voice.get("enabled")),
+            "stt_engine": str(voice.get("stt_engine") or "google"),
+            "tts_engine": str(voice.get("tts_engine") or "google"),
+            "language": str(voice.get("language") or ""),
+            "controls": str(voice.get("controls") or "both"),
+            "has_google_api_key": bool(str(voice.get("google_api_key") or "").strip()),
+            "local_stt_url": str(local_stt.get("url") or ""),
+            "local_tts_url": str(local_tts.get("url") or ""),
+            "local_tts_voice": str(local_tts.get("voice") or ""),
+        },
+        "secrets": {
+            "bridge_api_key": bool(str(cfg.get("api_key") or "").strip()),
+            "provider_api_keys": sum(
+                1 for p in (cfg.get("providers") or []) if isinstance(p, dict) and str(p.get("api_key") or "").strip()
+            ),
+            "secondary_provider_api_keys": sum(
+                1
+                for p in (cfg.get("secondary_providers") or [])
+                if isinstance(p, dict) and str(p.get("api_key") or "").strip()
+            ),
+            "user_api_keys": len((cfg.get("users") or {}).get("api_keys") or {}),
+            "google_voice_api_key": bool(str(voice.get("google_api_key") or "").strip()),
+        },
+    }
+
+
+def _settings_readme(cfg: dict, inventory: dict) -> str:
+    """Plain-text note inside the ZIP so a human can see what was backed up."""
+    voice = inventory.get("voice") or {}
+    secrets = inventory.get("secrets") or {}
+    lines = [
+        "HASSAI Bridge full backup",
+        "=========================",
+        "",
+        "This ZIP restores EVERYTHING from Settings, not just the database:",
+        "  - Providers + secondary providers (API keys included)",
+        "  - Users / profiles / Assist API keys",
+        "  - Language, prompts, Eco Mode, tool permissions",
+        "  - Voice (Google key, STT/TTS engines, Whisper/Piper URLs, Chirp voice)",
+        "  - Memory, Frigate, SearXNG, performance",
+        "  - Conversations + memories (hassai.db)",
+        "  - Chat images and spoken audio clips (uploads/chat)",
+        "  - Generated skills",
+        "",
+        f"Voice enabled: {voice.get('enabled')}",
+        f"STT engine: {voice.get('stt_engine')}",
+        f"TTS engine: {voice.get('tts_engine')}",
+        f"Voice language: {voice.get('language') or '—'}",
+        f"Google voice key present: {secrets.get('google_voice_api_key')}",
+        f"Local Whisper URL: {voice.get('local_stt_url') or '—'}",
+        f"Local Piper URL: {voice.get('local_tts_url') or '—'}",
+        f"Piper voice: {voice.get('local_tts_voice') or '—'}",
+        "",
+        "Store this file safely — it contains secrets.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def build_export_zip(dest: Path) -> dict:
     """Write a complete export zip to dest. Returns manifest dict."""
     from database import DB_PATH
@@ -359,12 +453,22 @@ def build_export_zip(dest: Path) -> dict:
     if not usage_file.exists():
         usage_file = DATA_DIR / SKILL_USAGE_NAME
 
+    inventory = _config_inventory(cfg)
     includes = {
         "config": True,
         "database": DB_PATH.exists(),
         "uploads": uploads_dir.is_dir(),
         "generated_skills": generated_dir.is_dir(),
         "skill_usage": usage_file.is_file(),
+        # Explicit so older UI copy ("providers, memories, images") is not
+        # mistaken for the whole story — voice and the rest of Settings ride
+        # inside config.json.
+        "settings_voice": True,
+        "settings_frigate": True,
+        "settings_searxng": True,
+        "settings_memory": True,
+        "settings_tools": True,
+        "settings_prompts": True,
     }
 
     manifest = {
@@ -374,19 +478,26 @@ def build_export_zip(dest: Path) -> dict:
         "db_schema_version": DB_SCHEMA_VERSION,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "includes": includes,
+        "config_inventory": inventory,
         "secrets": {
             "include_bridge_api_key": True,
             "include_user_api_keys": True,
             "include_provider_api_keys": True,
+            "include_google_voice_api_key": True,
         },
         "counts": {},
     }
 
     with zipfile.ZipFile(dest, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        # Full settings (providers, secondary, profiles, keys, prompts, …)
+        # Full settings (providers, secondary, profiles, keys, voice, Frigate, …)
         zf.writestr(
             "config.json",
             json.dumps(cfg, indent=2, ensure_ascii=False) + "\n",
+            compress_type=zipfile.ZIP_DEFLATED,
+        )
+        zf.writestr(
+            "README.txt",
+            _settings_readme(cfg, inventory),
             compress_type=zipfile.ZIP_DEFLATED,
         )
 
@@ -404,6 +515,7 @@ def build_export_zip(dest: Path) -> dict:
             "profiles": len((cfg.get("users") or {}).get("profiles") or {}),
             "upload_files": upload_count,
             "generated_skills": skill_count,
+            "config_sections": sum(1 for present in inventory["sections"].values() if present),
         }
         zf.writestr(
             "manifest.json",

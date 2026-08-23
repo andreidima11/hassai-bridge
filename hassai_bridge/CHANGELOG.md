@@ -1,5 +1,16 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.9
+
+Full Settings backup made explicit, and Settings stops toasting on every open.
+
+### Features
+- **Backup covers every Settings tab** — the ZIP already carried the full `config.json` (Voice with Google key and Whisper/Piper URLs, Frigate, SearXNG, Memory, tool permissions, prompts, Eco Mode). A README inside the archive and clearer Settings → Backup copy now say so, and the manifest inventories which sections and secrets were packed
+
+### Fix
+- **Memory auto-consolidation actually saves** — the schedule was being written under SearXNG by mistake, so it never stuck
+- **Settings no longer toasts “Users reloaded”** every time you open the page
+
 ## 1.0.8
 
 Local Whisper and Piper speech, freely mixable with Google.
