@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.7
+
+Choose which voice controls appear in the chat composer.
+
+### Features
+- **Voice controls visibility** — Settings → Voice → “Show in chat” lets you show conversation mode only (hands-free waveform), the push-to-talk microphone only, or both. Default remains both
+
 ## 1.0.6
 
 Hands-free voice conversations, and the assistant stops narrating its steps into the chat.
