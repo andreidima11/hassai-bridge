@@ -735,6 +735,43 @@ function collectHaTools() {
   return out;
 }
 
+let _bridgeToolGroupKeys = [];
+
+async function loadBridgeToolGroups() {
+  if (_bridgeToolGroupKeys.length) return _bridgeToolGroupKeys;
+  try {
+    const data = await api('GET', '/api/settings/bridge-tool-groups');
+    _bridgeToolGroupKeys = Object.keys(data.groups || {});
+  } catch {
+    _bridgeToolGroupKeys = ['memory', 'status', 'control'];
+  }
+  return _bridgeToolGroupKeys;
+}
+
+function renderBridgeToolAccess(cfg) {
+  const list = document.getElementById('bridgeToolAccessList');
+  if (!list) return;
+  const flags = cfg.bridge_tools || {};
+  const keys = _bridgeToolGroupKeys.length ? _bridgeToolGroupKeys : Object.keys(flags);
+  if (!keys.length) return;
+  list.innerHTML = keys.map((key) => {
+    const label = t(`settings.bridgeTools.${key}`) || key;
+    const on = flags[key] !== false;
+    return `<div class="toggle-row" style="margin-bottom:10px">
+      <span>${label}</span>
+      <label class="toggle"><input type="checkbox" data-bridge-tool="${key}" ${on ? 'checked' : ''}><span class="slider"></span></label>
+    </div>`;
+  }).join('');
+}
+
+function collectBridgeTools() {
+  const out = {};
+  document.querySelectorAll('[data-bridge-tool]').forEach((el) => {
+    out[el.dataset.bridgeTool] = el.checked;
+  });
+  return out;
+}
+
 async function loadHaAgentPromptDefault() {
   if (_haAgentPromptDefault) return _haAgentPromptDefault;
   try {
@@ -817,6 +854,8 @@ async function loadSettings() {
     const haDefault = await loadHaAgentPromptDefault();
     await loadHaToolCategories();
     renderHaToolAccess(cfg);
+    await loadBridgeToolGroups();
+    renderBridgeToolAccess(cfg);
     document.getElementById('haAgentPrompt').value = cfg.ha_agent_prompt || haDefault;
   } catch (e) {
     toast(t('toast.settingsError', { msg: e.message }), true);
@@ -864,6 +903,7 @@ async function saveSettings() {
       language: document.getElementById('settingsLang').value,
       dynamic_greetings: document.getElementById('settingsDynamicGreetings')?.checked !== false,
       ha_tools: collectHaTools(),
+      bridge_tools: collectBridgeTools(),
     });
     toast(t('toast.settingsSaved'));
     persistLanguage(document.getElementById('settingsLang')?.value || currentLang);

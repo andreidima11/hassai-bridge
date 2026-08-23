@@ -84,12 +84,27 @@ ENTITY/RELATION ACTIONS (extract people, places, devices, and their relationship
 - ENTITY <type> <name> — register an entity (types: person, device, location, pet, concept)
 - RELATION <subject> | <predicate> | <object> — register a relationship between entities
 
+WHAT COUNTS AS A MEMORY — only facts that are still true months from now:
+- Identity: names, family, pets, birthdays, job, languages, where they live
+- Preferences and habits: "prefers short answers", "turns the lights off at 23:00 every night"
+- Home setup: rooms, floors, which devices exist, how the user names them, brands, network layout
+- Standing instructions: "always answer in Romanian", "never restart the server without asking"
+- Long-running context: an ongoing renovation, a trip being planned
+
+NEVER STORE LIVE STATE — it changes on its own and must be read from Home Assistant each time:
+- Device state: "the kitchen light is on", "the door is unlocked", "the vacuum is charging"
+- Sensor readings: "the temperature is 21°C", "battery at 43%", "power draw is 1.2 kW"
+- Presence and moment-scoped facts: "the user is home now", "it is raining today", "he just left"
+- Conversation meta: "the user asked about cameras", "we discussed backups"
+A user saying "the light is on" is a state report, not a memory. Output nothing for it.
+
 Rules:
-- Extract ONLY concrete, useful facts about the user (not conversation meta like "user asked about X")
 - Categories: personal_info, preferences, home_setup, facts, instructions, context
 - Importance: 1-5 (5=critical personal info, 1=minor detail)
+- If the user explicitly asked you to remember/note something, you MUST emit an ADD (or UPDATE) for it
 - Prefer UPDATE over ADD when info updates an existing fact
 - Use DELETE for facts that are now contradicted
+- Write each fact as a standalone sentence that makes sense without the conversation
 - Extract entities mentioned (family members, pets, devices, rooms, locations)
 - Extract relationships (e.g., "Ana is wife" → RELATION Ana | is_wife_of | User)
 - Max 5 memory actions + 5 entity actions + 5 relation actions per conversation
@@ -211,6 +226,20 @@ def _is_trivial_message(text: str) -> bool:
     return False
 
 
+_EXPLICIT_MEMORY_REQUEST = re.compile(
+    r"\b(remember|memoriz[ae]|memorează|memoreaza|memorez[ăa]|ține minte|tine minte|"
+    r"ține-ți minte|tine-ti minte|re[țt]ine|noteaz[ăa]|notează|nu uita|don'?t forget|"
+    r"keep in mind|make a note|save (this|that) (to|in) (your )?memory|"
+    r"salvea?z[ăa] (în|in) memorie|adaug[ăa] (în|in) memorie)\b",
+    re.IGNORECASE,
+)
+
+
+def is_explicit_memory_request(text: str) -> bool:
+    """User literally told the assistant to remember something."""
+    return bool(_EXPLICIT_MEMORY_REQUEST.search(text or ""))
+
+
 def _has_memory_signal(user_text: str, assistant_text: str = "") -> bool:
     """Check if the conversation likely contains information worth extracting."""
     combined = f"{user_text} {assistant_text}".lower()
@@ -241,6 +270,13 @@ def _has_memory_signal(user_text: str, assistant_text: str = "") -> bool:
         return True
 
     return False
+
+
+def _transient_reason(text: str) -> str:
+    """Why `text` is live state rather than a durable fact ('' if it is a fact)."""
+    from services.memory_tools import transient_reason
+
+    return transient_reason(text)
 
 
 # ── Fact quality scoring ──
@@ -586,12 +622,16 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
         if user_text and assistant_text:
             break
 
+    # "ține minte ..." outranks both pre-filters — a direct order must never be
+    # dropped just because the message was short or looked unremarkable.
+    explicit = is_explicit_memory_request(user_text)
+
     # Pre-filter: skip trivial messages (zero cost)
-    if _is_trivial_message(user_text):
+    if not explicit and _is_trivial_message(user_text):
         return
 
     # Signal detection: skip if no personal-info signals (zero cost)
-    if not _has_memory_signal(user_text, assistant_text):
+    if not explicit and not _has_memory_signal(user_text, assistant_text):
         return
 
     # Build conversation input
@@ -614,17 +654,29 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
 
         existing_str = "\n".join(mapped_existing) if mapped_existing else "(none)"
 
+        prompt = EXTRACT_PIPELINE_PROMPT.format(
+            existing_memories=existing_str,
+            conversation=input_text[:1500],
+        )
+        if explicit:
+            prompt += (
+                "\n\nNOTE: the user explicitly asked to remember something in this "
+                "conversation. Emit an ADD or UPDATE for it unless it is live device state."
+            )
+
         # Single LLM call: extract + resolve
         response = await _llm_call([
             {"role": "system", "content": "You extract and manage user memories. Output ONLY action lines, nothing else."},
-            {"role": "user", "content": EXTRACT_PIPELINE_PROMPT.format(
-                existing_memories=existing_str,
-                conversation=input_text[:1500],
-            )},
+            {"role": "user", "content": prompt},
         ], max_tokens=500, provider=provider)
 
         actions = _parse_pipeline_response(response)
         if not actions:
+            if explicit:
+                log.warning(
+                    "Explicit memory request produced no actions for %s: %r",
+                    user_id, user_text[:120],
+                )
             return
 
         # Execute actions
@@ -641,6 +693,13 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
             text = action.get("text", "").strip()
 
             if event == "ADD" and text:
+                # Live device state / sensor readings are not memories — they must be
+                # re-read from Home Assistant, so never freeze them into a fact.
+                state_reason = _transient_reason(text)
+                if state_reason:
+                    log.debug("Rejected live-state fact (%s): %s", state_reason, text[:60])
+                    continue
+
                 # Quality check
                 quality = _score_fact_quality(text)
                 if quality < 0.2:
@@ -675,6 +734,9 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
                 added += 1
 
             elif event == "UPDATE" and text:
+                if _transient_reason(text):
+                    log.debug("Rejected live-state update: %s", text[:60])
+                    continue
                 mem_idx = action.get("id")
                 if mem_idx is not None and mem_idx in id_mapping:
                     real_id = id_mapping[mem_idx]

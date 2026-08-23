@@ -54,6 +54,7 @@ class SettingsUpdate(BaseModel):
     language: str | None = None
     dynamic_greetings: bool | None = None
     ha_tools: dict | None = None
+    bridge_tools: dict | None = None
     active_provider: str | None = None
     providers: list | None = None
 
@@ -73,6 +74,12 @@ async def ha_agent_prompt_default():
 async def ha_tool_categories():
     from services.ha_tool_access import CATEGORY_KEYS
     return {"categories": CATEGORY_KEYS}
+
+
+@router.get("/bridge-tool-groups")
+async def bridge_tool_groups():
+    from services.bridge_tool_access import GROUP_KEYS
+    return {"groups": GROUP_KEYS}
 
 
 @router.put("/")
@@ -102,6 +109,8 @@ async def update_settings(data: SettingsUpdate):
         cfg["dynamic_greetings"] = bool(data.dynamic_greetings)
     if data.ha_tools is not None:
         cfg.setdefault("ha_tools", {}).update(data.ha_tools)
+    if data.bridge_tools is not None:
+        cfg.setdefault("bridge_tools", {}).update(data.bridge_tools)
     if data.active_provider is not None:
         cfg["active_provider"] = data.active_provider
     if data.providers is not None:
