@@ -1,5 +1,18 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.8
+
+Local Whisper and Piper speech, freely mixable with Google.
+
+### Features
+- **Local speech engines** — Settings → Voice picks speech-to-text and text-to-speech separately, so any combination works: local Whisper for the microphone with a Google voice for the reply, Google transcription with a local Piper voice, all-local, or all-cloud
+- **Home Assistant add-ons out of the box** — a plain `host:port` (prefilled with `core_whisper:10300` and `core_piper:10200`) speaks the Wyoming protocol directly to the HA Whisper and Piper add-ons; an `http(s)` address is treated as an OpenAI-compatible speech API instead (speaches, faster-whisper-server, openedai-speech)
+- Each local server has a Test Connection button, Piper can list the voices it actually has installed, and the Test button previews whichever text-to-speech engine is selected
+- Hands-free conversation mode hides itself when no text-to-speech engine is configured, since it has to answer out loud
+
+### Fix
+- **Brain icon** — the model and thinking control in the chat bar showed a vague blob; it is now an actual brain
+
 ## 1.0.7
 
 Choose which voice controls appear in the chat composer.
