@@ -67,12 +67,15 @@ async def me(request: Request):
     from services.provider_capabilities import provider_chat_capabilities
     from services import atmosphere as atm
 
+    from services import voice as vc
+
     dynamic = cfg.get("dynamic_greetings") is not False
     return {
         "user": _public_profile(match),
         "language": cfg.get("language") or "en",
         "dynamic_greetings": dynamic,
         "build": BUILD_ID,
+        "voice": vc.public_status(cfg),
         "atmosphere": await atm.snapshot() if dynamic else {},
         "chat": {
             "provider_id": active.get("id", ""),
@@ -132,13 +135,27 @@ async def chat_media(request: Request, attachment_id: str):
         ".htm": "text/html",
         ".rtf": "application/rtf",
         ".log": "text/plain",
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".ogg": "audio/ogg",
+        ".weba": "audio/webm",
+        ".m4a": "audio/mp4",
     }.get(path.suffix.lower(), "application/octet-stream")
     return FileResponse(path, media_type=mime, filename=path.name)
 
 
 def _attachment_payload(user_id: str, att: dict, fallback_name: str = "") -> dict:
     public_url = cm.attachment_public_url(att["id"])
-    if str(att.get("kind") or "image") == "document":
+    kind = str(att.get("kind") or "image")
+    if kind == "audio":
+        return {
+            "id": att["id"],
+            "mime": att.get("mime") or "audio/mpeg",
+            "name": att.get("name") or fallback_name or "audio",
+            "kind": "audio",
+            "url": public_url,
+        }
+    if kind == "document":
         text = cm.read_extracted_text(user_id, att) or ""
         return {
             "id": att["id"],
@@ -210,6 +227,45 @@ async def chat_files_attach(request: Request, data: dict):
     except ValueError as exc:
         return _save_error(exc)
     return _attachment_payload(user_id, att, name)
+
+
+@router.post("/api/chat/voice/transcribe")
+async def chat_voice_transcribe(
+    request: Request,
+    file: UploadFile = File(...),
+    sample_rate: int = 16000,
+):
+    """Recorded WAV (16 kHz mono) → transcript, for the mic button."""
+    from services import google_voice as gv
+    from services import voice as vc
+
+    _current_username(request)
+    raw = await file.read()
+    if not raw:
+        return JSONResponse(status_code=400, content={"error": "Empty recording"})
+    if len(raw) > gv.MAX_STT_BYTES:
+        return JSONResponse(status_code=413, content={"error": "Recording too long"})
+    try:
+        text = await vc.transcribe(raw, sample_rate=sample_rate)
+    except gv.VoiceError as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    return {"text": text}
+
+
+@router.post("/api/chat/voice/speak")
+async def chat_voice_speak(request: Request, data: dict):
+    """Text → spoken MP3 attachment the chat can play."""
+    from services import google_voice as gv
+    from services import voice as vc
+
+    user_id = _current_username(request)
+    text = str((data or {}).get("text") or "")
+    try:
+        return await vc.speak(user_id, text)
+    except gv.VoiceError as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    except ValueError as exc:
+        return _save_error(exc)
 
 
 @router.delete("/api/conversations/{session_id}")

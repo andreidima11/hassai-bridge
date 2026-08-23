@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { AttachMenu } from "./AttachMenu.jsx";
 import { ChatImage } from "./ChatImage.jsx";
 import { HaFileBrowser } from "./HaFileBrowser.jsx";
-import { ArrowUpIcon, DocumentIcon, PlusIcon, StopIcon, XIcon } from "./Icons.jsx";
+import { ArrowUpIcon, DocumentIcon, MicIcon, PlusIcon, StopIcon, XIcon } from "./Icons.jsx";
+import { micBlockedReason, micSupported, startRecording, transcribe } from "../lib/voice.js";
 import {
   documentAcceptAttr,
   isDocumentAttachment,
@@ -45,15 +46,21 @@ export function Composer({
   lang = "en",
   onPickerOpen,
   onPickerSettled,
+  voiceEnabled = false,
+  onVoiceTranscript,
 }) {
   const ref = useRef(null);
   const processingRef = useRef(false);
+  const recorderRef = useRef(null);
   const [tall, setTall] = useState(false);
   const [attachError, setAttachError] = useState("");
   const [uploading, setUploading] = useState(false);
   const [browseKind, setBrowseKind] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const companionApp = isHaCompanionApp();
+  const showMic = voiceEnabled && micSupported();
 
   useEffect(() => {
     const el = ref.current;
@@ -104,6 +111,50 @@ export function Composer({
       tooLarge: imageTooLargeLabel,
       unsupported: unsupportedImageLabel,
     });
+
+  useEffect(() => () => recorderRef.current?.cancel(), []);
+
+  const toggleRecording = async () => {
+    if (transcribing) return;
+    if (recording) {
+      const handle = recorderRef.current;
+      recorderRef.current = null;
+      setRecording(false);
+      if (!handle) return;
+      setTranscribing(true);
+      try {
+        const blob = await handle.stop();
+        if (!blob) {
+          setAttachError(tr(lang, "voiceTooShort"));
+          return;
+        }
+        const text = await transcribe(blob);
+        if (!text) {
+          setAttachError(tr(lang, "voiceNothingHeard"));
+          return;
+        }
+        setAttachError("");
+        onVoiceTranscript?.(text);
+      } catch (err) {
+        setAttachError(String(err?.message || err) || tr(lang, "voiceFailed"));
+      } finally {
+        setTranscribing(false);
+      }
+      return;
+    }
+    const blocked = micBlockedReason();
+    if (blocked) {
+      setAttachError(tr(lang, blocked === "insecure" ? "voiceNeedsHttps" : "voiceUnsupported"));
+      return;
+    }
+    try {
+      recorderRef.current = await startRecording();
+      setAttachError("");
+      setRecording(true);
+    } catch {
+      setAttachError(tr(lang, "voiceNoPermission"));
+    }
+  };
 
   const addDocFiles = (files) =>
     addPrepared(files, prepareDocumentFile, {
@@ -273,6 +324,23 @@ export function Composer({
               }
             }}
           />
+          {showMic ? (
+            <button
+              type="button"
+              className={`mb-0 grid size-8 shrink-0 place-items-center rounded-full transition ${
+                recording
+                  ? "bg-red-500/90 text-white animate-pulse"
+                  : "text-muted-foreground hover:bg-white/10 hover:text-foreground"
+              } ${transcribing ? "animate-pulse opacity-60" : ""}`}
+              aria-label={tr(lang, recording ? "voiceStop" : "voiceStart")}
+              aria-pressed={recording}
+              disabled={busy || uploading || transcribing}
+              title={tr(lang, recording ? "voiceStop" : "voiceStart")}
+              onClick={toggleRecording}
+            >
+              <MicIcon />
+            </button>
+          ) : null}
           <ProviderQuickSettings
             capabilities={providerCapabilities}
             disabled={busy || uploading}

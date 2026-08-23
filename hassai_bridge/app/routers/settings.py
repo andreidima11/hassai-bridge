@@ -4,6 +4,7 @@ import socket
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request, Depends, UploadFile, File as FastAPIFile, Form
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from config import load_config, save_config
@@ -46,6 +47,7 @@ class SettingsUpdate(BaseModel):
     searxng: dict | None = None
     frigate: dict | None = None
     memory: dict | None = None
+    voice: dict | None = None
     performance: dict | None = None
     security: dict | None = None
     system_prompt: str | None = None
@@ -82,6 +84,60 @@ async def bridge_tool_groups():
     return {"groups": GROUP_KEYS}
 
 
+@router.get("/voice/voices")
+async def voice_voices(language: str = ""):
+    """Chirp 3: HD speakers for the Settings picker."""
+    from services import google_voice as gv
+    from services import voice as vc
+
+    conf = vc.settings()
+    lang = language or conf["language"]
+    if not conf["google_api_key"]:
+        return {"voices": [], "language": lang, "error": "No Google API key saved yet."}
+    try:
+        return {"voices": await gv.list_voices(conf["google_api_key"], lang), "language": lang}
+    except gv.VoiceError as exc:
+        return {"voices": [], "language": lang, "error": str(exc)}
+
+
+@router.post("/voice/test")
+async def voice_test(data: dict | None = None):
+    """Synthesize a short sample so the user can hear the voice before saving."""
+    import base64
+
+    from services import google_voice as gv
+    from services import voice as vc
+
+    payload = data or {}
+    conf = vc.settings()
+    api_key = str(payload.get("google_api_key") or "").strip() or conf["google_api_key"]
+    language = str(payload.get("language") or conf["language"])
+    speaker = str(payload.get("voice") or conf["voice"])
+    sample = str(payload.get("text") or "").strip()
+    if not sample:
+        sample = (
+            "Salut! Sunt HASSAI, asistentul tău pentru casă."
+            if language.startswith("ro")
+            else "Hi! I am HASSAI, your home assistant copilot."
+        )
+    if not api_key:
+        return JSONResponse(status_code=400, content={"error": "Add a Google API key first."})
+    try:
+        audio = await gv.synthesize(
+            api_key, sample,
+            language=language, speaker=speaker,
+            speaking_rate=conf["speaking_rate"],
+        )
+    except gv.VoiceError as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    return {
+        "ok": True,
+        "text": sample,
+        "voice": gv.voice_name(language, speaker),
+        "audio": "data:audio/mpeg;base64," + base64.b64encode(audio).decode("ascii"),
+    }
+
+
 @router.put("/")
 async def update_settings(data: SettingsUpdate):
     cfg = load_config()
@@ -93,6 +149,12 @@ async def update_settings(data: SettingsUpdate):
         cfg.setdefault("frigate", {}).update(data.frigate)
     if data.memory is not None:
         cfg["memory"].update(data.memory)
+    if data.voice is not None:
+        incoming = dict(data.voice)
+        # Blank key from the UI means "leave the stored one alone".
+        if not str(incoming.get("google_api_key") or "").strip():
+            incoming.pop("google_api_key", None)
+        cfg.setdefault("voice", {}).update(incoming)
     if data.performance is not None:
         cfg.setdefault("performance", {}).update(data.performance)
     if data.security is not None:

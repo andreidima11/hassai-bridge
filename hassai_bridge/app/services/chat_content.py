@@ -259,7 +259,12 @@ def public_attachments(attachments: list[dict] | None, session_id: str = "") -> 
         kind = str(att.get("kind") or "")
         mime = str(att.get("mime") or "image/jpeg")
         if not kind:
-            kind = "document" if not mime.startswith("image/") else "image"
+            if mime.startswith("image/"):
+                kind = "image"
+            elif mime.startswith("audio/"):
+                kind = "audio"
+            else:
+                kind = "document"
         out.append({
             "id": att_id,
             "mime": mime,
