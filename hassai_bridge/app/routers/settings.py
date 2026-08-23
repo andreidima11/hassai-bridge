@@ -100,19 +100,67 @@ async def voice_voices(language: str = ""):
         return {"voices": [], "language": lang, "error": str(exc)}
 
 
+@router.get("/voice/local/voices")
+async def voice_local_voices(url: str = ""):
+    """Voices advertised by a Wyoming TTS server (Piper), for the Settings picker."""
+    from services import google_voice as gv
+    from services import local_voice as lv
+    from services import voice as vc
+
+    target = url.strip() or vc.settings()["local_tts"]["url"]
+    if not target:
+        return {"voices": [], "url": target, "error": "No local text-to-speech URL saved yet."}
+    try:
+        info = await lv.describe(target, kind="tts", timeout=15)
+    except gv.VoiceError as exc:
+        return {"voices": [], "url": target, "error": str(exc)}
+    return {"voices": lv.voices_from_info(info), "url": target}
+
+
+@router.post("/voice/local/check")
+async def voice_local_check(data: dict | None = None):
+    """Ping a local Whisper/Piper server and report what it offers."""
+    from services import google_voice as gv
+    from services import local_voice as lv
+    from services import voice as vc
+
+    payload = data or {}
+    kind = "stt" if str(payload.get("kind") or "").lower() == "stt" else "tts"
+    conf = vc.settings()
+    default_url = conf["local_stt"]["url"] if kind == "stt" else conf["local_tts"]["url"]
+    target = str(payload.get("url") or "").strip() or default_url
+    if not target:
+        return JSONResponse(status_code=400, content={"error": "Add the server address first."})
+    try:
+        mode, host, port = lv.parse_endpoint(target, lv.DEFAULT_STT_PORT if kind == "stt" else lv.DEFAULT_TTS_PORT)
+    except gv.VoiceError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    if mode == "http":
+        # HTTP speech servers have no handshake; a real call is the only check.
+        return {"ok": True, "mode": "http", "url": host, "detail": "OpenAI-compatible HTTP endpoint"}
+    try:
+        info = await lv.describe(target, kind=kind, timeout=15)
+    except gv.VoiceError as exc:
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    if kind == "stt":
+        models = lv.models_from_info(info)
+        return {"ok": True, "mode": "wyoming", "url": f"{host}:{port}", "models": models}
+    voices = lv.voices_from_info(info)
+    return {"ok": True, "mode": "wyoming", "url": f"{host}:{port}", "voices": voices}
+
+
 @router.post("/voice/test")
 async def voice_test(data: dict | None = None):
     """Synthesize a short sample so the user can hear the voice before saving."""
     import base64
 
     from services import google_voice as gv
+    from services import local_voice as lv
     from services import voice as vc
 
     payload = data or {}
     conf = vc.settings()
-    api_key = str(payload.get("google_api_key") or "").strip() or conf["google_api_key"]
     language = str(payload.get("language") or conf["language"])
-    speaker = str(payload.get("voice") or conf["voice"])
     sample = str(payload.get("text") or "").strip()
     if not sample:
         sample = (
@@ -120,6 +168,33 @@ async def voice_test(data: dict | None = None):
             if language.startswith("ro")
             else "Hi! I am HASSAI, your home assistant copilot."
         )
+
+    engine = str(payload.get("engine") or conf["tts_engine"]).strip().lower()
+    if engine == "local":
+        local = conf["local_tts"]
+        url = str(payload.get("url") or "").strip() or local["url"]
+        voice = str(payload.get("voice") or "").strip() or local["voice"]
+        if not url:
+            return JSONResponse(status_code=400, content={"error": "Add the local speech server address first."})
+        try:
+            audio, mime = await lv.synthesize(
+                url, sample,
+                voice=voice,
+                speaker=str(payload.get("speaker") or local["speaker"]),
+                model=str(payload.get("model") or local["model"]),
+                timeout=local["timeout"],
+            )
+        except gv.VoiceError as exc:
+            return JSONResponse(status_code=502, content={"error": str(exc)})
+        return {
+            "ok": True,
+            "text": sample,
+            "voice": voice or url,
+            "audio": f"data:{mime};base64," + base64.b64encode(audio).decode("ascii"),
+        }
+
+    api_key = str(payload.get("google_api_key") or "").strip() or conf["google_api_key"]
+    speaker = str(payload.get("voice") or conf["voice"])
     if not api_key:
         return JSONResponse(status_code=400, content={"error": "Add a Google API key first."})
     try:

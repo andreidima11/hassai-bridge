@@ -73,7 +73,12 @@ export default function App() {
   const [sessionId, setSessionId] = useState("");
   const [user, setUser] = useState({ username: "default", display_name: "default" });
   const [chatCapabilities, setChatCapabilities] = useState({});
-  const [voiceConfig, setVoiceConfig] = useState({ enabled: false, autoplay: true, controls: "both" });
+  const [voiceConfig, setVoiceConfig] = useState({
+    enabled: false,
+    tts: false,
+    autoplay: true,
+    controls: "both",
+  });
   const [voiceMode, setVoiceMode] = useState(null);
   const spokenTurnRef = useRef(false);
   const handsFreeRef = useRef(false);
@@ -212,7 +217,7 @@ export default function App() {
     async (assistantId, text) => {
       const clean = String(text || "").trim();
       const handsFree = handsFreeRef.current;
-      if (!clean) {
+      if (!clean || voiceConfig.tts === false) {
         if (handsFree) setVoiceMode((v) => (v ? { ...v, phase: "listening", audioUrl: "" } : v));
         return;
       }
@@ -238,7 +243,7 @@ export default function App() {
         }
       }
     },
-    [voiceConfig.autoplay],
+    [voiceConfig.autoplay, voiceConfig.tts],
   );
 
   const finishAssistantMessage = useCallback(
@@ -894,6 +899,7 @@ export default function App() {
             }}
             voiceEnabled={voiceConfig.enabled === true}
             voiceControls={voiceConfig.controls || "both"}
+            voiceSpeaks={voiceConfig.tts !== false}
             onVoiceModeOpen={() => setVoiceMode({ phase: "listening", audioUrl: "", error: "" })}
             onVoiceTranscript={(text) => send(null, { text, spoken: true })}
           />
