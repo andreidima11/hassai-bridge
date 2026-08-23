@@ -140,6 +140,201 @@ export async function startRecording({ onLevel } = {}) {
   };
 }
 
+// ── Hands-free session ─────────────────────────────
+//
+// One long-lived microphone stream with energy-based voice activity detection.
+// A fresh getUserMedia per turn would re-prompt on some browsers and add a
+// noticeable gap, so the stream stays open and only capture is gated.
+
+const VAD = {
+  // Frames are ~85 ms at 4096 samples / 48 kHz.
+  calibrationFrames: 8,
+  // Speech must clear the measured noise floor by this factor.
+  floorMultiplier: 2.5,
+  minThreshold: 0.012,
+  // Consecutive loud frames before we call it speech (kills keyboard clicks).
+  startFrames: 2,
+  // Silence before the turn is considered finished.
+  silenceMs: 1100,
+  // Keep a little audio from before the trigger so the first word survives.
+  prerollFrames: 4,
+  maxUtteranceMs: 30000,
+  minUtteranceMs: 350,
+  // Barge-in must be clearly louder — the mic also hears the reply.
+  bargeInMultiplier: 4,
+  bargeInFrames: 4,
+};
+
+function rms(frame) {
+  let sum = 0;
+  for (let i = 0; i < frame.length; i += 2) sum += frame[i] * frame[i];
+  return Math.sqrt(sum / (frame.length / 2));
+}
+
+/**
+ * Open the mic and emit one WAV blob per detected utterance.
+ *
+ * States: "idle" (waiting for speech) → "speech" (capturing) → emit → "idle".
+ * While `setCapturing(false)` the stream keeps running so `onBargeIn` can fire
+ * when the user talks over the assistant.
+ */
+export async function createVoiceSession({
+  onUtterance,
+  onSpeechStart,
+  onLevel,
+  onBargeIn,
+  onError,
+} = {}) {
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      channelCount: 1,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+  });
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new Ctx();
+  const source = ctx.createMediaStreamSource(stream);
+  const processor = ctx.createScriptProcessor(4096, 1, 1);
+
+  let closed = false;
+  let capturing = true;
+  let noiseFloor = 0;
+  let calibrated = 0;
+  let loudRun = 0;
+  let quietMs = 0;
+  let speaking = false;
+  let bargeRun = 0;
+  const preroll = [];
+  let captured = [];
+  let capturedSamples = 0;
+
+  const frameMs = (4096 / ctx.sampleRate) * 1000;
+
+  const threshold = () => Math.max(VAD.minThreshold, noiseFloor * VAD.floorMultiplier);
+
+  const finish = () => {
+    const frames = captured;
+    captured = [];
+    capturedSamples = 0;
+    speaking = false;
+    quietMs = 0;
+    loudRun = 0;
+    if (!frames.length) return;
+    const durationMs = (capturedSamplesOf(frames) / ctx.sampleRate) * 1000;
+    if (durationMs < VAD.minUtteranceMs) return;
+    const merged = mergeFrames(frames);
+    const resampled = downsample(merged, ctx.sampleRate, TARGET_RATE);
+    onUtterance?.(encodeWav(resampled, TARGET_RATE));
+  };
+
+  processor.onaudioprocess = (event) => {
+    if (closed) return;
+    const frame = new Float32Array(event.inputBuffer.getChannelData(0));
+    const level = rms(frame);
+    onLevel?.(level);
+
+    if (calibrated < VAD.calibrationFrames) {
+      noiseFloor = noiseFloor ? (noiseFloor * 3 + level) / 4 : level;
+      calibrated += 1;
+      return;
+    }
+
+    if (!capturing) {
+      // Assistant is talking: only watch for the user cutting in.
+      if (level > Math.max(VAD.minThreshold * 2, noiseFloor * VAD.bargeInMultiplier)) {
+        bargeRun += 1;
+        if (bargeRun >= VAD.bargeInFrames) {
+          bargeRun = 0;
+          onBargeIn?.();
+        }
+      } else {
+        bargeRun = 0;
+      }
+      return;
+    }
+
+    const loud = level > threshold();
+
+    if (!speaking) {
+      // Track the room while it is quiet so the threshold follows the noise.
+      if (!loud) noiseFloor = noiseFloor * 0.95 + level * 0.05;
+      preroll.push(frame);
+      if (preroll.length > VAD.prerollFrames) preroll.shift();
+      loudRun = loud ? loudRun + 1 : 0;
+      if (loudRun >= VAD.startFrames) {
+        speaking = true;
+        quietMs = 0;
+        captured = preroll.splice(0, preroll.length);
+        capturedSamples = capturedSamplesOf(captured);
+        onSpeechStart?.();
+      }
+      return;
+    }
+
+    captured.push(frame);
+    capturedSamples += frame.length;
+    quietMs = loud ? 0 : quietMs + frameMs;
+    if (quietMs >= VAD.silenceMs) {
+      finish();
+      return;
+    }
+    if ((capturedSamples / ctx.sampleRate) * 1000 >= VAD.maxUtteranceMs) finish();
+  };
+
+  source.connect(processor);
+  const silent = ctx.createGain();
+  silent.gain.value = 0;
+  processor.connect(silent);
+  silent.connect(ctx.destination);
+
+  processor.onerror = () => onError?.(new Error("audio_pipeline"));
+
+  return {
+    setCapturing(value) {
+      if (capturing === value) return;
+      capturing = value;
+      bargeRun = 0;
+      loudRun = 0;
+      quietMs = 0;
+      speaking = false;
+      captured = [];
+      capturedSamples = 0;
+      preroll.length = 0;
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      try {
+        processor.disconnect();
+        silent.disconnect();
+        source.disconnect();
+      } catch {
+        /* already torn down */
+      }
+      stream.getTracks().forEach((track) => track.stop());
+      ctx.close().catch(() => {});
+    },
+  };
+}
+
+function capturedSamplesOf(frames) {
+  let n = 0;
+  for (const f of frames) n += f.length;
+  return n;
+}
+
+function mergeFrames(frames) {
+  const merged = new Float32Array(capturedSamplesOf(frames));
+  let offset = 0;
+  for (const f of frames) {
+    merged.set(f, offset);
+    offset += f.length;
+  }
+  return merged;
+}
+
 export async function transcribe(blob) {
   const form = new FormData();
   form.append("file", blob, "speech.wav");

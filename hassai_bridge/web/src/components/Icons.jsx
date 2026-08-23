@@ -73,6 +73,16 @@ export function MicIcon() {
   );
 }
 
+export function WaveformIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+      <g fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+        <path d="M4 10.5v3M8 7.5v9M12 4.5v15M16 7.5v9M20 10.5v3" />
+      </g>
+    </svg>
+  );
+}
+
 export function SpeakerIcon() {
   return (
     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">

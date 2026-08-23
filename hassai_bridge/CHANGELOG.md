@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## Unreleased
+
+### Features
+- **Hands-free voice conversation** — a second button next to the microphone opens a full-screen voice mode. The mic stays open, speech is detected automatically, and pausing sends the question; the reply is spoken and then it listens again, so you never touch the screen. Talking over the assistant cuts it off and starts a new question
+- Voice activity detection calibrates to the room's noise floor and keeps a short pre-roll, so the first word of a sentence is not clipped
+
 ## 1.0.5
 
 Voice chat in Romanian, and a fix so weaker models stop faking device commands.
