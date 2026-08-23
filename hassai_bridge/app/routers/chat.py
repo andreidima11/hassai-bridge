@@ -89,6 +89,21 @@ def _agentic_instruction() -> str:
     )
 
 
+# Text a model writes in the same turn as a tool call is narration ("let me
+# check the terrace light"), not the answer. It belongs in the step timeline —
+# in the chat body it reads like padding, and the voice reads it out loud.
+_SAY_DETAIL_MAX = 400
+
+
+def _say_event(round_i: int, text: str) -> dict | None:
+    clean = " ".join(str(text or "").split())
+    if not clean:
+        return None
+    if len(clean) > _SAY_DETAIL_MAX:
+        clean = clean[:_SAY_DETAIL_MAX].rsplit(" ", 1)[0] + "…"
+    return {"id": f"say-{round_i}", "name": "say", "detail": clean, "status": "done"}
+
+
 def _tool_fingerprint(name: str, args: dict) -> str:
     try:
         payload = json.dumps(args or {}, sort_keys=True, default=str)
@@ -2329,6 +2344,9 @@ async def chat_completions(request: Request):
 
                 round_limit = _maybe_extend_tool_rounds(internal_calls, _round, round_limit)
                 log.info("Agent round %s/%s — %s tool(s)", _round + 1, round_limit, len(internal_calls))
+                say = _say_event(_round, msg.get("content") or "")
+                if say:
+                    await on_activity(say)
                 augmented.append(pc.assistant_turn(last_call_provider, msg))
                 if await _append_internal_tool_results(
                     augmented,
@@ -2521,7 +2539,7 @@ async def chat_completions(request: Request):
         async def push_assistant_preview(force: bool = False):
             """Ingress often buffers SSE; activity poll carries live token text."""
             nonlocal last_content_push
-            if not full_response:
+            if not full_response and not force:
                 return
             now = time.time()
             if not force and (now - last_content_push) < 0.05:
@@ -2550,6 +2568,10 @@ async def chat_completions(request: Request):
                 tc_accum: dict[int, dict] = {}
                 tc_chunks: list[str] = []
                 has_tool_calls = False
+                # Text of this round only. If the round turns out to call tools,
+                # this was narration and gets pulled back out of the reply.
+                round_text = ""
+                round_text_started = 0.0
                 think_id = f"think-{round_i}"
                 think_t0 = time.time()
                 think_open = True
@@ -2629,9 +2651,17 @@ async def chat_completions(request: Request):
                                 async for part in flush_activity():
                                     yield part
                             full_response += content
-                            await push_assistant_preview()
-                            async for part in flush_activity():
-                                yield part
+                            if not round_text:
+                                round_text_started = time.time()
+                            round_text += content
+                            # Hold the first moments back: narration is short and
+                            # the tool call lands right after it, so waiting here
+                            # keeps it from flashing in the chat before we can
+                            # tell it apart from a real answer.
+                            if time.time() - round_text_started >= 0.4:
+                                await push_assistant_preview()
+                                async for part in flush_activity():
+                                    yield part
                         yield chunk
 
                     elif chunk.strip() == "data: [DONE]":
@@ -2652,6 +2682,14 @@ async def chat_completions(request: Request):
                     })
                     async for part in flush_activity():
                         yield part
+
+                if has_tool_calls and tc_accum and round_text:
+                    # Narration, not the answer — move it to the step timeline.
+                    full_response = full_response[: len(full_response) - len(round_text)]
+                    say = _say_event(round_i, round_text)
+                    if say:
+                        await on_stream_activity(say)
+                    round_text = ""
 
                 await push_assistant_preview(force=True)
                 async for part in flush_activity():

@@ -9,6 +9,19 @@ function StepRow({ step, lang }) {
   const skipped = step.status === "skip";
   const isThink = step.name === "think";
 
+  // What the model said on its way to the answer — full sentence, not truncated
+  // like a tool argument.
+  if (step.name === "say") {
+    return (
+      <div className="relative flex min-w-0 items-start gap-2.5 py-1 text-[13px] leading-snug">
+        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/35" aria-hidden="true" />
+        <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-muted-foreground/80">
+          {step.detail}
+        </p>
+      </div>
+    );
+  }
+
   if (isThink) {
     const label = running
       ? tr(lang, "thinkingLive")

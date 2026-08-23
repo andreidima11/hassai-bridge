@@ -87,6 +87,18 @@ const I18N = {
     voiceNoPermission: "Microphone access was denied.",
     voicePlay: "Play reply",
     voiceStopPlayback: "Stop playback",
+    saidStep: "Note",
+    voiceModeStart: "Hands-free conversation",
+    voiceModeClose: "Close",
+    voiceModeEnd: "End conversation",
+    voiceModeStarting: "Opening the microphone…",
+    voiceModeListening: "Listening — just talk",
+    voiceModeRecording: "I hear you…",
+    voiceModeTranscribing: "Got it…",
+    voiceModeThinking: "Thinking…",
+    voiceModeSpeaking: "Speaking — talk to interrupt",
+    voiceModeError: "Voice mode stopped",
+    voiceModeHint: "Pause when you finish and I answer. Say something while I talk to cut in.",
     search_web: "Search",
     run_skill: "Skill",
     generate_image: "Imagine",
@@ -259,6 +271,18 @@ const I18N = {
     voiceNoPermission: "Accesul la microfon a fost refuzat.",
     voicePlay: "Redă răspunsul",
     voiceStopPlayback: "Oprește redarea",
+    saidStep: "Notă",
+    voiceModeStart: "Conversație hands-free",
+    voiceModeClose: "Închide",
+    voiceModeEnd: "Termină conversația",
+    voiceModeStarting: "Se deschide microfonul…",
+    voiceModeListening: "Te ascult — vorbește",
+    voiceModeRecording: "Te aud…",
+    voiceModeTranscribing: "Am înțeles…",
+    voiceModeThinking: "Mă gândesc…",
+    voiceModeSpeaking: "Vorbesc — spune ceva ca să mă întrerupi",
+    voiceModeError: "Modul vocal s-a oprit",
+    voiceModeHint: "Fă o pauză când termini și îți răspund. Vorbește peste mine ca să mă întrerupi.",
     search_web: "Caută",
     run_skill: "Skill",
     generate_image: "Imagine",
@@ -374,6 +398,7 @@ export function tr(lang, key, params = {}) {
 
 export function activityVerb(lang, name) {
   if (name === "think") return tr(lang, "thinking");
+  if (name === "say") return tr(lang, "saidStep");
   const translated = tr(lang, name);
   return translated === name ? name.replace(/^ha_/, "").replace(/_/g, " ") : translated;
 }

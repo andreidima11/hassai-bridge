@@ -73,6 +73,7 @@ const I18N = {
     skipped: "skipped",
     search_web: "Search",
     run_skill: "Skill",
+    say: "Note",
     memory_save: "Remembered",
     memory_search: "Memory",
     memory_list: "Memories",
@@ -125,6 +126,7 @@ const I18N = {
     skipped: "sărit",
     search_web: "Caută",
     run_skill: "Skill",
+    say: "Notă",
     memory_save: "Memorat",
     memory_search: "Memorie",
     memory_list: "Memorii",
@@ -748,7 +750,7 @@ async function streamChat(userText) {
   const traceId = `${newSessionId()}${newSessionId()}`;
   const ui = { wrap, bubble, traceEl, thinkingEl, traceId };
   const stopPoll = startActivityPoll(traceId, (ev) => {
-    if (ev?.name === "assistant" && typeof ev.detail === "string" && ev.detail) {
+    if (ev?.name === "assistant" && typeof ev.detail === "string") {
       setBubbleText(bubble, ev.detail);
       return;
     }
