@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./components/Composer.jsx";
+import { VoiceMode } from "./components/VoiceMode.jsx";
 import { WelcomeHero } from "./components/WelcomeHero.jsx";
 import { ChatWindowIcon, GearIcon } from "./components/Icons.jsx";
 import { Messages } from "./components/Messages.jsx";
@@ -73,7 +74,9 @@ export default function App() {
   const [user, setUser] = useState({ username: "default", display_name: "default" });
   const [chatCapabilities, setChatCapabilities] = useState({});
   const [voiceConfig, setVoiceConfig] = useState({ enabled: false, autoplay: true });
+  const [voiceMode, setVoiceMode] = useState(null);
   const spokenTurnRef = useRef(false);
+  const handsFreeRef = useRef(false);
   const [providerInfo, setProviderInfo] = useState({ id: "", name: "", model: "" });
   const [thinkingMode, setThinkingMode] = useState(() => readStoredThinkingMode());
   const sessionIdRef = useRef("");
@@ -208,17 +211,31 @@ export default function App() {
   const speakReply = useCallback(
     async (assistantId, text) => {
       const clean = String(text || "").trim();
-      if (!clean) return;
+      const handsFree = handsFreeRef.current;
+      if (!clean) {
+        if (handsFree) setVoiceMode((v) => (v ? { ...v, phase: "listening", audioUrl: "" } : v));
+        return;
+      }
       try {
         const data = await voiceApi.speak(clean);
         const url = data?.url ? apiUrl(data.url) : "";
-        if (!url) return;
+        if (!url) throw new Error("no audio");
         setMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, audioUrl: url } : m)),
         );
-        if (voiceConfig.autoplay !== false) voiceApi.playAudio(url);
-      } catch {
-        // A failed TTS call must not break the written reply.
+        if (handsFree) {
+          // The overlay owns playback so it can hand the mic back when done.
+          setVoiceMode((v) => (v ? { ...v, phase: "speaking", audioUrl: url, error: "" } : v));
+        } else if (voiceConfig.autoplay !== false) {
+          voiceApi.playAudio(url);
+        }
+      } catch (err) {
+        // A failed TTS call must not strand the conversation or the written reply.
+        if (handsFree) {
+          setVoiceMode((v) =>
+            v ? { ...v, phase: "listening", audioUrl: "", error: String(err?.message || err) } : v,
+          );
+        }
       }
     },
     [voiceConfig.autoplay],
@@ -298,6 +315,12 @@ export default function App() {
           return;
         }
         finishAssistantMessage(assistantId, err.message || "Request failed", { error: true });
+        if (handsFreeRef.current) {
+          spokenTurnRef.current = false;
+          setVoiceMode((v) =>
+            v ? { ...v, phase: "listening", audioUrl: "", error: err.message || "" } : v,
+          );
+        }
         clearPendingTrace(username);
       } finally {
         if (abortRef.current && abortRef.current.signal === signal) abortRef.current = null;
@@ -603,9 +626,11 @@ export default function App() {
     event?.preventDefault?.();
     const text = (options.text ?? input).trim();
     const images = options.text ? [] : attachments;
-    if (!canSendMessage(text, images) || busy) return;
+    // Returns false when the turn did not start, so hands-free can recover.
+    if (!canSendMessage(text, images) || busy) return false;
     // Only a spoken question gets a spoken answer.
     spokenTurnRef.current = Boolean(options.spoken);
+    handsFreeRef.current = Boolean(options.handsFree);
     let sid = sessionIdRef.current;
     if (!sid) {
       startNewChat({ ephemeral: false });
@@ -673,15 +698,20 @@ export default function App() {
       if (!resp.ok) throw new Error(await readError(resp));
       await resp.json().catch(() => ({}));
     } catch (err) {
-      if (err?.name === "AbortError" || signal.aborted) {
-        clearPendingTrace(user.username);
-        setBusy(false);
-        return;
+      const aborted = err?.name === "AbortError" || signal.aborted;
+      if (!aborted) {
+        finishAssistantMessage(assistantId, err.message || "Request failed", { error: true });
       }
-      finishAssistantMessage(assistantId, err.message || "Request failed", { error: true });
+      if (handsFreeRef.current) {
+        // Never strand the overlay on "thinking" when the turn never started.
+        spokenTurnRef.current = false;
+        setVoiceMode((v) =>
+          v ? { ...v, phase: "listening", audioUrl: "", error: aborted ? "" : err.message || "" } : v,
+        );
+      }
       clearPendingTrace(user.username);
       setBusy(false);
-      return;
+      return true;
     }
 
     // Job runs on the server; polling survives panel close / return.
@@ -693,6 +723,34 @@ export default function App() {
       username: user.username,
     });
   };
+
+  // VoiceMode keeps the microphone open across turns, so its callbacks must be
+  // referentially stable — a new function each render would restart the stream.
+  const sendRef = useRef(null);
+  useEffect(() => {
+    sendRef.current = send;
+  });
+
+  const handsFreeUtterance = useCallback((text) => {
+    setVoiceMode((v) => (v ? { ...v, phase: "thinking", audioUrl: "", error: "" } : v));
+    Promise.resolve(sendRef.current?.(null, { text, spoken: true, handsFree: true })).then(
+      (started) => {
+        if (started === false) {
+          setVoiceMode((v) => (v ? { ...v, phase: "listening", audioUrl: "" } : v));
+        }
+      },
+    );
+  }, []);
+
+  const handsFreeSpokenEnd = useCallback(() => {
+    setVoiceMode((v) => (v ? { ...v, phase: "listening", audioUrl: "" } : v));
+  }, []);
+
+  const closeVoiceMode = useCallback(() => {
+    handsFreeRef.current = false;
+    voiceApi.stopAudio();
+    setVoiceMode(null);
+  }, []);
 
   const refreshChatProvider = useCallback(async () => {
     const data = await apiJson("/api/me");
@@ -835,10 +893,23 @@ export default function App() {
               persistThinkingMode(mode);
             }}
             voiceEnabled={voiceConfig.enabled === true}
+            onVoiceModeOpen={() => setVoiceMode({ phase: "listening", audioUrl: "", error: "" })}
             onVoiceTranscript={(text) => send(null, { text, spoken: true })}
           />
         </div>
       </div>
+
+      {voiceMode ? (
+        <VoiceMode
+          error={voiceMode.error}
+          lang={lang}
+          phase={voiceMode.phase}
+          replyAudioUrl={voiceMode.audioUrl}
+          onClose={closeVoiceMode}
+          onSpokenEnd={handsFreeSpokenEnd}
+          onUtterance={handsFreeUtterance}
+        />
+      ) : null}
     </div>
   );
 }

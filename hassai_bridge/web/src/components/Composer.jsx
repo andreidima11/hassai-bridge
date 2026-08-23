@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { AttachMenu } from "./AttachMenu.jsx";
 import { ChatImage } from "./ChatImage.jsx";
 import { HaFileBrowser } from "./HaFileBrowser.jsx";
-import { ArrowUpIcon, DocumentIcon, MicIcon, PlusIcon, StopIcon, XIcon } from "./Icons.jsx";
+import { ArrowUpIcon, DocumentIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon, XIcon } from "./Icons.jsx";
 import { micBlockedReason, micSupported, startRecording, transcribe } from "../lib/voice.js";
 import {
   documentAcceptAttr,
@@ -48,6 +48,7 @@ export function Composer({
   onPickerSettled,
   voiceEnabled = false,
   onVoiceTranscript,
+  onVoiceModeOpen,
 }) {
   const ref = useRef(null);
   const processingRef = useRef(false);
@@ -304,7 +305,7 @@ export function Composer({
           </button>
           <textarea
             ref={ref}
-            className="block max-h-40 min-h-6 w-full flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground/50"
+            className="block max-h-40 min-h-6 w-full min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-6 text-foreground placeholder:text-muted-foreground/50"
             enterKeyHint="send"
             placeholder={placeholder}
             rows={1}
@@ -324,6 +325,18 @@ export function Composer({
               }
             }}
           />
+          {showMic ? (
+            <button
+              type="button"
+              className="mb-0 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground"
+              aria-label={tr(lang, "voiceModeStart")}
+              disabled={busy || uploading || recording || transcribing}
+              title={tr(lang, "voiceModeStart")}
+              onClick={() => onVoiceModeOpen?.()}
+            >
+              <WaveformIcon />
+            </button>
+          ) : null}
           {showMic ? (
             <button
               type="button"

@@ -1,6 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
-## Unreleased
+## 1.0.6
+
+Hands-free voice conversations, and the assistant stops narrating its steps into the chat.
+
+### Features
+- **Hands-free voice conversation** — a second button next to the microphone opens a full-screen voice mode. The mic stays open, speech is detected automatically, and pausing sends the question; the reply is spoken and then it listens again, so you never touch the screen. Talking over the assistant cuts it off and starts a new question
+- Voice activity detection calibrates to the room's noise floor and keeps a short pre-roll, so the first word of a sentence is not clipped
 
 ### Fix
 - **Step narration no longer lands in the reply** — when the model writes "let me find the terrace light… now I'll toggle it" on its way to calling a tool, that text now appears in the step timeline next to the tool calls instead of in the chat body. The saved message keeps only the actual answer, so history stays clean and the voice reads the answer rather than the play-by-play
