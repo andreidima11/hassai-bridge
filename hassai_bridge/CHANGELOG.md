@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## Unreleased
+
+### Fix
+- **Step narration no longer lands in the reply** — when the model writes "let me find the terrace light… now I'll toggle it" on its way to calling a tool, that text now appears in the step timeline next to the tool calls instead of in the chat body. The saved message keeps only the actual answer, so history stays clean and the voice reads the answer rather than the play-by-play
+
 ## 1.0.5
 
 Voice chat in Romanian, and a fix so weaker models stop faking device commands.
