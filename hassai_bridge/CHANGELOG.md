@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## Unreleased
+
+### Polish
+- **Chat header icons** — conversations button nudged further left, settings further right by the same amount (align with HA Ingress header)
+
 ## 1.0.3
 
 ### Fix
