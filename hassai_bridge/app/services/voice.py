@@ -16,6 +16,8 @@ from services import google_voice as gv
 log = logging.getLogger("hassai.voice")
 
 DEFAULT_MAX_REPLY_CHARS = 800
+# What the chat composer shows when voice is enabled.
+VOICE_CONTROLS = frozenset({"both", "mic", "conversation"})
 
 # Markdown / decorations that should not be read out loud.
 _CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
@@ -43,6 +45,9 @@ def settings(cfg: dict | None = None) -> dict:
         max_chars = int(raw.get("max_reply_chars", DEFAULT_MAX_REPLY_CHARS))
     except (TypeError, ValueError):
         max_chars = DEFAULT_MAX_REPLY_CHARS
+    controls = str(raw.get("controls") or "both").strip().lower()
+    if controls not in VOICE_CONTROLS:
+        controls = "both"
     return {
         "enabled": bool(raw.get("enabled")),
         "provider": str(raw.get("provider") or "google"),
@@ -52,6 +57,7 @@ def settings(cfg: dict | None = None) -> dict:
         "speaking_rate": max(0.25, min(2.0, rate)),
         "autoplay": raw.get("autoplay") is not False,
         "max_reply_chars": max(100, min(gv.MAX_TTS_CHARS, max_chars)),
+        "controls": controls,
     }
 
 
@@ -61,7 +67,7 @@ def is_configured(cfg: dict | None = None) -> bool:
 
 
 def public_status(cfg: dict | None = None) -> dict:
-    """What the chat UI needs to decide whether to show the mic."""
+    """What the chat UI needs to decide whether to show voice controls."""
     conf = settings(cfg)
     return {
         "enabled": bool(conf["enabled"] and conf["google_api_key"]),
@@ -69,6 +75,7 @@ def public_status(cfg: dict | None = None) -> dict:
         "language": conf["language"],
         "voice": conf["voice"],
         "autoplay": conf["autoplay"],
+        "controls": conf["controls"],
     }
 
 
