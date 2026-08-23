@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.10
+
+Voice says the brand name as a word, not letter by letter.
+
+### Fix
+- **HASSAI pronunciation** — Chirp (and most TTS engines) spelled the all-caps brand as H-A-S-S-A-I. Spoken replies and the Voice Test button now rewrite it to “Hassai” before synthesis; the UI brand stays HASSAI
+
 ## 1.0.9
 
 Full Settings backup made explicit, and Settings stops toasting on every open.
