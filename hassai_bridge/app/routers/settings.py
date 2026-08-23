@@ -435,7 +435,10 @@ async def update_provider(provider_id: str, data: dict):
         if p["id"] == provider_id:
             for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "image_generation_provider", "eco_mode", "thinking_mode"):
                 if key in data:
-                    p[key] = data[key]
+                    val = data[key]
+                    if key == "system_prompt" and isinstance(val, str):
+                        val = val.strip()
+                    p[key] = val
             if p.get("base_url"):
                 p["base_url"] = providers.normalize_provider_base_url(p["base_url"])
             if (p.get("type") or data.get("type")) == "grok":

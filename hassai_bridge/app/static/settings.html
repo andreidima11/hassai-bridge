@@ -368,7 +368,7 @@
 
       <div class="card">
         <h2 data-i18n="settings.systemPromptGlobal">Global System Prompt</h2>
-        <p class="card-muted" data-i18n="settings.systemPromptGlobalDesc">Default system prompt for providers that don't have their own.</p>
+        <p class="card-muted" data-i18n="settings.systemPromptGlobalDesc">Base system prompt for all providers. Per-provider Personality (Providers tab) is added on top when set.</p>
         <textarea id="systemPrompt" rows="4"></textarea>
       </div>
 
@@ -458,8 +458,8 @@
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.personality">Personality</h3>
-            <p class="card-muted hint" data-i18n="settings.personalityDesc">Custom system prompt for this provider. Leave empty to use the global system prompt.</p>
-            <textarea id="provSystemPrompt" rows="3" data-i18n-placeholder="settings.personalityPlaceholder" placeholder="e.g.: You are a creative writing assistant..."></textarea>
+            <p class="card-muted hint" data-i18n="settings.personalityDesc">Tone, language, and style for this provider. Added on top of the global system prompt (Settings → Prompts). Leave empty to use only the global prompt.</p>
+            <textarea id="provSystemPrompt" rows="3" data-i18n-placeholder="settings.personalityPlaceholder" placeholder="e.g.: Answer in Romanian. Be witty and concise."></textarea>
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.secondaryProvider">Secondary Provider</h3>
