@@ -48,6 +48,7 @@ export function Composer({
   onPickerSettled,
   voiceEnabled = false,
   voiceControls = "both",
+  voiceSpeaks = true,
   onVoiceTranscript,
   onVoiceModeOpen,
 }) {
@@ -64,7 +65,8 @@ export function Composer({
   const companionApp = isHaCompanionApp();
   const micOk = voiceEnabled && micSupported();
   const controls = voiceControls === "mic" || voiceControls === "conversation" ? voiceControls : "both";
-  const showConversation = micOk && (controls === "both" || controls === "conversation");
+  // Hands-free has to speak back, so it needs a working text-to-speech engine.
+  const showConversation = micOk && voiceSpeaks && (controls === "both" || controls === "conversation");
   const showMic = micOk && (controls === "both" || controls === "mic");
 
   useEffect(() => {

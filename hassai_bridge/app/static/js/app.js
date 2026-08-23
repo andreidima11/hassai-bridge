@@ -847,6 +847,22 @@ async function loadSettings() {
       const c = voice.controls || 'both';
       vControls.value = ['both', 'mic', 'conversation'].includes(c) ? c : 'both';
     }
+    const localStt = voice.local_stt || {};
+    const localTts = voice.local_tts || {};
+    setVoiceEngineValue('voiceSttEngine', voice.stt_engine);
+    setVoiceEngineValue('voiceTtsEngine', voice.tts_engine);
+    const vSttUrl = document.getElementById('voiceLocalSttUrl');
+    if (vSttUrl) vSttUrl.value = localStt.url || '';
+    const vSttModel = document.getElementById('voiceLocalSttModel');
+    if (vSttModel) vSttModel.value = localStt.model || '';
+    const vTtsUrl = document.getElementById('voiceLocalTtsUrl');
+    if (vTtsUrl) vTtsUrl.value = localTts.url || '';
+    const vTtsVoice = document.getElementById('voiceLocalTtsVoice');
+    if (vTtsVoice) vTtsVoice.value = localTts.voice || '';
+    const vLocalTimeout = document.getElementById('voiceLocalTimeout');
+    if (vLocalTimeout) vLocalTimeout.value = localStt.timeout ?? localTts.timeout ?? 60;
+    bindVoiceEngineToggles();
+    renderVoiceEngineSections();
     await loadVoiceVoices(voice.voice || 'Kore');
     renderVoiceMicStatus();
     if (vLang && !vLang.dataset.bound) {
@@ -1068,12 +1084,44 @@ function renderVoiceMicStatus() {
   }
 }
 
+function setVoiceEngineValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value === 'local' ? 'local' : 'google';
+}
+
+// Only show the server boxes for engines that are actually selected.
+function renderVoiceEngineSections() {
+  const stt = document.getElementById('voiceSttEngine')?.value || 'google';
+  const tts = document.getElementById('voiceTtsEngine')?.value || 'google';
+  const show = (id, on) => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = on ? '' : 'none';
+  };
+  show('voiceLocalCard', stt === 'local' || tts === 'local');
+  show('voiceLocalSttBox', stt === 'local');
+  show('voiceLocalTtsBox', tts === 'local');
+  show('voiceGoogleCard', stt === 'google' || tts === 'google');
+}
+
+function bindVoiceEngineToggles() {
+  for (const id of ['voiceSttEngine', 'voiceTtsEngine']) {
+    const el = document.getElementById(id);
+    if (!el || el.dataset.bound) continue;
+    el.dataset.bound = '1';
+    el.addEventListener('change', renderVoiceEngineSections);
+  }
+}
+
 function collectVoice() {
   const rate = parseFloat(document.getElementById('voiceRate')?.value);
   const maxChars = parseInt(document.getElementById('voiceMaxChars')?.value, 10);
+  const timeout = parseInt(document.getElementById('voiceLocalTimeout')?.value, 10);
+  const localTimeout = Number.isFinite(timeout) ? timeout : 60;
   return {
     enabled: document.getElementById('voiceEnabled')?.checked || false,
     provider: 'google',
+    stt_engine: document.getElementById('voiceSttEngine')?.value || 'google',
+    tts_engine: document.getElementById('voiceTtsEngine')?.value || 'google',
     google_api_key: document.getElementById('voiceKey')?.value || '',
     language: document.getElementById('voiceLanguage')?.value || 'ro-RO',
     voice: document.getElementById('voiceVoice')?.value || 'Kore',
@@ -1081,16 +1129,84 @@ function collectVoice() {
     max_reply_chars: Number.isFinite(maxChars) ? maxChars : 800,
     autoplay: document.getElementById('voiceAutoplay')?.checked !== false,
     controls: document.getElementById('voiceControls')?.value || 'both',
+    local_stt: {
+      url: document.getElementById('voiceLocalSttUrl')?.value?.trim() || '',
+      model: document.getElementById('voiceLocalSttModel')?.value?.trim() || '',
+      timeout: localTimeout,
+    },
+    local_tts: {
+      url: document.getElementById('voiceLocalTtsUrl')?.value?.trim() || '',
+      voice: document.getElementById('voiceLocalTtsVoice')?.value?.trim() || '',
+      timeout: localTimeout,
+    },
   };
 }
 
-async function testVoice() {
+async function checkLocalVoice(kind) {
+  const isStt = kind === 'stt';
+  const url = document.getElementById(isStt ? 'voiceLocalSttUrl' : 'voiceLocalTtsUrl')?.value?.trim() || '';
+  const out = document.getElementById(isStt ? 'voiceLocalSttResult' : 'voiceLocalTtsResult');
+  if (out) {
+    out.style.display = '';
+    out.textContent = '…';
+  }
   try {
-    const data = await api('POST', '/api/settings/voice/test', {
-      google_api_key: document.getElementById('voiceKey')?.value || '',
-      language: document.getElementById('voiceLanguage')?.value || 'ro-RO',
-      voice: document.getElementById('voiceVoice')?.value || 'Kore',
-    });
+    const data = await api('POST', '/api/settings/voice/local/check', { kind, url });
+    const names = isStt
+      ? (data.models || [])
+      : (data.voices || []).map((v) => v.id);
+    const detail = names.length ? `${data.url} — ${names.slice(0, 8).join(', ')}` : data.url || '';
+    if (out) out.textContent = `✅ ${detail}`;
+    if (!isStt && names.length) fillLocalVoiceList(data.voices);
+  } catch (e) {
+    if (out) out.textContent = `❌ ${e.message}`;
+  }
+}
+
+function fillLocalVoiceList(voices) {
+  const list = document.getElementById('voiceLocalTtsVoiceList');
+  if (!list) return;
+  list.innerHTML = '';
+  for (const v of voices || []) {
+    const opt = document.createElement('option');
+    opt.value = v.id;
+    if (v.language) opt.label = `${v.id} (${v.language})`;
+    list.appendChild(opt);
+  }
+}
+
+async function loadLocalVoices() {
+  const url = document.getElementById('voiceLocalTtsUrl')?.value?.trim() || '';
+  try {
+    const data = await api('GET', `/api/settings/voice/local/voices?url=${encodeURIComponent(url)}`);
+    if (data.error) {
+      toast(data.error, true);
+      return;
+    }
+    fillLocalVoiceList(data.voices);
+    toast(t('settings.voiceLocalVoicesFound', { count: (data.voices || []).length }));
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function testVoice() {
+  const engine = document.getElementById('voiceTtsEngine')?.value || 'google';
+  const payload = engine === 'local'
+    ? {
+        engine: 'local',
+        url: document.getElementById('voiceLocalTtsUrl')?.value?.trim() || '',
+        voice: document.getElementById('voiceLocalTtsVoice')?.value?.trim() || '',
+        language: document.getElementById('voiceLanguage')?.value || 'ro-RO',
+      }
+    : {
+        engine: 'google',
+        google_api_key: document.getElementById('voiceKey')?.value || '',
+        language: document.getElementById('voiceLanguage')?.value || 'ro-RO',
+        voice: document.getElementById('voiceVoice')?.value || 'Kore',
+      };
+  try {
+    const data = await api('POST', '/api/settings/voice/test', payload);
     if (_voiceTestAudio) _voiceTestAudio.pause();
     _voiceTestAudio = new Audio(data.audio);
     await _voiceTestAudio.play();

@@ -234,22 +234,25 @@ export function InfoIcon({ size = 14 }) {
 }
 
 export function BrainIcon({ active = false }) {
+  const stroke = active ? 1.85 : 1.7;
   return (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
-      <path
-        d="M8.5 4.5a3 3 0 0 0-2.2 5.02 2.5 2.5 0 0 0-.55 4.98 3 3 0 0 0 2.75 1.75 3.25 3.25 0 0 0 6.1 0 3 3 0 0 0 2.75-1.75 2.5 2.5 0 0 0-.55-4.98A3 3 0 0 0 15.5 4.5 3.25 3.25 0 0 0 12 3.5 3.25 3.25 0 0 0 8.5 4.5Z"
+      <g
         stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-        fill={active ? "currentColor" : "none"}
-        fillOpacity={active ? 0.18 : 0}
-      />
-      <path
-        d="M10 11.5c.4.8 1.2 1.3 2 1.3s1.6-.5 2-1.3"
-        stroke="currentColor"
-        strokeWidth="1.4"
+        strokeWidth={stroke}
         strokeLinecap="round"
-      />
+        strokeLinejoin="round"
+        opacity={active ? 1 : 0.92}
+      >
+        <path d="M12 18V5" />
+        <path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+        <path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5" />
+        <path d="M17.997 5.125a4 4 0 0 1 2.526 5.77" />
+        <path d="M18 18a4 4 0 0 0 2-7.464" />
+        <path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517" />
+        <path d="M6 18a4 4 0 0 1-2-7.464" />
+        <path d="M6.003 5.125a4 4 0 0 0-2.526 5.77" />
+      </g>
     </svg>
   );
 }

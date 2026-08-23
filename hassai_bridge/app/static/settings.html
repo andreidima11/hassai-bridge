@@ -648,7 +648,7 @@
     <div class="settings-subpanel" id="stab-voice">
       <div class="card">
         <h2 data-i18n="settings.voice">Voice chat</h2>
-        <p class="card-muted" data-i18n="settings.voiceDesc">Talk to HASSAI and hear the reply. Speech uses Google Chirp 3: HD, which has native Romanian voices and a recurring free tier of 1 million characters per month.</p>
+        <p class="card-muted" data-i18n="settings.voiceDesc">Talk to HASSAI and hear the reply. Use Google Chirp 3: HD (native Romanian voices, 1 million free characters per month) or local Whisper and Piper servers — and you can mix them, one engine for the microphone and another for the voice.</p>
         <div class="toggle-row">
           <span data-i18n="settings.voiceEnabled">Enabled — show voice controls in chat</span>
           <label class="toggle"><input type="checkbox" id="voiceEnabled"><span class="slider"></span></label>
@@ -660,6 +660,72 @@
           <option value="mic" data-i18n="settings.voiceControlsMic">Microphone only (push to talk)</option>
         </select>
         <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceControlsHint">Conversation mode is the waveform button (hands-free). The microphone is push-to-talk for a single message.</p>
+        <label data-i18n="settings.voiceSttEngine">Speech to text (the microphone)</label>
+        <select id="voiceSttEngine">
+          <option value="google" data-i18n="settings.voiceEngineGoogleStt">Google Speech-to-Text (cloud)</option>
+          <option value="local" data-i18n="settings.voiceEngineLocalStt">Local Whisper (on your network)</option>
+        </select>
+        <label data-i18n="settings.voiceTtsEngine">Text to speech (the reply voice)</label>
+        <select id="voiceTtsEngine">
+          <option value="google" data-i18n="settings.voiceEngineGoogleTts">Google Chirp 3: HD (cloud)</option>
+          <option value="local" data-i18n="settings.voiceEngineLocalTts">Local Piper (on your network)</option>
+        </select>
+        <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceEngineHint">The two engines are independent — you can transcribe with local Whisper and still answer in a Google voice, or the other way around.</p>
+        <label data-i18n="settings.voiceLanguage">Language</label>
+        <select id="voiceLanguage">
+          <option value="ro-RO">Română (ro-RO)</option>
+          <option value="en-US">English US (en-US)</option>
+          <option value="en-GB">English UK (en-GB)</option>
+          <option value="de-DE">Deutsch (de-DE)</option>
+          <option value="fr-FR">Français (fr-FR)</option>
+          <option value="it-IT">Italiano (it-IT)</option>
+          <option value="es-ES">Español (es-ES)</option>
+        </select>
+        <label data-i18n="settings.voiceMaxChars">Max characters spoken per reply</label>
+        <input type="number" id="voiceMaxChars" value="800" min="100" max="3000" step="50">
+        <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceMaxCharsHint">Long answers are cut at a sentence boundary so a wall of text does not eat the free tier.</p>
+        <div class="toggle-row" style="margin-top:14px">
+          <span data-i18n="settings.voiceAutoplay">Play the reply automatically after speaking</span>
+          <label class="toggle"><input type="checkbox" id="voiceAutoplay" checked><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px" id="voiceLocalCard">
+        <h2 data-i18n="settings.voiceLocalTitle">Local speech servers</h2>
+        <p class="card-muted" data-i18n="settings.voiceLocalDesc">Nothing leaves your network and there is no quota. Install the Home Assistant Whisper and Piper add-ons and keep the defaults below, or point these at any Wyoming server. An http(s) address is treated as an OpenAI-compatible speech API instead.</p>
+        <div id="voiceLocalSttBox">
+          <label data-i18n="settings.voiceLocalSttUrl">Whisper server (speech to text)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="voiceLocalSttUrl" placeholder="core_whisper:10300" style="flex:1">
+            <button class="btn btn-sm btn-success" type="button" onclick="checkLocalVoice('stt')" data-i18n="settings.testConnection">Test Connection</button>
+          </div>
+          <p id="voiceLocalSttResult" class="card-muted" style="margin-top:6px;display:none"></p>
+          <label data-i18n="settings.voiceLocalSttModel">Whisper model (optional)</label>
+          <input type="text" id="voiceLocalSttModel" placeholder="base-int8">
+          <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceLocalSttHint">Leave the model blank to use whatever the server was started with. The language from above is sent along as a hint.</p>
+        </div>
+        <div id="voiceLocalTtsBox" style="margin-top:14px">
+          <label data-i18n="settings.voiceLocalTtsUrl">Piper server (text to speech)</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="voiceLocalTtsUrl" placeholder="core_piper:10200" style="flex:1">
+            <button class="btn btn-sm btn-success" type="button" onclick="checkLocalVoice('tts')" data-i18n="settings.testConnection">Test Connection</button>
+          </div>
+          <p id="voiceLocalTtsResult" class="card-muted" style="margin-top:6px;display:none"></p>
+          <label data-i18n="settings.voiceLocalTtsVoice">Piper voice</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="voiceLocalTtsVoice" placeholder="ro_RO-mihai-medium" style="flex:1" list="voiceLocalTtsVoiceList">
+            <datalist id="voiceLocalTtsVoiceList"></datalist>
+            <button class="btn btn-sm" type="button" onclick="loadLocalVoices()" data-i18n="settings.fetchModels">Fetch Models</button>
+          </div>
+          <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceLocalTtsHint">Fetch the list to see what the server has installed. Leave it blank for the server's default voice.</p>
+        </div>
+        <label data-i18n="settings.voiceLocalTimeout">Timeout (seconds)</label>
+        <input type="number" id="voiceLocalTimeout" value="60" min="5" max="600" step="5">
+        <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceLocalTimeoutHint">A big Whisper model on a slow CPU can need a while. Raise this if transcription times out.</p>
+      </div>
+
+      <div class="card" style="margin-top:16px" id="voiceGoogleCard">
+        <h2 data-i18n="settings.voiceGoogleTitle">Google speech</h2>
         <label data-i18n="settings.voiceKey">Google API key</label>
         <input type="password" id="voiceKey" placeholder="AIza…" autocomplete="off">
         <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceKeyHint">There is no separate “Chirp key” — Chirp 3: HD is a voice inside Cloud Text-to-Speech, so you need a normal Google Cloud API key (it looks like AIzaSy…). Leave this blank to keep the saved key.</p>
@@ -672,28 +738,11 @@
         </ol>
         <p class="card-muted" style="margin-top:8px" data-i18n="settings.voiceKeyWarn">When restricting the key, set Application restrictions to None (or your public IP) and pick those two APIs under API restrictions. Do not use an HTTP-referrer restriction — the add-on calls Google from the server, not from your browser.</p>
         <p class="card-muted" style="margin-top:4px"><a href="https://console.cloud.google.com/speech/text-to-speech" target="_blank" rel="noopener" data-i18n="settings.voiceStudio">Prefer to hear the voices first? Try them in Google's Text-to-Speech Studio.</a></p>
-        <label data-i18n="settings.voiceLanguage">Language</label>
-        <select id="voiceLanguage">
-          <option value="ro-RO">Română (ro-RO)</option>
-          <option value="en-US">English US (en-US)</option>
-          <option value="en-GB">English UK (en-GB)</option>
-          <option value="de-DE">Deutsch (de-DE)</option>
-          <option value="fr-FR">Français (fr-FR)</option>
-          <option value="it-IT">Italiano (it-IT)</option>
-          <option value="es-ES">Español (es-ES)</option>
-        </select>
         <label data-i18n="settings.voiceVoice">Voice</label>
         <select id="voiceVoice"></select>
         <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceVoiceHint">Press Test to hear the selected voice before saving.</p>
         <label data-i18n="settings.voiceRate">Speaking rate</label>
         <input type="number" id="voiceRate" value="1" min="0.5" max="1.8" step="0.05">
-        <label data-i18n="settings.voiceMaxChars">Max characters spoken per reply</label>
-        <input type="number" id="voiceMaxChars" value="800" min="100" max="3000" step="50">
-        <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceMaxCharsHint">Long answers are cut at a sentence boundary so a wall of text does not eat the free tier.</p>
-        <div class="toggle-row" style="margin-top:14px">
-          <span data-i18n="settings.voiceAutoplay">Play the reply automatically after speaking</span>
-          <label class="toggle"><input type="checkbox" id="voiceAutoplay" checked><span class="slider"></span></label>
-        </div>
       </div>
       <div class="card" style="margin-top:16px">
         <h2 data-i18n="settings.voiceMicTitle">Microphone requirements</h2>
