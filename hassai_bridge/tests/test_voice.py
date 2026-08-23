@@ -42,6 +42,7 @@ def test_settings_defaults_to_romanian_and_disabled():
     assert conf["language"] == "ro-RO"
     assert conf["voice"] == "Kore"
     assert conf["autoplay"] is True
+    assert conf["controls"] == "both"
 
 
 def test_settings_clamps_rate_and_length():
@@ -56,11 +57,19 @@ def test_settings_survives_garbage_values():
     assert conf["max_reply_chars"] == vc.DEFAULT_MAX_REPLY_CHARS
 
 
+def test_settings_normalizes_controls():
+    assert vc.settings({"voice": {"controls": "mic"}})["controls"] == "mic"
+    assert vc.settings({"voice": {"controls": "conversation"}})["controls"] == "conversation"
+    assert vc.settings({"voice": {"controls": "BOTH"}})["controls"] == "both"
+    assert vc.settings({"voice": {"controls": "nope"}})["controls"] == "both"
+
+
 def test_public_status_needs_key_and_toggle():
     assert vc.public_status({"voice": {"enabled": True}})["enabled"] is False
-    on = vc.public_status({"voice": {"enabled": True, "google_api_key": "AIza"}})
+    on = vc.public_status({"voice": {"enabled": True, "google_api_key": "AIza", "controls": "mic"}})
     assert on["enabled"] is True
     assert on["language"] == "ro-RO"
+    assert on["controls"] == "mic"
 
 
 # ── Text cleanup ───────────────────────────────────

@@ -47,6 +47,7 @@ export function Composer({
   onPickerOpen,
   onPickerSettled,
   voiceEnabled = false,
+  voiceControls = "both",
   onVoiceTranscript,
   onVoiceModeOpen,
 }) {
@@ -61,7 +62,10 @@ export function Composer({
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const companionApp = isHaCompanionApp();
-  const showMic = voiceEnabled && micSupported();
+  const micOk = voiceEnabled && micSupported();
+  const controls = voiceControls === "mic" || voiceControls === "conversation" ? voiceControls : "both";
+  const showConversation = micOk && (controls === "both" || controls === "conversation");
+  const showMic = micOk && (controls === "both" || controls === "mic");
 
   useEffect(() => {
     const el = ref.current;
@@ -325,7 +329,7 @@ export function Composer({
               }
             }}
           />
-          {showMic ? (
+          {showConversation ? (
             <button
               type="button"
               className="mb-0 grid size-8 shrink-0 place-items-center rounded-full text-muted-foreground transition hover:bg-white/10 hover:text-foreground"

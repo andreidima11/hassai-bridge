@@ -842,6 +842,11 @@ async function loadSettings() {
     if (vMax) vMax.value = voice.max_reply_chars ?? 800;
     const vAuto = document.getElementById('voiceAutoplay');
     if (vAuto) vAuto.checked = voice.autoplay !== false;
+    const vControls = document.getElementById('voiceControls');
+    if (vControls) {
+      const c = voice.controls || 'both';
+      vControls.value = ['both', 'mic', 'conversation'].includes(c) ? c : 'both';
+    }
     await loadVoiceVoices(voice.voice || 'Kore');
     renderVoiceMicStatus();
     if (vLang && !vLang.dataset.bound) {
@@ -1075,6 +1080,7 @@ function collectVoice() {
     speaking_rate: Number.isFinite(rate) ? rate : 1.0,
     max_reply_chars: Number.isFinite(maxChars) ? maxChars : 800,
     autoplay: document.getElementById('voiceAutoplay')?.checked !== false,
+    controls: document.getElementById('voiceControls')?.value || 'both',
   };
 }
 

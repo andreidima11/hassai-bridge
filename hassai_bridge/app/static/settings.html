@@ -650,9 +650,16 @@
         <h2 data-i18n="settings.voice">Voice chat</h2>
         <p class="card-muted" data-i18n="settings.voiceDesc">Talk to HASSAI and hear the reply. Speech uses Google Chirp 3: HD, which has native Romanian voices and a recurring free tier of 1 million characters per month.</p>
         <div class="toggle-row">
-          <span data-i18n="settings.voiceEnabled">Enabled — show the microphone in chat</span>
+          <span data-i18n="settings.voiceEnabled">Enabled — show voice controls in chat</span>
           <label class="toggle"><input type="checkbox" id="voiceEnabled"><span class="slider"></span></label>
         </div>
+        <label data-i18n="settings.voiceControls">Show in chat</label>
+        <select id="voiceControls">
+          <option value="both" data-i18n="settings.voiceControlsBoth">Both — conversation mode and microphone</option>
+          <option value="conversation" data-i18n="settings.voiceControlsConversation">Conversation mode only (hands-free)</option>
+          <option value="mic" data-i18n="settings.voiceControlsMic">Microphone only (push to talk)</option>
+        </select>
+        <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceControlsHint">Conversation mode is the waveform button (hands-free). The microphone is push-to-talk for a single message.</p>
         <label data-i18n="settings.voiceKey">Google API key</label>
         <input type="password" id="voiceKey" placeholder="AIza…" autocomplete="off">
         <p class="card-muted" style="margin-top:4px" data-i18n="settings.voiceKeyHint">There is no separate “Chirp key” — Chirp 3: HD is a voice inside Cloud Text-to-Speech, so you need a normal Google Cloud API key (it looks like AIzaSy…). Leave this blank to keep the saved key.</p>

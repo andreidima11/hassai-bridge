@@ -91,6 +91,8 @@ DEFAULT_CONFIG = {
         "speaking_rate": 1.0,
         "autoplay": True,
         "max_reply_chars": 800,
+        # Chat UI: both | mic | conversation
+        "controls": "both",
     },
     "memory": {
         "enabled": True,

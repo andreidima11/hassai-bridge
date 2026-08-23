@@ -73,7 +73,7 @@ export default function App() {
   const [sessionId, setSessionId] = useState("");
   const [user, setUser] = useState({ username: "default", display_name: "default" });
   const [chatCapabilities, setChatCapabilities] = useState({});
-  const [voiceConfig, setVoiceConfig] = useState({ enabled: false, autoplay: true });
+  const [voiceConfig, setVoiceConfig] = useState({ enabled: false, autoplay: true, controls: "both" });
   const [voiceMode, setVoiceMode] = useState(null);
   const spokenTurnRef = useRef(false);
   const handsFreeRef = useRef(false);
@@ -893,6 +893,7 @@ export default function App() {
               persistThinkingMode(mode);
             }}
             voiceEnabled={voiceConfig.enabled === true}
+            voiceControls={voiceConfig.controls || "both"}
             onVoiceModeOpen={() => setVoiceMode({ phase: "listening", audioUrl: "", error: "" })}
             onVoiceTranscript={(text) => send(null, { text, spoken: true })}
           />
