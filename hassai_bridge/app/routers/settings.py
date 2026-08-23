@@ -168,6 +168,10 @@ async def voice_test(data: dict | None = None):
             if language.startswith("ro")
             else "Hi! I am HASSAI, your home assistant copilot."
         )
+    # Same cleanup as spoken chat replies (so HASSAI is read as "Hassai", not H-A-S-S-A-I).
+    sample = vc.speakable_text(sample, conf["max_reply_chars"])
+    if not sample:
+        return JSONResponse(status_code=400, content={"error": "Nothing to speak."})
 
     engine = str(payload.get("engine") or conf["tts_engine"]).strip().lower()
     if engine == "local":

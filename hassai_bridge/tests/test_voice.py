@@ -106,6 +106,17 @@ def test_speakable_handles_empty():
     assert vc.speakable_text(None) == ""
 
 
+def test_speakable_says_hassai_as_a_word():
+    """ALL-CAPS HASSAI is spelled letter-by-letter by Chirp; speak it as Hassai."""
+    out = vc.speakable_text("Salut! Sunt HASSAI, asistentul tău.")
+    assert "HASSAI" not in out
+    assert "Hassai" in out
+    assert vc.speakable_text("Hi! I am hassai.") == "Hi! I am Hassai."
+    assert "Hassai Bridge" in vc.speakable_text("Open HASSAI Bridge from the sidebar.")
+    # Do not rewrite substrings of other words.
+    assert vc.speakable_text("hassailing") == "hassailing"
+
+
 # ── WAV unwrapping ─────────────────────────────────
 
 def test_pcm_from_wav_reads_rate_and_payload():
