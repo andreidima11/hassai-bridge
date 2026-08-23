@@ -179,7 +179,9 @@ export async function waitForChatJob(traceId, { onActivity, onDelta, signal } = 
         if (seen.has(ev.i)) continue;
         seen.add(ev.i);
       }
-      if (ev?.name === "assistant" && typeof ev.detail === "string" && ev.detail) {
+      // Empty detail is meaningful: the server retracted narration that turned
+      // out to precede a tool call, so the reply has to shrink back.
+      if (ev?.name === "assistant" && typeof ev.detail === "string") {
         full = ev.detail;
         onDelta?.(full);
         continue;

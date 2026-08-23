@@ -87,6 +87,7 @@ const I18N = {
     voiceNoPermission: "Microphone access was denied.",
     voicePlay: "Play reply",
     voiceStopPlayback: "Stop playback",
+    saidStep: "Note",
     search_web: "Search",
     run_skill: "Skill",
     generate_image: "Imagine",
@@ -259,6 +260,7 @@ const I18N = {
     voiceNoPermission: "Accesul la microfon a fost refuzat.",
     voicePlay: "Redă răspunsul",
     voiceStopPlayback: "Oprește redarea",
+    saidStep: "Notă",
     search_web: "Caută",
     run_skill: "Skill",
     generate_image: "Imagine",
@@ -374,6 +376,7 @@ export function tr(lang, key, params = {}) {
 
 export function activityVerb(lang, name) {
   if (name === "think") return tr(lang, "thinking");
+  if (name === "say") return tr(lang, "saidStep");
   const translated = tr(lang, name);
   return translated === name ? name.replace(/^ha_/, "").replace(/_/g, " ") : translated;
 }

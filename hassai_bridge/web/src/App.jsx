@@ -262,7 +262,7 @@ export default function App() {
           if (seenActivity.has(ev.i)) return;
           seenActivity.add(ev.i);
         }
-        if (ev?.name === "assistant" && typeof ev.detail === "string" && ev.detail) {
+        if (ev?.name === "assistant" && typeof ev.detail === "string") {
           patchAssistant((m) => ({ ...m, content: ev.detail }));
           return;
         }

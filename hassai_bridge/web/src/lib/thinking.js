@@ -44,6 +44,8 @@ export function applyActivity(thinking, ev, fallbackLabel) {
   return next;
 }
 
+/** Steps that represent real actions — the count badge should not include
+ *  thinking or the model's own narration. */
 export function toolSteps(steps) {
-  return (steps || []).filter((step) => step.name !== "think");
+  return (steps || []).filter((step) => step.name !== "think" && step.name !== "say");
 }
