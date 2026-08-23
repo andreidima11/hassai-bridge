@@ -50,6 +50,50 @@ def test_auto_thinking_simple_vs_planning():
     assert complex_q["effort"] == "max"
 
 
+@pytest.mark.parametrize("text", [
+    "turn on the lights",
+    "turn off living room light",
+    "aprinde lumina",
+    "stinge becul din bucătărie",
+    "setează termostatul la 22",
+    "deschide ușa",
+    "dă ultimul snap",
+    "ce e pe cameră",
+    "ce se vede pe frigate",
+    "list entities in kitchen",
+    "restart home assistant",
+    "ține minte că am o pisică",
+])
+def test_auto_thinking_enables_for_short_control(text):
+    """Weaker DeepSeek models skip tools when thinking is off — force it for HA intents."""
+    decision = ds.auto_thinking_decision(text, tools_active=True)
+    assert decision["enabled"] is True
+    assert decision["effort"] == "high"
+    assert decision["reason"] == "control"
+
+
+def test_auto_thinking_control_stays_off_without_tools():
+    # No tools loaded → don't burn thinking tokens on a light phrase.
+    decision = ds.auto_thinking_decision("aprinde lumina", tools_active=False)
+    assert decision["enabled"] is False
+
+
+def test_auto_thinking_greetings_stay_off_even_with_tools():
+    for text in ("ok", "da", "mulțumesc", "ce faci?", "hello"):
+        decision = ds.auto_thinking_decision(text, tools_active=True)
+        assert decision["enabled"] is False, text
+
+
+def test_resolve_thinking_auto_forces_control_on_deepseek():
+    provider = {"type": "deepseek", "thinking_mode": "auto"}
+    out = pc.resolve_thinking(
+        provider, override="auto", user_text="aprinde lumina", tools_active=True,
+    )
+    assert out["enabled"] is True
+    assert out["effort"] == "high"
+    assert out["auto_reason"] == "control"
+
+
 def test_resolve_thinking_respects_override():
     provider = {"type": "deepseek", "thinking_mode": "auto"}
     off = pc.resolve_thinking(provider, override="off", user_text="plan architecture")
