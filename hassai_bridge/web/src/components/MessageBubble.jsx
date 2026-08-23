@@ -1,7 +1,7 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChatImage } from "./ChatImage.jsx";
 import { MessageActions } from "./MessageActions.jsx";
-import { DocumentIcon, SparklesIcon } from "./Icons.jsx";
+import { DocumentIcon, SparklesIcon, SpeakerIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
 import { Thinking } from "./Thinking.jsx";
 import { isDocumentAttachment } from "../lib/images.js";
@@ -85,6 +85,40 @@ function isInteractiveTarget(target) {
     target?.closest?.(
       "a, button, input, textarea, select, summary, [role='button'], [role='toolbar'], .group\\/code",
     ),
+  );
+}
+
+function ReplyAudio({ url, lang }) {
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef(null);
+
+  useEffect(() => {
+    return () => audioRef.current?.pause();
+  }, []);
+
+  const toggle = () => {
+    if (playing) {
+      audioRef.current?.pause();
+      setPlaying(false);
+      return;
+    }
+    const audio = audioRef.current || new Audio(url);
+    audioRef.current = audio;
+    audio.onended = () => setPlaying(false);
+    audio.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+  };
+
+  return (
+    <button
+      type="button"
+      className="inline-flex w-fit items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1 text-[12px] text-muted-foreground transition hover:bg-white/10 hover:text-foreground"
+      aria-label={tr(lang, playing ? "voiceStopPlayback" : "voicePlay")}
+      title={tr(lang, playing ? "voiceStopPlayback" : "voicePlay")}
+      onClick={toggle}
+    >
+      <SpeakerIcon />
+      {tr(lang, playing ? "voiceStopPlayback" : "voicePlay")}
+    </button>
   );
 }
 
@@ -183,6 +217,7 @@ export function MessageBubble({
               <span className="stream-cursor stream-cursor--alone" aria-hidden="true" />
             </div>
           ) : null}
+          {message.audioUrl ? <ReplyAudio lang={lang} url={message.audioUrl} /> : null}
           {actions}
         </div>
       </div>

@@ -23,7 +23,9 @@ MAX_IMAGES = 4
 MAX_BYTES = 1_500_000
 MAX_DOC_BYTES = 4_000_000
 MAX_DOC_CHARS = 100_000
+MAX_AUDIO_BYTES = 5_000_000
 _ALLOWED_MIME = frozenset({"image/jpeg", "image/png", "image/webp", "image/gif"})
+_AUDIO_MIME = frozenset({"audio/mpeg", "audio/wav", "audio/ogg", "audio/webm", "audio/mp4"})
 _DOC_MIME = frozenset({
     "application/pdf",
     "application/json",
@@ -74,6 +76,11 @@ def _ext_for_mime(mime: str) -> str:
         "application/xml": "xml",
         "application/rtf": "rtf",
         "text/rtf": "rtf",
+        "audio/mpeg": "mp3",
+        "audio/wav": "wav",
+        "audio/ogg": "ogg",
+        "audio/webm": "weba",
+        "audio/mp4": "m4a",
     }.get(mime, "bin")
 
 
@@ -338,6 +345,24 @@ def persist_image_bytes(user_id: str, raw: bytes, mime: str = "image/png", *, na
     path = base / f"{att_id}.{_ext_for_mime(mime)}"
     path.write_bytes(raw)
     out = {"id": att_id, "mime": mime, "kind": "image"}
+    if name:
+        out["name"] = str(name)[:120]
+    return out
+
+
+def persist_audio_bytes(user_id: str, raw: bytes, mime: str = "audio/mpeg", *, name: str = "") -> dict:
+    """Save one spoken clip (TTS reply or recorded question) as an attachment."""
+    if not raw:
+        raise ValueError("empty audio")
+    if len(raw) > MAX_AUDIO_BYTES:
+        raise ValueError("audio too large")
+    mime = str(mime or "audio/mpeg").split(";", 1)[0].strip().lower()
+    if mime not in _AUDIO_MIME:
+        mime = "audio/mpeg"
+    att_id = uuid.uuid4().hex[:16]
+    path = _safe_user_dir(user_id) / f"{att_id}.{_ext_for_mime(mime)}"
+    path.write_bytes(raw)
+    out = {"id": att_id, "mime": mime, "kind": "audio"}
     if name:
         out["name"] = str(name)[:120]
     return out

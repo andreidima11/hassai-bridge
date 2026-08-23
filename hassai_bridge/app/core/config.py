@@ -82,6 +82,16 @@ DEFAULT_CONFIG = {
         "base_url": "http://ccab4aaf-frigate:5000",
         "timeout": 12,
     },
+    "voice": {
+        "enabled": False,
+        "provider": "google",
+        "google_api_key": "",
+        "language": "ro-RO",
+        "voice": "Kore",
+        "speaking_rate": 1.0,
+        "autoplay": True,
+        "max_reply_chars": 800,
+    },
     "memory": {
         "enabled": True,
         "auto_extract": True,
@@ -208,6 +218,8 @@ def _apply_env_overrides(cfg: dict):
         "HASSAI_SEARXNG_ENABLED": ("searxng", "enabled"),
         "HASSAI_SEARXNG_URL": ("searxng", "base_url"),
         "HASSAI_MEMORY_ENABLED": ("memory", "enabled"),
+        "HASSAI_VOICE_ENABLED": ("voice", "enabled"),
+        "HASSAI_GOOGLE_VOICE_KEY": ("voice", "google_api_key"),
         "HASSAI_SYSTEM_PROMPT": ("system_prompt",),
         "HASSAI_KNOWLEDGE_CUTOFF": ("knowledge_cutoff",),
     }

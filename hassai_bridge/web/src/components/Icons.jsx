@@ -58,6 +58,36 @@ export function ArrowUpIcon() {
   );
 }
 
+export function MicIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 3a2.5 2.5 0 0 1 2.5 2.5v6a2.5 2.5 0 0 1-5 0v-6A2.5 2.5 0 0 1 12 3ZM5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"
+      />
+    </svg>
+  );
+}
+
+export function SpeakerIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+      <path
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4ZM16 9a4 4 0 0 1 0 6M18.8 6.2a8 8 0 0 1 0 11.6"
+      />
+    </svg>
+  );
+}
+
 export function StopIcon() {
   return (
     <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
