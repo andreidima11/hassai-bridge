@@ -373,6 +373,15 @@
       </div>
 
       <div class="card">
+        <h2 data-i18n="settings.webSearchTool">Web search</h2>
+        <p class="card-muted" data-i18n="settings.webSearchToolDesc">Allow the AI to search the internet via SearXNG. Server URL and limits are under Settings → Search.</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.searxngEnabled">Enabled — AI can search the internet</span>
+          <label class="toggle"><input type="checkbox" id="sxEnabled"><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <div class="card">
         <h2 data-i18n="settings.bridgeToolAccess">HASSAI Bridge tool permissions</h2>
         <p class="card-muted" data-i18n="settings.bridgeToolAccessDesc">Control what the AI may do with the add-on itself — its memory, its own status and its own settings. All enabled by default.</p>
         <div id="bridgeToolAccessList" class="toggle-list"></div>
@@ -601,11 +610,7 @@
     <div class="settings-subpanel" id="stab-search">
       <div class="card">
         <h2 data-i18n="settings.searxng">SearXNG — AI Web Search</h2>
-        <p class="card-muted" data-i18n="settings.searxngDesc">When enabled, the AI decides on its own when to search the internet, based on knowledge cutoff date.</p>
-        <div class="toggle-row">
-          <span data-i18n="settings.searxngEnabled">Enabled — AI can search the internet</span>
-          <label class="toggle"><input type="checkbox" id="sxEnabled"><span class="slider"></span></label>
-        </div>
+        <p class="card-muted" data-i18n="settings.searxngDesc">Configure the SearXNG server and search limits. Turn web search on or off under General → Web search.</p>
         <label><span data-i18n="settings.knowledgeCutoff">Knowledge Cutoff Date</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.knowledgeCutoffDesc">(month up to which the AI has training data, e.g.: 2024-01)</span></label>
         <input type="text" id="knowledgeCutoff" placeholder="2024-01">
         <label data-i18n="settings.searxngUrl">SearXNG Server URL</label>
