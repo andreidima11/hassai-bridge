@@ -440,13 +440,13 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
         "stream": stream,
     }
     if tools:
-        payload["tools"] = tools
+        payload["tools"] = pc.shape_tools_for_provider(provider, tools)
     if tool_choice is not None:
-        payload["tool_choice"] = tool_choice
+        payload["tool_choice"] = pc.sanitize_tool_choice(provider, tool_choice)
     _apply_token_limit(payload, provider, request_url=url)
     temperature = provider.get("temperature")
     if temperature is not None and not _skip_temperature(provider, thinking, model=used_model):
-        payload["temperature"] = temperature
+        payload["temperature"] = pc.clamp_temperature(provider, temperature)
 
     if thinking and pc.supports_thinking(provider):
         pc.apply_provider_payload_extras(
@@ -540,13 +540,13 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
         "stream": True,
     }
     if tools:
-        payload["tools"] = tools
+        payload["tools"] = pc.shape_tools_for_provider(provider, tools)
     if tool_choice is not None:
-        payload["tool_choice"] = tool_choice
+        payload["tool_choice"] = pc.sanitize_tool_choice(provider, tool_choice)
     _apply_token_limit(payload, provider, request_url=url)
     temperature = provider.get("temperature")
     if temperature is not None and not _skip_temperature(provider, thinking, model=used_model):
-        payload["temperature"] = temperature
+        payload["temperature"] = pc.clamp_temperature(provider, temperature)
 
     if thinking and pc.supports_thinking(provider):
         pc.apply_provider_payload_extras(
