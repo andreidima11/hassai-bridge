@@ -89,6 +89,56 @@ def _agentic_instruction() -> str:
     )
 
 
+def resolve_provider_personality(active: dict | None, cfg: dict | None = None) -> tuple[str, str]:
+    """Return ``(global_system_prompt, provider_personality)``.
+
+    Provider Personality used to *replace* the global system prompt. That made short
+    tone/style notes disappear under the mandatory Bridge / agentic hints — so users
+    only saw an effect when they pasted the same text into the global field (where it
+    sat next to the long HASSAI identity). Personality is now an overlay on top of
+    the global prompt.
+    """
+    cfg = cfg or {}
+    active = active or {}
+    base = (cfg.get("system_prompt") or "").strip()
+    persona = (active.get("system_prompt") or "").strip()
+    return base, persona
+
+
+def build_stable_system_parts(
+    *,
+    global_prompt: str = "",
+    provider_personality: str = "",
+    eco_instruction: str = "",
+    bridge_hint: str = "",
+    memory_hint: str = "",
+    agentic: str = "",
+) -> list[str]:
+    """Assemble the stable (KV-cache friendly) system prefix.
+
+    Order matters: Bridge/agentic boilerplate comes before provider personality so
+    tone/language/style instructions win when they conflict with identity hints.
+    """
+    parts: list[str] = []
+    base = (global_prompt or "").strip()
+    persona = (provider_personality or "").strip()
+    if base:
+        parts.append(base)
+    if eco_instruction:
+        parts.append(eco_instruction)
+    if bridge_hint:
+        parts.append(bridge_hint)
+    if memory_hint:
+        parts.append(memory_hint)
+    if agentic:
+        parts.append(agentic)
+    if persona:
+        parts.append(
+            "Personality (follow for tone, language, and style):\n" + persona
+        )
+    return parts
+
+
 # Text a model writes in the same turn as a tool call is narration ("let me
 # check the terrace light"), not the answer. It belongs in the step timeline —
 # in the chat body it reads like padding, and the voice reads it out loud.
@@ -2122,9 +2172,9 @@ async def chat_completions(request: Request):
     )
     augmented: list[dict] = []
 
-    # 1) System prompt (per-provider overrides global)
+    # 1) System prompt: global base + optional per-provider personality overlay
     secondary = providers.get_secondary_provider(active)
-    system_prompt = (active.get("system_prompt") or "").strip() or cfg.get("system_prompt", "")
+    global_prompt, provider_personality = resolve_provider_personality(active, cfg)
 
     # Eco Mode: append conciseness instruction to reduce output tokens
     eco_instruction = ""
@@ -2151,19 +2201,17 @@ async def chat_completions(request: Request):
     user_ctx = user_context_for_prompt(user_id, request)
 
     # 3) System prompt: stable prefix first (KV-cache friendly), volatile context second
-    stable_parts = []
-    volatile_parts = []
-    if system_prompt:
-        stable_parts.append(system_prompt)
-    if eco_instruction:
-        stable_parts.append(eco_instruction)
     bridge_hint = bt.system_hint(cfg)
-    if bridge_hint:
-        stable_parts.append(bridge_hint)
     memory_hint = mt.system_hint(cfg)
-    if memory_hint:
-        stable_parts.append(memory_hint)
-    stable_parts.append(_agentic_instruction())
+    stable_parts = build_stable_system_parts(
+        global_prompt=global_prompt,
+        provider_personality=provider_personality,
+        eco_instruction=eco_instruction,
+        bridge_hint=bridge_hint or "",
+        memory_hint=memory_hint or "",
+        agentic=_agentic_instruction(),
+    )
+    volatile_parts = []
 
     if user_ctx:
         volatile_parts.append(user_ctx)

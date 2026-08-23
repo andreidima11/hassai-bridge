@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.11
+
+Provider Personality finally sticks, and web search sits with the other tool toggles.
+
+### Fix
+- **Provider Personality** — short tone/style notes on a provider no longer replace the global system prompt or get drowned by Bridge/agentic hints. Personality is layered on top of the global prompt and placed last among stable instructions so it shapes replies
+- **Web search enable** — the SearXNG on/off toggle moves to Settings → General next to the other tool permissions; Search keeps URL and limits
+
 ## 1.0.10
 
 Voice says the brand name as a word, not letter by letter.
