@@ -93,6 +93,14 @@ DEFAULT_CONFIG = {
         "max_reply_chars": 800,
         # Chat UI: both | mic | conversation
         "controls": "both",
+        # Speech engines are picked separately, so Whisper can feed a Google
+        # voice (or the other way around): google | local
+        "stt_engine": "google",
+        "tts_engine": "google",
+        # Wyoming host:port (Home Assistant Whisper/Piper add-ons) or an
+        # http(s) OpenAI-compatible speech server.
+        "local_stt": {"url": "core_whisper:10300", "model": "", "timeout": 60},
+        "local_tts": {"url": "core_piper:10200", "voice": "", "speaker": "", "model": "", "timeout": 60},
     },
     "memory": {
         "enabled": True,

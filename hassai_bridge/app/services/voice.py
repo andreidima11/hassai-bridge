@@ -1,7 +1,8 @@
 """Voice layer: config resolution plus speak/transcribe on top of a backend.
 
-Only Google (Chirp 3: HD) is wired today, but the config carries a `provider`
-key so a local Piper/Whisper path can slot in without touching the routes.
+Speech-to-text and text-to-speech are chosen independently, so Google Chirp 3:
+HD and a local Whisper/Piper server can be mixed in either direction — local
+Whisper for the microphone with a Google voice for the reply, or the reverse.
 """
 
 from __future__ import annotations
@@ -12,12 +13,15 @@ import re
 from config import load_config
 from services import chat_media as cm
 from services import google_voice as gv
+from services import local_voice as lv
 
 log = logging.getLogger("hassai.voice")
 
 DEFAULT_MAX_REPLY_CHARS = 800
 # What the chat composer shows when voice is enabled.
 VOICE_CONTROLS = frozenset({"both", "mic", "conversation"})
+# Where speech is processed: Google's cloud API or a local Whisper/Piper server.
+SPEECH_ENGINES = frozenset({"google", "local"})
 
 # Markdown / decorations that should not be read out loud.
 _CODE_BLOCK = re.compile(r"```.*?```", re.DOTALL)
@@ -31,6 +35,29 @@ _HR = re.compile(r"^\s*([-*_]\s*){3,}$", re.MULTILINE)
 _EMOJI = re.compile(
     "[\U0001F300-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF\u2190-\u21FF\u2B00-\u2BFF]"
 )
+
+
+def _engine(raw: dict, key: str) -> str:
+    value = str(raw.get(key) or "").strip().lower()
+    return value if value in SPEECH_ENGINES else "google"
+
+
+def _local_section(raw: dict, key: str, default_url: str) -> dict:
+    section = raw.get(key) if isinstance(raw.get(key), dict) else {}
+    try:
+        timeout = float(section.get("timeout", lv.DEFAULT_TIMEOUT))
+    except (TypeError, ValueError):
+        timeout = lv.DEFAULT_TIMEOUT
+    # An absent URL means "never configured" and falls back to the Home Assistant
+    # add-on address; an empty one means the user cleared it on purpose.
+    raw_url = section.get("url")
+    return {
+        "url": str(default_url if raw_url is None else raw_url).strip(),
+        "model": str(section.get("model") or "").strip(),
+        "voice": str(section.get("voice") or "").strip(),
+        "speaker": str(section.get("speaker") or "").strip(),
+        "timeout": max(5.0, min(600.0, timeout)),
+    }
 
 
 def settings(cfg: dict | None = None) -> dict:
@@ -51,6 +78,8 @@ def settings(cfg: dict | None = None) -> dict:
     return {
         "enabled": bool(raw.get("enabled")),
         "provider": str(raw.get("provider") or "google"),
+        "stt_engine": _engine(raw, "stt_engine"),
+        "tts_engine": _engine(raw, "tts_engine"),
         "google_api_key": str(raw.get("google_api_key") or "").strip(),
         "language": str(raw.get("language") or gv.DEFAULT_LANGUAGE),
         "voice": str(raw.get("voice") or gv.DEFAULT_VOICE),
@@ -58,20 +87,40 @@ def settings(cfg: dict | None = None) -> dict:
         "autoplay": raw.get("autoplay") is not False,
         "max_reply_chars": max(100, min(gv.MAX_TTS_CHARS, max_chars)),
         "controls": controls,
+        "local_stt": _local_section(raw, "local_stt", lv.DEFAULT_STT_URL),
+        "local_tts": _local_section(raw, "local_tts", lv.DEFAULT_TTS_URL),
     }
+
+
+def stt_ready(conf: dict) -> bool:
+    """Can the microphone produce text with the current settings?"""
+    if conf["stt_engine"] == "local":
+        return bool(conf["local_stt"]["url"])
+    return bool(conf["google_api_key"])
+
+
+def tts_ready(conf: dict) -> bool:
+    """Can a reply be spoken with the current settings?"""
+    if conf["tts_engine"] == "local":
+        return bool(conf["local_tts"]["url"])
+    return bool(conf["google_api_key"])
 
 
 def is_configured(cfg: dict | None = None) -> bool:
     conf = settings(cfg)
-    return bool(conf["enabled"] and conf["google_api_key"])
+    return bool(conf["enabled"] and (stt_ready(conf) or tts_ready(conf)))
 
 
 def public_status(cfg: dict | None = None) -> dict:
     """What the chat UI needs to decide whether to show voice controls."""
     conf = settings(cfg)
+    on = bool(conf["enabled"])
     return {
-        "enabled": bool(conf["enabled"] and conf["google_api_key"]),
+        "enabled": on and stt_ready(conf),
+        "tts": on and tts_ready(conf),
         "provider": conf["provider"],
+        "stt_engine": conf["stt_engine"],
+        "tts_engine": conf["tts_engine"],
         "language": conf["language"],
         "voice": conf["voice"],
         "autoplay": conf["autoplay"],
@@ -103,6 +152,28 @@ def speakable_text(text: str, limit: int = DEFAULT_MAX_REPLY_CHARS) -> str:
     return head.rsplit(" ", 1)[0] + "…"
 
 
+async def synthesize(text: str, conf: dict) -> tuple[bytes, str]:
+    """Text → (audio bytes, mime) with whichever TTS engine is selected."""
+    if conf["tts_engine"] == "local":
+        local = conf["local_tts"]
+        return await lv.synthesize(
+            local["url"],
+            text,
+            voice=local["voice"],
+            speaker=local["speaker"],
+            model=local["model"],
+            timeout=local["timeout"],
+        )
+    audio = await gv.synthesize(
+        conf["google_api_key"],
+        text,
+        language=conf["language"],
+        speaker=conf["voice"],
+        speaking_rate=conf["speaking_rate"],
+    )
+    return audio, "audio/mpeg"
+
+
 async def speak(user_id: str, text: str, cfg: dict | None = None) -> dict:
     """Synthesize `text` and persist it as an audio attachment."""
     conf = settings(cfg)
@@ -111,20 +182,18 @@ async def speak(user_id: str, text: str, cfg: dict | None = None) -> dict:
     clean = speakable_text(text, conf["max_reply_chars"])
     if not clean:
         raise gv.VoiceError("Nothing to speak.")
-    audio = await gv.synthesize(
-        conf["google_api_key"],
-        clean,
-        language=conf["language"],
-        speaker=conf["voice"],
-        speaking_rate=conf["speaking_rate"],
+    audio, mime = await synthesize(clean, conf)
+    name = "reply.wav" if mime == "audio/wav" else "reply.mp3"
+    att = cm.persist_audio_bytes(user_id, audio, mime, name=name)
+    log.info(
+        "Spoke %s chars for %s via %s (%s bytes)",
+        len(clean), user_id, conf["tts_engine"], len(audio),
     )
-    att = cm.persist_audio_bytes(user_id, audio, "audio/mpeg", name="reply.mp3")
-    log.info("Spoke %s chars for %s (%s bytes)", len(clean), user_id, len(audio))
     return {
         "id": att["id"],
         "mime": att["mime"],
         "kind": "audio",
-        "name": att.get("name") or "reply.mp3",
+        "name": att.get("name") or name,
         "url": cm.attachment_public_url(att["id"]),
         "text": clean,
         "chars": len(clean),
@@ -161,9 +230,21 @@ async def transcribe(audio: bytes, sample_rate: int = 16000, cfg: dict | None = 
     if not conf["enabled"]:
         raise gv.VoiceError("Voice is disabled in Settings → Voice.")
     pcm, wav_rate = pcm_from_wav(audio)
+    rate = wav_rate or sample_rate
+    if conf["stt_engine"] == "local":
+        local = conf["local_stt"]
+        return await lv.transcribe(
+            local["url"],
+            audio,
+            pcm,
+            sample_rate=rate,
+            language=conf["language"],
+            model=local["model"],
+            timeout=local["timeout"],
+        )
     return await gv.transcribe(
         conf["google_api_key"],
         pcm,
         language=conf["language"],
-        sample_rate=wav_rate or sample_rate,
+        sample_rate=rate,
     )
