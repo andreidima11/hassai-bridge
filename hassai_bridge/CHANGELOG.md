@@ -1,10 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
-## Unreleased
+## 1.0.5
+
+Voice chat in Romanian, and a fix so weaker models stop faking device commands.
 
 ### Features
 - **Voice chat (Google Chirp 3: HD)** — microphone button in the composer: speak, the question is transcribed and sent through the normal chat pipeline (so HA tools, cameras and memory all still work), and the reply is spoken back. Romanian voices are native, and Google's free tier of 1M characters per month renews monthly
-- **Settings → Voice** — enable, Google API key, language, voice picker with a Test button, speaking rate, spoken-reply length cap, autoplay toggle, plus a live check that warns when the page is not on HTTPS
+- **Settings → Voice** — enable, Google API key with the five Google Cloud setup steps linked directly, language, voice picker with a Test button, speaking rate, spoken-reply length cap, autoplay toggle, plus a live check that warns when the page is not on HTTPS
 - Assistant replies carry a replay button so a spoken answer can be heard again
 
 ### Fix
