@@ -2124,8 +2124,9 @@ async def chat_completions(request: Request):
     active = route["provider"]
     if route["auto"]:
         log.info(
-            "[%s] Auto route → %s (class=%s, %s)",
-            user_id, active.get("name", "?"), route["klass"], route["reason"],
+            "[%s] Auto route → %s / %s (class=%s, %s)",
+            user_id, active.get("name", "?"), route.get("model") or "?",
+            route["klass"], route["reason"],
         )
 
     image_gen_provider = providers.resolve_image_generation_provider(active)
@@ -2612,6 +2613,7 @@ async def chat_completions(request: Request):
         result["hassai_activity"] = activity_events
         result["hassai_route"] = {
             "provider": chat_provider.get("name", ""),
+            "model": chat_provider.get("model", ""),
             "reason": route["reason"],
             "klass": route["klass"],
             "auto": route["auto"],

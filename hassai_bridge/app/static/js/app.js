@@ -1447,6 +1447,8 @@ function openAddProvider() {
   document.getElementById('provMaxTokens').value = 2048;
   document.getElementById('provTemperature').value = 0.7;
   document.getElementById('provSystemPrompt').value = '';
+  document.getElementById('provModelFast').value = '';
+  document.getElementById('provModelDeep').value = '';
   document.getElementById('provEcoMode').checked = false;
   _populateSecondarySelect(null);
   document.getElementById('provSecondary').value = '';
@@ -1479,6 +1481,8 @@ function editProvider(id) {
   document.getElementById('provMaxTokens').value = p.max_tokens || 2048;
   document.getElementById('provTemperature').value = p.temperature ?? 0.7;
   document.getElementById('provSystemPrompt').value = p.system_prompt || '';
+  document.getElementById('provModelFast').value = (p.role_models || {}).fast || '';
+  document.getElementById('provModelDeep').value = (p.role_models || {}).deep || '';
   document.getElementById('provEcoMode').checked = !!p.eco_mode;
   _populateSecondarySelect(id);
   document.getElementById('provSecondary').value = p.secondary_provider || '';
@@ -1522,6 +1526,52 @@ async function testProviderFromPage() {
   }
 }
 
+function _expectedProviderHost(ptype) {
+  const url = PROVIDER_TYPE_URLS[ptype];
+  if (!url) return '';
+  try { return new URL(url).host; } catch { return ''; }
+}
+
+// A custom URL is deliberate often enough (proxies, gateways, self-hosted
+// gateways) that switching type must not overwrite it. But leaving a DeepSeek
+// URL on a provider now typed as Gemini fails silently, so say so instead.
+function _refreshProviderUrlMismatch(ptype, urlId, hintId) {
+  const field = document.getElementById(urlId);
+  const hint = document.getElementById(hintId);
+  if (!field || !hint) return;
+  const expected = _expectedProviderHost(ptype);
+  const raw = field.value.trim();
+  let host = '';
+  try { host = raw ? new URL(raw).host : ''; } catch { host = ''; }
+  const mismatch = ptype !== 'local' && expected && host && host !== expected;
+  hint.style.display = mismatch ? '' : 'none';
+  if (mismatch) hint.textContent = t('settings.providerUrlMismatch', { host: expected });
+}
+
+function useDefaultProviderUrl() {
+  const ptype = document.getElementById('provType').value;
+  document.getElementById('provUrl').value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
+  _refreshProviderUrlMismatch(ptype, 'provUrl', 'provUrlMismatch');
+}
+
+function onProvUrlInput() {
+  _refreshProviderUrlMismatch(
+    document.getElementById('provType').value, 'provUrl', 'provUrlMismatch',
+  );
+}
+
+function useDefaultSecProviderUrl() {
+  const ptype = document.getElementById('secProvType').value;
+  document.getElementById('secProvUrl').value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
+  _refreshProviderUrlMismatch(ptype, 'secProvUrl', 'secProvUrlMismatch');
+}
+
+function onSecProvUrlInput() {
+  _refreshProviderUrlMismatch(
+    document.getElementById('secProvType').value, 'secProvUrl', 'secProvUrlMismatch',
+  );
+}
+
 function onProvTypeChange() {
   const ptype = document.getElementById('provType').value;
   // Pre-fill URL if empty or still a known default
@@ -1539,6 +1589,7 @@ function onProvTypeChange() {
     nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
   }
   updateProviderCapabilitySections(ptype);
+  _refreshProviderUrlMismatch(ptype, 'provUrl', 'provUrlMismatch');
 }
 
 async function saveProvider() {
@@ -1552,6 +1603,10 @@ async function saveProvider() {
     max_tokens: parseInt(document.getElementById('provMaxTokens').value) || 2048,
     temperature: parseFloat(document.getElementById('provTemperature').value) || 0.7,
     system_prompt: document.getElementById('provSystemPrompt').value.trim(),
+    role_models: {
+      fast: document.getElementById('provModelFast').value.trim(),
+      deep: document.getElementById('provModelDeep').value.trim(),
+    },
     secondary_provider: document.getElementById('provSecondary').value || '',
     thinking_mode: document.getElementById('provThinkingMode')?.value || 'auto',
     vision_provider: document.getElementById('provVision').value || '',
@@ -1823,6 +1878,7 @@ function onSecProvTypeChange() {
   if (!currentName || defaultNames.includes(currentName)) {
     nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
   }
+  _refreshProviderUrlMismatch(ptype, 'secProvUrl', 'secProvUrlMismatch');
 }
 
 async function saveSecondaryProvider() {

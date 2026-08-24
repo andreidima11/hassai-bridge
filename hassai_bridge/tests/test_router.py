@@ -250,6 +250,69 @@ def test_failover_ignores_stickiness():
     assert alt is not None and alt["id"] != first["provider"]["id"]
 
 
+# ── Model selection within a provider ──────────────
+
+DUAL = {
+    "id": "dual", "name": "Dual", "type": "deepseek", "model": "deepseek-chat",
+    "role_models": {"fast": "deepseek-chat", "deep": "deepseek-reasoner"},
+}
+
+
+def _dual_cfg(**routing):
+    cfg = _cfg(**routing)
+    cfg["providers"] = [DUAL]
+    return cfg
+
+
+def test_short_chat_uses_the_fast_model():
+    out = rt.resolve(_dual_cfg(), providers=[DUAL], active=DUAL, user_text="salut", tools_active=True)
+    assert out["provider"]["model"] == "deepseek-chat"
+    assert out["model"] == "deepseek-chat"
+
+
+def test_planning_uses_the_deep_model_on_the_same_provider():
+    out = rt.resolve(
+        _dual_cfg(), providers=[DUAL], active=DUAL,
+        user_text="hai sa planuim arhitectura sistemului", tools_active=True,
+    )
+    assert out["provider"]["id"] == DUAL["id"]
+    assert out["provider"]["model"] == "deepseek-reasoner"
+
+
+def test_role_model_does_not_mutate_the_configured_provider():
+    rt.resolve(
+        _dual_cfg(), providers=[DUAL], active=DUAL,
+        user_text="hai sa planuim arhitectura sistemului", tools_active=True,
+    )
+    assert DUAL["model"] == "deepseek-chat"
+
+
+def test_provider_without_role_models_keeps_its_model():
+    out = rt.resolve(_cfg(), active=OPENAI, user_text="salut", tools_active=True)
+    assert out["provider"]["model"] == out["provider"]["model"]
+    assert rt.role_model(DEEPSEEK, "deep") == ""
+
+
+def test_sticky_turn_keeps_the_escalated_model():
+    cfg = _dual_cfg()
+    rt.resolve(
+        cfg, providers=[DUAL], active=DUAL, session_id="m1",
+        user_text="hai sa planuim arhitectura sistemului", tools_active=True,
+    )
+    follow_up = rt.resolve(
+        cfg, providers=[DUAL], active=DUAL, session_id="m1",
+        user_text="mersi", tools_active=True,
+    )
+    assert follow_up["reason"] == "sticky"
+    assert follow_up["provider"]["model"] == "deepseek-reasoner"
+
+
+def test_manual_mode_reports_the_configured_model():
+    out = rt.resolve(_dual_cfg(mode="manual"), active=DUAL, user_text="salut")
+    assert out["model"] == "deepseek-chat"
+    assert out["auto"] is False
+
+
 def test_derive_roles_covers_fast_and_deep_with_a_single_provider():
     roles = rt.derive_roles([DEEPSEEK], _cfg())
     assert roles["fast"]["id"] == DEEPSEEK["id"]
