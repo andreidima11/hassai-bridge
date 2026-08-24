@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.18
+
+Pick the weak and strong Auto models from a list.
+
+### Features
+- **Dropdowns for Auto role models** — after Fetch Models on a provider, the cheap/fast and strong/deep fields get the same selector as the main model, with a "same as above" option when you leave them empty
+
 ## 1.0.17
 
 You can move a zoomed photo around now.
