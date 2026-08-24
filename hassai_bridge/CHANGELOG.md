@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.19
+
+Short chat on Auto uses the weak model again.
+
+### Fix
+- **Auto no longer stays on the planning model after a deep turn.** A sticky conversation kept the strong model for every follow-up, so “ce faci” on Grok answered with 4.6 even when 4.2 was set for short chat. The session still stays on the same provider (prompt cache), but each message picks fast or deep again. A new chat was already a fresh session; this also fixes follow-ups in the same thread
+- **Message details show the model that actually answered**, not the default from Settings. With Auto on, the chat no longer labels every reply with the provider’s main model
+
 ## 1.0.18
 
 Pick the weak and strong Auto models from a list.
