@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.25
+
+Skip memory extraction on routine commands for every provider.
+
+### Fix
+- **Routine HA commands skip auto-extract everywhere** — lights, switches, cameras, status checks no longer trigger the memory LLM on local or cloud (explicit “ține minte” and mixed life-event messages still work)
+
 ## 1.0.24
 
 Local AI speed, smarter memory, editable extraction prompt.

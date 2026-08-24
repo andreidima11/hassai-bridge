@@ -307,37 +307,38 @@ def is_explicit_memory_request(text: str) -> bool:
     return bool(_EXPLICIT_MEMORY_REQUEST.search(text or ""))
 
 
-def _has_memory_signal(user_text: str, assistant_text: str = "") -> bool:
-    """Check if the conversation likely contains information worth extracting."""
+_PERSONAL_MEMORY_SIGNALS = (
+    "name", "numele", "mă cheamă", "ma cheama", "am ", "sunt ", "lucrez",
+    "prefer", "îmi place", "imi place", "nu-mi place", "nu imi place",
+    "locuiesc", "live", "born", "născut", "nascut", "birthday", "ziua mea",
+    "wife", "soția", "sotia", "husband", "soțul", "sotul", "child", "copil",
+    "dog", "cat", "câine", "caine", "pisică", "pisica", "pet",
+    "hobby", "like", "love", "hate", "urăsc", "urasc", "favorite",
+    "job", "work", "muncesc", "slujba", "profesie",
+    "home", "acasă", "acasa", "room", "camera",
+    "remember", "reține", "retine", "notează", "noteaza", "memorează", "memoreaza",
+    "restaurant", "am fost", "am mâncat", "am mancat", "vacation", "călătorie", "calatorie",
+    "trip", "birthday", "ziua", "spital", "doctor", "meeting", "întâlnire", "intalnire",
+)
+
+
+def _has_personal_memory_signal(user_text: str, assistant_text: str = "") -> bool:
+    """Personal or life-event cues — not satisfied by message length alone."""
     combined = f"{user_text} {assistant_text}".lower()
-
-    # Personal info keywords
-    personal_signals = [
-        "name", "numele", "mă cheamă", "ma cheama", "am ", "sunt ", "lucrez",
-        "prefer", "îmi place", "imi place", "nu-mi place", "nu imi place",
-        "locuiesc", "live", "born", "născut", "nascut", "birthday", "ziua mea",
-        "wife", "soția", "sotia", "husband", "soțul", "sotul", "child", "copil",
-        "dog", "cat", "câine", "caine", "pisică", "pisica", "pet",
-        "hobby", "like", "love", "hate", "urăsc", "urasc", "favorite",
-        "job", "work", "muncesc", "slujba", "profesie",
-        "home", "acasă", "acasa", "room", "camera",
-        "remember", "reține", "retine", "notează", "noteaza", "memorează", "memoreaza",
-        "restaurant", "am fost", "am mâncat", "am mancat", "vacation", "călătorie", "calatorie",
-        "trip", "birthday", "ziua", "spital", "doctor", "meeting", "întâlnire", "intalnire",
-    ]
-    if any(signal in combined for signal in personal_signals):
+    if any(signal in combined for signal in _PERSONAL_MEMORY_SIGNALS):
         return True
-
-    # If assistant mentions remembering
     assistant_lower = (assistant_text or "").lower()
     memory_keywords = ["note", "remember", "memory", "retin", "notat", "memor"]
-    if any(kw in assistant_lower for kw in memory_keywords):
-        return True
+    return any(kw in assistant_lower for kw in memory_keywords)
 
-    # If message is long enough, let the LLM decide
+
+def _has_memory_signal(user_text: str, assistant_text: str = "") -> bool:
+    """Check if the conversation likely contains information worth extracting."""
+    if _has_personal_memory_signal(user_text, assistant_text):
+        return True
+    # Longer free-form chat — let the LLM decide (but not routine HA commands).
     if len(user_text.split()) > 6:
         return True
-
     return False
 
 
@@ -348,20 +349,14 @@ def _transient_reason(text: str) -> str:
     return ha_registry_redundant_reason(text) or transient_reason(text)
 
 
-def _is_pure_ha_operation(user_text: str, assistant_text: str = "") -> bool:
-    """Routine HA command + tool reply — nothing worth auto-extracting."""
+def _is_routine_command(user_text: str, assistant_text: str = "") -> bool:
+    """HA/device/camera routine turn — skip auto-extract on every provider."""
     from services.deepseek import looks_like_control
 
     if not looks_like_control(user_text or ""):
         return False
-    reply = (assistant_text or "").lower()
-    markers = (
-        "switch.", "light.", "automation.", "entity_id", "entity id",
-        "ha_call_service", "ha_list_entities", "ha_get_state",
-        "toate sunt", "all are now", "turned off", "turned on",
-        "stins", "aprins", "off.", " on.",
-    )
-    return any(m in reply for m in markers)
+    # Mixed turn: "aprinde lumina, am fost la restaurant" — still extract.
+    return not _has_personal_memory_signal(user_text, assistant_text)
 
 
 # ── Fact quality scoring ──
@@ -721,9 +716,9 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
     if not explicit and _is_trivial_message(user_text):
         return
 
-    # Pure HA commands (stinge lumina, merge irigatorul?) — registry comes from tools
-    if not explicit and _is_pure_ha_operation(user_text, assistant_text):
-        log.debug("Skipping memory extraction for pure HA operation: %r", user_text[:80])
+    # Routine HA/device/camera commands — registry comes from tools, not memory
+    if not explicit and _is_routine_command(user_text, assistant_text):
+        log.debug("Skipping memory extraction for routine command: %r", user_text[:80])
         return
 
     # Signal detection: skip if no personal-info signals (zero cost)

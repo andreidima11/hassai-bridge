@@ -3349,23 +3349,9 @@ async def _safe_extract(
     active: dict | None = None,
 ):
     """Safely run memory extraction in background with per-user lock and timeout."""
-    from services import openai_api as oai
-
     active = active or providers.get_active_provider()
     if provider is None:
         provider = providers.get_secondary_provider(active)
-    effective = provider or active
-    # Don't queue a second heavy local inference for routine turns.
-    if oai._is_local_provider(active) and oai._is_local_provider(effective):
-        user_text = ""
-        for msg in reversed(messages):
-            if msg.get("role") == "user":
-                user_text = str(msg.get("content") or "")
-                break
-        from services.memory_engine import is_explicit_memory_request
-        if not is_explicit_memory_request(user_text):
-            log.debug("Skipping memory extraction on local-only provider for %s", user_id)
-            return
     if user_id not in _extraction_locks:
         _extraction_locks[user_id] = asyncio.Lock()
 

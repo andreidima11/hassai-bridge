@@ -139,6 +139,26 @@ def test_pure_ha_operation_skips_extraction(memory_db, capture_llm):
     assert not calls
 
 
+def test_routine_ha_skips_even_without_entity_markers_in_reply(memory_db, capture_llm):
+    calls, _ = capture_llm
+    _extract("stinge toate luminile din casă te rog", "Gata, am stins luminile.")
+    assert not calls
+
+
+def test_mixed_control_and_life_event_still_extracts(memory_db, capture_llm):
+    from database import get_memories
+
+    calls, reply = capture_llm
+    reply["text"] = "ADD context 3 Pe 2026-08-25 userul a fost la restaurant."
+    _extract(
+        "aprinde lumina living, am fost azi la restaurant",
+        "Am aprins lumina.",
+    )
+    assert calls
+    stored = [m["content"] for m in get_memories("alice")]
+    assert any("restaurant" in s.lower() for s in stored)
+
+
 def test_life_event_can_be_stored(memory_db, capture_llm):
     from database import get_memories
 
