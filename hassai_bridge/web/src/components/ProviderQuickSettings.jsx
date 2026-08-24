@@ -39,12 +39,16 @@ function usePopoverPosition(open, anchorRef) {
   return style;
 }
 
+// Sentinel option in the provider list — not a provider id.
+export const AUTO_PROVIDER = "__auto__";
+
 export function ProviderQuickSettings({
   providerId,
   providerName,
   model,
   capabilities,
   thinkingMode,
+  auto = false,
   onThinkingModeChange,
   onModelChange,
   onProviderChange,
@@ -62,7 +66,7 @@ export function ProviderQuickSettings({
   const [modelsError, setModelsError] = useState("");
   const panelStyle = usePopoverPosition(open, anchorRef);
   const showThinking = Boolean(capabilities?.thinking?.modes?.length);
-  const thinkingActive = thinkingMode !== "off";
+  const thinkingActive = thinkingMode !== "off" || auto;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -99,7 +103,7 @@ export function ProviderQuickSettings({
   }, [open]);
 
   useEffect(() => {
-    if (!open || !providerId) return;
+    if (!open || !providerId || auto) return;
     let cancelled = false;
     setLoadingModels(true);
     setModelsError("");
@@ -119,7 +123,7 @@ export function ProviderQuickSettings({
     return () => {
       cancelled = true;
     };
-  }, [open, providerId]);
+  }, [open, providerId, auto]);
 
   const thinkingLabel = showThinking
     ? tr(lang, `thinkingMode${thinkingMode.charAt(0).toUpperCase()}${thinkingMode.slice(1)}`)
@@ -133,6 +137,7 @@ export function ProviderQuickSettings({
     if (providerId && !rows.some((row) => row.value === providerId)) {
       rows.unshift({ value: providerId, label: providerName || providerId });
     }
+    rows.unshift({ value: AUTO_PROVIDER, label: tr(lang, "providerAuto") });
     return rows;
   })();
 
@@ -162,7 +167,7 @@ export function ProviderQuickSettings({
         ) : providerOptions.length ? (
           <ThemeSelect
             aria-label={tr(lang, "providerLabel")}
-            value={providerId || ""}
+            value={auto ? AUTO_PROVIDER : providerId || ""}
             options={providerOptions}
             onChange={(next) => onProviderChange?.(next)}
           />
@@ -172,29 +177,32 @@ export function ProviderQuickSettings({
           </div>
         )}
         {providersError ? <div className="mt-1 text-[11px] text-amber-400/90">{providersError}</div> : null}
+        {auto ? <div className="mt-1 text-[11px] text-muted-foreground">{tr(lang, "providerAutoHint")}</div> : null}
       </label>
 
-      <label className="mb-3 block">
-        <div className="mb-1.5 text-[12px] text-muted-foreground">{tr(lang, "modelLabel")}</div>
-        {loadingModels ? (
-          <div className="text-[12px] text-muted-foreground">{tr(lang, "loadingModels")}</div>
-        ) : modelOptions.length ? (
-          <ThemeSelect
-            aria-label={tr(lang, "modelLabel")}
-            value={model || ""}
-            options={modelOptions}
-            onChange={(next) => onModelChange?.(next)}
-          />
-        ) : (
-          <div className="rounded-xl border border-white/10 bg-secondary/70 px-3 py-2.5 text-[13px] text-foreground">
-            {model || "—"}
-          </div>
-        )}
-        {modelsError ? <div className="mt-1 text-[11px] text-amber-400/90">{modelsError}</div> : null}
-        {models.length ? (
-          <div className="mt-1 text-[11px] text-muted-foreground">{tr(lang, "modelsLoaded", { count: models.length })}</div>
-        ) : null}
-      </label>
+      {auto ? null : (
+        <label className="mb-3 block">
+          <div className="mb-1.5 text-[12px] text-muted-foreground">{tr(lang, "modelLabel")}</div>
+          {loadingModels ? (
+            <div className="text-[12px] text-muted-foreground">{tr(lang, "loadingModels")}</div>
+          ) : modelOptions.length ? (
+            <ThemeSelect
+              aria-label={tr(lang, "modelLabel")}
+              value={model || ""}
+              options={modelOptions}
+              onChange={(next) => onModelChange?.(next)}
+            />
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-secondary/70 px-3 py-2.5 text-[13px] text-foreground">
+              {model || "—"}
+            </div>
+          )}
+          {modelsError ? <div className="mt-1 text-[11px] text-amber-400/90">{modelsError}</div> : null}
+          {models.length ? (
+            <div className="mt-1 text-[11px] text-muted-foreground">{tr(lang, "modelsLoaded", { count: models.length })}</div>
+          ) : null}
+        </label>
+      )}
 
       {showThinking ? (
         <div>
