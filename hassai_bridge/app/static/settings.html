@@ -331,7 +331,7 @@
       <div class="settings-tab" data-stab="stab-cameras" data-i18n="settings.tabCameras">Cameras</div>
       <div class="settings-tab" data-stab="stab-voice" data-i18n="settings.tabVoice">Voice</div>
       <div class="settings-tab" data-stab="stab-memory" data-i18n="settings.tabMemory">Memory</div>
-      <div class="settings-tab" data-stab="stab-security" data-i18n="settings.tabSecurity">Security</div>
+      <div class="settings-tab" data-stab="stab-eco" data-i18n="settings.tabEco">Eco Mode</div>
       <div class="settings-tab" data-stab="stab-backup" data-i18n="settings.tabBackup">Backup</div>
     </div>
 
@@ -364,19 +364,7 @@
           <span data-i18n="settings.parallelFetch">Fetch web pages in parallel</span>
           <label class="toggle"><input type="checkbox" id="perfParallelFetch" checked><span class="slider"></span></label>
         </div>
-        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
-          <h3 style="margin:0 0 8px;font-size:1rem" data-i18n="settings.localPerfTitle">Local AI optimizations</h3>
-          <p class="card-muted" style="margin:0 0 12px" data-i18n="settings.localPerfDesc">Applied when the active provider is local (LM Studio / Ollama), or when Eco Mode is on. Cloud API providers without Eco are unchanged.</p>
-          <label data-i18n="settings.toolProfile">Tool profile</label>
-          <select id="perfToolProfile">
-            <option value="auto" data-i18n="settings.toolProfileAuto">Auto — fewer tools for simple commands</option>
-            <option value="full" data-i18n="settings.toolProfileFull">Full — all tools every request</option>
-          </select>
-          <label style="margin-top:12px"><span data-i18n="settings.localHistoryLimit">Local history limit</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.localHistoryLimitDesc">(cap when using local AI; cannot exceed global limit above)</span></label>
-          <input type="number" id="perfLocalHistoryLimit" value="6" min="2" max="30">
-          <label style="margin-top:12px"><span data-i18n="settings.toolReplayTurns">Tool replay turns</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.toolReplayTurnsDesc">(0 = auto: 3 local / 6 cloud)</span></label>
-          <input type="number" id="perfToolReplayTurns" value="0" min="0" max="12">
-        </div>
+        <p class="card-muted" style="margin-top:14px" data-i18n="settings.ecoPerfPointer">Tool profile, compact history and tool-replay for Eco Mode / local AI are under Settings → Eco Mode.</p>
       </div>
 
       <div class="card">
@@ -582,7 +570,7 @@
           </div>
           <div class="modal-section" id="provLocalPerfSection" style="display:none">
             <h3 data-i18n="settings.localPerfTitle">Local AI optimizations</h3>
-            <p class="card-muted hint" data-i18n="settings.localPerfProviderDesc">Global settings applied when this local provider is active (or when Eco Mode is on). Same values as Settings → Prompts → Performance.</p>
+            <p class="card-muted hint" data-i18n="settings.localPerfProviderDesc">Global settings applied when this local provider is active (or when Eco Mode is on). Same values as Settings → Eco Mode.</p>
             <label data-i18n="settings.toolProfile">Tool profile</label>
             <select id="provPerfToolProfile">
               <option value="auto" data-i18n="settings.toolProfileAuto">Auto — fewer tools for simple commands</option>
@@ -888,15 +876,32 @@
       </div>
     </div>
 
-    <!-- ── Security ── -->
-    <div class="settings-subpanel" id="stab-security">
+    <!-- ── Eco Mode ── -->
+    <div class="settings-subpanel" id="stab-eco">
+      <div class="card">
+        <h2 data-i18n="settings.ecoMode">Eco Mode</h2>
+        <p class="card-muted" data-i18n="settings.ecoTabIntro">Turn Eco on per provider (Providers → edit → Eco Mode). When on — or when using local LM Studio / Ollama — the bridge also compact tools and history to cut tokens and latency. Cloud without Eco stays full-size.</p>
+      </div>
       <div class="card">
         <h2 data-i18n="settings.ecoModePrompt">Eco Mode Prompt</h2>
         <p class="card-muted" data-i18n="settings.ecoModePromptDesc">Custom instruction appended to the system prompt when Eco Mode is enabled on a provider. Leave empty to use the default conciseness prompt.</p>
         <textarea id="securityEcoPrompt" rows="5" data-i18n-placeholder="settings.ecoModePromptPlaceholder" placeholder="Be concise. No filler words, no pleasantries..."></textarea>
       </div>
+      <div class="card">
+        <h2 data-i18n="settings.ecoCompactTitle">Compact tools &amp; context</h2>
+        <p class="card-muted" data-i18n="settings.ecoCompactDesc">These apply when Eco Mode is on for the active provider, and always for local AI. Same values used by the provider editor for local providers.</p>
+        <label data-i18n="settings.toolProfile">Tool profile</label>
+        <select id="perfToolProfile">
+          <option value="auto" data-i18n="settings.toolProfileAuto">Auto — fewer tools for simple commands</option>
+          <option value="full" data-i18n="settings.toolProfileFull">Full — all tools every request</option>
+        </select>
+        <label style="margin-top:12px"><span data-i18n="settings.compactHistoryLimit">Compact history limit</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.compactHistoryLimitDesc">(cap for Eco / local; cannot exceed General → history limit)</span></label>
+        <input type="number" id="perfLocalHistoryLimit" value="6" min="2" max="30">
+        <label style="margin-top:12px"><span data-i18n="settings.toolReplayTurns">Tool replay turns</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.toolReplayTurnsDesc">(0 = auto: 3 compact / 6 full)</span></label>
+        <input type="number" id="perfToolReplayTurns" value="0" min="0" max="12">
+      </div>
       <div class="btn-row">
-        <button class="btn btn-primary" onclick="saveSecuritySettings()" data-i18n="settings.save">Save</button>
+        <button class="btn btn-primary" onclick="saveEcoSettings()" data-i18n="settings.save">Save</button>
       </div>
     </div>
 
