@@ -655,6 +655,18 @@
             <select id="secProvModelPicker" class="input-sm" style="display:none;margin-top:8px;width:100%"></select>
           </div>
           <div class="modal-section">
+            <h3 data-i18n="settings.secUseForTitle">Use secondary for</h3>
+            <p class="card-muted hint" data-i18n="settings.secUseForDesc">Choose which tool categories this secondary may handle after the primary calls tools. Unticked categories stay on the primary. Final spoken answers always use the primary.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+              <button type="button" class="btn btn-sm" onclick="setSecUseForAll(true)" data-i18n="settings.secUseForAll">Select all</button>
+              <button type="button" class="btn btn-sm" onclick="setSecUseForAll(false)" data-i18n="settings.secUseForNone">Deselect all</button>
+            </div>
+            <h4 class="card-muted" style="margin:8px 0 6px;font-size:13px" data-i18n="settings.secUseForExtra">Tools &amp; add-ons</h4>
+            <div id="secUseForExtraList"></div>
+            <h4 class="card-muted" style="margin:14px 0 6px;font-size:13px" data-i18n="settings.secUseForHa">Home Assistant</h4>
+            <div id="secUseForHaList"></div>
+          </div>
+          <div class="modal-section">
             <h3 data-i18n="settings.advanced">Advanced</h3>
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
               <div>

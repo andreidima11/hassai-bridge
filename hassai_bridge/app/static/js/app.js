@@ -807,6 +807,7 @@ async function loadSettings() {
     _activeProviderId = cfg.active_provider || '';
     _allSecondaryProviders = cfg.secondary_providers || [];
     await loadProviderPresets();
+    await loadSecUseForMeta();
     renderProvidersList();
     renderSecondaryProvidersList();
     await loadRouting();
@@ -1913,6 +1914,14 @@ function renderSecondaryProvidersList() {
   }
   container.innerHTML = _allSecondaryProviders.map(p => {
     const typeLabel = PROVIDER_TYPE_LABELS[p.type] || p.type;
+    const defaults = (_secUseForMeta && _secUseForMeta.defaults) || {
+      web_search: true, frigate: true, skills: true, media: true, memory: true, bridge: true,
+    };
+    const flags = { ...defaults, ...(p.use_for || {}) };
+    const onCount = Object.values(flags).filter(Boolean).length;
+    const useHint = onCount
+      ? ` · ${t('settings.secUseForCount', { n: onCount })}`
+      : '';
     return `
       <div class="provider-item">
         <div class="provider-info">
@@ -1920,7 +1929,7 @@ function renderSecondaryProvidersList() {
             🔗 ${escapeHtml(p.name)}
             <span class="provider-type-badge">${escapeHtml(typeLabel)}</span>
           </div>
-          <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
+          <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}${useHint}</div>
         </div>
         <div class="provider-actions">
           <button class="btn btn-sm" onclick="editSecondaryProvider('${escapeHtml(p.id)}')">${t('settings.edit')}</button>
@@ -1930,7 +1939,77 @@ function renderSecondaryProvidersList() {
   }).join('');
 }
 
-function openAddSecondaryProvider() {
+let _secUseForMeta = null;
+
+async function loadSecUseForMeta() {
+  if (_secUseForMeta) return _secUseForMeta;
+  try {
+    _secUseForMeta = await api('GET', '/api/settings/secondary-use-for-categories');
+  } catch {
+    _secUseForMeta = {
+      extra: {
+        web_search: 'Web search', frigate: 'Cameras', skills: 'Skills',
+        media: 'Media', memory: 'Memory', bridge: 'Bridge tools',
+      },
+      ha: Object.fromEntries((_haToolCategoryKeys.length ? _haToolCategoryKeys : [
+        'entities', 'control', 'registry', 'automations', 'integrations',
+        'dashboards', 'config_files', 'diagnostics', 'backups', 'addons',
+        'updates', 'restart', 'network', 'upload', 'zigbee',
+      ]).map((k) => [k, k])),
+      defaults: {
+        web_search: true, frigate: true, skills: true, media: true,
+        memory: true, bridge: true,
+      },
+    };
+  }
+  return _secUseForMeta;
+}
+
+function _secUseForLabel(key, group) {
+  if (group === 'ha') return t(`settings.haTools.${key}`) || key;
+  return t(`settings.secUseFor.${key}`) || key;
+}
+
+function renderSecUseFor(flags) {
+  const meta = _secUseForMeta || { extra: {}, ha: {}, defaults: {} };
+  const merged = { ...(meta.defaults || {}), ...(flags || {}) };
+  const extraEl = document.getElementById('secUseForExtraList');
+  const haEl = document.getElementById('secUseForHaList');
+  if (extraEl) {
+    extraEl.innerHTML = Object.keys(meta.extra || {}).map((key) => {
+      const on = merged[key] !== false;
+      return `<div class="toggle-row" style="margin-bottom:10px">
+        <span>${_secUseForLabel(key, 'extra')}</span>
+        <label class="toggle"><input type="checkbox" data-sec-use-for="${key}" ${on ? 'checked' : ''}><span class="slider"></span></label>
+      </div>`;
+    }).join('');
+  }
+  if (haEl) {
+    haEl.innerHTML = Object.keys(meta.ha || {}).map((key) => {
+      const on = merged[key] === true;
+      return `<div class="toggle-row" style="margin-bottom:10px">
+        <span>${_secUseForLabel(key, 'ha')}</span>
+        <label class="toggle"><input type="checkbox" data-sec-use-for="${key}" ${on ? 'checked' : ''}><span class="slider"></span></label>
+      </div>`;
+    }).join('');
+  }
+}
+
+function collectSecUseFor() {
+  const out = { ...((_secUseForMeta && _secUseForMeta.defaults) || {}) };
+  document.querySelectorAll('[data-sec-use-for]').forEach((el) => {
+    out[el.dataset.secUseFor] = el.checked;
+  });
+  return out;
+}
+
+function setSecUseForAll(on) {
+  document.querySelectorAll('[data-sec-use-for]').forEach((el) => {
+    el.checked = !!on;
+  });
+}
+
+async function openAddSecondaryProvider() {
   _editingSecProviderId = null;
   document.getElementById('secProviderFormTitle').textContent = t('settings.addSecondaryProvider');
   document.getElementById('secProvType').value = 'local';
@@ -1945,11 +2024,13 @@ function openAddSecondaryProvider() {
   document.getElementById('secProvTestResult').style.display = 'none';
   _resetModelPicker(document.getElementById('secProvModel'), 'secProvModelPicker');
   onSecProvTypeChange();
+  await loadSecUseForMeta();
+  renderSecUseFor((_secUseForMeta && _secUseForMeta.defaults) || {});
   document.getElementById('providersMain').style.display = 'none';
   document.getElementById('secProviderPage').style.display = '';
 }
 
-function editSecondaryProvider(id) {
+async function editSecondaryProvider(id) {
   const p = _allSecondaryProviders.find(x => x.id === id);
   if (!p) return;
   _editingSecProviderId = id;
@@ -1966,6 +2047,8 @@ function editSecondaryProvider(id) {
   document.getElementById('secProvTestResult').style.display = 'none';
   _resetModelPicker(document.getElementById('secProvModel'), 'secProvModelPicker');
   onSecProvTypeChange();
+  await loadSecUseForMeta();
+  renderSecUseFor(p.use_for || (_secUseForMeta && _secUseForMeta.defaults) || {});
   document.getElementById('providersMain').style.display = 'none';
   document.getElementById('secProviderPage').style.display = '';
 }
@@ -2022,6 +2105,7 @@ async function saveSecondaryProvider() {
     timeout: parseInt(document.getElementById('secProvTimeout').value) || 120,
     max_tokens: parseInt(document.getElementById('secProvMaxTokens').value) || 2048,
     temperature: parseFloat(document.getElementById('secProvTemperature').value) || 0.7,
+    use_for: collectSecUseFor(),
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
   try {

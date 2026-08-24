@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.32
+
+Per-category toggles for what the secondary LLM may handle on tool rounds.
+
+### Features
+- **Secondary → Use for** — on each secondary provider, enable/disable web search, Frigate, skills, media, memory, bridge tools, and every Home Assistant tool category (lights/control, cameras stay separate via Frigate, dashboards, etc.)
+- Defaults match 1.0.31: extras on secondary, HA categories stay on primary until opted in
+
 ## 1.0.31
 
 Auxiliary (secondary) LLM only runs intermediate tool rounds; primary always speaks and owns memory.

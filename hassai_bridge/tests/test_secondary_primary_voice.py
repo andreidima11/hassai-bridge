@@ -21,11 +21,47 @@ def test_recall_routes_ha_to_primary_and_search_to_secondary():
         [{"function": {"name": "ha_call_service"}}], active, secondary,
     )["id"] == "primary"
     assert chat_mod._recall_provider(
-        [{"function": {"name": "web_search"}}], active, secondary,
+        [{"function": {"name": "search_web"}}], active, secondary,
     )["id"] == "secondary"
     assert chat_mod._recall_provider(
         [{"function": {"name": "frigate_events"}}], active, secondary,
     )["id"] == "secondary"
+
+
+def test_recall_respects_secondary_use_for_toggles():
+    active = {"id": "primary", "model": "gpt-4o"}
+    secondary = {
+        "id": "secondary",
+        "model": "llama-local",
+        "use_for": {
+            "web_search": False,
+            "frigate": True,
+            "control": True,
+            "entities": False,
+        },
+    }
+
+    assert chat_mod._recall_provider(
+        [{"function": {"name": "search_web"}}], active, secondary,
+    )["id"] == "primary"
+    assert chat_mod._recall_provider(
+        [{"function": {"name": "frigate_events"}}], active, secondary,
+    )["id"] == "secondary"
+    assert chat_mod._recall_provider(
+        [{"function": {"name": "ha_call_service"}}], active, secondary,
+    )["id"] == "secondary"
+    assert chat_mod._recall_provider(
+        [{"function": {"name": "ha_list_entities"}}], active, secondary,
+    )["id"] == "primary"
+    # Mixed round: any disallowed tool keeps the whole round on primary.
+    assert chat_mod._recall_provider(
+        [
+            {"function": {"name": "frigate_events"}},
+            {"function": {"name": "ha_list_entities"}},
+        ],
+        active,
+        secondary,
+    )["id"] == "primary"
 
 
 def test_should_finalize_on_primary_when_secondary_returns_text():
