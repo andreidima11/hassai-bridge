@@ -489,7 +489,11 @@
           <div class="modal-section">
             <h3 data-i18n="settings.connection">Connection</h3>
             <label data-i18n="settings.serverUrl">Server URL</label>
-            <input type="text" id="provUrl" placeholder="http://localhost:1234">
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="provUrl" placeholder="http://localhost:1234" style="flex:1" oninput="onProvUrlInput()">
+              <button type="button" class="btn btn-sm" onclick="useDefaultProviderUrl()" data-i18n="settings.useDefaultUrl">Use default</button>
+            </div>
+            <p class="card-muted hint" id="provUrlMismatch" style="display:none;color:var(--warn)"></p>
             <p class="card-muted hint" id="provUrlHint" data-i18n="settings.providerUrlHint">For local servers, use the full URL (e.g. http://192.168.0.100:1234). For cloud APIs, the default URL is pre-filled.</p>
             <label id="provApiKeyLabel" data-i18n="settings.providerApiKey">API Key</label>
             <input type="password" id="provApiKey" data-i18n-placeholder="settings.apiKeyPlaceholder" placeholder="Insert API key">
@@ -607,7 +611,11 @@
           <div class="modal-section">
             <h3 data-i18n="settings.connection">Connection</h3>
             <label data-i18n="settings.serverUrl">Server URL</label>
-            <input type="text" id="secProvUrl" placeholder="http://localhost:1234">
+            <div style="display:flex;gap:8px;align-items:center">
+              <input type="text" id="secProvUrl" placeholder="http://localhost:1234" style="flex:1" oninput="onSecProvUrlInput()">
+              <button type="button" class="btn btn-sm" onclick="useDefaultSecProviderUrl()" data-i18n="settings.useDefaultUrl">Use default</button>
+            </div>
+            <p class="card-muted hint" id="secProvUrlMismatch" style="display:none;color:var(--warn)"></p>
             <p class="card-muted hint" id="secProvUrlHint" data-i18n="settings.providerUrlHint">For local servers, use the full URL (e.g. http://192.168.0.100:1234). For cloud APIs, the default URL is pre-filled.</p>
             <label id="secProvApiKeyLabel" data-i18n="settings.providerApiKey">API Key</label>
             <input type="password" id="secProvApiKey" data-i18n-placeholder="settings.apiKeyPlaceholder" placeholder="Insert API key">
