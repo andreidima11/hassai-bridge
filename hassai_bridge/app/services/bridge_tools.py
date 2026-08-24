@@ -299,7 +299,7 @@ def _status(user_id: str, cfg: dict) -> str:
     ]
     if secondary:
         lines.append(
-            f"Secondary (intermediate tool rounds only; final answer + memory use primary): "
+            f"Secondary (categories via use_for; final answer + memory use primary): "
             f"{secondary.get('name')} — {secondary.get('model')}"
         )
     if vision:

@@ -232,14 +232,11 @@ def _recall_provider(
     names = _tool_names(tool_calls)
     if any(name == "generate_image" for name in names):
         return image_gen_provider or active
-    if any(
-        name in lt.HA_LOVELACE_TOOLS
-        or name in et.HA_ENTITY_TOOLS
-        or name in et.HA_REGISTRY_MUTATING_TOOLS
-        for name in names
-    ):
-        return active
-    return secondary or active
+    from services import secondary_routing as sr
+
+    if secondary and sr.secondary_handles_tools(secondary, names):
+        return secondary
+    return active
 
 
 _SECONDARY_TOOLS_HINT = (

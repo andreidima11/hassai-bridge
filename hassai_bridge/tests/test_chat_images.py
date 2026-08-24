@@ -133,7 +133,7 @@ def test_recall_provider_uses_image_provider_when_set():
     secondary = {"id": "secondary", "model": "gpt-4o-mini"}
     vision = {"id": "vision", "model": "gpt-4o"}
     img_gen = {"id": "imggen", "type": "grok", "model": "grok-4.6"}
-    tool_calls = [{"function": {"name": "web_search"}}]
+    tool_calls = [{"function": {"name": "search_web"}}]
 
     assert _recall_provider(tool_calls, active, secondary)["id"] == "secondary"
     assert _recall_provider(tool_calls, active, secondary, image_provider=vision)["id"] == "vision"

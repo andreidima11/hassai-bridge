@@ -14,6 +14,7 @@ from services import providers, searxng
 from services.providers import get_active_provider, PROVIDER_PRESETS
 from services import homeassistant as ha_api
 from services import export_import as ei_export
+from services.secondary_routing import normalize_use_for, use_for_labels
 
 def _require_admin_key(request: Request):
     """Import-free admin auth — delegates to main._require_admin_key at runtime."""
@@ -90,6 +91,20 @@ async def ha_tool_categories():
 async def bridge_tool_groups():
     from services.bridge_tool_access import GROUP_KEYS
     return {"groups": GROUP_KEYS}
+
+
+@router.get("/secondary-use-for-categories")
+async def secondary_use_for_categories():
+    """Categories a secondary provider can be opted into for tool recall."""
+    from services.secondary_routing import EXTRA_CATEGORY_KEYS, DEFAULT_USE_FOR
+    from services.ha_tool_access import CATEGORY_KEYS
+
+    return {
+        "extra": EXTRA_CATEGORY_KEYS,
+        "ha": CATEGORY_KEYS,
+        "categories": use_for_labels(),
+        "defaults": DEFAULT_USE_FOR,
+    }
 
 
 @router.get("/voice/voices")
@@ -627,6 +642,7 @@ async def add_secondary_provider(data: dict):
         "timeout": timeout,
         "max_tokens": max_tokens,
         "temperature": temperature,
+        "use_for": normalize_use_for(data.get("use_for")),
     }
     cfg.setdefault("secondary_providers", []).append(provider)
     save_config(cfg)
@@ -642,6 +658,8 @@ async def update_secondary_provider(provider_id: str, data: dict):
             for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature"):
                 if key in data:
                     p[key] = data[key]
+            if "use_for" in data:
+                p["use_for"] = normalize_use_for(data.get("use_for"))
             if p.get("base_url"):
                 p["base_url"] = providers.normalize_provider_base_url(p["base_url"])
             save_config(cfg)
