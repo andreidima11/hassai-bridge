@@ -539,7 +539,8 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
 async def chat_completion_stream(messages: list[dict], model: str | None = None,
                                  tools: list | None = None, tool_choice: str | dict | None = None,
                                  provider: dict | None = None, thinking: dict | None = None,
-                                 cache_conv_id: str | None = None):
+                                 cache_conv_id: str | None = None,
+                                 max_tokens: int | None = None):
     """Stream chat completion, yielding SSE chunks."""
     if provider is None:
         provider = get_active_provider()

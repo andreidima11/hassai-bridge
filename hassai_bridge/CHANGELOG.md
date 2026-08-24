@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.26
+
+Fix streaming chat crash on every provider.
+
+### Fix
+- **`Provider error: name 'max_tokens' is not defined`** — `chat_completion_stream` referenced `max_tokens` without declaring it; broke all streamed chat (local, OpenAI, Gemini, etc.)
+
 ## 1.0.25
 
 Skip memory extraction on routine commands for every provider.
