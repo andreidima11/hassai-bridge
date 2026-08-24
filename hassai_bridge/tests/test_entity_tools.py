@@ -13,10 +13,25 @@ def load(name: str):
 def test_filter_states_search_and_domain():
     states = load("states_sample.json")
     rows = et.filter_states(states, {"domain": "light"})
-    assert len(rows) == 2
+    # domain=light expands to light+switch (relay bulbs)
+    assert {r["entity_id"] for r in rows} == {
+        "light.living", "light.kitchen", "switch.dormitor_bec",
+    }
     rows = et.filter_states(states, {"search": "kitchen"})
     assert len(rows) == 1
     assert rows[0]["entity_id"] == "light.kitchen"
+
+
+def test_filter_states_light_domain_finds_relay_switch_by_search():
+    states = load("states_sample.json")
+    rows = et.filter_states(states, {"domain": "light", "search": "dormitor"})
+    assert [r["entity_id"] for r in rows] == ["switch.dormitor_bec"]
+
+
+def test_filter_states_comma_domains():
+    states = load("states_sample.json")
+    rows = et.filter_states(states, {"domain": "climate,sensor"})
+    assert {r["entity_id"] for r in rows} == {"climate.living", "sensor.temp"}
 
 
 def test_filter_states_includes_update_domain_by_default():
@@ -37,9 +52,15 @@ def test_paginate_and_format_list():
     sorted_rows = et.sort_states(filtered, "entity_id")
     page, total = et.paginate_states(sorted_rows, limit=2, offset=0)
     text = et.format_entity_list(page, total=total, offset=0, limit=2)
-    assert "showing 1-2 of 5" in text
+    assert "showing 1-2 of 6" in text
     assert "offset=2" in text
-    assert "light.kitchen" in text
+    assert "climate.living" in text or "light.kitchen" in text or "light.living" in text
+
+
+def test_default_prompt_mentions_relay_switches():
+    out = et.render_ha_agent_prompt("", ["ha_list_entities", "ha_call_service"])
+    assert "switch.*" in out
+    assert "light,switch" in out or "domain=light,switch" in out
 
 
 def test_format_state_detail_full_and_capabilities():

@@ -12,12 +12,13 @@ Read-only questions (explain, what does X do, list, show): usually 1–3 tool ca
 
 Entities (live state via REST):
 - Find: ha_list_entities (search, domain, area_name, offset; registry columns when available) → ha_get_state
+- Lights / bulbs / lamps: many homes wire them through relays as switch.* — never assume domain=light only. Prefer search= (and area_name=) without locking domain, or domain=light,switch. Call switch.turn_on / switch.turn_off when the match is a switch.
 - Registry metadata: ha_list_entity_registry / ha_get_entity_registry — names, areas, devices, disabled/hidden
 - Rename/move/disable: ha_update_entity (confirm=true); resolve area with ha_list_areas
 - Rooms: ha_create_area / ha_update_area; labels: ha_list_labels → ha_create_label → assign on entity/device
 - Move device + all its entities: ha_update_device (area_name/area_id, confirm=true)
 - Helpers only: ha_set_state for input_* / counter / timer — devices use ha_call_service
-- Act: ha_list_services(domain=…) → ha_call_service → ha_get_state to verify
+- Act: ha_list_services(domain=…) → ha_call_service → ha_get_state to verify; service domain must match the entity domain (light.* → light.turn_*, switch.* → switch.turn_*)
 - area_id in registry, not state.attributes — use ha_list_areas for room names
 - If state is unavailable or unknown, diagnose before calling services
 - Trace: ha_get_history / ha_get_logbook for recent changes; ha_get_entity_source for integration
@@ -120,13 +121,40 @@ def domain_of(entity_id: str) -> str:
     return (entity_id or "").split(".", 1)[0].lower()
 
 
+# domain=light also matches switch.* — many "lights" are relay switches.
+_DOMAIN_EXPAND = {
+    "light": frozenset({"light", "switch"}),
+    "lights": frozenset({"light", "switch"}),
+}
+
+
+def parse_domains(raw) -> frozenset[str]:
+    """Parse domain= filter: comma-separated, with light → light+switch expansion."""
+    text = str(raw or "").strip().lower()
+    if not text:
+        return frozenset()
+    out: set[str] = set()
+    for part in text.replace(";", ",").split(","):
+        dom = part.strip()
+        if not dom:
+            continue
+        out.update(_DOMAIN_EXPAND.get(dom, (dom,)))
+    return frozenset(out)
+
+
+def entity_matches_domains(entity_id: str, domains: frozenset[str]) -> bool:
+    if not domains:
+        return True
+    return domain_of(entity_id) in domains
+
+
 def filter_states(states: list[dict], args: dict) -> list[dict]:
-    domain = (args.get("domain") or "").strip().lower()
+    domains = parse_domains(args.get("domain"))
     search = (args.get("search") or "").strip().lower()
     state_filter = (args.get("state_filter") or "").strip().lower()
     include_all = args.get("include_all_domains")
     if include_all is None:
-        include_all = True if (domain or search) else True
+        include_all = True if (domains or search) else True
 
     rows: list[dict] = []
     for st in states:
@@ -135,9 +163,9 @@ def filter_states(states: list[dict], args: dict) -> list[dict]:
         eid = str(st.get("entity_id") or "")
         if not eid:
             continue
-        if domain and not eid.startswith(domain + "."):
+        if not entity_matches_domains(eid, domains):
             continue
-        if not domain and not search and not include_all:
+        if not domains and not search and not include_all:
             if domain_of(eid) not in _LEGACY_DEFAULT_DOMAINS:
                 continue
         attrs = st.get("attributes") or {}
@@ -466,7 +494,7 @@ def merge_entities(
 
 
 def filter_enriched(rows: list[dict], args: dict) -> list[dict]:
-    domain = (args.get("domain") or "").strip().lower()
+    domains = parse_domains(args.get("domain"))
     search = (args.get("search") or "").strip().lower()
     state_filter = (args.get("state_filter") or "").strip().lower()
     area_id = (args.get("area_id") or "").strip()
@@ -478,7 +506,7 @@ def filter_enriched(rows: list[dict], args: dict) -> list[dict]:
     filtered: list[dict] = []
     for row in rows:
         eid = str(row.get("entity_id") or "")
-        if domain and not eid.startswith(domain + "."):
+        if not entity_matches_domains(eid, domains):
             continue
         if area_id and str(row.get("area_id") or "") != area_id:
             continue
@@ -545,7 +573,7 @@ def format_enriched_list(rows: list[dict], *, total: int, offset: int, limit: in
 
 
 def filter_registry_entries(entries: list[dict], args: dict) -> list[dict]:
-    domain = (args.get("domain") or "").strip().lower()
+    domains = parse_domains(args.get("domain"))
     search = (args.get("search") or "").strip().lower()
     area_id = (args.get("area_id") or "").strip()
     include_disabled = bool(args.get("include_disabled"))
@@ -554,7 +582,7 @@ def filter_registry_entries(entries: list[dict], args: dict) -> list[dict]:
         if not isinstance(row, dict):
             continue
         eid = str(row.get("entity_id") or "")
-        if domain and not eid.startswith(domain + "."):
+        if not entity_matches_domains(eid, domains):
             continue
         if area_id and str(row.get("area_id") or "") != area_id:
             continue

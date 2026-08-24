@@ -273,12 +273,20 @@ _TOOL_SPECS: dict[str, dict] = {
         "description": (
             "List Home Assistant entities (entity_id, name, state, domain). "
             "All domains included by default — use domain= or search= to narrow. "
+            "domain=light also includes switch.* (relay bulbs). "
+            "Pass domain=light,switch or search=room/name without domain for lighting. "
             "Use offset= for pagination."
         ),
         "parameters": {
             "type": "object",
             "properties": {
-                "domain": {"type": "string", "description": "e.g. light, switch, climate, update"},
+                "domain": {
+                    "type": "string",
+                    "description": (
+                        "Filter by domain. Comma-separated allowed (light,switch). "
+                        "light expands to light+switch because many bulbs are relays."
+                    ),
+                },
                 "search": {"type": "string", "description": "Substring on entity_id or friendly_name"},
                 "state_filter": {"type": "string", "description": "Exact state value, e.g. on, off, unavailable"},
                 "limit": {"type": "integer", "description": "Default 40, max 120"},
@@ -320,6 +328,7 @@ _TOOL_SPECS: dict[str, dict] = {
         "description": (
             "Call a Home Assistant service. Use ha_list_services to discover valid domain.service names. "
             "Pass entity_id here or entity_id: [list] inside data for multiple targets. "
+            "Match the service domain to the entity (switch.bedroom_light → switch.turn_off, not light.turn_off). "
             "Set verify=true to read state after the call."
         ),
         "parameters": {

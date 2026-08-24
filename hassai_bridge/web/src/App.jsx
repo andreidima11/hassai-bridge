@@ -798,7 +798,8 @@ export default function App() {
       body: JSON.stringify({ model }),
     });
     setProviderInfo((prev) => ({ ...prev, model }));
-  }, [providerInfo.id]);
+    await refreshChatProvider();
+  }, [providerInfo.id, refreshChatProvider]);
 
   const setRoutingMode = useCallback(
     (mode) => apiJson("/api/settings/", {

@@ -17,6 +17,10 @@ from logging import getLogger
 
 import httpx
 
+from services import deepseek as ds
+
+THINKING_MODES = ds.THINKING_MODES
+
 # Models that reject custom temperature / sampling knobs.
 _RESTRICTED_SAMPLING = re.compile(
     r"^(o[1-9]([.-]|$)|gpt-5)",
@@ -36,6 +40,12 @@ _OPENAI_CHAT_MODEL_SUFFIX = re.compile(
 # GPT-5.6 and later: Chat Completions + function tools need reasoning_effort=none.
 _GPT56_PLUS = re.compile(
     r"(^|/)gpt-5\.(?:[6-9]|[1-9]\d)",
+    re.IGNORECASE,
+)
+
+# o-series and GPT-5+ accept reasoning_effort on Chat Completions (not gpt-4o).
+_REASONING_EFFORT_MODELS = re.compile(
+    r"(^|/)(o[1-9]([.-]|$)|o[1-9]-|gpt-5)",
     re.IGNORECASE,
 )
 
@@ -113,6 +123,84 @@ def looks_like_openai_model(model: str | None) -> bool:
 def is_gpt56_plus_model(model: str | None) -> bool:
     """True for gpt-5.6 / gpt-5.6-* / openai/gpt-5.6-sol etc."""
     return bool(_GPT56_PLUS.search(_norm(model)))
+
+
+def normalize_thinking_mode(value: str | None, default: str = "auto") -> str:
+    return ds.normalize_thinking_mode(value, default=default)
+
+
+def supports_reasoning_effort(model: str | None) -> bool:
+    """True when Chat Completions accepts reasoning_effort for this model id."""
+    mid = str(model or "").strip()
+    if not mid or mid == "default":
+        return False
+    return bool(_REASONING_EFFORT_MODELS.search(_norm(mid)))
+
+
+def _reasoning_effort(mode: str, auto: dict) -> str | None:
+    if mode == "off":
+        return "none"
+    if mode == "max":
+        return "max"
+    if mode == "high":
+        return "high"
+    if mode == "auto":
+        if not auto.get("enabled"):
+            return "none"
+        if auto.get("effort") == "max":
+            return "max"
+        if auto.get("effort") == "high":
+            return "high"
+        return "low"
+    return None
+
+
+def resolve_thinking(
+    provider: dict,
+    *,
+    override: str | None = None,
+    user_text: str = "",
+    tools_active: bool = False,
+) -> dict | None:
+    """Resolve OpenAI reasoning_effort for one chat request."""
+    if not is_openai_provider(provider):
+        return None
+    model = str(provider.get("model") or "")
+    if not supports_reasoning_effort(model):
+        return None
+
+    default_mode = normalize_thinking_mode(provider.get("thinking_mode"))
+    mode = normalize_thinking_mode(override, default=default_mode)
+
+    if mode == "auto":
+        auto = ds.auto_thinking_decision(user_text, tools_active=tools_active)
+        reason = auto.get("reason", "")
+    else:
+        auto = {}
+        reason = ""
+
+    effort = _reasoning_effort(mode, auto)
+    enabled = effort not in (None, "none")
+
+    return {
+        "mode": mode,
+        "enabled": enabled,
+        "effort": effort,
+        "auto_reason": reason,
+    }
+
+
+def apply_thinking_payload(payload: dict, thinking: dict | None, *, provider: dict | None = None) -> None:
+    if not thinking:
+        return
+    model = str((provider or {}).get("model") or payload.get("model") or "")
+    if not supports_reasoning_effort(model):
+        return
+    effort = thinking.get("effort")
+    if isinstance(effort, str) and effort:
+        payload["reasoning_effort"] = effort
+    elif not thinking.get("enabled"):
+        payload["reasoning_effort"] = "none"
 
 
 def uses_max_completion_tokens(

@@ -6,6 +6,7 @@ import json
 
 from services import openai_api as oai
 from services import provider_capabilities as pc
+from services.provider_capabilities import THINKING
 from services.providers import _apply_token_limit, _finalize_chat_payload, _skip_temperature
 
 
@@ -247,6 +248,41 @@ def test_restricted_model_detection():
     assert not oai.is_restricted_sampling_model("chatgpt-4o-latest")
     assert not oai.is_restricted_sampling_model("gpt-4o")
     assert not oai.is_restricted_sampling_model("gpt-4.1")
+
+
+def test_openai_thinking_not_for_gpt4o():
+    assert not oai.supports_reasoning_effort("gpt-4o")
+    assert not oai.supports_reasoning_effort("gpt-4.1")
+    provider = {"type": "openai", "model": "gpt-4o", "thinking_mode": "high"}
+    assert oai.resolve_thinking(provider, override="high") is None
+    assert THINKING not in pc.provider_chat_capabilities(provider)
+
+
+def test_openai_thinking_for_gpt5():
+    assert oai.supports_reasoning_effort("gpt-5.2")
+    assert oai.supports_reasoning_effort("gpt-5.6-chat-latest")
+    assert oai.supports_reasoning_effort("o3-mini")
+    provider = {"type": "openai", "model": "gpt-5.2", "thinking_mode": "high"}
+    caps = pc.provider_chat_capabilities(provider)
+    assert "thinking" in caps
+    out = oai.resolve_thinking(provider, override="high", user_text="plan")
+    assert out["effort"] == "high"
+    payload = {"model": "gpt-5.2"}
+    oai.apply_thinking_payload(payload, out, provider=provider)
+    assert payload["reasoning_effort"] == "high"
+
+
+def test_openai_thinking_off_is_none():
+    provider = {"type": "openai", "model": "gpt-5.6", "thinking_mode": "off"}
+    out = oai.resolve_thinking(provider, override="off", user_text="salut")
+    assert out["enabled"] is False
+    assert out["effort"] == "none"
+
+
+def test_openai_thinking_max_maps_to_max():
+    provider = {"type": "openai", "model": "gpt-5.6", "thinking_mode": "max"}
+    out = oai.resolve_thinking(provider, override="max", user_text="salut")
+    assert out["effort"] == "max"
 
 
 def test_gpt56_plus_detection():

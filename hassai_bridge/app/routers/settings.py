@@ -364,9 +364,18 @@ async def get_provider_presets():
 @router.get("/providers")
 async def list_providers():
     """List all configured providers."""
+    from services.provider_capabilities import provider_chat_capabilities
+
     cfg = load_config()
+    providers = []
+    for row in cfg.get("providers") or []:
+        if not isinstance(row, dict):
+            continue
+        enriched = dict(row)
+        enriched["capabilities"] = provider_chat_capabilities(row)
+        providers.append(enriched)
     return {
-        "providers": cfg.get("providers", []),
+        "providers": providers,
         "active_provider": cfg.get("active_provider", ""),
     }
 

@@ -35,9 +35,9 @@ _MAX_RE = re.compile(
     re.I,
 )
 
-# Home / device / camera / add-on control. Short commands like "aprinde lumina"
-# must not fall through to thinking=off — weaker DeepSeek models then skip tools
-# and invent that they flipped the switch.
+# Home / device / camera / add-on control. Used for Auto routing (fast role +
+# tool-capable providers), not to force thinking — CoT on short HA commands
+# made DeepSeek flash feel stuck "thinking" before the tool ran.
 _CONTROL_RE = re.compile(
     r"(?:"
     # English verbs / intents
@@ -90,12 +90,17 @@ def looks_like_planning(text: str) -> bool:
     return bool(_PLANNING_RE.search(str(text or "").lower()))
 
 
-def auto_thinking_decision(user_text: str, *, tools_active: bool = False) -> dict:
-    """Heuristic: simple chat off, planning / HA control on.
+def looks_like_control(text: str) -> bool:
+    """HA / device / camera command — used by Auto routing, not thinking."""
+    return bool(_CONTROL_RE.search(str(text or "").lower()))
 
-    Short control phrases ("aprinde lumina", "turn on the lights") used to fall
-    into the ``simple`` / ``default_off`` buckets and leave thinking disabled.
-    Weaker DeepSeek models then skip tool calls and invent that they acted.
+
+def auto_thinking_decision(user_text: str, *, tools_active: bool = False) -> dict:
+    """Heuristic: simple chat and short HA commands off; planning on.
+
+    Control phrases still report ``reason=control`` so the provider router can
+    keep them on the fast role, but thinking stays disabled — forced CoT made
+    DeepSeek flash take many seconds before calling tools.
     """
     text = (user_text or "").strip()
     compact = re.sub(r"\s+", " ", text)
@@ -111,11 +116,9 @@ def auto_thinking_decision(user_text: str, *, tools_active: bool = False) -> dic
     if _SIMPLE_RE.match(compact):
         return {"enabled": False, "effort": None, "reason": "simple"}
 
-    # Device / HA / camera / memory intents need thinking so the model actually
-    # calls tools instead of narrating a fake action. Check before the short-message
-    # off path, otherwise "aprinde lumina" (14 chars) never gets here.
-    if tools_active and _CONTROL_RE.search(lower):
-        return {"enabled": True, "effort": "high", "reason": "control"}
+    # Tag HA intents for routing, without burning thinking tokens on them.
+    if tools_active and looks_like_control(lower):
+        return {"enabled": False, "effort": None, "reason": "control"}
 
     if len(compact) < 28 and not _PLANNING_RE.search(lower):
         return {"enabled": False, "effort": None, "reason": "simple"}

@@ -1,20 +1,105 @@
-"""Gemini-specific tool-call thought_signature helpers.
+"""Gemini-specific request helpers (thought signatures + thinking).
 
 Gemini 2.5/3 thinking models return an encrypted ``thought_signature`` on
 function-call parts. The OpenAI-compatible endpoint exposes it as
 ``extra_content.google.thought_signature`` (or ``extra_content.vertex.*``).
 It must be echoed back on the next request or the API returns HTTP 400.
 
-See: https://ai.google.dev/gemini-api/docs/thought-signatures
+Thinking is controlled via ``reasoning_effort`` on the OpenAI-compat surface
+(low / medium / high; ``none`` disables thinking on some 2.5 models only).
+
+See: https://ai.google.dev/gemini-api/docs/openai
 """
 
 from __future__ import annotations
 
+import re
+
+from services import deepseek as ds
+
+THINKING_MODES = ds.THINKING_MODES
+
 SKIP_SIGNATURE = "skip_thought_signature_validator"
+
+_GEMINI_25 = re.compile(r"gemini-2\.5", re.I)
+_GEMINI_25_PRO = re.compile(r"gemini-2\.5-pro", re.I)
 
 
 def is_gemini_provider(provider: dict | None) -> bool:
     return isinstance(provider, dict) and provider.get("type") == "gemini"
+
+
+def normalize_thinking_mode(value: str | None, default: str = "auto") -> str:
+    return ds.normalize_thinking_mode(value, default=default)
+
+
+def can_disable_thinking(model: str | None) -> bool:
+    """Some Gemini 2.5 models accept reasoning_effort=none; Gemini 3 cannot."""
+    mid = str(model or "").lower()
+    if not mid or _GEMINI_25_PRO.search(mid):
+        return False
+    return bool(_GEMINI_25.search(mid))
+
+
+def _reasoning_effort(mode: str, auto: dict, model: str) -> str | None:
+    if mode == "off":
+        return "none" if can_disable_thinking(model) else None
+    if mode == "max" or mode == "high":
+        return "high"
+    if mode == "auto":
+        if not auto.get("enabled"):
+            return "none" if can_disable_thinking(model) else None
+        if auto.get("effort") in ("max", "high"):
+            return "high"
+        return "low"
+    return None
+
+
+def resolve_thinking(
+    provider: dict,
+    *,
+    override: str | None = None,
+    user_text: str = "",
+    tools_active: bool = False,
+) -> dict | None:
+    """Resolve Gemini thinking for one chat request."""
+    if not is_gemini_provider(provider):
+        return None
+
+    model = str(provider.get("model") or "")
+    default_mode = normalize_thinking_mode(provider.get("thinking_mode"))
+    mode = normalize_thinking_mode(override, default=default_mode)
+
+    if mode == "auto":
+        auto = ds.auto_thinking_decision(user_text, tools_active=tools_active)
+        enabled = bool(auto.get("enabled"))
+        reason = auto.get("reason", "")
+    else:
+        auto = {}
+        enabled = mode != "off"
+        reason = ""
+
+    effort = _reasoning_effort(mode, auto, model)
+    if effort == "none":
+        enabled = False
+
+    return {
+        "mode": mode,
+        "enabled": enabled,
+        "effort": effort,
+        "auto_reason": reason,
+    }
+
+
+def apply_thinking_payload(payload: dict, thinking: dict | None, *, provider: dict | None = None) -> None:
+    if not thinking:
+        return
+    model = str((provider or {}).get("model") or payload.get("model") or "")
+    effort = thinking.get("effort")
+    if isinstance(effort, str) and effort:
+        payload["reasoning_effort"] = effort
+    elif not thinking.get("enabled") and can_disable_thinking(model):
+        payload["reasoning_effort"] = "none"
 
 
 def _tool_call_signature(tool_call: dict) -> str:
