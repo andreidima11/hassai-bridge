@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Composer } from "./components/Composer.jsx";
+import { AUTO_PROVIDER } from "./components/ProviderQuickSettings.jsx";
 import { VoiceMode } from "./components/VoiceMode.jsx";
 import { WelcomeHero } from "./components/WelcomeHero.jsx";
 import { ChatWindowIcon, GearIcon } from "./components/Icons.jsx";
@@ -82,7 +83,7 @@ export default function App() {
   const [voiceMode, setVoiceMode] = useState(null);
   const spokenTurnRef = useRef(false);
   const handsFreeRef = useRef(false);
-  const [providerInfo, setProviderInfo] = useState({ id: "", name: "", model: "" });
+  const [providerInfo, setProviderInfo] = useState({ id: "", name: "", model: "", auto: false });
   const [thinkingMode, setThinkingMode] = useState(() => readStoredThinkingMode());
   const sessionIdRef = useRef("");
   const bootDone = useRef(false);
@@ -766,6 +767,7 @@ export default function App() {
       id: chat.provider_id || "",
       name: chat.provider_name || "",
       model: chat.model || "",
+      auto: Boolean(chat.auto),
     });
     if (hasThinkingCapability(caps)) {
       setThinkingMode((prev) => readStoredThinkingMode(defaultThinkingMode(caps) || prev));
@@ -784,13 +786,31 @@ export default function App() {
     setProviderInfo((prev) => ({ ...prev, model }));
   }, [providerInfo.id]);
 
+  const setRoutingMode = useCallback(
+    (mode) => apiJson("/api/settings/", {
+      method: "PUT",
+      body: JSON.stringify({ routing: { mode } }),
+    }),
+    [],
+  );
+
   const changeProvider = useCallback(
     async (newId) => {
-      if (!newId || newId === providerInfo.id) return;
+      if (!newId) return;
+      if (newId === AUTO_PROVIDER) {
+        if (providerInfo.auto) return;
+        await setRoutingMode("auto");
+        await refreshChatProvider();
+        return;
+      }
+      if (newId === providerInfo.id && !providerInfo.auto) return;
+      // Picking a provider by hand turns Auto off — otherwise the choice would
+      // be silently overridden on the next message.
+      if (providerInfo.auto) await setRoutingMode("manual");
       await apiJson(`/api/settings/providers/${encodeURIComponent(newId)}/activate`, { method: "PUT" });
       await refreshChatProvider();
     },
-    [providerInfo.id, refreshChatProvider],
+    [providerInfo.id, providerInfo.auto, refreshChatProvider, setRoutingMode],
   );
 
   const deleteSession = async (id) => {
@@ -871,6 +891,7 @@ export default function App() {
             removeDocLabel={t("removeDocument")}
             removeImageLabel={t("removeImage")}
             providerCapabilities={chatCapabilities}
+            providerAuto={providerInfo.auto}
             providerId={providerInfo.id}
             providerModel={providerInfo.model}
             providerName={providerInfo.name}

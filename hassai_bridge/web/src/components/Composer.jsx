@@ -38,6 +38,7 @@ export function Composer({
   providerId = "",
   providerName = "",
   providerModel = "",
+  providerAuto = false,
   providerCapabilities = {},
   thinkingMode = "auto",
   onThinkingModeChange,
@@ -361,6 +362,7 @@ export function Composer({
             </button>
           ) : null}
           <ProviderQuickSettings
+            auto={providerAuto}
             capabilities={providerCapabilities}
             disabled={busy || uploading}
             lang={lang}
