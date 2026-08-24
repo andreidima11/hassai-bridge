@@ -1,5 +1,16 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.17
+
+You can move a zoomed photo around now.
+
+### Fix
+- **Dragging a zoomed image works.** Zooming already worked, but the picture never moved, so you only ever saw the middle of it. Drag it with a finger or the mouse to reach the edges; it stops at its own border instead of sliding off into empty space, and a drag that ends outside the picture no longer closes the viewer
+
+### Features
+- **Zoom with the mouse** — the wheel zooms and a double-click toggles between fitted and zoomed; before this a pointer had no way to zoom at all
+- **Fit button** while zoomed, to jump back to the whole picture
+
 ## 1.0.16
 
 Follow-up commands work on the smaller models.
