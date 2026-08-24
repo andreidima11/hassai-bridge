@@ -318,6 +318,8 @@ def prepare_messages_for_request(
         shaped = gm.prepare_messages_for_tools(shaped)
     if provider.get("type") == "deepseek" and tools:
         return ds.prepare_messages_for_tools(shaped)
+    if provider.get("type") == "glm" and tools:
+        return zi.prepare_messages_for_tools(shaped)
     return shaped
 
 
@@ -352,8 +354,13 @@ def sanitize_tool_choice(provider: dict | None, value):
 
 def shape_tools_for_provider(provider: dict | None, tools: list | None) -> list | None:
     """Fill in fields a provider requires on function declarations."""
-    if (provider or {}).get("type") == "glm":
+    ptype = (provider or {}).get("type")
+    if ptype == "glm":
         return zi.shape_tools(tools)
+    if ptype == "gemini":
+        from services import gemini as gm
+
+        return gm.shape_tools(tools)
     return tools
 
 
@@ -370,6 +377,8 @@ def assistant_turn(provider: dict, message: dict) -> dict:
         return ds.assistant_turn(message)
     if ptype == "grok":
         return gk.assistant_turn(message)
+    if ptype == "glm":
+        return zi.assistant_turn(message)
     if ptype == "gemini":
         out = gm.assistant_turn(message)
         out.pop("reasoning_content", None)
@@ -380,7 +389,7 @@ def assistant_turn(provider: dict, message: dict) -> dict:
 
 
 def needs_reasoning_in_tool_loop(provider: dict) -> bool:
-    return provider.get("type") in ("deepseek", "grok")
+    return provider.get("type") in ("deepseek", "grok", "glm")
 
 
 def log_provider_usage(provider: dict | None, usage: dict | None, *, user_id: str = "") -> None:
@@ -390,6 +399,8 @@ def log_provider_usage(provider: dict | None, usage: dict | None, *, user_id: st
         ds.log_cache_usage(provider, usage, user_id=user_id)
     elif provider.get("type") == "grok":
         gk.log_cache_usage(provider, usage, user_id=user_id)
+    elif provider.get("type") == "glm":
+        zi.log_cache_usage(provider, usage, user_id=user_id)
     else:
         from services import openai_api as oai
 

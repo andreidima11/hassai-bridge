@@ -273,6 +273,8 @@ _TOOL_SPECS: dict[str, dict] = {
         "description": (
             "List Home Assistant entities (entity_id, name, state, domain). "
             "All domains included by default — use domain= or search= to narrow. "
+            "For 'is X on/running?' (irrigation, pump, light, switch): search by name and read state here — "
+            "do not list automations. "
             "domain=light also includes switch.* (relay bulbs). "
             "Pass domain=light,switch or search=room/name without domain for lighting. "
             "Use offset= for pagination."
@@ -310,7 +312,8 @@ _TOOL_SPECS: dict[str, dict] = {
     },
     "ha_get_state": {
         "description": (
-            "Read one entity state and attributes. "
+            "Read one entity's live state and attributes. "
+            "Use for device status: is irrigation/light/pump/switch on or off right now. "
             "Use full_attributes for climate/media_player; include_capabilities for service hints."
         ),
         "parameters": {
@@ -635,7 +638,10 @@ _TOOL_SPECS: dict[str, dict] = {
         },
     },
     "ha_list_automations": {
-        "description": "List automation.* entities with mode and last_triggered.",
+        "description": (
+            "List automation.* entities with mode and last_triggered. "
+            "For automation rules only — not for checking if a physical device (valve, pump, light) is on."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -648,8 +654,9 @@ _TOOL_SPECS: dict[str, dict] = {
     },
     "ha_get_automation": {
         "description": (
-            "Get automation state plus triggers/conditions/actions summary. "
-            "Pass entity_id or search by friendly name."
+            "Explain an automation: state, triggers, conditions, actions. "
+            "Pass entity_id or search by friendly name. "
+            "NOT for 'is device X running/on?' — use ha_list_entities + ha_get_state on the device entity."
         ),
         "parameters": {
             "type": "object",

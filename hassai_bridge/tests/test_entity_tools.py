@@ -63,6 +63,13 @@ def test_default_prompt_mentions_relay_switches():
     assert "light,switch" in out or "domain=light,switch" in out
 
 
+def test_default_prompt_device_status_not_automation():
+    out = et.render_ha_agent_prompt("", ["ha_list_entities", "ha_get_state", "ha_get_automation"])
+    assert "ha_get_state" in out
+    assert "Do NOT use ha_list_automations" in out or "not the device itself" in out
+    assert "merge irigatorul" in out or "is it on/running" in out
+
+
 def test_format_state_detail_full_and_capabilities():
     state = load("states_sample.json")[4]
     text = et.format_state_detail(

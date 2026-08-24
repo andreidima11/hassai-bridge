@@ -125,6 +125,9 @@ def test_assistant_turn_preserves_reasoning():
     out = pc.assistant_turn({"type": "deepseek"}, msg)
     assert out["reasoning_content"] == "step 1"
 
+    glm_out = pc.assistant_turn({"type": "glm"}, msg)
+    assert glm_out["reasoning_content"] == "step 1"
+
     plain = pc.assistant_turn({"type": "openai"}, msg)
     assert "reasoning_content" not in plain
 
@@ -137,6 +140,15 @@ def test_assistant_turn_keeps_empty_reasoning_with_tool_calls():
     }
     out = pc.assistant_turn({"type": "deepseek"}, msg)
     assert out["reasoning_content"] == ""
+    glm_out = pc.assistant_turn({"type": "glm"}, msg)
+    assert glm_out["reasoning_content"] == ""
+
+
+def test_needs_reasoning_in_tool_loop():
+    assert pc.needs_reasoning_in_tool_loop({"type": "deepseek"}) is True
+    assert pc.needs_reasoning_in_tool_loop({"type": "grok"}) is True
+    assert pc.needs_reasoning_in_tool_loop({"type": "glm"}) is True
+    assert pc.needs_reasoning_in_tool_loop({"type": "openai"}) is False
 
 
 def test_prepare_messages_for_tools_adds_reasoning_field():

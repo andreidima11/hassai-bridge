@@ -413,6 +413,24 @@ def _deepseek_reasoning_fallback(payload: dict, provider: dict, status: int, bod
     return True
 
 
+def _gemini_invalid_argument_fallback(payload: dict, provider: dict, status: int, body: str) -> bool:
+    from services import gemini as gm
+
+    if provider.get("type") != "gemini":
+        return False
+    if not gm.is_gemini_retryable_400(status, body, payload):
+        return False
+    gm.repair_payload_after_gemini_400(payload)
+    log.warning("Gemini rejected chat payload (400); retrying with repaired tools/thinking")
+    return True
+
+
+def _provider_400_fallback(payload: dict, provider: dict, status: int, body: str) -> bool:
+    if _deepseek_reasoning_fallback(payload, provider, status, body):
+        return True
+    return _gemini_invalid_argument_fallback(payload, provider, status, body)
+
+
 async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,
                           tools: list | None = None, tool_choice: str | dict | None = None,
                           provider: dict | None = None, thinking: dict | None = None,
@@ -482,7 +500,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
                 continue
             if resp.status_code >= 400:
                 body = resp.text[:800]
-                if not reasoning_retry_used and _deepseek_reasoning_fallback(
+                if not reasoning_retry_used and _provider_400_fallback(
                     payload, provider, resp.status_code, body,
                 ):
                     reasoning_retry_used = True
@@ -575,7 +593,7 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
             async with client.stream("POST", url, json=payload, headers=headers, timeout=timeout) as resp:
                 if resp.status_code >= 400:
                     body = (await resp.aread())[:800].decode("utf-8", "replace")
-                    if attempt == 0 and _deepseek_reasoning_fallback(
+                    if attempt == 0 and _provider_400_fallback(
                         payload, provider, resp.status_code, body,
                     ):
                         continue

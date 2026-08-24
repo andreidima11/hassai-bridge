@@ -1,5 +1,17 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.23
+
+Gemini HA fixes, smarter device status, better prompt cache.
+
+### Fix
+- **Gemini + HA tools no longer fail with generic INVALID_ARGUMENT** — do not send `reasoning_effort: none` alongside tools; auto-retry repairs payload (thought signatures + thinking) on 400
+- **“Merge irigatorul?” checks device state, not automations** — HA agent prompt and tool docs steer status questions to `ha_list_entities` + `ha_get_state` instead of `ha_get_automation`
+
+### Features
+- **KV-cache friendly prompt layout** — memories inject on the last user turn so stable prefix + history cache across turns (DeepSeek, GLM, Grok, OpenAI, Qwen)
+- **GLM Preserved Thinking** — `clear_thinking: false` + `reasoning_content` pass-back in tool loops for better cache hits on Z.ai
+
 ## 1.0.22
 
 Faster HA commands, smarter light search, thinking controls for more providers.

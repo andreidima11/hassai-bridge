@@ -120,6 +120,37 @@ def test_gemini_off_uses_none_on_25_flash():
     assert payload["reasoning_effort"] == "none"
 
 
+def test_gemini_skips_reasoning_none_when_tools_loaded():
+    provider = {"type": "gemini", "model": "gemini-2.5-flash", "thinking_mode": "off"}
+    thinking = pc.resolve_thinking(
+        provider, override="off", user_text="aprinde lumina", tools_active=True,
+    )
+    payload = {"model": "gemini-2.5-flash", "tools": [{"type": "function"}]}
+    gm.apply_thinking_payload(payload, thinking, provider=provider)
+    assert "reasoning_effort" not in payload
+
+
+def test_gemini_retryable_400_detects_invalid_argument_with_tools():
+    payload = {"tools": [{"type": "function"}]}
+    body = '[{"error":{"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}]'
+    assert gm.is_gemini_retryable_400(400, body, payload)
+    assert not gm.is_gemini_retryable_400(400, body, {})
+
+
+def test_gemini_injects_skip_on_all_replayed_tool_calls():
+    msgs = [{
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {"id": "c1", "type": "function", "function": {"name": "a", "arguments": "{}"}},
+            {"id": "c2", "type": "function", "function": {"name": "b", "arguments": "{}"}},
+        ],
+    }]
+    out = prepare_messages_for_request(GEMINI, msgs, tools=[{"type": "function"}])
+    for call in out[0]["tool_calls"]:
+        assert call["extra_content"]["google"]["thought_signature"] == gm.SKIP_SIGNATURE
+
+
 def test_gemini_assistant_turn_preserves_thought_signature():
     msg = {
         "role": "assistant",

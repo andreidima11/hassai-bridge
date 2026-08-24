@@ -18,6 +18,8 @@ def _parse_json_error(body: str) -> str:
         data = json.loads(body)
     except json.JSONDecodeError:
         return ""
+    if isinstance(data, list) and data:
+        data = data[0]
     if isinstance(data, dict):
         err = data.get("error")
         if isinstance(err, dict):

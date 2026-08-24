@@ -95,11 +95,52 @@ def apply_thinking_payload(payload: dict, thinking: dict | None, *, provider: di
     if not thinking:
         return
     model = str((provider or {}).get("model") or payload.get("model") or "")
+    has_tools = bool(payload.get("tools"))
     effort = thinking.get("effort")
+
+    # Gemini rejects some reasoning_effort + tools combos on the OpenAI-compat
+    # surface (generic INVALID_ARGUMENT). Omit "none" when tools are loaded and
+    # let the model default — same idea as GPT-5.6+ on OpenAI Chat Completions.
     if isinstance(effort, str) and effort:
+        if effort == "none" and has_tools:
+            return
         payload["reasoning_effort"] = effort
-    elif not thinking.get("enabled") and can_disable_thinking(model):
+    elif not thinking.get("enabled") and can_disable_thinking(model) and not has_tools:
         payload["reasoning_effort"] = "none"
+
+
+def is_gemini_retryable_400(status_code: int, body: str | None, payload: dict | None) -> bool:
+    if status_code != 400 or not isinstance(payload, dict):
+        return False
+    text = (body or "").lower()
+    if is_thought_signature_error(status_code, body or ""):
+        return True
+    return "invalid argument" in text and bool(payload.get("tools"))
+
+
+def repair_payload_after_gemini_400(payload: dict) -> None:
+    """Best-effort repair before retrying a Gemini 400."""
+    payload["messages"] = prepare_messages_for_tools(payload.get("messages") or [])
+    payload.pop("reasoning_effort", None)
+
+
+def shape_tools(tools: list | None) -> list | None:
+    """Fill required OpenAI-compat fields Gemini rejects when omitted."""
+    if not tools:
+        return tools
+    shaped = []
+    for tool in tools:
+        if not isinstance(tool, dict) or tool.get("type") != "function":
+            shaped.append(tool)
+            continue
+        fn = dict(tool.get("function") or {})
+        if not fn.get("description"):
+            fn["description"] = fn.get("name") or "tool"
+        params = fn.get("parameters")
+        if not isinstance(params, dict) or not params:
+            fn["parameters"] = {"type": "object", "properties": {}}
+        shaped.append({**tool, "function": fn})
+    return shaped
 
 
 def _tool_call_signature(tool_call: dict) -> str:
@@ -126,15 +167,14 @@ def _inject_skip_signature(tool_call: dict, *, vendor: str = "google") -> dict:
 
 
 def ensure_tool_calls_signed(tool_calls: list[dict] | None, *, inject_skip: bool = False) -> list[dict]:
-    """Ensure the first tool call in each assistant step carries a signature."""
+    """Ensure tool calls carry a signature (all when backfilling replayed history)."""
     out: list[dict] = []
-    for idx, call in enumerate(tool_calls or []):
+    for call in tool_calls or []:
         if not isinstance(call, dict):
             continue
         row = dict(call)
-        if idx == 0 and not _tool_call_signature(row):
-            if inject_skip:
-                row = _inject_skip_signature(row)
+        if inject_skip and not _tool_call_signature(row):
+            row = _inject_skip_signature(row)
         out.append(row)
     return out
 
