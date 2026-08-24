@@ -96,17 +96,30 @@ def apply_thinking_payload(payload: dict, thinking: dict | None, *, provider: di
         return
     model = str((provider or {}).get("model") or payload.get("model") or "")
     has_tools = bool(payload.get("tools"))
+    msgs = payload.get("messages") or []
+    in_tool_loop = any(
+        isinstance(m, dict) and (m.get("role") == "tool" or m.get("tool_calls"))
+        for m in msgs
+    )
     effort = thinking.get("effort")
 
-    # Gemini rejects some reasoning_effort + tools combos on the OpenAI-compat
-    # surface (generic INVALID_ARGUMENT). Omit "none" when tools are loaded and
-    # let the model default — same idea as GPT-5.6+ on OpenAI Chat Completions.
+    # Mid tool-loop: omit reasoning_effort — signatures + thinking flags often
+    # combine into a generic INVALID_ARGUMENT on the OpenAI-compat surface.
+    if in_tool_loop:
+        return
     if isinstance(effort, str) and effort:
         if effort == "none" and has_tools:
             return
         payload["reasoning_effort"] = effort
     elif not thinking.get("enabled") and can_disable_thinking(model) and not has_tools:
         payload["reasoning_effort"] = "none"
+
+
+def is_thought_signature_error(status_code: int, body: str | None) -> bool:
+    if status_code != 400:
+        return False
+    text = (body or "").lower()
+    return "thought_signature" in text and ("function call" in text or "functioncall" in text)
 
 
 def is_gemini_retryable_400(status_code: int, body: str | None, payload: dict | None) -> bool:
@@ -119,12 +132,6 @@ def is_gemini_retryable_400(status_code: int, body: str | None, payload: dict | 
     # thought signatures — retry after repair even when tools were dropped
     # on the final agent round.
     return "invalid argument" in text
-
-
-def repair_payload_after_gemini_400(payload: dict) -> None:
-    """Best-effort repair before retrying a Gemini 400."""
-    payload["messages"] = prepare_messages_for_tools(payload.get("messages") or [])
-    payload.pop("reasoning_effort", None)
 
 
 def shape_tools(tools: list | None) -> list | None:
@@ -176,19 +183,45 @@ def ensure_tool_calls_signed(tool_calls: list[dict] | None, *, inject_skip: bool
         if not isinstance(call, dict):
             continue
         row = dict(call)
+        fn = dict(row.get("function") or {})
+        if not str(fn.get("arguments") or "").strip():
+            fn["arguments"] = "{}"
+            row["function"] = fn
+        if not str(row.get("id") or "").strip():
+            row["id"] = f"call_{len(out)}"
         if inject_skip and not _tool_call_signature(row):
             row = _inject_skip_signature(row)
         out.append(row)
     return out
 
 
+def force_skip_signatures(messages: list[dict] | None) -> list[dict]:
+    """Overwrite every tool-call signature with skip (truncated/bad streamed sigs)."""
+    out: list[dict] = []
+    for msg in messages or []:
+        if not isinstance(msg, dict) or msg.get("role") != "assistant" or not msg.get("tool_calls"):
+            out.append(msg)
+            continue
+        row = dict(msg)
+        if row.get("content") is None:
+            row["content"] = ""
+        signed = []
+        for call in row.get("tool_calls") or []:
+            if isinstance(call, dict):
+                signed.append(_inject_skip_signature(dict(call)))
+        row["tool_calls"] = ensure_tool_calls_signed(signed, inject_skip=False)
+        out.append(row)
+    return ensure_tool_result_names(out)
+
+
 def assistant_turn(message: dict) -> dict:
-    """Preserve Gemini thought signatures from a model tool-call response."""
+    """Preserve Gemini thought signatures; backfill skip when stream omitted them."""
     out = dict(message)
     if out.get("content") is None:
         out["content"] = ""
     if out.get("tool_calls"):
-        out["tool_calls"] = ensure_tool_calls_signed(out["tool_calls"], inject_skip=False)
+        # Streaming often drops extra_content — skip keeps the next turn alive.
+        out["tool_calls"] = ensure_tool_calls_signed(out["tool_calls"], inject_skip=True)
     return out
 
 
@@ -222,6 +255,8 @@ def ensure_tool_result_names(messages: list[dict] | None) -> list[dict]:
             cid = str(row.get("tool_call_id") or "").strip()
             if cid and cid in names:
                 row["name"] = names[cid]
+        if row.get("content") is None:
+            row["content"] = ""
         out.append(row)
     return out
 
@@ -244,6 +279,16 @@ def prepare_messages_for_tools(messages: list[dict] | None) -> list[dict]:
     return ensure_tool_result_names(out)
 
 
+def repair_payload_after_gemini_400(payload: dict) -> None:
+    """Best-effort repair before retrying a Gemini 400.
+
+    Truncated streamed signatures look present but are invalid — overwrite with
+    skip rather than only filling blanks. Drop reasoning_effort too.
+    """
+    payload["messages"] = force_skip_signatures(payload.get("messages") or [])
+    payload.pop("reasoning_effort", None)
+
+
 def merge_tool_call_delta(entry: dict, delta: dict) -> None:
     """Merge a streaming tool_calls delta, keeping Gemini extra_content."""
     if delta.get("id"):
@@ -253,28 +298,59 @@ def merge_tool_call_delta(entry: dict, delta: dict) -> None:
         entry["name"] = fn["name"]
     if fn.get("arguments"):
         entry["arguments"] = entry.get("arguments", "") + fn["arguments"]
-    if delta.get("extra_content"):
-        entry["extra_content"] = delta["extra_content"]
+    extra = delta.get("extra_content")
+    if isinstance(extra, dict) and extra:
+        # Prefer later chunks — signature often arrives after name/args.
+        entry["extra_content"] = extra
+
+
+def attach_message_extra_content(entry: dict, extra: dict | None) -> None:
+    """Attach delta-level extra_content (pre-tool thinking) onto a tool call."""
+    if not isinstance(extra, dict) or not extra:
+        return
+    if _tool_call_signature(entry):
+        return
+    entry["extra_content"] = extra
+
+
+def allocate_stream_tool_index(
+    tc: dict,
+    accum: dict[int, dict],
+    *,
+    fallback_i: int,
+) -> int:
+    """Gemini often omits tool_calls[].index — avoid collapsing parallel calls into 0."""
+    if "index" in tc and tc["index"] is not None:
+        try:
+            return int(tc["index"])
+        except (TypeError, ValueError):
+            pass
+    cid = str(tc.get("id") or "").strip()
+    if cid:
+        for idx, row in accum.items():
+            if row.get("id") == cid:
+                return idx
+    if fallback_i not in accum:
+        return fallback_i
+    return max(accum.keys(), default=-1) + 1
 
 
 def build_tool_call(entry: dict, *, fallback_idx: int) -> dict:
     """Build an OpenAI-style tool call dict from stream accumulation."""
+    args = entry.get("arguments") or ""
+    if not str(args).strip():
+        args = "{}"
     call: dict = {
         "id": entry.get("id") or f"call_{fallback_idx}",
         "type": "function",
         "function": {
             "name": entry.get("name") or "",
-            "arguments": entry.get("arguments") or "",
+            "arguments": args,
         },
     }
     extra = entry.get("extra_content")
     if isinstance(extra, dict) and extra:
         call["extra_content"] = extra
+    elif not _tool_call_signature(call):
+        call = _inject_skip_signature(call)
     return call
-
-
-def is_thought_signature_error(status_code: int, body: str | None) -> bool:
-    if status_code != 400:
-        return False
-    text = (body or "").lower()
-    return "thought_signature" in text and "function call" in text

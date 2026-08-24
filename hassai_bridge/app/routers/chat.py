@@ -2890,6 +2890,7 @@ async def chat_completions(request: Request):
                 tc_accum: dict[int, dict] = {}
                 tc_chunks: list[str] = []
                 has_tool_calls = False
+                pending_gemini_extra: dict | None = None
                 # Text of this round only. If the round turns out to call tools,
                 # this was narration and gets pulled back out of the reply.
                 round_text = ""
@@ -2918,17 +2919,29 @@ async def chat_completions(request: Request):
                         reasoning = delta.get("reasoning_content") or delta.get("reasoning")
                         tool_calls_delta = delta.get("tool_calls")
                         finish_reason = data.get("choices", [{}])[0].get("finish_reason")
+                        # Gemini may put thought_signature on delta itself (before tool_calls).
+                        delta_extra = delta.get("extra_content") if isinstance(delta.get("extra_content"), dict) else None
+                        if delta_extra and gm.is_gemini_provider(stream_call_provider):
+                            pending_gemini_extra = delta_extra
 
                         if tool_calls_delta:
                             has_tool_calls = True
                             tc_chunks.append(chunk)
-                            for tc in tool_calls_delta:
-                                idx = tc.get("index", 0)
-                                if idx not in tc_accum:
-                                    tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                            for i, tc in enumerate(tool_calls_delta):
                                 if gm.is_gemini_provider(stream_call_provider):
+                                    idx = gm.allocate_stream_tool_index(
+                                        tc, tc_accum, fallback_i=i if not tc_accum else max(tc_accum.keys(), default=-1) + 1,
+                                    )
+                                    if idx not in tc_accum:
+                                        tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
                                     gm.merge_tool_call_delta(tc_accum[idx], tc)
+                                    if pending_gemini_extra:
+                                        gm.attach_message_extra_content(tc_accum[idx], pending_gemini_extra)
+                                        pending_gemini_extra = None
                                 else:
+                                    idx = tc.get("index", 0)
+                                    if idx not in tc_accum:
+                                        tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
                                     if tc.get("id"):
                                         tc_accum[idx]["id"] = tc["id"]
                                     fn = tc.get("function") or {}
@@ -2939,6 +2952,14 @@ async def chat_completions(request: Request):
                             continue
 
                         if has_tool_calls and finish_reason:
+                            # Some Gemini chunks put complete tool_calls on message, not delta.
+                            msg_tcs = (data.get("choices", [{}])[0].get("message") or {}).get("tool_calls")
+                            if msg_tcs and gm.is_gemini_provider(stream_call_provider):
+                                for i, tc in enumerate(msg_tcs):
+                                    idx = gm.allocate_stream_tool_index(tc, tc_accum, fallback_i=i)
+                                    if idx not in tc_accum:
+                                        tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
+                                    gm.merge_tool_call_delta(tc_accum[idx], tc)
                             continue
 
                         if reasoning:
