@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.14
+
+Auto mode is now one tap away in the chat bar.
+
+### Features
+- **Auto in the provider picker** — the brain button in the composer lists Auto at the top, so you can switch between automatic selection and a specific provider without opening Settings. While Auto is on, the model selector is replaced by a note, since Auto picks the model itself
+- Choosing a provider by hand turns Auto off, so your pick is not overridden on the next message
+
 ## 1.0.13
 
 Auto mode now picks the model as well as the provider.
