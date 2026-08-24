@@ -64,18 +64,19 @@ def test_auto_thinking_simple_vs_planning():
     "restart home assistant",
     "ține minte că am o pisică",
 ])
-def test_auto_thinking_enables_for_short_control(text):
-    """Weaker DeepSeek models skip tools when thinking is off — force it for HA intents."""
+def test_auto_thinking_tags_control_without_enabling(text):
+    """HA intents stay tagged for routing, but Auto does not burn CoT on them."""
     decision = ds.auto_thinking_decision(text, tools_active=True)
-    assert decision["enabled"] is True
-    assert decision["effort"] == "high"
+    assert decision["enabled"] is False
+    assert decision["effort"] is None
     assert decision["reason"] == "control"
 
 
 def test_auto_thinking_control_stays_off_without_tools():
-    # No tools loaded → don't burn thinking tokens on a light phrase.
+    # No tools loaded → don't even tag as control (falls through to simple/off).
     decision = ds.auto_thinking_decision("aprinde lumina", tools_active=False)
     assert decision["enabled"] is False
+    assert decision["reason"] != "control"
 
 
 def test_auto_thinking_greetings_stay_off_even_with_tools():
@@ -84,13 +85,13 @@ def test_auto_thinking_greetings_stay_off_even_with_tools():
         assert decision["enabled"] is False, text
 
 
-def test_resolve_thinking_auto_forces_control_on_deepseek():
+def test_resolve_thinking_auto_leaves_control_off_on_deepseek():
     provider = {"type": "deepseek", "thinking_mode": "auto"}
     out = pc.resolve_thinking(
         provider, override="auto", user_text="aprinde lumina", tools_active=True,
     )
-    assert out["enabled"] is True
-    assert out["effort"] == "high"
+    assert out["enabled"] is False
+    assert out["effort"] is None
     assert out["auto_reason"] == "control"
 
 

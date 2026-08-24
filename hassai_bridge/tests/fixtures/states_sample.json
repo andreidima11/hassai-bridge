@@ -33,5 +33,10 @@
       "min_temp": 16,
       "max_temp": 28
     }
+  },
+  {
+    "entity_id": "switch.dormitor_bec",
+    "state": "on",
+    "attributes": {"friendly_name": "Bec Dormitor"}
   }
 ]

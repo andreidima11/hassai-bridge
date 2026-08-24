@@ -1,5 +1,19 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.22
+
+Faster HA commands, smarter light search, thinking controls for more providers.
+
+### Features
+- **Thinking in the chat bar for Gemini, GLM (Z.ai), and OpenAI reasoning models** — Auto / Off / High / Max maps to `reasoning_effort` (GPT-5 / o-series only for OpenAI; GPT-4o unchanged). Provider picker shows controls for the selected provider
+
+### Fix
+- **DeepSeek no longer forces heavy thinking on short HA commands** — “aprinde lumina” stays fast under Auto; planning questions still enable thinking
+- **Light commands find relay switches too** — `domain=light` now includes `switch.*` (most relay bulbs); prompts and tool docs tell the model to use `switch.turn_on/off` when needed
+
+### Note
+- **GPT-5.6+ with HA tools** still requires `reasoning_effort: none` on OpenAI Chat Completions — the API rejects higher effort with tools; simple chat without tools respects your setting
+
 ## 1.0.21
 
 Gemini tool calls work again.

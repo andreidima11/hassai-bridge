@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from services import gemini as gm
-from services.provider_capabilities import assistant_turn, prepare_messages_for_request, preset_capabilities
+from services.provider_capabilities import assistant_turn, prepare_messages_for_request, preset_capabilities, resolve_thinking
 from services.providers import (
     PROVIDER_PRESETS,
     _build_url,
@@ -92,7 +92,32 @@ def test_gemini_provider_supports_vision_by_type():
 def test_preset_capabilities_gemini_qwen_kv():
     assert "kv_cache" in preset_capabilities("gemini")
     assert "kv_cache" in preset_capabilities("qwen")
-    assert "thinking" not in preset_capabilities("gemini")
+    assert "thinking" in preset_capabilities("gemini")
+    assert "thinking" in preset_capabilities("glm")
+
+
+def test_gemini_resolve_thinking_maps_to_reasoning_effort():
+    provider = {"type": "gemini", "model": "gemini-2.5-flash", "thinking_mode": "high"}
+    out = pc.resolve_thinking(provider, override="high", user_text="plan")
+    assert out["enabled"] is True
+    assert out["effort"] == "high"
+
+
+def test_gemini_apply_thinking_payload():
+    provider = {"type": "gemini", "model": "gemini-2.5-flash"}
+    payload = {"model": "gemini-2.5-flash"}
+    gm.apply_thinking_payload(payload, {"enabled": True, "effort": "high"}, provider=provider)
+    assert payload["reasoning_effort"] == "high"
+
+
+def test_gemini_off_uses_none_on_25_flash():
+    provider = {"type": "gemini", "model": "gemini-2.5-flash", "thinking_mode": "off"}
+    out = pc.resolve_thinking(provider, override="off", user_text="salut")
+    assert out["enabled"] is False
+    assert out["effort"] == "none"
+    payload = {"model": "gemini-2.5-flash"}
+    gm.apply_thinking_payload(payload, out, provider=provider)
+    assert payload["reasoning_effort"] == "none"
 
 
 def test_gemini_assistant_turn_preserves_thought_signature():

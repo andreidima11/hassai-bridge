@@ -51,6 +51,13 @@ def preset_capabilities(provider_type: str) -> dict:
         }
     if provider_type == "gemini":
         return {
+            THINKING: {
+                "modes": list(gm.THINKING_MODES),
+                "default": "auto",
+                "label": "thinking",
+                "note": "Maps to reasoning_effort (low/medium/high). "
+                        "Off uses none on Gemini 2.5 Flash/Lite; Gemini 3 keeps minimal thinking.",
+            },
             KV_CACHE: {
                 # Gemini long context — leave room for tools + output.
                 "context_budget": 200000,
@@ -87,12 +94,21 @@ def provider_chat_capabilities(provider: dict | None) -> dict:
     """Effective capabilities for a configured provider instance."""
     if not isinstance(provider, dict):
         return {}
+    from services import openai_api as oai
+
     caps = preset_capabilities(provider.get("type", ""))
     if not caps:
-        from services import openai_api as oai
-
         if oai.is_openai_provider(provider):
             caps = preset_capabilities("openai")
+    if oai.is_openai_provider(provider) and oai.supports_reasoning_effort(provider.get("model")):
+        caps = dict(caps)
+        caps[THINKING] = {
+            "modes": list(oai.THINKING_MODES),
+            "default": oai.normalize_thinking_mode(provider.get("thinking_mode")),
+            "label": "reasoning",
+            "note": "Maps to reasoning_effort (none/low/high/max). "
+                    "GPT-5.6+ with HA tools is forced to none on Chat Completions.",
+        }
     if THINKING in caps:
         thinking = dict(caps[THINKING])
         ptype = provider.get("type", "")
@@ -104,6 +120,10 @@ def provider_chat_capabilities(provider: dict | None) -> dict:
             thinking["default"] = qw.normalize_thinking_mode(provider.get("thinking_mode"))
         elif ptype == "glm":
             thinking["default"] = zi.normalize_thinking_mode(provider.get("thinking_mode"))
+        elif ptype == "gemini":
+            thinking["default"] = gm.normalize_thinking_mode(provider.get("thinking_mode"))
+        elif oai.is_openai_provider(provider):
+            thinking["default"] = oai.normalize_thinking_mode(provider.get("thinking_mode"))
         caps[THINKING] = thinking
     return caps
 
@@ -246,6 +266,22 @@ def resolve_thinking(
             user_text=user_text,
             tools_active=tools_active,
         )
+    if ptype == "gemini":
+        return gm.resolve_thinking(
+            provider,
+            override=override,
+            user_text=user_text,
+            tools_active=tools_active,
+        )
+    from services import openai_api as oai
+
+    if oai.is_openai_provider(provider):
+        return oai.resolve_thinking(
+            provider,
+            override=override,
+            user_text=user_text,
+            tools_active=tools_active,
+        )
     return None
 
 
@@ -295,6 +331,13 @@ def apply_provider_payload_extras(payload: dict, provider: dict, thinking: dict 
         qw.apply_thinking_payload(payload, thinking, provider=provider)
     elif ptype == "glm":
         zi.apply_thinking_payload(payload, thinking, provider=provider)
+    elif ptype == "gemini":
+        gm.apply_thinking_payload(payload, thinking, provider=provider)
+    else:
+        from services import openai_api as oai
+
+        if oai.is_openai_provider(provider):
+            oai.apply_thinking_payload(payload, thinking, provider=provider)
 
 
 def sanitize_tool_choice(provider: dict | None, value):

@@ -65,7 +65,9 @@ export function ProviderQuickSettings({
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelsError, setModelsError] = useState("");
   const panelStyle = usePopoverPosition(open, anchorRef);
-  const showThinking = Boolean(capabilities?.thinking?.modes?.length);
+  const selectedProvider = providers.find((row) => row.id === providerId);
+  const effectiveCapabilities = selectedProvider?.capabilities || capabilities || {};
+  const showThinking = Boolean(effectiveCapabilities?.thinking?.modes?.length);
   const thinkingActive = thinkingMode !== "off" || auto;
 
   useEffect(() => {
