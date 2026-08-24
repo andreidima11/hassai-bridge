@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.16
+
+Follow-up commands work on the smaller models.
+
+### Fix
+- **The second command in a conversation is carried out, not just described.** On lighter models the first command ("turn on the terrace") worked, but the next one ("turn it off") came back as "done" without anything actually happening. The transcript was to blame: a turn that had called a tool was replayed as its sentence alone, so the model saw itself reporting success with no tool involved and copied that. History now shows the call, its result and the answer, so the pattern the model follows is the correct one. This is not tied to any language
+
 ## 1.0.15
 
 Camera snapshots come back clean.
