@@ -87,9 +87,28 @@ ENTITY/RELATION ACTIONS (extract people, places, devices, and their relationship
 WHAT COUNTS AS A MEMORY — only facts that are still true months from now:
 - Identity: names, family, pets, birthdays, job, languages, where they live
 - Preferences and habits: "prefers short answers", "turns the lights off at 23:00 every night"
-- Home setup: rooms, floors, which devices exist, how the user names them, brands, network layout
+- Home layout the registry does not capture: "curte dreapta = the two irrigation zones user calls vana 1 and vana 2", nicknames when friendly names in HA are wrong
 - Standing instructions: "always answer in Romanian", "never restart the server without asking"
 - Long-running context: an ongoing renovation, a trip being planned
+
+LIFE EVENTS — remember like a human would (category context or facts):
+- Outings, meals, trips, purchases, meetings, visits — store as dated episodes, not vague summaries
+- "am fost azi la restaurant și am mâncat pizza" → ADD context 3 Pe {today_date} userul a fost la restaurant și a servit pizza.
+- Anchor relative time (today/azi, yesterday/ieri, last week) to concrete dates using today's date below
+- Small personal moments the user shares voluntarily are worth keeping — they build rapport
+
+Today's date (for anchoring relative time): {today_date}
+
+NEVER STORE HOME ASSISTANT REGISTRY DATA — HA tools already provide this live:
+- Entity IDs (switch.foo, releu.bar.lumini), automation names, "device X controlled via entity Y"
+- Discoveries made while turning lights on/off or checking status — re-query with ha_list_entities
+- English paraphrases of tool output the user did not ask you to remember
+
+DO STORE user-specific knowledge HA does not have:
+- How the user refers to things when HA names are confusing (nickname → room/area, not entity_id)
+- Groupings ("ambient dormitor 2" = bec1 + bec2 + bec3 + banda LED)
+- Preferences, habits, identity, standing instructions
+- Write memories in the user's language (Romanian if they wrote in Romanian)
 
 NEVER STORE LIVE STATE — it changes on its own and must be read from Home Assistant each time:
 - Device state: "the kitchen light is on", "the door is unlocked", "the vacuum is charging"
@@ -109,6 +128,28 @@ Rules:
 - Extract relationships (e.g., "Ana is wife" → RELATION Ana | is_wife_of | User)
 - Max 5 memory actions + 5 entity actions + 5 relation actions per conversation
 - If nothing worth remembering, output only: NONE
+
+Existing memories:
+{existing_memories}
+
+Conversation:
+{conversation}
+
+Actions:"""
+
+EXTRACT_LITE_PROMPT = """Analyze the conversation and output memory actions (one per line) or NONE.
+
+- ADD <category> <importance> <text> — new lasting fact
+- UPDATE <id> <text> — refresh existing memory
+- DELETE <id> — remove outdated memory
+
+Store identity, preferences, standing instructions — not live device state or HA entity IDs.
+Life events (restaurant, trip, outing): store with concrete date using today={today_date}.
+Write in the user's language. Do not store registry/tool discoveries unless the user asked to remember.
+Categories: personal_info, preferences, home_setup, facts, instructions, context
+Importance: 1-5. Max 3 actions. If nothing to store: NONE
+
+Today's date: {today_date}
 
 Existing memories:
 {existing_memories}
@@ -151,6 +192,30 @@ Respond with ONLY a JSON object (no markdown):
 }}"""
 
 
+def default_extract_prompt() -> str:
+    return EXTRACT_PIPELINE_PROMPT
+
+
+def resolve_extract_prompt(cfg: dict | None = None) -> str:
+    mem = ((cfg or load_config()).get("memory") or {}) if isinstance((cfg or {}).get("memory"), dict) else {}
+    custom = str(mem.get("extract_prompt") or "").strip()
+    return custom or EXTRACT_PIPELINE_PROMPT
+
+
+def format_extract_prompt(
+    template: str,
+    *,
+    existing_memories: str,
+    conversation: str,
+    today_date: str,
+) -> str:
+    return template.format(
+        existing_memories=existing_memories,
+        conversation=conversation,
+        today_date=today_date,
+    )
+
+
 async def _llm_call(messages: list[dict], max_tokens: int = 1000, provider: dict | None = None) -> str:
     """Make a lightweight LLM call for memory operations, with retry (#20)."""
     from services.providers import chat_completion
@@ -160,7 +225,9 @@ async def _llm_call(messages: list[dict], max_tokens: int = 1000, provider: dict
     _start = time.time()
     for attempt in range(_retries + 1):
         try:
-            result = await chat_completion(messages, stream=False, provider=provider)
+            result = await chat_completion(
+                messages, stream=False, provider=provider, max_tokens=max_tokens,
+            )
             content = result["choices"][0]["message"]["content"].strip()
             # Track secondary provider usage
             if provider:
@@ -253,8 +320,10 @@ def _has_memory_signal(user_text: str, assistant_text: str = "") -> bool:
         "dog", "cat", "câine", "caine", "pisică", "pisica", "pet",
         "hobby", "like", "love", "hate", "urăsc", "urasc", "favorite",
         "job", "work", "muncesc", "slujba", "profesie",
-        "home", "acasă", "acasa", "room", "camera", "device", "dispozitiv",
+        "home", "acasă", "acasa", "room", "camera",
         "remember", "reține", "retine", "notează", "noteaza", "memorează", "memoreaza",
+        "restaurant", "am fost", "am mâncat", "am mancat", "vacation", "călătorie", "calatorie",
+        "trip", "birthday", "ziua", "spital", "doctor", "meeting", "întâlnire", "intalnire",
     ]
     if any(signal in combined for signal in personal_signals):
         return True
@@ -274,9 +343,25 @@ def _has_memory_signal(user_text: str, assistant_text: str = "") -> bool:
 
 def _transient_reason(text: str) -> str:
     """Why `text` is live state rather than a durable fact ('' if it is a fact)."""
-    from services.memory_tools import transient_reason
+    from services.memory_tools import ha_registry_redundant_reason, transient_reason
 
-    return transient_reason(text)
+    return ha_registry_redundant_reason(text) or transient_reason(text)
+
+
+def _is_pure_ha_operation(user_text: str, assistant_text: str = "") -> bool:
+    """Routine HA command + tool reply — nothing worth auto-extracting."""
+    from services.deepseek import looks_like_control
+
+    if not looks_like_control(user_text or ""):
+        return False
+    reply = (assistant_text or "").lower()
+    markers = (
+        "switch.", "light.", "automation.", "entity_id", "entity id",
+        "ha_call_service", "ha_list_entities", "ha_get_state",
+        "toate sunt", "all are now", "turned off", "turned on",
+        "stins", "aprins", "off.", " on.",
+    )
+    return any(m in reply for m in markers)
 
 
 # ── Fact quality scoring ──
@@ -308,9 +393,15 @@ def _score_fact_quality(text: str) -> float:
 
     # Meta-comments about the conversation itself (strong penalty)
     meta_patterns = ["user asked", "user wanted", "conversation about", "we discussed",
-                     "user said", "user mentioned", "the user"]
+                     "user said", "user mentioned", "the user", "there is a device",
+                     "device called", "controlled via", "entity id", "entity_id"]
     if any(p in text_lower for p in meta_patterns):
         score -= 0.5
+
+    # HA registry parroting (entity IDs belong in HA, not memory)
+    from services.memory_tools import ha_registry_redundant_reason
+    if ha_registry_redundant_reason(text):
+        score -= 0.6
 
     return max(0.0, min(1.0, score))
 
@@ -630,6 +721,11 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
     if not explicit and _is_trivial_message(user_text):
         return
 
+    # Pure HA commands (stinge lumina, merge irigatorul?) — registry comes from tools
+    if not explicit and _is_pure_ha_operation(user_text, assistant_text):
+        log.debug("Skipping memory extraction for pure HA operation: %r", user_text[:80])
+        return
+
     # Signal detection: skip if no personal-info signals (zero cost)
     if not explicit and not _has_memory_signal(user_text, assistant_text):
         return
@@ -654,9 +750,29 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
 
         existing_str = "\n".join(mapped_existing) if mapped_existing else "(none)"
 
-        prompt = EXTRACT_PIPELINE_PROMPT.format(
+        from datetime import date
+
+        from services import openai_api as oai
+        from services import providers as pv
+
+        effective_provider = provider or pv.get_secondary_provider(pv.get_active_provider()) or pv.get_active_provider()
+        custom_prompt = str(cfg.get("memory", {}).get("extract_prompt") or "").strip()
+        lite = oai._is_local_provider(effective_provider) and not custom_prompt
+        if custom_prompt:
+            prompt_template = custom_prompt
+            extract_max_tokens = 500
+        elif lite:
+            prompt_template = EXTRACT_LITE_PROMPT
+            extract_max_tokens = 300
+        else:
+            prompt_template = EXTRACT_PIPELINE_PROMPT
+            extract_max_tokens = 500
+
+        prompt = format_extract_prompt(
+            prompt_template,
             existing_memories=existing_str,
             conversation=input_text[:1500],
+            today_date=date.today().isoformat(),
         )
         if explicit:
             prompt += (
@@ -668,7 +784,7 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
         response = await _llm_call([
             {"role": "system", "content": "You extract and manage user memories. Output ONLY action lines, nothing else."},
             {"role": "user", "content": prompt},
-        ], max_tokens=500, provider=provider)
+        ], max_tokens=extract_max_tokens, provider=provider)
 
         actions = _parse_pipeline_response(response)
         if not actions:

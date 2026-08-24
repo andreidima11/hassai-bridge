@@ -14,7 +14,7 @@ def test_preset_capabilities_deepseek_only():
     openai_caps = pc.preset_capabilities("openai")
     assert "kv_cache" in openai_caps
     assert "thinking" not in openai_caps
-    assert pc.preset_capabilities("local") == {}
+    assert pc.preset_capabilities("local") == {"kv_cache": {"context_budget": 6144}}
 
 
 def test_kv_cache_helpers():

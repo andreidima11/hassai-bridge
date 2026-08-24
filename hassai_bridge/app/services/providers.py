@@ -343,9 +343,15 @@ def _skip_temperature(provider: dict, thinking: dict | None, *, model: str = "")
     return False
 
 
-def _apply_token_limit(payload: dict, provider: dict, *, request_url: str = "") -> None:
-    max_tokens = provider.get("max_tokens")
-    if not max_tokens:
+def _apply_token_limit(
+    payload: dict,
+    provider: dict,
+    *,
+    request_url: str = "",
+    max_tokens: int | None = None,
+) -> None:
+    limit = max_tokens if max_tokens is not None else provider.get("max_tokens")
+    if not limit:
         return
     from services import openai_api as oai
 
@@ -353,10 +359,10 @@ def _apply_token_limit(payload: dict, provider: dict, *, request_url: str = "") 
     # OpenAI docs: GPT-5 / o-series / current ChatGPT models reject max_tokens.
     # Prefer max_completion_tokens whenever the upstream is OpenAI-ish.
     if oai.uses_max_completion_tokens(provider, model, request_url=request_url):
-        payload["max_completion_tokens"] = int(max_tokens)
+        payload["max_completion_tokens"] = int(limit)
         payload.pop("max_tokens", None)
     else:
-        payload["max_tokens"] = max_tokens
+        payload["max_tokens"] = limit
 
 
 def _finalize_chat_payload(
@@ -434,7 +440,8 @@ def _provider_400_fallback(payload: dict, provider: dict, status: int, body: str
 async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,
                           tools: list | None = None, tool_choice: str | dict | None = None,
                           provider: dict | None = None, thinking: dict | None = None,
-                          cache_conv_id: str | None = None) -> dict:
+                          cache_conv_id: str | None = None,
+                          max_tokens: int | None = None) -> dict:
     """Send a chat completion request to the active (or specified) provider."""
     if provider is None:
         provider = get_active_provider()
@@ -461,7 +468,7 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
         payload["tools"] = pc.shape_tools_for_provider(provider, tools)
     if tool_choice is not None:
         payload["tool_choice"] = pc.sanitize_tool_choice(provider, tool_choice)
-    _apply_token_limit(payload, provider, request_url=url)
+    _apply_token_limit(payload, provider, request_url=url, max_tokens=max_tokens)
     temperature = provider.get("temperature")
     if temperature is not None and not _skip_temperature(provider, thinking, model=used_model):
         payload["temperature"] = pc.clamp_temperature(provider, temperature)
@@ -561,7 +568,7 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
         payload["tools"] = pc.shape_tools_for_provider(provider, tools)
     if tool_choice is not None:
         payload["tool_choice"] = pc.sanitize_tool_choice(provider, tool_choice)
-    _apply_token_limit(payload, provider, request_url=url)
+    _apply_token_limit(payload, provider, request_url=url, max_tokens=max_tokens)
     temperature = provider.get("temperature")
     if temperature is not None and not _skip_temperature(provider, thinking, model=used_model):
         payload["temperature"] = pc.clamp_temperature(provider, temperature)

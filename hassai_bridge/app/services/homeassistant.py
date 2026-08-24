@@ -220,7 +220,7 @@ def _safe_config_path(rel: str) -> Path:
 
 # ── Tools ──────────────────────────────────────────
 
-def build_ha_tools(cfg: dict | None = None) -> list[dict]:
+def build_ha_tools(cfg: dict | None = None, *, categories: set[str] | None = None) -> list[dict]:
     if not is_available():
         return []
     if cfg is None:
@@ -229,7 +229,7 @@ def build_ha_tools(cfg: dict | None = None) -> list[dict]:
             cfg = load_config()
         except Exception:
             cfg = {}
-    enabled = hta.enabled_categories(cfg)
+    enabled = categories if categories is not None else hta.enabled_categories(cfg)
     merged: dict[str, dict] = {}
     for name, spec in _TOOL_SPECS.items():
         if hta.tool_category(name) in enabled:
@@ -240,7 +240,7 @@ def build_ha_tools(cfg: dict | None = None) -> list[dict]:
     return [_tool(name, spec) for name, spec in merged.items()]
 
 
-def ha_tool_names(cfg: dict | None = None) -> set[str]:
+def ha_tool_names(cfg: dict | None = None, *, categories: set[str] | None = None) -> set[str]:
     if not is_available():
         return set()
     if cfg is None:
@@ -249,7 +249,7 @@ def ha_tool_names(cfg: dict | None = None) -> set[str]:
             cfg = load_config()
         except Exception:
             cfg = {}
-    enabled = hta.enabled_categories(cfg)
+    enabled = categories if categories is not None else hta.enabled_categories(cfg)
     names: set[str] = set()
     for name in _TOOL_SPECS:
         if hta.tool_category(name) in enabled:
@@ -1199,7 +1199,12 @@ _TOOL_SPECS: dict[str, dict] = {
 HA_TOOL_NAMES = set(_TOOL_SPECS) | set(sat.TOOL_SPECS)
 
 
-def ha_system_hint(cfg: dict | None = None) -> str:
+def ha_system_hint(
+    cfg: dict | None = None,
+    *,
+    tool_names: list[str] | None = None,
+    compact: bool = False,
+) -> str:
     if not is_available():
         return ""
     if cfg is None:
@@ -1209,7 +1214,8 @@ def ha_system_hint(cfg: dict | None = None) -> str:
         except Exception:
             cfg = {}
     template = (cfg or {}).get("ha_agent_prompt")
-    return et.render_ha_agent_prompt(template or "", sorted(ha_tool_names(cfg)))
+    names = tool_names if tool_names is not None else sorted(ha_tool_names(cfg))
+    return et.render_ha_agent_prompt(template or "", names, compact=compact)
 
 
 # ── Dispatch ───────────────────────────────────────

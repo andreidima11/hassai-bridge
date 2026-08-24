@@ -58,7 +58,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (panelId === 'logs') { loadLogs(); _startLogsAutoRefresh(); }
     if (panelId === 'skills') loadSkills();
     if (panelId === 'conversations') refreshConvUsers();
-    if (panelId === 'memories') refreshMemTabUsers();
+    if (panelId === 'memories') { refreshMemTabUsers(); loadMemoryExtractPrompt(); }
     if (panelId === 'users') loadUsersTab();
   });
 });
@@ -74,7 +74,7 @@ function switchToTab(panelId) {
   if (panelId === 'logs') { loadLogs(); _startLogsAutoRefresh(); }
   if (panelId === 'skills') loadSkills();
   if (panelId === 'conversations') refreshConvUsers();
-  if (panelId === 'memories') refreshMemTabUsers();
+  if (panelId === 'memories') { refreshMemTabUsers(); loadMemoryExtractPrompt(); }
   if (panelId === 'users') loadUsersTab();
 }
 
@@ -884,9 +884,11 @@ async function loadSettings() {
 
     // Performance
     const perf = cfg.performance || {};
+    _cachedPerformance = perf;
     document.getElementById('perfHistoryLimit').value = perf.history_limit || 10;
     document.getElementById('perfAgentRounds').value = perf.agent_max_rounds || 16;
     document.getElementById('perfParallelFetch').checked = perf.parallel_page_fetch !== false;
+    _applyPerformanceFields(perf, 'perf');
 
     // Security
     const sec = cfg.security || {};
@@ -935,6 +937,7 @@ async function saveSettings() {
         history_limit: parseInt(document.getElementById('perfHistoryLimit').value),
         agent_max_rounds: parseInt(document.getElementById('perfAgentRounds').value) || 16,
         parallel_page_fetch: document.getElementById('perfParallelFetch').checked,
+        ..._collectPerformanceFields('perf'),
       },
       system_prompt: document.getElementById('systemPrompt').value,
       ha_agent_prompt: (() => {
@@ -1222,6 +1225,7 @@ async function testVoice() {
 // ══════════════════════════════════════════════════
 
 let _allProviders = [];
+let _cachedPerformance = {};
 let _providerPresets = {};
 let _allSecondaryProviders = [];
 let _activeProviderId = '';
@@ -1347,6 +1351,51 @@ function updateProviderCapabilitySections(ptype) {
   const thinkingSection = document.getElementById('provThinkingSection');
   if (thinkingSection) {
     thinkingSection.style.display = providerTypeCapabilities(ptype).thinking ? '' : 'none';
+  }
+  const localPerfSection = document.getElementById('provLocalPerfSection');
+  if (localPerfSection) {
+    localPerfSection.style.display = ptype === 'local' ? '' : 'none';
+  }
+}
+
+function _applyPerformanceFields(perf, prefix) {
+  const p = prefix || 'perf';
+  const toolProfile = document.getElementById(`${p}ToolProfile`);
+  if (toolProfile) toolProfile.value = perf.tool_profile || 'auto';
+  const localHist = document.getElementById(`${p}LocalHistoryLimit`);
+  if (localHist) localHist.value = perf.local_history_limit ?? 6;
+  const replay = document.getElementById(`${p}ToolReplayTurns`);
+  if (replay) replay.value = perf.tool_replay_turns ?? 0;
+  if (prefix === 'provPerf') {
+    const hist = document.getElementById('provPerfHistoryLimit');
+    if (hist) hist.value = perf.history_limit || 10;
+  }
+}
+
+function _collectPerformanceFields(prefix) {
+  const p = prefix || 'perf';
+  const out = {
+    tool_profile: document.getElementById(`${p}ToolProfile`)?.value || 'auto',
+    local_history_limit: parseInt(document.getElementById(`${p}LocalHistoryLimit`)?.value) || 6,
+    tool_replay_turns: parseInt(document.getElementById(`${p}ToolReplayTurns`)?.value) || 0,
+  };
+  if (prefix === 'provPerf') {
+    out.history_limit = parseInt(document.getElementById('provPerfHistoryLimit')?.value) || 10;
+  }
+  return out;
+}
+
+function _syncProviderPerfFromGlobal() {
+  const perf = _cachedPerformance || {};
+  _applyPerformanceFields(perf, 'provPerf');
+}
+
+function _syncGlobalPerfFromProvider() {
+  const collected = _collectPerformanceFields('provPerf');
+  _applyPerformanceFields(collected, 'perf');
+  if (collected.history_limit != null) {
+    const hist = document.getElementById('perfHistoryLimit');
+    if (hist) hist.value = collected.history_limit;
   }
 }
 
@@ -1491,6 +1540,7 @@ function openAddProvider() {
   _populateSecondarySelect(null);
   document.getElementById('provSecondary').value = '';
   updateProviderCapabilitySections(document.getElementById('provType').value);
+  _syncProviderPerfFromGlobal();
   _populateVisionSelect();
   document.getElementById('provVision').value = '';
   _populateImageGenSelect();
@@ -1528,6 +1578,7 @@ function editProvider(id) {
   const thinkingEl = document.getElementById('provThinkingMode');
   if (thinkingEl) thinkingEl.value = p.thinking_mode || 'auto';
   updateProviderCapabilitySections(p.type || 'local');
+  _syncProviderPerfFromGlobal();
   _populateVisionSelect();
   document.getElementById('provVision').value = p.vision_provider || '';
   _populateImageGenSelect();
@@ -1630,6 +1681,7 @@ function onProvTypeChange() {
     nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
   }
   updateProviderCapabilitySections(ptype);
+  if (ptype === 'local') _syncProviderPerfFromGlobal();
   _refreshProviderUrlMismatch(ptype, 'provUrl', 'provUrlMismatch');
 }
 
@@ -1656,6 +1708,12 @@ async function saveProvider() {
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
   try {
+    if (data.type === 'local') {
+      const perfPayload = _collectPerformanceFields('provPerf');
+      _cachedPerformance = { ...(_cachedPerformance || {}), ...perfPayload };
+      _syncGlobalPerfFromProvider();
+      await api('PUT', '/api/settings/', { performance: perfPayload });
+    }
     if (_editingProviderId) {
       await api('PUT', `/api/settings/providers/${encodeURIComponent(_editingProviderId)}`, data);
       toast(t('settings.providerUpdated'));
@@ -2433,6 +2491,52 @@ let _memTabAll = [];
 let _memTabFiltered = [];
 let _memTabPage = 1;
 const _memTabPerPage = 5;
+let _memExtractPromptDefault = '';
+
+async function loadMemoryExtractPromptDefault() {
+  if (_memExtractPromptDefault) return _memExtractPromptDefault;
+  try {
+    const data = await api('GET', '/api/settings/memory-extract-prompt-default');
+    _memExtractPromptDefault = data.prompt || '';
+  } catch {
+    _memExtractPromptDefault = '';
+  }
+  return _memExtractPromptDefault;
+}
+
+async function loadMemoryExtractPrompt() {
+  const field = document.getElementById('memExtractPrompt');
+  if (!field) return;
+  const def = await loadMemoryExtractPromptDefault();
+  try {
+    const cfg = await api('GET', '/api/settings/');
+    const custom = (cfg.memory || {}).extract_prompt || '';
+    field.value = custom.trim() ? custom : def;
+  } catch (e) {
+    field.value = def;
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function resetMemoryExtractPrompt() {
+  const def = await loadMemoryExtractPromptDefault();
+  const field = document.getElementById('memExtractPrompt');
+  if (field) field.value = def;
+}
+
+async function saveMemoryExtractPrompt() {
+  const field = document.getElementById('memExtractPrompt');
+  if (!field) return;
+  const def = await loadMemoryExtractPromptDefault();
+  const raw = field.value || '';
+  const extract_prompt = def && raw.trim() === def.trim() ? '' : raw;
+  try {
+    await api('PUT', '/api/settings/', { memory: { extract_prompt } });
+    toast(t('mem.extractPromptSaved'));
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
 
 async function refreshMemTabUsers() {
   const select = document.getElementById('memTabUserSelect');

@@ -89,3 +89,64 @@ def test_extracted_live_state_is_not_stored(memory_db, capture_llm):
 def test_prompt_spells_out_the_state_rule(capture_llm):
     assert "NEVER STORE LIVE STATE" in me.EXTRACT_PIPELINE_PROMPT
     assert "must be read from Home Assistant each time" in me.EXTRACT_PIPELINE_PROMPT
+    assert "NEVER STORE HOME ASSISTANT REGISTRY DATA" in me.EXTRACT_PIPELINE_PROMPT
+    assert "LIFE EVENTS" in me.EXTRACT_PIPELINE_PROMPT
+    assert "{today_date}" in me.EXTRACT_PIPELINE_PROMPT
+
+
+def test_format_extract_prompt_injects_date():
+    out = me.format_extract_prompt(
+        me.default_extract_prompt(),
+        existing_memories="(none)",
+        conversation="USER: am fost la restaurant",
+        today_date="2026-08-25",
+    )
+    assert "2026-08-25" in out
+    assert "(none)" in out
+
+
+def test_resolve_extract_prompt_custom():
+    cfg = {"memory": {"extract_prompt": "CUSTOM {existing_memories} {conversation} {today_date}"}}
+    assert me.resolve_extract_prompt(cfg) == "CUSTOM {existing_memories} {conversation} {today_date}"
+    assert "LIFE EVENTS" in me.resolve_extract_prompt({"memory": {}})
+
+
+def test_ha_registry_fact_is_rejected(memory_db, capture_llm):
+    from database import get_memories
+    from services.memory_tools import ha_registry_redundant_reason
+
+    assert ha_registry_redundant_reason(
+        'There is a device called "bec interior bar" controlled via entity ID "releu.bar.lumini.interior".'
+    )
+
+    calls, reply = capture_llm
+    reply["text"] = (
+        "ADD home_setup 3 There is a light named Bec living etaj with entity ID switch.releu_living_sus_l1.\n"
+        "ADD preferences 4 User prefers short answers in Romanian."
+    )
+    _extract(
+        "cum arată livingul seara?",
+        'There is a light named Bec living etaj with entity ID switch.releu_living_sus_l1.',
+    )
+    stored = [m["content"] for m in get_memories("alice")]
+    assert stored == ["User prefers short answers in Romanian."]
+
+
+def test_pure_ha_operation_skips_extraction(memory_db, capture_llm):
+    calls, reply = capture_llm
+    reply["text"] = "ADD home_setup 3 Bec living etaj is switch.releu_living_sus_l1"
+    _extract("stinge lumini living etaj", "Am stins switch.releu_living_sus_l1.")
+    assert not calls
+
+
+def test_life_event_can_be_stored(memory_db, capture_llm):
+    from database import get_memories
+
+    calls, reply = capture_llm
+    reply["text"] = "ADD context 3 Pe 2026-08-25 userul a fost la restaurant și a servit pizza."
+    _extract(
+        "am fost azi la restaurant și am mâncat pizza",
+        "Sună bine!",
+    )
+    stored = [m["content"] for m in get_memories("alice")]
+    assert any("pizza" in s.lower() and "restaurant" in s.lower() for s in stored)

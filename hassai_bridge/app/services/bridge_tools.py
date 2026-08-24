@@ -52,8 +52,11 @@ _ALLOWED: dict[str, tuple] = {
     "frigate.enabled": ("bool",),
     "frigate.timeout": ("int", 3, 60),
     "performance.history_limit": ("int", 2, 50),
+    "performance.local_history_limit": ("int", 2, 30),
     "performance.agent_max_rounds": ("int", 2, 32),
     "performance.parallel_page_fetch": ("bool",),
+    "performance.tool_profile": ("str",),
+    "performance.tool_replay_turns": ("int", 0, 12),
 }
 for _grp in ("memory", "status", "control"):
     _ALLOWED[f"bridge_tools.{_grp}"] = ("bool",)

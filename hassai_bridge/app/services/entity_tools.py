@@ -42,6 +42,12 @@ Diagnose: ha_list_problems + ha_get_logs.
 Config files: ha_read_file / ha_write_file → ha_check_config → ha_reload if needed.
 Mutating tools need confirm=true when the user already asked you to make the change."""
 
+COMPACT_HA_AGENT_PROMPT = """Home Assistant copilot. Tools: {tools}.
+
+Simple commands (lights, switches, status): ha_list_entities → ha_get_state → ha_call_service (confirm=true for writes).
+Device on/off/running: read entity state — not automations. Lights may be switch.* relays.
+Mutations need confirm=true. Stop after the job is done — no narration."""
+
 HA_ENTITY_TOOLS = frozenset({
     "ha_list_entities",
     "ha_get_state",
@@ -328,9 +334,19 @@ def format_services_index(services: dict, domain: str | None = None, *, max_doma
     return "\n".join(lines)
 
 
-def render_ha_agent_prompt(template: str, tool_names: list[str]) -> str:
-    text = (template or "").strip() or DEFAULT_HA_AGENT_PROMPT
-    joined = ", ".join(sorted(tool_names))
+def render_ha_agent_prompt(
+    template: str,
+    tool_names: list[str],
+    *,
+    compact: bool = False,
+) -> str:
+    default = COMPACT_HA_AGENT_PROMPT if compact else DEFAULT_HA_AGENT_PROMPT
+    text = (template or "").strip() or default
+    names = sorted(tool_names)
+    if compact and len(names) > 12:
+        joined = ", ".join(names[:12]) + f", … ({len(names)} tools total)"
+    else:
+        joined = ", ".join(names)
     if "{tools}" in text:
         return text.replace("{tools}", joined)
     return f"{text}\n\nTools: {joined}."
