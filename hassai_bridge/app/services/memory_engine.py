@@ -750,7 +750,7 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
         from services import openai_api as oai
         from services import providers as pv
 
-        effective_provider = provider or pv.get_secondary_provider(pv.get_active_provider()) or pv.get_active_provider()
+        effective_provider = provider or pv.get_active_provider()
         custom_prompt = str(cfg.get("memory", {}).get("extract_prompt") or "").strip()
         lite = oai._is_local_provider(effective_provider) and not custom_prompt
         if custom_prompt:
@@ -779,7 +779,7 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
         response = await _llm_call([
             {"role": "system", "content": "You extract and manage user memories. Output ONLY action lines, nothing else."},
             {"role": "user", "content": prompt},
-        ], max_tokens=extract_max_tokens, provider=provider)
+        ], max_tokens=extract_max_tokens, provider=effective_provider)
 
         actions = _parse_pipeline_response(response)
         if not actions:
@@ -903,12 +903,15 @@ async def extract_memories_from_conversation(user_id: str, messages: list[dict],
 
 async def consolidate_memories(user_id: str, provider: dict | None = None):
     """Periodically consolidate memories: merge duplicates, remove outdated."""
+    from services import providers as pv
+
     memories = get_memories(user_id, limit=100)
     if len(memories) < 10:
         log.info(f"Consolidation skipped for {user_id}: only {len(memories)} memories (min 10)")
         return  # Not enough to consolidate
     log.info(f"Consolidation started for {user_id}: {len(memories)} memories to process")
 
+    effective_provider = provider or pv.get_active_provider()
     mem_text = "\n".join(
         f"[ID={m['id']}] [{m['category']}] (importance={m['importance']}) {m['content']}"
         for m in memories
@@ -918,7 +921,7 @@ async def consolidate_memories(user_id: str, provider: dict | None = None):
         response = await _llm_call([
             {"role": "system", "content": "You consolidate memories. Respond with ONLY valid JSON."},
             {"role": "user", "content": CONSOLIDATE_PROMPT.format(memories=mem_text)},
-        ], max_tokens=2000, provider=provider)
+        ], max_tokens=2000, provider=effective_provider)
 
         plan = _parse_json(response, fallback={})
         if not isinstance(plan, dict):

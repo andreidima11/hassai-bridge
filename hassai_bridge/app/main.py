@@ -23,7 +23,7 @@ from core.auth import get_ingress_path, require_api_key_or_webui, _INGRESS_RE
 from core.config import VERSION, BUILD_ID, load_config
 from services.knowledge_graph import init_graph_tables
 from services.memory_engine import consolidate_memories
-from services.providers import get_active_provider, get_secondary_provider
+from services.providers import get_active_provider
 from routers import chat, memory, settings, skills, conversations
 
 # ── In-memory ring buffer for logs ──
@@ -125,14 +125,13 @@ async def _auto_consolidation_loop():
             last_run_date = run_key
             log.info(f"Auto-consolidation triggered ({schedule}, hour={target_hour})")
 
-            # Get secondary provider for memory operations
+            # Memory consolidation uses the primary provider (final voice / quality).
             active = get_active_provider()
-            secondary = get_secondary_provider(active)
 
             users = get_all_users()
             for user_id in users:
                 try:
-                    await consolidate_memories(user_id, provider=secondary)
+                    await consolidate_memories(user_id, provider=active)
                     log.info(f"Auto-consolidation complete for user: {user_id}")
                 except Exception as e:
                     log.error(f"Auto-consolidation failed for {user_id}: {e}")
