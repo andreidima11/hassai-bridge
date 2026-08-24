@@ -411,6 +411,14 @@
     <div class="settings-subpanel" id="stab-providers">
       <!-- Main providers view -->
       <div id="providersMain">
+        <div class="card" id="defaultProviderCard">
+          <h2 data-i18n="settings.defaultProvider">Default provider for all users</h2>
+          <p class="card-muted" data-i18n="settings.defaultProviderDesc">Every user uses this provider when Auto mode is off. Changing the provider in chat also updates this default for everyone.</p>
+          <label data-i18n="settings.defaultProviderLabel">Provider</label>
+          <select id="defaultProviderSelect" class="input-sm" onchange="onDefaultProviderChange()" style="width:100%;max-width:28rem"></select>
+          <p class="card-muted hint" id="defaultProviderAutoHint" style="display:none;margin-top:8px" data-i18n="settings.defaultProviderAutoHint">Auto mode is on — the provider is picked per message. This default is only a fallback.</p>
+        </div>
+
         <div class="card">
           <h2 data-i18n="settings.providers">AI Providers</h2>
           <p class="card-muted" data-i18n="settings.providersDesc">Add and manage AI providers. Supports local servers (LM Studio, Ollama) and cloud APIs (OpenAI, Grok, DeepSeek, GLM, Gemini, Qwen).</p>
