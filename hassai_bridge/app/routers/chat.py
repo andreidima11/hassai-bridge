@@ -2355,7 +2355,9 @@ async def chat_completions(request: Request):
         eco_instruction = cfg.get("security", {}).get("eco_prompt", "").strip() or default_eco
 
     # 2) Memory + history retrieval (parallel)
-    history_limit = tp.effective_history_limit(cfg, active)
+    history_limit = tp.effective_history_limit(
+        cfg, active, eco_mode=bool(active.get("eco_mode")),
+    )
     memories, history = await asyncio.gather(
         retrieve_relevant_memories(user_id, last_user_msg),
         asyncio.to_thread(get_conversation_history, user_id, history_limit, session_id),

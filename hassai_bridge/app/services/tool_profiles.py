@@ -156,13 +156,18 @@ def filter_chat_tools(
     return out, True
 
 
-def effective_history_limit(cfg: dict | None, provider: dict | None) -> int:
+def effective_history_limit(
+    cfg: dict | None,
+    provider: dict | None,
+    *,
+    eco_mode: bool = False,
+) -> int:
     perf = (cfg or {}).get("performance") if isinstance((cfg or {}).get("performance"), dict) else {}
     try:
         base = int(perf.get("history_limit", 10))
     except (TypeError, ValueError):
         base = 10
-    if should_compact_tools(provider, cfg, eco_mode=False):
+    if should_compact_tools(provider, cfg, eco_mode=eco_mode):
         try:
             local_cap = int(perf.get("local_history_limit", 6))
         except (TypeError, ValueError):

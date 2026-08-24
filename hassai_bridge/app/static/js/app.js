@@ -966,17 +966,25 @@ async function saveSettings() {
   }
 }
 
-async function saveSecuritySettings() {
+async function saveEcoSettings() {
   try {
     await api('PUT', '/api/settings/', {
       security: {
         eco_prompt: document.getElementById('securityEcoPrompt').value,
+      },
+      performance: {
+        ..._collectPerformanceFields('perf'),
       },
     });
     toast(t('toast.settingsSaved'));
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
+}
+
+/** @deprecated use saveEcoSettings */
+async function saveSecuritySettings() {
+  return saveEcoSettings();
 }
 
 async function checkHealth() {

@@ -91,6 +91,12 @@ def test_local_history_limit():
     assert tp.effective_history_limit({"performance": {"history_limit": 10}}, CLOUD) == 10
 
 
+def test_eco_mode_uses_compact_history_limit():
+    cfg = {"performance": {"history_limit": 10, "local_history_limit": 6}}
+    assert tp.effective_history_limit(cfg, CLOUD, eco_mode=True) == 6
+    assert tp.effective_history_limit(cfg, CLOUD, eco_mode=False) == 10
+
+
 def test_ha_categories_simple_vs_deep():
     cfg = {}
     simple = tp.ha_categories_for_turn(cfg, "simple", compact=True)

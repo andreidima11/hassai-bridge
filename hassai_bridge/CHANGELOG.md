@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.28
+
+Eco Mode settings tab — all compact/token options in one place.
+
+### Features
+- **Settings → Eco Mode** (replaces Security) — eco prompt, tool profile, compact history limit, tool-replay turns
+- **Eco Mode now caps conversation history** the same way local AI does (was tools-only before)
+
 ## 1.0.27
 
 Gemini tool loop after Frigate/HA no longer returns INVALID_ARGUMENT.
