@@ -217,3 +217,62 @@ def test_gemini_thought_signature_error_detection():
     body = '{"error":{"message":"Function call is missing a thought_signature in functionCall parts."}}'
     assert gm.is_thought_signature_error(400, body)
     assert not gm.is_thought_signature_error(400, '{"error":{"message":"bad request"}}')
+
+
+def test_gemini_force_skip_overwrites_bad_signature():
+    msgs = [{
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{
+            "id": "c1",
+            "type": "function",
+            "extra_content": {"google": {"thought_signature": "truncated-bad"}},
+            "function": {"name": "ha_list_entities", "arguments": "{}"},
+        }],
+    }]
+    payload = {"messages": msgs, "reasoning_effort": "low"}
+    gm.repair_payload_after_gemini_400(payload)
+    assert payload["messages"][0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"] == gm.SKIP_SIGNATURE
+    assert "reasoning_effort" not in payload
+
+
+def test_gemini_omits_reasoning_effort_in_tool_loop():
+    provider = {"type": "gemini", "model": "gemini-2.5-flash"}
+    payload = {
+        "model": "gemini-2.5-flash",
+        "tools": [{"type": "function"}],
+        "messages": [
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "x", "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "c1", "name": "x", "content": "ok"},
+        ],
+    }
+    gm.apply_thinking_payload(payload, {"enabled": True, "effort": "high"}, provider=provider)
+    assert "reasoning_effort" not in payload
+
+
+def test_gemini_assistant_turn_injects_skip_when_missing():
+    msg = {
+        "role": "assistant",
+        "content": None,
+        "tool_calls": [{
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "frigate_events", "arguments": ""},
+        }],
+    }
+    out = gm.assistant_turn(msg)
+    assert out["content"] == ""
+    assert out["tool_calls"][0]["function"]["arguments"] == "{}"
+    assert out["tool_calls"][0]["extra_content"]["google"]["thought_signature"] == gm.SKIP_SIGNATURE
+
+
+def test_gemini_allocate_stream_index_without_index_field():
+    accum: dict = {}
+    a = {"id": "function-call-1", "function": {"name": "a", "arguments": "{}"}}
+    b = {"id": "function-call-2", "function": {"name": "b", "arguments": "{}"}}
+    i0 = gm.allocate_stream_tool_index(a, accum, fallback_i=0)
+    accum[i0] = {"id": "function-call-1"}
+    i1 = gm.allocate_stream_tool_index(b, accum, fallback_i=0)
+    assert i0 != i1
+    # Same id maps back to same slot
+    assert gm.allocate_stream_tool_index(a, accum, fallback_i=99) == i0

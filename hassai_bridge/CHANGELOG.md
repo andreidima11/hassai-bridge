@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.30
+
+Gemini tool loops (HA / Frigate) no longer die with INVALID_ARGUMENT after the first tool.
+
+### Fix
+- **Gemini HTTP 400 after tools** — capture thought signatures from stream (incl. delta-level + missing index); inject skip when missing; on 400 retry force-overwrite bad/truncated signatures; omit `reasoning_effort` once a tool loop is in progress
+
 ## 1.0.29
 
 Backup restore no longer hits HTTP 429 on large ZIP uploads.
