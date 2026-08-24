@@ -160,15 +160,24 @@ export function ImageLightbox({ src, alt = "", filename = "", mime = "", lang, o
       dragStartRef.current = null;
     };
 
+    // React registers wheel listeners passively at the root, so preventDefault
+    // from an onWheel prop is refused and logs an error on every notch.
+    const onWheel = (event) => {
+      event.preventDefault();
+      applyScale(scaleRef.current * (event.deltaY < 0 ? 1.12 : 1 / 1.12));
+    };
+
     el.addEventListener("touchstart", onTouchStart, { passive: false });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
     el.addEventListener("touchend", endTouch);
     el.addEventListener("touchcancel", endTouch);
+    el.addEventListener("wheel", onWheel, { passive: false });
     return () => {
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", endTouch);
       el.removeEventListener("touchcancel", endTouch);
+      el.removeEventListener("wheel", onWheel);
     };
   }, [applyOffset, applyScale]);
 
@@ -194,14 +203,6 @@ export function ImageLightbox({ src, alt = "", filename = "", mime = "", lang, o
       window.removeEventListener("mouseup", onUp);
     };
   }, [applyOffset, dragging]);
-
-  const onWheel = useCallback(
-    (event) => {
-      event.preventDefault();
-      applyScale(scaleRef.current * (event.deltaY < 0 ? 1.12 : 1 / 1.12));
-    },
-    [applyScale],
-  );
 
   const handleDownload = async () => {
     setError("");
@@ -278,7 +279,6 @@ export function ImageLightbox({ src, alt = "", filename = "", mime = "", lang, o
           }
           onClose();
         }}
-        onWheel={onWheel}
       >
         <img
           ref={imageRef}
