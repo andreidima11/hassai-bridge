@@ -44,6 +44,7 @@ from services import lovelace_tools as lt
 from services import entity_tools as et
 from services import chat_content as cc
 from services import chat_media as cm
+from services import gemini as gm
 from services import memory_tools as mt
 from services import bridge_tools as bt
 from services import pricing
@@ -2836,13 +2837,16 @@ async def chat_completions(request: Request):
                                 idx = tc.get("index", 0)
                                 if idx not in tc_accum:
                                     tc_accum[idx] = {"id": "", "name": "", "arguments": ""}
-                                if tc.get("id"):
-                                    tc_accum[idx]["id"] = tc["id"]
-                                fn = tc.get("function") or {}
-                                if fn.get("name"):
-                                    tc_accum[idx]["name"] = fn["name"]
-                                if fn.get("arguments"):
-                                    tc_accum[idx]["arguments"] += fn["arguments"]
+                                if gm.is_gemini_provider(stream_call_provider):
+                                    gm.merge_tool_call_delta(tc_accum[idx], tc)
+                                else:
+                                    if tc.get("id"):
+                                        tc_accum[idx]["id"] = tc["id"]
+                                    fn = tc.get("function") or {}
+                                    if fn.get("name"):
+                                        tc_accum[idx]["name"] = fn["name"]
+                                    if fn.get("arguments"):
+                                        tc_accum[idx]["arguments"] += fn["arguments"]
                             continue
 
                         if has_tool_calls and finish_reason:
@@ -2952,15 +2956,22 @@ async def chat_completions(request: Request):
                     yield "data: [DONE]\n\n"
                     break
 
-                internal_tcs = [
-                    {
-                        "id": td["id"] or f"call_{idx}",
-                        "type": "function",
-                        "function": {"name": td["name"], "arguments": td["arguments"]},
-                    }
-                    for idx, td in sorted(tc_accum.items())
-                    if _is_internal_tool(td["name"], cfg)
-                ]
+                if gm.is_gemini_provider(stream_call_provider):
+                    internal_tcs = [
+                        gm.build_tool_call(td, fallback_idx=idx)
+                        for idx, td in sorted(tc_accum.items())
+                        if _is_internal_tool(td["name"], cfg)
+                    ]
+                else:
+                    internal_tcs = [
+                        {
+                            "id": td["id"] or f"call_{idx}",
+                            "type": "function",
+                            "function": {"name": td["name"], "arguments": td["arguments"]},
+                        }
+                        for idx, td in sorted(tc_accum.items())
+                        if _is_internal_tool(td["name"], cfg)
+                    ]
                 if not internal_tcs:
                     for tc_chunk in tc_chunks:
                         yield tc_chunk
@@ -2968,11 +2979,15 @@ async def chat_completions(request: Request):
                     break
 
                 log.info("Agent stream round — %s tool(s), %s left", len(internal_tcs), rounds_left)
-                assistant_turn = {"role": "assistant", "content": None, "tool_calls": internal_tcs}
+                assistant_turn = {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": internal_tcs,
+                }
                 # DeepSeek/Grok thinking + tools: reasoning_content must always be present
                 if pc.needs_reasoning_in_tool_loop(stream_call_provider):
                     assistant_turn["reasoning_content"] = think_reasoning or ""
-                augmented.append(assistant_turn)
+                augmented.append(pc.assistant_turn(stream_call_provider, assistant_turn))
                 prev_generated = len(generated_attachments)
                 if await _append_internal_tool_results(
                     augmented,

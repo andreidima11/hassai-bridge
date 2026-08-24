@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.21
+
+Gemini tool calls work again.
+
+### Fix
+- **Gemini no longer fails with “missing thought_signature” when using tools.** Gemini 2.5/3 returns an encrypted signature on function calls; the bridge now preserves it during the tool loop and backfills a safe placeholder when replaying older history
+
 ## 1.0.20
 
 Pick the default provider for everyone in one place.
