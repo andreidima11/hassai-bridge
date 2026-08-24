@@ -505,6 +505,10 @@ async def update_provider(provider_id: str, data: dict):
                         ),
                     )
             save_config(cfg)
+            # Role-model edits must not leave sticky sessions on the old role.
+            from services import router as provider_router
+
+            provider_router.reset_state()
             return {"status": "ok", "provider": p}
     raise HTTPException(status_code=404, detail="Provider not found")
 
