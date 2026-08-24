@@ -70,6 +70,14 @@ def test_default_prompt_device_status_not_automation():
     assert "merge irigatorul" in out or "is it on/running" in out
 
 
+def test_compact_prompt_is_shorter():
+    names = ["ha_list_entities", "ha_get_state", "ha_call_service"]
+    full = et.render_ha_agent_prompt("", names, compact=False)
+    compact = et.render_ha_agent_prompt("", names, compact=True)
+    assert len(compact) < len(full)
+    assert "ha_call_service" in compact
+
+
 def test_format_state_detail_full_and_capabilities():
     state = load("states_sample.json")[4]
     text = et.format_state_detail(

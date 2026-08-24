@@ -103,6 +103,42 @@ _META = re.compile(
     re.IGNORECASE,
 )
 
+# Entity IDs and registry parroting — HA already exposes these via tools.
+_HA_ENTITY_ID = re.compile(
+    r"\b(?:switch|light|automation|sensor|binary_sensor|cover|climate|media_player|"
+    r"input_boolean|input_number|input_select|valve|script|scene|fan|lock|vacuum|"
+    r"camera|binary_sensor|irrigation|number|select)\.[a-z0-9_]+\b",
+    re.IGNORECASE,
+)
+_HA_DOTTED_ENTITY = re.compile(r"\b[a-z0-9_]+\.[a-z0-9_]+(?:\.[a-z0-9_]+)+\b", re.IGNORECASE)
+_HA_REGISTRY_PHRASE = re.compile(
+    r"\b(entity[_ ]?id|controlled via|controlled by|device called|there is a (?:device|light)|"
+    r"with entity|automation named|named automation|releu\.)\b",
+    re.IGNORECASE,
+)
+
+
+def ha_registry_redundant_reason(text: str) -> str:
+    """Return why `text` duplicates Home Assistant registry data ('' if fine)."""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    lower = raw.lower()
+    if _HA_ENTITY_ID.search(raw) or _HA_DOTTED_ENTITY.search(raw):
+        return (
+            "Home Assistant already stores entity IDs — use ha_list_entities / "
+            "ha_get_state instead of freezing registry data into memory"
+        )
+    if _HA_REGISTRY_PHRASE.search(raw) and any(
+        token in lower
+        for token in (
+            "device", "light", "bulb", "bec", "lamp", "switch", "automation",
+            "irrigation", "valve", "vana", "entity", "releu", "controlled",
+        )
+    ):
+        return "this is HA registry or automation metadata, not a user-specific lasting fact"
+    return ""
+
 
 def transient_reason(text: str) -> str:
     """Return why `text` looks like live state instead of a durable fact ('' if fine)."""
@@ -130,9 +166,9 @@ def _meta_reason(text: str) -> str:
 
 _CATEGORY_DESC = (
     "personal_info (name, family, job, birthday), preferences (likes, style, language), "
-    "home_setup (rooms, devices, naming conventions, network), facts (durable facts about "
-    "the user's world), instructions (standing orders for how you should behave), "
-    "context (long-running projects or situations)"
+    "home_setup (rooms, device groupings and nicknames — not entity IDs), facts (dated life events, "
+    "outings, durable facts about the user's world), instructions (standing orders for how you should behave), "
+    "context (long-running projects, trips being planned, episodic diary entries with dates)"
 )
 
 TOOL_SPECS: list[dict] = [
@@ -143,8 +179,11 @@ TOOL_SPECS: list[dict] = [
             "description": (
                 "Store one durable fact about this user in long-term memory. Call this "
                 "immediately whenever the user asks you to remember/note something, and also "
-                "on your own when you learn a lasting fact (names, family, pets, job, home "
-                "layout, device naming, preferences, standing instructions). "
+                "on your own when you learn a lasting fact (names, family, pets, job, "
+                "preferences, standing instructions, life events with dates, how the user "
+                "groups or nicknames devices when HA names are unclear). "
+                "NEVER store entity IDs (switch.foo, light.bar), automation names as "
+                "device proxies, or other registry data — read those live with HA tools. "
                 "NEVER store live state such as a light being on, the current temperature, "
                 "who is home right now, or today's weather — read those live with the Home "
                 "Assistant tools instead. One fact per call, written as a standalone sentence "
@@ -319,7 +358,7 @@ def _save(user_id: str, args: dict, cfg: dict) -> str:
     if len(content) < 5:
         return "Error: nothing to save — pass the fact in `content`."
 
-    reason = transient_reason(content) or _meta_reason(content)
+    reason = transient_reason(content) or _meta_reason(content) or ha_registry_redundant_reason(content)
     if reason:
         return (
             f"Rejected: \"{content}\" was not stored because {reason}. "
@@ -406,7 +445,7 @@ def _update(user_id: str, args: dict) -> str:
 
     content = " ".join(str(args.get("content") or "").split())[:_MAX_CONTENT] or None
     if content:
-        reason = transient_reason(content) or _meta_reason(content)
+        reason = transient_reason(content) or _meta_reason(content) or ha_registry_redundant_reason(content)
         if reason:
             return (
                 f"Rejected: memory #{memory_id} was not changed because {reason}. "

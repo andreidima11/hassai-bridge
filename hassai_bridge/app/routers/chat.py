@@ -48,6 +48,7 @@ from services import gemini as gm
 from services import memory_tools as mt
 from services import bridge_tools as bt
 from services import pricing
+from services import tool_profiles as tp
 # `router` is the FastAPI APIRouter below — alias the routing service.
 from services import router as provider_router
 
@@ -2252,7 +2253,27 @@ async def chat_completions(request: Request):
     image_gen_provider = providers.resolve_image_generation_provider(active)
     if image_gen_provider and pc.supports_image_generation(image_gen_provider) and not request_has_images:
         all_tools.append(pc.build_image_generation_tool(image_gen_provider))
-    effective_tools = all_tools if all_tools else None
+
+    route_klass = route.get("klass") or tp.route_class(
+        last_user_msg,
+        has_images=request_has_images,
+        tools_active=bool(all_tools),
+    )
+    effective_tools, compact_tools = tp.filter_chat_tools(
+        all_tools,
+        provider=active,
+        cfg=cfg,
+        user_text=last_user_msg,
+        eco_mode=bool(active.get("eco_mode")),
+        route_klass=route_klass,
+        search_enabled=search_enabled,
+    )
+    effective_tools = effective_tools if effective_tools else None
+    if compact_tools and effective_tools:
+        log.debug(
+            "[%s] Compact tools: %s → %s (class=%s)",
+            user_id, len(all_tools), len(effective_tools), route_klass,
+        )
 
     # Authenticate when an API key is configured
     _validate_api_key(request)
@@ -2327,7 +2348,7 @@ async def chat_completions(request: Request):
         eco_instruction = cfg.get("security", {}).get("eco_prompt", "").strip() or default_eco
 
     # 2) Memory + history retrieval (parallel)
-    history_limit = cfg.get("performance", {}).get("history_limit", 10)
+    history_limit = tp.effective_history_limit(cfg, active)
     memories, history = await asyncio.gather(
         retrieve_relevant_memories(user_id, last_user_msg),
         asyncio.to_thread(get_conversation_history, user_id, history_limit, session_id),
@@ -2355,13 +2376,25 @@ async def chat_completions(request: Request):
         stable_extras.append(user_ctx)
     if search_enabled:
         stable_extras.append(_build_search_instruction(cfg))
-    ha_hint = ha_api.ha_system_hint(cfg)
+    ha_tool_names_for_hint = [
+        str(t.get("function", {}).get("name") or "")
+        for t in (effective_tools or [])
+        if str(t.get("function", {}).get("name") or "").startswith("ha_")
+    ]
+    ha_hint = ha_api.ha_system_hint(
+        cfg,
+        tool_names=ha_tool_names_for_hint or None,
+        compact=compact_tools,
+    )
     if ha_hint:
         stable_extras.append(ha_hint)
     from services import frigate_tools as ft
 
     frigate_hint = ft.system_hint()
-    if frigate_hint:
+    if frigate_hint and any(
+        str(t.get("function", {}).get("name") or "") in _FRIGATE_TOOL_NAMES
+        for t in (effective_tools or [])
+    ):
         stable_extras.append(frigate_hint)
 
     if stable_parts or stable_extras:
@@ -2374,7 +2407,9 @@ async def chat_completions(request: Request):
     if history and not has_incoming_history:
         # Only the most recent turns replay their tool calls; older ones keep just
         # the text so a long conversation does not carry every tool result along.
-        replay_from = len(history) - _TOOL_REPLAY_TURNS
+        replay_from = len(history) - tp.tool_replay_turns(
+            cfg, active, eco_mode=bool(active.get("eco_mode")),
+        )
         for index, row in enumerate(history):
             augmented.extend(
                 cc.row_to_messages(
@@ -2735,7 +2770,7 @@ async def chat_completions(request: Request):
             )
             if assistant_content:
                 all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
-                asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
+                asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary, active=active))
 
         # Track usage statistics
         _elapsed_ms = int((time.time() - _req_start) * 1000)
@@ -3111,7 +3146,7 @@ async def chat_completions(request: Request):
                 )
                 if clean_response:
                     all_msgs = messages + [{"role": "assistant", "content": clean_response}]
-                    asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary))
+                    asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary, active=active))
 
             _stream_elapsed = int((time.time() - _req_start) * 1000)
             log.info(f"[{user_id}] Stream response: {len(full_response)} chars, {_stream_elapsed}ms, search={search_used}")
@@ -3306,8 +3341,31 @@ _extraction_locks: dict[str, asyncio.Lock] = {}
 _EXTRACTION_TIMEOUT = 30.0  # seconds (#8)
 
 
-async def _safe_extract(user_id: str, messages: list[dict], provider: dict | None = None):
+async def _safe_extract(
+    user_id: str,
+    messages: list[dict],
+    provider: dict | None = None,
+    *,
+    active: dict | None = None,
+):
     """Safely run memory extraction in background with per-user lock and timeout."""
+    from services import openai_api as oai
+
+    active = active or providers.get_active_provider()
+    if provider is None:
+        provider = providers.get_secondary_provider(active)
+    effective = provider or active
+    # Don't queue a second heavy local inference for routine turns.
+    if oai._is_local_provider(active) and oai._is_local_provider(effective):
+        user_text = ""
+        for msg in reversed(messages):
+            if msg.get("role") == "user":
+                user_text = str(msg.get("content") or "")
+                break
+        from services.memory_engine import is_explicit_memory_request
+        if not is_explicit_memory_request(user_text):
+            log.debug("Skipping memory extraction on local-only provider for %s", user_id)
+            return
     if user_id not in _extraction_locks:
         _extraction_locks[user_id] = asyncio.Lock()
 

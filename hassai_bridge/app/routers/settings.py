@@ -74,6 +74,12 @@ async def ha_agent_prompt_default():
     return {"prompt": DEFAULT_HA_AGENT_PROMPT}
 
 
+@router.get("/memory-extract-prompt-default")
+async def memory_extract_prompt_default():
+    from services.memory_engine import default_extract_prompt
+    return {"prompt": default_extract_prompt()}
+
+
 @router.get("/ha-tool-categories")
 async def ha_tool_categories():
     from services.ha_tool_access import CATEGORY_KEYS

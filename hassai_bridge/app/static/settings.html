@@ -364,6 +364,19 @@
           <span data-i18n="settings.parallelFetch">Fetch web pages in parallel</span>
           <label class="toggle"><input type="checkbox" id="perfParallelFetch" checked><span class="slider"></span></label>
         </div>
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <h3 style="margin:0 0 8px;font-size:1rem" data-i18n="settings.localPerfTitle">Local AI optimizations</h3>
+          <p class="card-muted" style="margin:0 0 12px" data-i18n="settings.localPerfDesc">Applied when the active provider is local (LM Studio / Ollama), or when Eco Mode is on. Cloud API providers without Eco are unchanged.</p>
+          <label data-i18n="settings.toolProfile">Tool profile</label>
+          <select id="perfToolProfile">
+            <option value="auto" data-i18n="settings.toolProfileAuto">Auto — fewer tools for simple commands</option>
+            <option value="full" data-i18n="settings.toolProfileFull">Full — all tools every request</option>
+          </select>
+          <label style="margin-top:12px"><span data-i18n="settings.localHistoryLimit">Local history limit</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.localHistoryLimitDesc">(cap when using local AI; cannot exceed global limit above)</span></label>
+          <input type="number" id="perfLocalHistoryLimit" value="6" min="2" max="30">
+          <label style="margin-top:12px"><span data-i18n="settings.toolReplayTurns">Tool replay turns</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.toolReplayTurnsDesc">(0 = auto: 3 local / 6 cloud)</span></label>
+          <input type="number" id="perfToolReplayTurns" value="0" min="0" max="12">
+        </div>
       </div>
 
       <div class="card">
@@ -566,6 +579,21 @@
                 <p class="card-muted hint" style="margin:2px 0 0" data-i18n="settings.ecoModeDesc">Reduce output tokens by instructing the AI to be concise. Removes filler words, pleasantries, and unnecessary explanations. Recommended for cloud API providers to save costs.</p>
               </div>
             </label>
+          </div>
+          <div class="modal-section" id="provLocalPerfSection" style="display:none">
+            <h3 data-i18n="settings.localPerfTitle">Local AI optimizations</h3>
+            <p class="card-muted hint" data-i18n="settings.localPerfProviderDesc">Global settings applied when this local provider is active (or when Eco Mode is on). Same values as Settings → Prompts → Performance.</p>
+            <label data-i18n="settings.toolProfile">Tool profile</label>
+            <select id="provPerfToolProfile">
+              <option value="auto" data-i18n="settings.toolProfileAuto">Auto — fewer tools for simple commands</option>
+              <option value="full" data-i18n="settings.toolProfileFull">Full — all tools every request</option>
+            </select>
+            <label style="margin-top:12px"><span data-i18n="settings.historyLimit">Conversation history limit</span></label>
+            <input type="number" id="provPerfHistoryLimit" value="10" min="2" max="50">
+            <label style="margin-top:12px"><span data-i18n="settings.localHistoryLimit">Local history limit</span></label>
+            <input type="number" id="provPerfLocalHistoryLimit" value="6" min="2" max="30">
+            <label style="margin-top:12px"><span data-i18n="settings.toolReplayTurns">Tool replay turns</span></label>
+            <input type="number" id="provPerfToolReplayTurns" value="0" min="0" max="12">
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.advanced">Advanced</h3>
@@ -1079,6 +1107,20 @@
       <div class="card">
         <h2 data-i18n="mem.title">Memories</h2>
         <p class="card-muted" data-i18n="mem.desc">View, add and manage memories for each user. The AI uses memories to personalize responses.</p>
+      </div>
+
+      <div class="card">
+        <h2 data-i18n="mem.extractPromptTitle">Extraction prompt</h2>
+        <p class="card-muted" data-i18n="mem.extractPromptDesc">Instructions for the background LLM that decides what to remember from conversations. Leave empty to use the built-in default. Placeholders: {existing_memories}, {conversation}, {today_date}.</p>
+        <textarea id="memExtractPrompt" rows="14" spellcheck="false"></textarea>
+        <div class="btn-row" style="margin-top:10px">
+          <button type="button" class="btn btn-sm" onclick="resetMemoryExtractPrompt()" data-i18n="mem.extractPromptReset">Reset to default</button>
+          <button type="button" class="btn btn-sm btn-primary" onclick="saveMemoryExtractPrompt()" data-i18n="mem.extractPromptSave">Save prompt</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3 style="font-size:1.05rem;font-weight:600;margin-bottom:8px" data-i18n="mem.userMemories">User memories</h3>
         <div style="display:flex;gap:8px;align-items:end;margin-top:8px">
           <div style="flex:1">
             <label data-i18n="mem.user">User</label>

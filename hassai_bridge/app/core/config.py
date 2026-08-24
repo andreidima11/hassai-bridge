@@ -106,6 +106,7 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "auto_extract": True,
         "max_memories_per_user": 500,
+        "extract_prompt": "",
         "auto_consolidation": {
             "enabled": False,
             "schedule": "daily",
@@ -114,8 +115,11 @@ DEFAULT_CONFIG = {
     },
     "performance": {
         "history_limit": 10,
+        "local_history_limit": 6,
         "parallel_page_fetch": True,
         "agent_max_rounds": 16,
+        "tool_profile": "auto",
+        "tool_replay_turns": 0,
     },
     "skills_disabled": [],
     "routing": {

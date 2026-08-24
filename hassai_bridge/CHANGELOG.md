@@ -1,5 +1,19 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.24
+
+Local AI speed, smarter memory, editable extraction prompt.
+
+### Features
+- **Local AI tool profiles (auto)** — simple HA commands send ~35 tools instead of ~108; compact HA prompt, shorter history, fewer tool-replay turns; cloud API unchanged unless Eco Mode is on
+- **Local performance settings in UI** — tool profile, local history limit, tool replay turns (Providers → Local + Settings → Performance)
+- **Editable memory extraction prompt** — Memories tab shows the default prompt; customize via `{existing_memories}`, `{conversation}`, `{today_date}`
+- **Human-like episodic memory** — life events (restaurant, outings) stored with anchored dates; prompt guides “azi am mâncat pizza” → dated fact
+
+### Fix
+- **Memory no longer hoards HA registry data** — entity IDs, “device called…”, automation parroting rejected; pure light/irrigation commands skip auto-extract
+- **Skip background memory extraction on local-only GPU** for routine turns (explicit “ține minte” still works)
+
 ## 1.0.23
 
 Gemini HA fixes, smarter device status, better prompt cache.

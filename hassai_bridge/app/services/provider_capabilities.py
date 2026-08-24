@@ -87,6 +87,13 @@ def preset_capabilities(provider_type: str) -> dict:
                 "context_budget": 120000,
             },
         }
+    if provider_type in ("local", "ollama", "lmstudio"):
+        return {
+            KV_CACHE: {
+                # Modest message budget — tool schemas dominate local latency.
+                "context_budget": 6144,
+            },
+        }
     return {}
 
 
