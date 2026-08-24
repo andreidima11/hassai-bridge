@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.27
+
+Gemini tool loop after Frigate/HA no longer returns INVALID_ARGUMENT.
+
+### Fix
+- **Gemini HTTP 400 after tool calls (Frigate, HA, search)** — OpenAI-compat requires `name` on `role: tool` messages; bridge now always sends it and backfills from history on retry
+
 ## 1.0.26
 
 Fix streaming chat crash on every provider.

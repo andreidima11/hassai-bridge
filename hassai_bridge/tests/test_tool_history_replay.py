@@ -29,6 +29,7 @@ def test_assistant_turn_replays_call_result_and_answer():
     assert [m["role"] for m in out] == ["assistant", "tool", "assistant"]
     assert out[0]["tool_calls"][0]["function"]["name"] == "ha_call_service"
     assert out[1]["tool_call_id"] == "c1"
+    assert out[1]["name"] == "ha_call_service"
     assert out[1]["content"] == "Turned on light.terasa_2"
     assert out[2]["content"] == "Am aprins terasa 2."
 

@@ -115,7 +115,10 @@ def is_gemini_retryable_400(status_code: int, body: str | None, payload: dict | 
     text = (body or "").lower()
     if is_thought_signature_error(status_code, body or ""):
         return True
-    return "invalid argument" in text and bool(payload.get("tools"))
+    # Generic INVALID_ARGUMENT often means missing tool-result `name` or
+    # thought signatures — retry after repair even when tools were dropped
+    # on the final agent round.
+    return "invalid argument" in text
 
 
 def repair_payload_after_gemini_400(payload: dict) -> None:
@@ -182,13 +185,49 @@ def ensure_tool_calls_signed(tool_calls: list[dict] | None, *, inject_skip: bool
 def assistant_turn(message: dict) -> dict:
     """Preserve Gemini thought signatures from a model tool-call response."""
     out = dict(message)
+    if out.get("content") is None:
+        out["content"] = ""
     if out.get("tool_calls"):
         out["tool_calls"] = ensure_tool_calls_signed(out["tool_calls"], inject_skip=False)
     return out
 
 
+def _tool_call_names_by_id(messages: list[dict]) -> dict[str, str]:
+    """Map tool_call id → function name from assistant turns."""
+    names: dict[str, str] = {}
+    for msg in messages:
+        if not isinstance(msg, dict) or msg.get("role") != "assistant":
+            continue
+        for call in msg.get("tool_calls") or []:
+            if not isinstance(call, dict):
+                continue
+            cid = str(call.get("id") or "").strip()
+            fname = str((call.get("function") or {}).get("name") or "").strip()
+            if cid and fname:
+                names[cid] = fname
+    return names
+
+
+def ensure_tool_result_names(messages: list[dict] | None) -> list[dict]:
+    """Gemini requires `name` on role=tool (function_response.name cannot be empty)."""
+    msgs = list(messages or [])
+    names = _tool_call_names_by_id(msgs)
+    out: list[dict] = []
+    for msg in msgs:
+        if not isinstance(msg, dict) or msg.get("role") != "tool":
+            out.append(msg)
+            continue
+        row = dict(msg)
+        if not str(row.get("name") or "").strip():
+            cid = str(row.get("tool_call_id") or "").strip()
+            if cid and cid in names:
+                row["name"] = names[cid]
+        out.append(row)
+    return out
+
+
 def prepare_messages_for_tools(messages: list[dict] | None) -> list[dict]:
-    """Backfill skip signatures on replayed tool calls that never had one."""
+    """Backfill skip signatures + tool-result names Gemini requires."""
     out: list[dict] = []
     for msg in messages or []:
         if not isinstance(msg, dict):
@@ -198,9 +237,11 @@ def prepare_messages_for_tools(messages: list[dict] | None) -> list[dict]:
             out.append(msg)
             continue
         row = dict(msg)
+        if row.get("content") is None:
+            row["content"] = ""
         row["tool_calls"] = ensure_tool_calls_signed(msg["tool_calls"], inject_skip=True)
         out.append(row)
-    return out
+    return ensure_tool_result_names(out)
 
 
 def merge_tool_call_delta(entry: dict, delta: dict) -> None:

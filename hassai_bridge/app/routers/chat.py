@@ -1002,7 +1002,14 @@ async def _append_internal_tool_results(
                 "id": tc_id, "name": fn_name, "detail": detail,
                 "status": "done", "ms": int((time.time() - started) * 1000),
             })
-        augmented.append({"role": "tool", "tool_call_id": tc_id, "content": content})
+        # Gemini's OpenAI-compat layer requires `name` on tool results
+        # (maps to function_response.name). Other providers tolerate omission.
+        augmented.append({
+            "role": "tool",
+            "tool_call_id": tc_id,
+            "name": fn_name,
+            "content": content,
+        })
     return search_used
 
 # ── Start time for /uptime command ──
@@ -3061,7 +3068,7 @@ async def chat_completions(request: Request):
                 log.info("Agent stream round — %s tool(s), %s left", len(internal_tcs), rounds_left)
                 assistant_turn = {
                     "role": "assistant",
-                    "content": None,
+                    "content": "",
                     "tool_calls": internal_tcs,
                 }
                 # DeepSeek/Grok thinking + tools: reasoning_content must always be present
