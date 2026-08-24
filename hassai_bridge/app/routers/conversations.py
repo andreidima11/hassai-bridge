@@ -63,6 +63,7 @@ async def me(request: Request):
             }
     cfg = load_config()
     from services.providers import get_active_provider
+    from services import router as provider_router
     active = get_active_provider()
     from services.provider_capabilities import provider_chat_capabilities
     from services import atmosphere as atm
@@ -84,6 +85,7 @@ async def me(request: Request):
             "model": active.get("model", ""),
             "thinking_mode": active.get("thinking_mode") or "auto",
             "capabilities": provider_chat_capabilities(active),
+            "auto": provider_router.is_auto(cfg),
         },
     }
 
