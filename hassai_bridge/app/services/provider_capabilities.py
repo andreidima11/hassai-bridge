@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from services import deepseek as ds
+from services import gemini as gm
 from services import grok as gk
 from services import qwen as qw
 from services import zai as zi
@@ -277,6 +278,8 @@ def prepare_messages_for_request(
     shaped = messages
     if not pv.provider_supports_vision(provider) and cc.messages_have_images(shaped):
         shaped = cc.strip_all_images(shaped)
+    if provider.get("type") == "gemini":
+        shaped = gm.prepare_messages_for_tools(shaped)
     if provider.get("type") == "deepseek" and tools:
         return ds.prepare_messages_for_tools(shaped)
     return shaped
@@ -324,6 +327,10 @@ def assistant_turn(provider: dict, message: dict) -> dict:
         return ds.assistant_turn(message)
     if ptype == "grok":
         return gk.assistant_turn(message)
+    if ptype == "gemini":
+        out = gm.assistant_turn(message)
+        out.pop("reasoning_content", None)
+        return out
     out = dict(message)
     out.pop("reasoning_content", None)
     return out

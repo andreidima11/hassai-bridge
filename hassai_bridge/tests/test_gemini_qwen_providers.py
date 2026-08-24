@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from services.provider_capabilities import preset_capabilities
+from services import gemini as gm
+from services.provider_capabilities import assistant_turn, prepare_messages_for_request, preset_capabilities
 from services.providers import (
     PROVIDER_PRESETS,
     _build_url,
     normalize_provider_base_url,
     provider_supports_vision,
 )
+
+GEMINI = {"type": "gemini", "model": "gemini-2.5-flash"}
 
 
 def test_gemini_and_qwen_presets_exist():
@@ -90,3 +93,51 @@ def test_preset_capabilities_gemini_qwen_kv():
     assert "kv_cache" in preset_capabilities("gemini")
     assert "kv_cache" in preset_capabilities("qwen")
     assert "thinking" not in preset_capabilities("gemini")
+
+
+def test_gemini_assistant_turn_preserves_thought_signature():
+    msg = {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{
+            "id": "call_1",
+            "type": "function",
+            "extra_content": {"google": {"thought_signature": "sig-abc"}},
+            "function": {"name": "ha_call_service", "arguments": "{}"},
+        }],
+    }
+    out = assistant_turn(GEMINI, msg)
+    assert out["tool_calls"][0]["extra_content"]["google"]["thought_signature"] == "sig-abc"
+
+
+def test_gemini_prepare_messages_injects_skip_for_replayed_tools():
+    msgs = [{
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [{
+            "id": "call_1",
+            "type": "function",
+            "function": {"name": "ha_call_service", "arguments": "{}"},
+        }],
+    }]
+    out = prepare_messages_for_request(GEMINI, msgs, tools=[{"type": "function"}])
+    sig = out[0]["tool_calls"][0]["extra_content"]["google"]["thought_signature"]
+    assert sig == gm.SKIP_SIGNATURE
+
+
+def test_gemini_stream_merge_keeps_extra_content():
+    entry = {"id": "", "name": "", "arguments": ""}
+    gm.merge_tool_call_delta(entry, {
+        "id": "call_9",
+        "function": {"name": "ha_list_entities", "arguments": '{"domain": "light"}'},
+        "extra_content": {"google": {"thought_signature": "sig-stream"}},
+    })
+    built = gm.build_tool_call(entry, fallback_idx=0)
+    assert built["id"] == "call_9"
+    assert built["extra_content"]["google"]["thought_signature"] == "sig-stream"
+
+
+def test_gemini_thought_signature_error_detection():
+    body = '{"error":{"message":"Function call is missing a thought_signature in functionCall parts."}}'
+    assert gm.is_thought_signature_error(400, body)
+    assert not gm.is_thought_signature_error(400, '{"error":{"message":"bad request"}}')
