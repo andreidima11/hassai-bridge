@@ -509,8 +509,10 @@
             <p class="card-muted hint" style="margin-top:12px" data-i18n="settings.roleModelsDesc">Optional, used by Auto mode: a cheaper model for short chat and device commands, a stronger one for planning. Leave empty to always use the model above.</p>
             <label data-i18n="settings.roleModelFast">Model for short chat and device commands</label>
             <input type="text" id="provModelFast" data-i18n-placeholder="settings.roleModelPlaceholder" placeholder="same as above">
+            <select id="provModelFastPicker" class="input-sm" style="display:none;margin-top:8px;width:100%"></select>
             <label data-i18n="settings.roleModelDeep">Model for planning and long context</label>
             <input type="text" id="provModelDeep" data-i18n-placeholder="settings.roleModelPlaceholder" placeholder="same as above">
+            <select id="provModelDeepPicker" class="input-sm" style="display:none;margin-top:8px;width:100%"></select>
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.personality">Personality</h3>

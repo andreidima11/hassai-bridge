@@ -1457,8 +1457,9 @@ function openAddProvider() {
   document.getElementById('provVision').value = '';
   _populateImageGenSelect();
   document.getElementById('provImageGen').value = '';
-  const provPicker = document.getElementById('provModelPicker');
   _resetModelPicker(document.getElementById('provModel'), 'provModelPicker');
+  _resetModelPicker(document.getElementById('provModelFast'), 'provModelFastPicker');
+  _resetModelPicker(document.getElementById('provModelDeep'), 'provModelDeepPicker');
   const dl = document.getElementById('provModelList'); if (dl) dl.remove();
   document.getElementById('provTestSection').style.display = 'none';
   document.getElementById('provTestResult').style.display = 'none';
@@ -1494,6 +1495,8 @@ function editProvider(id) {
   _populateImageGenSelect();
   document.getElementById('provImageGen').value = p.image_generation_provider || '';
   _resetModelPicker(document.getElementById('provModel'), 'provModelPicker');
+  _resetModelPicker(document.getElementById('provModelFast'), 'provModelFastPicker');
+  _resetModelPicker(document.getElementById('provModelDeep'), 'provModelDeepPicker');
   const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
   document.getElementById('provTestSection').style.display = '';
   document.getElementById('provTestResult').style.display = 'none';
@@ -1676,26 +1679,34 @@ function _resetModelPicker(modelInput, pickerId) {
   if (picker) {
     picker.innerHTML = '';
     picker.style.display = 'none';
+    picker.onchange = null;
   }
   if (modelInput) modelInput.style.display = '';
 }
 
-function _populateModelPicker(models, modelInput, pickerId) {
+function _populateModelPicker(models, modelInput, pickerId, opts = {}) {
   const picker = document.getElementById(pickerId);
-  if (!picker || !modelInput) return;
-  const rows = (models || []).map((m) => {
+  if (!picker || !modelInput) return false;
+  const allowEmpty = !!opts.allowEmpty;
+  const emptyLabel = opts.emptyLabel || t('settings.roleModelPlaceholder');
+  const silent = !!opts.silent;
+  const modelRows = (models || []).map((m) => {
     const id = _modelEntryId(m);
     if (!id) return '';
     const label = m.name && m.name !== id ? `${id} — ${m.name}` : id;
     return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
   }).filter(Boolean);
-  picker.innerHTML = rows.join('');
-  if (!rows.length) {
+  if (!modelRows.length) {
+    picker.innerHTML = '';
     picker.style.display = 'none';
     modelInput.style.display = '';
-    toast(t('settings.noModelsFound'), true);
-    return;
+    if (!silent) toast(t('settings.noModelsFound'), true);
+    return false;
   }
+  const rows = allowEmpty
+    ? [`<option value="">${escapeHtml(emptyLabel)}</option>`, ...modelRows]
+    : modelRows;
+  picker.innerHTML = rows.join('');
   picker.style.display = 'block';
   modelInput.style.display = 'none';
   picker.onchange = () => {
@@ -1705,11 +1716,19 @@ function _populateModelPicker(models, modelInput, pickerId) {
   const current = modelInput.value.trim();
   if (current && ids.includes(current)) {
     picker.value = current;
-  } else {
+  } else if (allowEmpty && !current) {
+    picker.value = '';
+    modelInput.value = '';
+  } else if (!allowEmpty) {
     modelInput.value = ids[0];
     picker.value = ids[0];
+  } else {
+    // Role model had a custom value not in the list — keep the text field visible.
+    picker.style.display = 'none';
+    modelInput.style.display = '';
   }
-  toast(t('toast.modelsReloaded', { count: ids.length }));
+  if (!silent) toast(t('toast.modelsReloaded', { count: ids.length }));
+  return true;
 }
 
 async function fetchProviderModels() {
@@ -1731,7 +1750,11 @@ async function fetchProviderModels() {
       const id = _modelEntryId(m);
       return id ? `<option value="${escapeHtml(id)}">` : '';
     }).join('');
-    _populateModelPicker(models, modelInput, 'provModelPicker');
+    const ok = _populateModelPicker(models, modelInput, 'provModelPicker');
+    const roleOpts = { allowEmpty: true, silent: true };
+    _populateModelPicker(models, document.getElementById('provModelFast'), 'provModelFastPicker', roleOpts);
+    _populateModelPicker(models, document.getElementById('provModelDeep'), 'provModelDeepPicker', roleOpts);
+    return ok;
   }
 
   if (_editingProviderId) {
