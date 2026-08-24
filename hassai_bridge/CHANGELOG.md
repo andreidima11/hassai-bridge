@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.20
+
+Pick the default provider for everyone in one place.
+
+### Features
+- **Default provider for all users** — Settings → Providers has a dropdown at the top to set which provider every user gets when Auto mode is off. With Auto on, a hint explains this is only the fallback
+
 ## 1.0.19
 
 Short chat on Auto uses the weak model again.
