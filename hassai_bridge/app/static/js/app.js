@@ -1237,6 +1237,41 @@ function onRoutingModeChange() {
   const on = document.getElementById('routingAuto')?.checked;
   const box = document.getElementById('routingOptions');
   if (box) box.style.display = on ? '' : 'none';
+  _refreshDefaultProviderHint();
+}
+
+function _refreshDefaultProviderHint() {
+  const hint = document.getElementById('defaultProviderAutoHint');
+  if (!hint) return;
+  hint.style.display = document.getElementById('routingAuto')?.checked ? '' : 'none';
+}
+
+function _fillDefaultProviderSelect() {
+  const sel = document.getElementById('defaultProviderSelect');
+  if (!sel) return;
+  if (!_allProviders.length) {
+    sel.innerHTML = `<option value="">${escapeHtml(t('settings.noProviders'))}</option>`;
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  sel.innerHTML = _allProviders.map((p) => {
+    const typeLabel = PROVIDER_TYPE_LABELS[p.type] || p.type;
+    const label = `${p.name} (${typeLabel}) — ${p.model || 'default'}`;
+    return `<option value="${escapeHtml(p.id)}">${escapeHtml(label)}</option>`;
+  }).join('');
+  const chosen = _activeProviderId && _allProviders.some((p) => p.id === _activeProviderId)
+    ? _activeProviderId
+    : (_allProviders[0]?.id || '');
+  sel.value = chosen;
+  _refreshDefaultProviderHint();
+}
+
+async function onDefaultProviderChange() {
+  const sel = document.getElementById('defaultProviderSelect');
+  const id = sel?.value || '';
+  if (!id || id === _activeProviderId) return;
+  await activateProvider(id);
 }
 
 function _routingRoleSelect(role) {
@@ -1282,6 +1317,7 @@ async function loadRouting() {
     note.textContent = parts.join(' ');
   }
   onRoutingModeChange();
+  _refreshDefaultProviderHint();
 }
 
 async function saveRouting() {
@@ -1377,6 +1413,7 @@ function renderProvidersList() {
   const container = document.getElementById('providersList');
   if (!_allProviders.length) {
     container.innerHTML = `<p class="card-muted">${t('settings.noProviders')}</p>`;
+    _fillDefaultProviderSelect();
     return;
   }
   container.innerHTML = _allProviders.map(p => {
@@ -1402,12 +1439,13 @@ function renderProvidersList() {
           <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
         </div>
         <div class="provider-actions">
-          ${!isActive ? `<button class="btn btn-sm btn-success" onclick="activateProvider('${escapeHtml(p.id)}')">${t('settings.activate')}</button>` : ''}
+          ${!isActive ? `<button class="btn btn-sm btn-success" onclick="activateProvider('${escapeHtml(p.id)}')">${t('settings.setDefaultProvider')}</button>` : ''}
           <button class="btn btn-sm" onclick="editProvider('${escapeHtml(p.id)}')">${t('settings.edit')}</button>
           <button class="btn btn-sm btn-danger" onclick="deleteProvider('${escapeHtml(p.id)}')">${t('users.delete')}</button>
         </div>
       </div>`;
   }).join('');
+  _fillDefaultProviderSelect();
 }
 
 function _populateSecondarySelect(excludeId) {
@@ -1663,7 +1701,7 @@ async function activateProvider(id) {
     await api('PUT', `/api/settings/providers/${encodeURIComponent(id)}/activate`);
     _activeProviderId = id;
     renderProvidersList();
-    toast(t('settings.providerActivated'));
+    toast(t('settings.defaultProviderSaved'));
     loadSystemInfo();
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
