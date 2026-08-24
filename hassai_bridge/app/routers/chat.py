@@ -666,9 +666,18 @@ def _markdown_for_generated_attachments(
     session_id: str | None = None,
     existing_text: str = "",
 ) -> str:
+    """Inline markdown for images the model created.
+
+    Frigate snapshots and files opened from /media ride in the same list, but the
+    chat already draws those from the message attachments — emitting markdown for
+    them too put a second, broken copy under the snapshot labelled
+    "Generated image".
+    """
     parts: list[str] = []
     haystack = existing_text or ""
     for att in attachments or []:
+        if str(att.get("source") or "") != "generated":
+            continue
         att_id = str(att.get("id") or "").strip()
         if not att_id:
             continue
@@ -2557,6 +2566,11 @@ async def chat_completions(request: Request):
             assistant_content = _strip_search_markers(assistant_content)
             result["choices"][0]["message"]["content"] = assistant_content
 
+        cleaned_notes = cc.strip_photo_notes(assistant_content)
+        if cleaned_notes != assistant_content:
+            assistant_content = cleaned_notes
+            result["choices"][0]["message"]["content"] = assistant_content
+
         # Save & extract memories
         if assistant_content or generated_attachments:
             add_conversation_message(
@@ -2659,7 +2673,9 @@ async def chat_completions(request: Request):
             await on_stream_activity({
                 "id": "assistant-out",
                 "name": "assistant",
-                "detail": full_response,
+                # The Web UI renders this, not the raw SSE chunks, so the photo
+                # marker has to be filtered here to stay off the screen.
+                "detail": cc.strip_photo_notes(full_response),
                 "status": "running",
             })
 
@@ -2913,6 +2929,7 @@ async def chat_completions(request: Request):
 
             if full_response or generated_attachments:
                 clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
+                clean_response = cc.strip_photo_notes(clean_response)
                 add_conversation_message(
                     user_id, "assistant", clean_response,
                     session_id=session_id,

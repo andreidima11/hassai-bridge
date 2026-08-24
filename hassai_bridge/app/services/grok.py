@@ -306,6 +306,9 @@ async def generate_image(
         except ValueError as exc:
             log.warning("Failed to persist generated image %s: %s", idx + 1, exc)
             continue
+        # Only Imagine output is rendered as markdown in the reply. Camera snaps
+        # and media files travel in the same list but are drawn from attachments.
+        att["source"] = "generated"
         attachments.append(att)
         public_urls.append(cm.attachment_public_url(att["id"], session_id or ""))
 
