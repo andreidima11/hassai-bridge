@@ -1447,6 +1447,8 @@ function openAddProvider() {
   document.getElementById('provMaxTokens').value = 2048;
   document.getElementById('provTemperature').value = 0.7;
   document.getElementById('provSystemPrompt').value = '';
+  document.getElementById('provModelFast').value = '';
+  document.getElementById('provModelDeep').value = '';
   document.getElementById('provEcoMode').checked = false;
   _populateSecondarySelect(null);
   document.getElementById('provSecondary').value = '';
@@ -1479,6 +1481,8 @@ function editProvider(id) {
   document.getElementById('provMaxTokens').value = p.max_tokens || 2048;
   document.getElementById('provTemperature').value = p.temperature ?? 0.7;
   document.getElementById('provSystemPrompt').value = p.system_prompt || '';
+  document.getElementById('provModelFast').value = (p.role_models || {}).fast || '';
+  document.getElementById('provModelDeep').value = (p.role_models || {}).deep || '';
   document.getElementById('provEcoMode').checked = !!p.eco_mode;
   _populateSecondarySelect(id);
   document.getElementById('provSecondary').value = p.secondary_provider || '';
@@ -1552,6 +1556,10 @@ async function saveProvider() {
     max_tokens: parseInt(document.getElementById('provMaxTokens').value) || 2048,
     temperature: parseFloat(document.getElementById('provTemperature').value) || 0.7,
     system_prompt: document.getElementById('provSystemPrompt').value.trim(),
+    role_models: {
+      fast: document.getElementById('provModelFast').value.trim(),
+      deep: document.getElementById('provModelDeep').value.trim(),
+    },
     secondary_provider: document.getElementById('provSecondary').value || '',
     thinking_mode: document.getElementById('provThinkingMode')?.value || 'auto',
     vision_provider: document.getElementById('provVision').value || '',

@@ -216,6 +216,29 @@ def derive_roles(candidates: list[dict], cfg: dict | None = None, *, now: float 
     return roles
 
 
+def role_model(provider: dict | None, role: str) -> str:
+    """Model this provider should use for a role, or "" to keep its default."""
+    if not isinstance(provider, dict):
+        return ""
+    models = provider.get("role_models")
+    if not isinstance(models, dict):
+        return ""
+    return str(models.get(role) or "").strip()
+
+
+def with_role_model(provider: dict, role: str) -> dict:
+    """Swap in the role's model so everything downstream sees one provider record.
+
+    Returning a provider whose ``model`` is already correct keeps the choice out
+    of the request plumbing: capabilities, pricing, usage stats and the outbound
+    payload all read the same field they always did.
+    """
+    chosen = role_model(provider, role)
+    if not chosen or chosen == provider.get("model"):
+        return provider
+    return {**provider, "model": chosen}
+
+
 def _by_id(candidates: list[dict], provider_id: str) -> dict | None:
     pid = str(provider_id or "").strip()
     if not pid:
@@ -241,11 +264,11 @@ def resolve(
     exclude: set | list | None = None,
     now: float | None = None,
 ) -> dict:
-    """Choose the provider for one turn.
+    """Choose the provider — and its model — for one turn.
 
-    Returns ``{"provider", "klass", "role", "reason", "auto"}``. Never raises and
-    never returns None for ``provider`` when one is configured — a routing
-    problem must not become a failed reply.
+    Returns ``{"provider", "model", "klass", "role", "reason", "auto"}``. Never
+    raises and never returns None for ``provider`` when one is configured — a
+    routing problem must not become a failed reply.
     """
     now = now if now is not None else time.time()
     active = active if isinstance(active, dict) else pv.get_active_provider()
@@ -253,12 +276,15 @@ def resolve(
     klass = classify(user_text, has_images=has_images, tools_active=tools_active)
 
     if conf["mode"] != "auto":
-        return {"provider": active, "klass": klass, "role": "", "reason": "manual", "auto": False}
+        return {
+            "provider": active, "model": active.get("model", ""),
+            "klass": klass, "role": "", "reason": "manual", "auto": False,
+        }
 
     pool = providers if providers is not None else (cfg.get("providers") or [])
     pool = [p for p in pool if isinstance(p, dict) and p.get("id")]
     if not pool:
-        return {"provider": active, "klass": klass, "role": "", "reason": "no_providers", "auto": True}
+        return {**_decision(active, klass, "", "no_providers")}
 
     need_vision = klass == "vision"
     need_tools = tools_active and klass == "control"
@@ -277,7 +303,7 @@ def resolve(
     if not usable:
         # Nothing passes the filters (all unhealthy, none has vision, …).
         # Fall back to the manual choice and let the normal error path speak.
-        return {"provider": active, "klass": klass, "role": "", "reason": "no_candidate", "auto": True}
+        return _decision(active, klass, "", "no_candidate")
 
     role = _CLASS_ROLE.get(klass, "fast")
 
@@ -289,14 +315,11 @@ def resolve(
             held = _by_id(usable, remembered.get("provider_id", ""))
             escalating = klass == "deep" and remembered.get("role") != "deep"
             if held is not None and not escalating:
-                _remember(session_id, held, remembered.get("role") or role, now)
-                return {
-                    "provider": held,
-                    "klass": klass,
-                    "role": remembered.get("role") or role,
-                    "reason": "sticky",
-                    "auto": True,
-                }
+                held_role = remembered.get("role") or role
+                _remember(session_id, held, held_role, now)
+                return _decision(
+                    with_role_model(held, held_role), klass, held_role, "sticky",
+                )
 
     configured = _by_id(usable, conf["roles"].get(role, ""))
     if configured is not None:
@@ -313,7 +336,18 @@ def resolve(
 
     if session_id:
         _remember(session_id, chosen, role, now)
-    return {"provider": chosen, "klass": klass, "role": role, "reason": reason, "auto": True}
+    return _decision(with_role_model(chosen, role), klass, role, reason)
+
+
+def _decision(provider: dict, klass: str, role: str, reason: str) -> dict:
+    return {
+        "provider": provider,
+        "model": (provider or {}).get("model", ""),
+        "klass": klass,
+        "role": role,
+        "reason": reason,
+        "auto": True,
+    }
 
 
 def failover(

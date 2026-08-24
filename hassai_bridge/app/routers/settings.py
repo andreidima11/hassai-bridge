@@ -396,6 +396,19 @@ async def get_routing():
     }
 
 
+def _clean_role_models(raw) -> dict:
+    """Keep only the routing roles that pick a model, with trimmed values."""
+    from services.router import ROLES
+
+    if not isinstance(raw, dict):
+        return {}
+    return {
+        role: str(raw.get(role) or "").strip()
+        for role in ROLES
+        if str(raw.get(role) or "").strip()
+    }
+
+
 @router.post("/providers")
 async def add_provider(data: dict):
     """Add a new provider."""
@@ -449,6 +462,7 @@ async def add_provider(data: dict):
         "max_tokens": max_tokens,
         "temperature": temperature,
         "system_prompt": system_prompt,
+        "role_models": _clean_role_models(data.get("role_models")),
         "eco_mode": bool(data.get("eco_mode", False)),
         "secondary_provider": str(data.get("secondary_provider") or "").strip(),
         "vision_provider": str(data.get("vision_provider") or "").strip(),
@@ -469,11 +483,13 @@ async def update_provider(provider_id: str, data: dict):
     cfg = load_config()
     for p in cfg.get("providers", []):
         if p["id"] == provider_id:
-            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "image_generation_provider", "eco_mode", "thinking_mode"):
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "image_generation_provider", "eco_mode", "thinking_mode", "role_models"):
                 if key in data:
                     val = data[key]
                     if key == "system_prompt" and isinstance(val, str):
                         val = val.strip()
+                    elif key == "role_models":
+                        val = _clean_role_models(val)
                     p[key] = val
             if p.get("base_url"):
                 p["base_url"] = providers.normalize_provider_base_url(p["base_url"])
