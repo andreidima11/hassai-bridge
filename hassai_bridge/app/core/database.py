@@ -183,6 +183,8 @@ def init_db():
                 secondary_used INTEGER NOT NULL DEFAULT 0,
                 cache_hit_tokens INTEGER NOT NULL DEFAULT 0,
                 cache_miss_tokens INTEGER NOT NULL DEFAULT 0,
+                cost_usd REAL NOT NULL DEFAULT 0,
+                route_reason TEXT NOT NULL DEFAULT '',
                 created_at REAL NOT NULL
             )
         """)
@@ -242,6 +244,15 @@ def init_db():
                         conn.execute(
                             f"ALTER TABLE usage_stats ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
                         )
+                    except sqlite3.OperationalError:
+                        pass
+            if row["version"] < 6:
+                for col, decl in (
+                    ("cost_usd", "REAL NOT NULL DEFAULT 0"),
+                    ("route_reason", "TEXT NOT NULL DEFAULT ''"),
+                ):
+                    try:
+                        conn.execute(f"ALTER TABLE usage_stats ADD COLUMN {col} {decl}")
                     except sqlite3.OperationalError:
                         pass
             conn.execute(
@@ -703,20 +714,22 @@ def add_usage_stat(user_id, provider_id, provider_name="", provider_type="",
                    model="", tokens_prompt=0, tokens_completion=0, tokens_total=0,
                    response_time_ms=0, stream=False, search_used=False,
                    eco_mode=False, secondary_used=False,
-                   cache_hit_tokens=0, cache_miss_tokens=0):
+                   cache_hit_tokens=0, cache_miss_tokens=0,
+                   cost_usd=0.0, route_reason=""):
     with get_db() as conn:
         conn.execute(
             """INSERT INTO usage_stats
                (user_id, provider_id, provider_name, provider_type, model,
                 tokens_prompt, tokens_completion, tokens_total,
                 response_time_ms, stream, search_used, eco_mode, secondary_used,
-                cache_hit_tokens, cache_miss_tokens, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                cache_hit_tokens, cache_miss_tokens, cost_usd, route_reason, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (user_id, provider_id, provider_name, provider_type, model,
              tokens_prompt, tokens_completion, tokens_total,
              response_time_ms, 1 if stream else 0, 1 if search_used else 0,
              1 if eco_mode else 0, 1 if secondary_used else 0,
              cache_hit_tokens, cache_miss_tokens,
+             float(cost_usd or 0.0), str(route_reason or ""),
              time.time()),
         )
 
@@ -738,11 +751,18 @@ def get_usage_stats(days=30):
                FROM usage_stats WHERE created_at >= ?""", (cutoff,)
         ).fetchone()
 
+        # Estimated spend — only as good as the price table behind it.
+        cost_total = conn.execute(
+            "SELECT COALESCE(SUM(cost_usd),0) as c FROM usage_stats WHERE created_at >= ?",
+            (cutoff,)
+        ).fetchone()["c"]
+
         # Per-provider stats
         by_provider = conn.execute(
             """SELECT provider_id, provider_name, provider_type,
                       COUNT(*) as requests,
                       COALESCE(SUM(tokens_total),0) as tokens,
+                      COALESCE(SUM(cost_usd),0) as cost_usd,
                       CAST(AVG(response_time_ms) AS INTEGER) as avg_response_ms
                FROM usage_stats WHERE created_at >= ?
                GROUP BY provider_id
@@ -848,6 +868,7 @@ def get_usage_stats(days=30):
             "completion": tokens["completion"],
             "total": tokens["total"],
         },
+        "cost_usd": round(float(cost_total or 0.0), 4),
         "by_provider": [dict(r) for r in by_provider],
         "by_model": [dict(r) for r in by_model],
         "by_user": [dict(r) for r in by_user],

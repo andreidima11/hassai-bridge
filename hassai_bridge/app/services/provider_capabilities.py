@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from services import deepseek as ds
 from services import grok as gk
+from services import qwen as qw
+from services import zai as zi
 
 THINKING = "thinking"
 KV_CACHE = "kv_cache"
@@ -46,6 +48,37 @@ def preset_capabilities(provider_type: str) -> dict:
                 "context_budget": 120000,
             },
         }
+    if provider_type == "gemini":
+        return {
+            KV_CACHE: {
+                # Gemini long context — leave room for tools + output.
+                "context_budget": 200000,
+            },
+        }
+    if provider_type == "qwen":
+        return {
+            THINKING: {
+                "modes": list(qw.THINKING_MODES),
+                "default": "auto",
+                "label": "thinking",
+                "note": "DashScope rejects thinking on non-streaming calls for some Qwen builds, "
+                        "so it is requested only while streaming.",
+            },
+            KV_CACHE: {
+                "context_budget": 120000,
+            },
+        }
+    if provider_type == "glm":
+        return {
+            THINKING: {
+                "modes": list(zi.THINKING_MODES),
+                "default": "auto",
+                "label": "thinking",
+            },
+            KV_CACHE: {
+                "context_budget": 120000,
+            },
+        }
     return {}
 
 
@@ -66,6 +99,10 @@ def provider_chat_capabilities(provider: dict | None) -> dict:
             thinking["default"] = ds.normalize_thinking_mode(provider.get("thinking_mode"))
         elif ptype == "grok":
             thinking["default"] = gk.normalize_thinking_mode(provider.get("thinking_mode"))
+        elif ptype == "qwen":
+            thinking["default"] = qw.normalize_thinking_mode(provider.get("thinking_mode"))
+        elif ptype == "glm":
+            thinking["default"] = zi.normalize_thinking_mode(provider.get("thinking_mode"))
         caps[THINKING] = thinking
     return caps
 
@@ -139,6 +176,18 @@ def kv_context_budget(provider: dict | None) -> int:
     return int(kv.get("context_budget") or 98000)
 
 
+def context_budget(provider: dict | None) -> int:
+    """Prompt budget for a provider — KV window, or a multiple of max_tokens."""
+    if supports_kv_cache(provider):
+        return kv_context_budget(provider)
+    if not isinstance(provider, dict):
+        return 2048 * 3
+    try:
+        return int(provider.get("max_tokens", 2048)) * 3
+    except (TypeError, ValueError):
+        return 2048 * 3
+
+
 def cache_tokens_from_usage(provider: dict | None, usage: dict | None) -> tuple[int, int]:
     if not isinstance(provider, dict) or not isinstance(usage, dict):
         return 0, 0
@@ -149,6 +198,10 @@ def cache_tokens_from_usage(provider: dict | None, usage: dict | None) -> tuple[
         return hit, miss
     if ptype == "grok":
         return gk.cache_tokens_from_usage(usage)
+    if ptype == "glm":
+        return zi.cache_tokens_from_usage(usage)
+    if ptype == "qwen":
+        return qw.cache_tokens_from_usage(usage)
     from services import openai_api as oai
 
     if oai.is_openai_provider(provider):
@@ -178,6 +231,20 @@ def resolve_thinking(
             user_text=user_text,
             tools_active=tools_active,
         )
+    if ptype == "qwen":
+        return qw.resolve_thinking(
+            provider,
+            override=override,
+            user_text=user_text,
+            tools_active=tools_active,
+        )
+    if ptype == "glm":
+        return zi.resolve_thinking(
+            provider,
+            override=override,
+            user_text=user_text,
+            tools_active=tools_active,
+        )
     return None
 
 
@@ -199,10 +266,20 @@ def prepare_messages_for_request(
     DeepSeek requires reasoning_content on every assistant turn whenever the
     request carries ``tools`` — independent of the current thinking toggle,
     because earlier turns in the same conversation may have used thinking.
+
+    Providers without vision get image parts stripped from the whole history:
+    an old photo left in the transcript is an HTTP 400 on a text-only model, not
+    something it quietly skips.
     """
+    from services import chat_content as cc
+    from services import providers as pv
+
+    shaped = messages
+    if not pv.provider_supports_vision(provider) and cc.messages_have_images(shaped):
+        shaped = cc.strip_all_images(shaped)
     if provider.get("type") == "deepseek" and tools:
-        return ds.prepare_messages_for_tools(messages)
-    return messages
+        return ds.prepare_messages_for_tools(shaped)
+    return shaped
 
 
 def apply_provider_payload_extras(payload: dict, provider: dict, thinking: dict | None, *, has_images: bool = False) -> None:
@@ -211,6 +288,34 @@ def apply_provider_payload_extras(payload: dict, provider: dict, thinking: dict 
         ds.apply_thinking_payload(payload, thinking)
     elif ptype == "grok":
         gk.apply_thinking_payload(payload, thinking, provider=provider, has_images=has_images)
+    elif ptype == "qwen":
+        qw.apply_thinking_payload(payload, thinking, provider=provider)
+    elif ptype == "glm":
+        zi.apply_thinking_payload(payload, thinking, provider=provider)
+
+
+def sanitize_tool_choice(provider: dict | None, value):
+    """Narrow tool_choice to what the provider actually accepts."""
+    ptype = (provider or {}).get("type", "")
+    if ptype == "glm":
+        return zi.sanitize_tool_choice(value)
+    if ptype == "qwen":
+        return qw.sanitize_tool_choice(value)
+    return value
+
+
+def shape_tools_for_provider(provider: dict | None, tools: list | None) -> list | None:
+    """Fill in fields a provider requires on function declarations."""
+    if (provider or {}).get("type") == "glm":
+        return zi.shape_tools(tools)
+    return tools
+
+
+def clamp_temperature(provider: dict | None, value):
+    """Clamp sampling to the provider's accepted range (GLM tops out at 1.0)."""
+    if (provider or {}).get("type") == "glm":
+        return zi.clamp_temperature(value)
+    return value
 
 
 def assistant_turn(provider: dict, message: dict) -> dict:

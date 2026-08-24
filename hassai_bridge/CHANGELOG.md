@@ -1,5 +1,21 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.12
+
+Gemini and Qwen join the provider list, and the bridge can now pick the provider for you.
+
+### Features
+- **Gemini (Google) and Qwen (DashScope)** as provider types, primary and secondary. Pick the type and the URL fills itself in — Gemini uses the OpenAI-compatible endpoint, Qwen defaults to the international DashScope one (switch the host for a China key)
+- **Auto mode** (Settings → Providers) picks the provider per message instead of always using the active one: cheap models for short chat and device commands, a stronger one for planning, a vision-capable one for photos. Roles are worked out from whatever providers you have, so it works the moment you switch it on
+- A conversation **stays on its provider**, because moving mid-thread throws away the cached prompt — on DeepSeek that costs far more than the peak-hour surcharge it would avoid
+- **Transparent failover** — if the chosen provider fails, Auto answers from the next healthy one instead of showing an error. A provider that keeps failing is skipped for a couple of minutes. Manual mode never switches behind your back
+- **Estimated cost per provider** in Statistics, from a price table you can edit in Settings. Peak hours are part of that table, so a provider changing its pricing no longer needs a new release. Prices older than 90 days stop influencing Auto mode and say so
+
+### Fix
+- **GLM (z.ai)** — temperature above 1.0, forced tool choices, and functions without a description or parameters were all rejected by the API; requests are now shaped to what GLM accepts. Thinking mode and prompt-cache reporting work too
+- **Qwen (DashScope)** — thinking is only requested while streaming, since several Qwen builds reject it on non-streaming calls, and it is left alone entirely on the always-thinking models
+- **Photos in older messages** no longer break a reply after switching to a provider without vision
+
 ## 1.0.11
 
 Provider Personality finally sticks, and web search sits with the other tool toggles.

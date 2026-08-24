@@ -31,6 +31,8 @@ CONFIG_SECTIONS = (
     "active_provider",
     "providers",
     "secondary_providers",
+    "routing",
+    "pricing",
     "users",
     "language",
     "dynamic_greetings",

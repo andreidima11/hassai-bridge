@@ -85,6 +85,11 @@ def normalize_thinking_mode(value: str | None, default: str = "auto") -> str:
     return mode if mode in THINKING_MODES else default
 
 
+def looks_like_planning(text: str) -> bool:
+    """Planning / analysis intent, shared by thinking and by provider routing."""
+    return bool(_PLANNING_RE.search(str(text or "").lower()))
+
+
 def auto_thinking_decision(user_text: str, *, tools_active: bool = False) -> dict:
     """Heuristic: simple chat off, planning / HA control on.
 

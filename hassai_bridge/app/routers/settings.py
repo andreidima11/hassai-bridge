@@ -59,6 +59,8 @@ class SettingsUpdate(BaseModel):
     bridge_tools: dict | None = None
     active_provider: str | None = None
     providers: list | None = None
+    routing: dict | None = None
+    pricing: dict | None = None
 
 
 @router.get("/")
@@ -256,7 +258,16 @@ async def update_settings(data: SettingsUpdate):
         cfg["active_provider"] = data.active_provider
     if data.providers is not None:
         cfg["providers"] = data.providers
+    if data.routing is not None:
+        cfg.setdefault("routing", {}).update(data.routing)
+    if data.pricing is not None:
+        cfg.setdefault("pricing", {}).update(data.pricing)
     save_config(cfg)
+    if data.routing is not None or data.providers is not None:
+        # Role assignments and provider edits invalidate sticky sessions.
+        from services import router as provider_router
+
+        provider_router.reset_state()
     return {"status": "ok", "config": cfg}
 
 
@@ -357,6 +368,31 @@ async def list_providers():
     return {
         "providers": cfg.get("providers", []),
         "active_provider": cfg.get("active_provider", ""),
+    }
+
+
+@router.get("/routing")
+async def get_routing():
+    """Auto mode config plus what it would pick with the current providers."""
+    from services import pricing as pr
+    from services import router as provider_router
+
+    cfg = load_config()
+    conf = provider_router.routing_config(cfg)
+    pool = [p for p in (cfg.get("providers") or []) if isinstance(p, dict) and p.get("id")]
+    derived = provider_router.derive_roles(pool, cfg)
+    return {
+        "routing": conf,
+        "roles_effective": {
+            role: (conf["roles"].get(role) or (derived.get(role) or {}).get("id", ""))
+            for role in provider_router.ROLES
+        },
+        "roles_derived": {
+            role: (derived.get(role) or {}).get("id", "") for role in provider_router.ROLES
+        },
+        "tiers": {p["id"]: pr.tier(p, cfg) for p in pool},
+        "pricing": pr.public_status(cfg),
+        "unhealthy": provider_router.breaker_state(),
     }
 
 

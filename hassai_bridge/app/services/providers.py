@@ -1,7 +1,8 @@
 """
 Multi-provider LLM service.
 
-Supports: Local (LM Studio, Ollama, etc.), OpenAI, Grok (xAI), DeepSeek, GLM (Zhipu).
+Supports: Local (LM Studio, Ollama, etc.), OpenAI, Grok (xAI), DeepSeek, GLM (Zhipu),
+Gemini (Google), Qwen (DashScope).
 All providers use the OpenAI-compatible /v1/chat/completions format.
 """
 
@@ -61,6 +62,18 @@ PROVIDER_PRESETS = {
         "base_url": "https://api.z.ai/api/paas/v4",
         "requires_key": True,
     },
+    "gemini": {
+        "name": "Gemini (Google)",
+        # OpenAI-compatible Chat Completions surface (ai.google.dev/gemini-api/docs/openai)
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "requires_key": True,
+    },
+    "qwen": {
+        "name": "Qwen (DashScope)",
+        # International OpenAI-compatible endpoint; China keys use dashscope.aliyuncs.com
+        "base_url": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+        "requires_key": True,
+    },
 }
 
 
@@ -81,6 +94,10 @@ def provider_supports_vision(provider: dict | None) -> bool:
         return False
     if provider.get("type") == "grok":
         # xAI Grok chat models (incl. grok-4 / grok-4.6) accept text + image input.
+        model = str(provider.get("model") or "").strip()
+        return bool(model)
+    if provider.get("type") == "gemini":
+        # Gemini chat models on the OpenAI-compat endpoint accept images.
         model = str(provider.get("model") or "").strip()
         return bool(model)
     model = str(provider.get("model") or "").strip()
@@ -272,6 +289,19 @@ def _normalize_base_url(raw: str) -> str:
     return url
 
 
+def _base_includes_api_root(base: str) -> bool:
+    """True when base_url already includes the API version / compat root.
+
+    Matches /v1, /v4, /v1beta, …/openai, …/compatible-mode — so we do not
+    incorrectly append another /v1 (Gemini OpenAI-compat is …/v1beta/openai).
+    """
+    if re.search(r"/v\d+[a-z]*(/|$)", base, re.I):
+        return True
+    if re.search(r"/(openai|compatible-mode)(/|$)", base, re.I):
+        return True
+    return False
+
+
 def _build_url(provider: dict, path: str) -> str:
     """Build the full API URL for a provider.
 
@@ -280,15 +310,15 @@ def _build_url(provider: dict, path: str) -> str:
       - With version:  https://api.x.ai/v1           → /chat/completions
       - Full endpoint: https://api.deepseek.com/chat/ → stripped, then rebuilt
       - Custom base:   https://api.z.ai/api/paas/v4  → /chat/completions
+      - Gemini compat: …/v1beta/openai               → /chat/completions
+      - Qwen compat:   …/compatible-mode/v1          → /chat/completions
     """
     base = _normalize_base_url(provider.get("base_url", ""))
     # Strip /v1 prefix from the requested path — we decide whether to add it
     clean_path = re.sub(r"^/v1", "", path)  # e.g. "/chat/completions", "/models"
 
-    # If base already contains a version segment (/v1, /v2, /v4 …), keep it
-    if re.search(r"/v\d+(/|$)", base):
+    if _base_includes_api_root(base):
         return base + clean_path
-    # Otherwise prepend /v1
     return base + "/v1" + clean_path
 
 
@@ -410,13 +440,13 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
         "stream": stream,
     }
     if tools:
-        payload["tools"] = tools
+        payload["tools"] = pc.shape_tools_for_provider(provider, tools)
     if tool_choice is not None:
-        payload["tool_choice"] = tool_choice
+        payload["tool_choice"] = pc.sanitize_tool_choice(provider, tool_choice)
     _apply_token_limit(payload, provider, request_url=url)
     temperature = provider.get("temperature")
     if temperature is not None and not _skip_temperature(provider, thinking, model=used_model):
-        payload["temperature"] = temperature
+        payload["temperature"] = pc.clamp_temperature(provider, temperature)
 
     if thinking and pc.supports_thinking(provider):
         pc.apply_provider_payload_extras(
@@ -510,13 +540,13 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
         "stream": True,
     }
     if tools:
-        payload["tools"] = tools
+        payload["tools"] = pc.shape_tools_for_provider(provider, tools)
     if tool_choice is not None:
-        payload["tool_choice"] = tool_choice
+        payload["tool_choice"] = pc.sanitize_tool_choice(provider, tool_choice)
     _apply_token_limit(payload, provider, request_url=url)
     temperature = provider.get("temperature")
     if temperature is not None and not _skip_temperature(provider, thinking, model=used_model):
-        payload["temperature"] = temperature
+        payload["temperature"] = pc.clamp_temperature(provider, temperature)
 
     if thinking and pc.supports_thinking(provider):
         pc.apply_provider_payload_extras(

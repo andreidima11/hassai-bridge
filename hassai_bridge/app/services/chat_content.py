@@ -78,6 +78,27 @@ def strip_non_user_images(messages: list[dict] | None) -> list[dict]:
     return out
 
 
+def strip_all_images(messages: list[dict] | None) -> list[dict]:
+    """Drop every image_url part, including from user turns.
+
+    Text-only models reject image parts left in the history rather than ignoring
+    them — DashScope answers with "Unexpected item type in content" — so a
+    conversation that once had a photo must be flattened before it is replayed
+    to a provider without vision.
+    """
+    out: list[dict] = []
+    for msg in messages or []:
+        content = msg.get("content")
+        if not has_images(content):
+            out.append(msg)
+            continue
+        text = content_text(content)
+        cleaned = dict(msg)
+        cleaned["content"] = text if text else "(image shown in chat)"
+        out.append(cleaned)
+    return out
+
+
 def content_size(content: Any) -> int:
     if isinstance(content, str):
         return len(content)

@@ -46,6 +46,9 @@ from services import chat_content as cc
 from services import chat_media as cm
 from services import memory_tools as mt
 from services import bridge_tools as bt
+from services import pricing
+# `router` is the FastAPI APIRouter below — alias the routing service.
+from services import router as provider_router
 
 log = logging.getLogger("hassai.chat")
 router = APIRouter()
@@ -1630,9 +1633,7 @@ def _trim_messages(messages: list[dict], max_tokens: int) -> list[dict]:
 
 
 def _context_budget(provider: dict) -> int:
-    if pc.supports_kv_cache(provider):
-        return pc.kv_context_budget(provider)
-    return int(provider.get("max_tokens", 2048)) * 3
+    return pc.context_budget(provider)
 
 
 def _trim_messages_kv_friendly(messages: list[dict], max_tokens: int) -> list[dict]:
@@ -2099,14 +2100,9 @@ async def chat_completions(request: Request):
     all_tools.extend(mt.build_tools(cfg))
     all_tools.extend(bt.build_tools(cfg))
     all_tools.extend(ha_api.build_ha_tools(cfg))
-    active = get_active_provider()
-    request_has_images = cc.messages_have_images(messages)
-    image_gen_provider = providers.resolve_image_generation_provider(active)
-    if image_gen_provider and pc.supports_image_generation(image_gen_provider) and not request_has_images:
-        all_tools.append(pc.build_image_generation_tool(image_gen_provider))
-    effective_tools = all_tools if all_tools else None
 
-    # ── Slash command check ──
+    # The last user turn is read before routing: Auto mode classifies the turn
+    # to decide which provider answers it.
     last_user_message: dict | None = None
     last_user_msg = ""
     for msg in reversed(messages):
@@ -2114,6 +2110,28 @@ async def chat_completions(request: Request):
             last_user_message = msg
             last_user_msg = cc.content_text(msg.get("content"))
             break
+
+    request_has_images = cc.messages_have_images(messages)
+    route = provider_router.resolve(
+        cfg,
+        active=get_active_provider(),
+        session_id=session_id or "",
+        user_text=last_user_msg,
+        has_images=request_has_images,
+        tools_active=bool(all_tools),
+        prompt_tokens=sum(_estimate_tokens(m.get("content")) for m in messages),
+    )
+    active = route["provider"]
+    if route["auto"]:
+        log.info(
+            "[%s] Auto route → %s (class=%s, %s)",
+            user_id, active.get("name", "?"), route["klass"], route["reason"],
+        )
+
+    image_gen_provider = providers.resolve_image_generation_provider(active)
+    if image_gen_provider and pc.supports_image_generation(image_gen_provider) and not request_has_images:
+        all_tools.append(pc.build_image_generation_tool(image_gen_provider))
+    effective_tools = all_tools if all_tools else None
 
     # Authenticate when an API key is configured
     _validate_api_key(request)
@@ -2340,25 +2358,54 @@ async def chat_completions(request: Request):
     if not stream and not background:
         think_t0 = time.time()
         await emit_think("think-0", "running")
-        try:
-            await _check_trace(trace_id)
-            result = await providers.chat_completion(
-                augmented,
-                model=model,
-                tools=effective_tools,
-                tool_choice=tool_choice,
-                provider=chat_provider,
-                thinking=pc.thinking_for_provider(thinking_cfg, chat_provider),
-                cache_conv_id=session_id,
-            )
-        except TraceCancelled:
-            log.info("[%s] Chat cancelled trace=%s (before first call)", user_id, trace_id)
-            _trace_done(trace_id)
-            return JSONResponse(content=_cancelled_openai_response(model, activity_events))
-        except Exception as e:
-            log.error(f"Provider [{chat_provider.get('name', '?')}] request failed: {e}")
-            _trace_done(trace_id)
-            return _provider_upstream_error(e)
+        tried: list[str] = []
+        while True:
+            try:
+                await _check_trace(trace_id)
+                result = await providers.chat_completion(
+                    augmented,
+                    model=model,
+                    tools=effective_tools,
+                    tool_choice=tool_choice,
+                    provider=chat_provider,
+                    thinking=pc.thinking_for_provider(thinking_cfg, chat_provider),
+                    cache_conv_id=session_id,
+                )
+                break
+            except TraceCancelled:
+                log.info("[%s] Chat cancelled trace=%s (before first call)", user_id, trace_id)
+                _trace_done(trace_id)
+                return JSONResponse(content=_cancelled_openai_response(model, activity_events))
+            except Exception as e:
+                log.error(f"Provider [{chat_provider.get('name', '?')}] request failed: {e}")
+                provider_router.record_failure(chat_provider.get("id", ""))
+                tried.append(chat_provider.get("id", ""))
+                # Auto mode moves to the next healthy candidate instead of
+                # handing the user an error from a provider they never picked.
+                alternate = provider_router.failover(
+                    cfg,
+                    tried=tried,
+                    session_id=session_id or "",
+                    user_text=last_user_msg,
+                    has_images=request_has_images,
+                    tools_active=bool(effective_tools),
+                )
+                if alternate is None:
+                    _trace_done(trace_id)
+                    return _provider_upstream_error(e)
+                log.warning(
+                    "[%s] Falling back to %s after %s failed",
+                    user_id, alternate.get("name", "?"), chat_provider.get("name", "?"),
+                )
+                chat_provider = alternate
+                route = {**route, "reason": "failover"}
+                thinking_cfg = pc.resolve_thinking(
+                    chat_provider,
+                    override=thinking_override,
+                    user_text=last_user_msg,
+                    tools_active=bool(effective_tools),
+                )
+        provider_router.record_success(chat_provider.get("id", ""))
         first_msg = result.get("choices", [{}])[0].get("message", {})
         pc.log_provider_usage(chat_provider, result.get("usage"), user_id=user_id)
         await emit_think("think-0", "done", think_t0, _message_reasoning(first_msg))
@@ -2530,10 +2577,12 @@ async def chat_completions(request: Request):
         log.info(f"[{user_id}] Response: {len(assistant_content or '')} chars, {_elapsed_ms}ms, search={_search_used}")
         try:
             usage = result.get("usage", {})
+            # chat_provider, not active: vision rerouting and Auto-mode failover
+            # can move the call, and billing must follow the provider that ran.
             stat_prov = (
                 image_provider
                 if _image_provider_used
-                else (secondary if _secondary_used_for_recall and secondary else active)
+                else (secondary if _secondary_used_for_recall and secondary else chat_provider)
             )
             cache_hit, cache_miss = pc.cache_tokens_from_usage(stat_prov, usage)
             add_usage_stat(
@@ -2545,16 +2594,28 @@ async def chat_completions(request: Request):
                 tokens_total=usage.get("total_tokens", 0),
                 response_time_ms=int((time.time() - _req_start) * 1000),
                 stream=False, search_used=_search_used,
-                eco_mode=bool(active.get("eco_mode")),
+                eco_mode=bool(chat_provider.get("eco_mode")),
                 secondary_used=_image_provider_used or _secondary_used_for_recall,
                 cache_hit_tokens=cache_hit,
                 cache_miss_tokens=cache_miss,
+                cost_usd=pricing.estimate_cost(
+                    stat_prov,
+                    {**usage, "cache_hit_tokens": cache_hit, "cache_miss_tokens": cache_miss},
+                    cfg,
+                ),
+                route_reason=route["reason"],
             )
         except Exception:
             pass
 
         _trace_done(trace_id)
         result["hassai_activity"] = activity_events
+        result["hassai_route"] = {
+            "provider": chat_provider.get("name", ""),
+            "reason": route["reason"],
+            "klass": route["klass"],
+            "auto": route["auto"],
+        }
         return JSONResponse(content=result)
 
     # ── Streaming path ──
@@ -2865,11 +2926,12 @@ async def chat_completions(request: Request):
 
             _stream_elapsed = int((time.time() - _req_start) * 1000)
             log.info(f"[{user_id}] Stream response: {len(full_response)} chars, {_stream_elapsed}ms, search={search_used}")
+            provider_router.record_success(chat_provider.get("id", ""))
             try:
                 stat_prov = (
                     image_provider
                     if _image_provider_used
-                    else (secondary if secondary_used and secondary else active)
+                    else (secondary if secondary_used and secondary else chat_provider)
                 )
                 if stream_usage:
                     pc.log_provider_usage(stat_prov, stream_usage, user_id=user_id)
@@ -2895,10 +2957,20 @@ async def chat_completions(request: Request):
                         ),
                         response_time_ms=int((time.time() - _req_start) * 1000),
                         stream=True, search_used=search_used,
-                        eco_mode=bool(active.get("eco_mode")),
+                        eco_mode=bool(chat_provider.get("eco_mode")),
                         secondary_used=secondary_used,
                         cache_hit_tokens=cache_hit,
                         cache_miss_tokens=cache_miss,
+                        cost_usd=pricing.estimate_cost(
+                            stat_prov,
+                            {
+                                **stream_usage,
+                                "cache_hit_tokens": cache_hit,
+                                "cache_miss_tokens": cache_miss,
+                            },
+                            cfg,
+                        ),
+                        route_reason=route["reason"],
                     )
                 else:
                     add_usage_stat(
@@ -2909,8 +2981,17 @@ async def chat_completions(request: Request):
                         tokens_total=_prompt_tokens + _estimate_tokens(full_response),
                         response_time_ms=int((time.time() - _req_start) * 1000),
                         stream=True, search_used=search_used,
-                        eco_mode=bool(active.get("eco_mode")),
+                        eco_mode=bool(chat_provider.get("eco_mode")),
                         secondary_used=secondary_used,
+                        cost_usd=pricing.estimate_cost(
+                            stat_prov,
+                            {
+                                "prompt_tokens": _prompt_tokens,
+                                "completion_tokens": _estimate_tokens(full_response),
+                            },
+                            cfg,
+                        ),
+                        route_reason=route["reason"],
                     )
             except Exception:
                 pass
@@ -2924,6 +3005,7 @@ async def chat_completions(request: Request):
 
             safe = sanitize_error_message(f"Provider error: {e}")
             log.error("[%s] Stream/background job failed: %s", user_id, e)
+            provider_router.record_failure(chat_provider.get("id", ""))
             await on_stream_activity({
                 "id": "assistant-out",
                 "name": "assistant",
