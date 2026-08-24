@@ -2889,8 +2889,12 @@ async function uploadChunked(file, kind) {
     });
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({}));
-      const detail = err.detail || `HTTP ${resp.status}`;
-      throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      let detail = err.detail || err.error || `HTTP ${resp.status}`;
+      if (typeof detail !== 'string') detail = JSON.stringify(detail);
+      if (resp.status === 429) {
+        detail = 'Rate limit during upload — wait ~1 minute, or copy the ZIP to /share and use Import from /share';
+      }
+      throw new Error(detail);
     }
     offset = end;
     const pct = Math.min(100, Math.round((offset / file.size) * 100));

@@ -58,6 +58,17 @@ _rate_buckets: dict[str, list[float]] = defaultdict(list)
 _RATE_LIMIT = 60  # requests per minute
 _RATE_WINDOW = 60.0  # seconds
 _RATE_MAX_IPS = 10000  # max tracked IPs
+# Chunked backup restore can be 80+ POSTs for a large ZIP — never throttle those.
+_RATE_LIMIT_EXEMPT_PREFIXES = (
+    "/api/settings/import/",
+    "/api/settings/export",
+    "/api/settings/backup",
+    "/api/settings/restore",
+)
+
+
+def _rate_limit_exempt(path: str) -> bool:
+    return any(path.startswith(prefix) for prefix in _RATE_LIMIT_EXEMPT_PREFIXES)
 
 
 @asynccontextmanager
@@ -201,8 +212,12 @@ async def rate_limit_and_timing(request: Request, call_next):
     start = time.time()
     path = request.url.path
 
-    # Rate limit chat and API endpoints (skip live activity polls)
-    if path.startswith(("/v1/", "/api/")) and "/chat/activity/" not in path:
+    # Rate limit chat and API endpoints (skip live activity polls + backup import/export)
+    if (
+        path.startswith(("/v1/", "/api/"))
+        and "/chat/activity/" not in path
+        and not _rate_limit_exempt(path)
+    ):
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
         bucket = _rate_buckets[client_ip]

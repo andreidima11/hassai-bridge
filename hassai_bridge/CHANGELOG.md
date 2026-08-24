@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.29
+
+Backup restore no longer hits HTTP 429 on large ZIP uploads.
+
+### Fix
+- **Restore ZIP → HTTP 429** — chunked import/export paths are exempt from the 60 req/min API rate limit (a ~20MB backup needs 80+ chunk POSTs)
+
 ## 1.0.28
 
 Eco Mode settings tab — all compact/token options in one place.
