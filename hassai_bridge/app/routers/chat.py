@@ -453,6 +453,9 @@ def _trace_start(
     *,
     session_id: str | None = None,
     user_id: str | None = None,
+    model: str | None = None,
+    provider_name: str | None = None,
+    route: dict | None = None,
 ) -> None:
     if not trace_id:
         return
@@ -466,6 +469,9 @@ def _trace_start(
         "user_id": str(user_id or ""),
         "status": "running",
         "error": "",
+        "model": str(model or "").strip(),
+        "provider": str(provider_name or "").strip(),
+        "route": dict(route) if isinstance(route, dict) else {},
     }
 
 
@@ -556,6 +562,8 @@ def _activity_status_payload(bucket: dict | None, after: int = -1) -> dict:
         "status": status,
         "session_id": bucket.get("session_id") or "",
         "error": bucket.get("error") or "",
+        "model": bucket.get("model") or "",
+        "provider": bucket.get("provider") or "",
     }
 
 
@@ -598,7 +606,7 @@ def _compact_activity(events: list | None) -> list[dict]:
         if not isinstance(ev, dict):
             continue
         # Live token previews are for the UI poll only — don't persist the full reply.
-        if ev.get("name") == "assistant":
+        if ev.get("name") in ("assistant", "route"):
             continue
         eid = str(ev.get("id") or "")
         if not eid:
@@ -661,6 +669,10 @@ def _activity_meta(
     attachments: list | None = None,
     reasoning_content: str | None = None,
     tool_calls: list | None = None,
+    *,
+    model: str | None = None,
+    provider_name: str | None = None,
+    route: dict | None = None,
 ) -> dict | None:
     merged = list(events or [])
     if trace_id and trace_id in _traces:
@@ -675,6 +687,16 @@ def _activity_meta(
         meta["attachments"] = attachments
     if tool_calls:
         meta["tool_calls"] = tool_calls
+    model_name = str(model or "").strip()
+    if model_name:
+        meta["model"] = model_name
+    prov = str(provider_name or "").strip()
+    if prov:
+        meta["provider"] = prov
+    if isinstance(route, dict):
+        for key in ("role", "reason", "klass", "auto"):
+            if key in route:
+                meta[f"route_{key}" if key != "auto" else "route_auto"] = route[key]
     reasoning = _store_reasoning(reasoning_content)
     if reasoning:
         meta["reasoning_content"] = reasoning
@@ -2399,11 +2421,36 @@ async def chat_completions(request: Request):
     _search_used = False
     _secondary_used_for_recall = False  # tracks if secondary/vision handled a re-call (search/skill)
     _image_provider_used = image_provider is not None
-    _trace_start(trace_id, session_id=session_id, user_id=user_id)
+    _trace_start(
+        trace_id,
+        session_id=session_id,
+        user_id=user_id,
+        model=chat_provider.get("model", ""),
+        provider_name=chat_provider.get("name", ""),
+        route={
+            "role": route.get("role") or "",
+            "reason": route.get("reason") or "",
+            "klass": route.get("klass") or "",
+            "auto": bool(route.get("auto")),
+        },
+    )
     activity_events: list[dict] = []
 
     async def on_activity(event: dict):
         activity_events.append(_trace_push(trace_id, event))
+
+    # Tell the Web UI which model Auto actually picked (not the Settings default).
+    # Pushed to the live trace only — not stored as a thinking/tool step.
+    if route.get("auto") or chat_provider.get("model"):
+        _trace_push(trace_id, {
+            "id": "route",
+            "name": "route",
+            "detail": chat_provider.get("model") or "",
+            "status": "done",
+            "provider": chat_provider.get("name") or "",
+            "role": route.get("role") or "",
+            "reason": route.get("reason") or "",
+        })
 
     async def emit_think(
         think_id: str,
@@ -2635,6 +2682,9 @@ async def chat_completions(request: Request):
                     generated_attachments,
                     reasoning_content=_message_reasoning_full(final_msg),
                     tool_calls=turn_tools,
+                    model=chat_provider.get("model", ""),
+                    provider_name=chat_provider.get("name", ""),
+                    route=route,
                 ),
             )
             if assistant_content:
@@ -2994,6 +3044,9 @@ async def chat_completions(request: Request):
                         attachments=generated_attachments,
                         reasoning_content=_store_reasoning(last_think_reasoning),
                         tool_calls=turn_tools,
+                        model=chat_provider.get("model", ""),
+                        provider_name=chat_provider.get("name", ""),
+                        route=route,
                     ),
                 )
                 if clean_response:

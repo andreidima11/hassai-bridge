@@ -307,18 +307,19 @@ def resolve(
 
     role = _CLASS_ROLE.get(klass, "fast")
 
-    # Stickiness: keep the session on its provider unless the turn escalates to
-    # deep work or the provider can no longer serve it.
+    # Stickiness: keep the session on its provider (prompt cache), but pick this
+    # turn's role — and therefore its model — fresh. Escalating to deep leaves
+    # sticky so a stronger provider can win; short follow-ups must not stay on
+    # the planning model when the user configured a cheap/fast one.
     if conf["sticky_session"] and session_id and not exclude:
         remembered = _sticky.get(session_id)
         if remembered and (now - remembered.get("ts", 0)) <= STICKY_TTL_SEC:
             held = _by_id(usable, remembered.get("provider_id", ""))
             escalating = klass == "deep" and remembered.get("role") != "deep"
             if held is not None and not escalating:
-                held_role = remembered.get("role") or role
-                _remember(session_id, held, held_role, now)
+                _remember(session_id, held, role, now)
                 return _decision(
-                    with_role_model(held, held_role), klass, held_role, "sticky",
+                    with_role_model(held, role), klass, role, "sticky",
                 )
 
     configured = _by_id(usable, conf["roles"].get(role, ""))

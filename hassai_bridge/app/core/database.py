@@ -680,6 +680,12 @@ def get_session_messages(user_id, session_id, limit=100):
         attachments = meta.get("attachments")
         if isinstance(attachments, list) and attachments:
             item["attachments"] = attachments
+        model = str(meta.get("model") or "").strip()
+        if model:
+            item["model"] = model
+        provider = str(meta.get("provider") or "").strip()
+        if provider:
+            item["provider"] = provider
         out.append(item)
     return out
 

@@ -192,6 +192,7 @@ export default function App() {
             role: m.role,
             content: m.content || "",
             createdAt: m.created_at || null,
+            model: m.model || "",
             thinking: label ? next : emptyThinking(t("thinking")),
             ...(Array.isArray(m.attachments) && m.attachments.length
               ? { attachments: mapStoredAttachments(m.attachments) }
@@ -199,7 +200,13 @@ export default function App() {
           });
         } else {
           const content = m.content === "(image)" ? "" : m.content || "";
-          const row = { id: newId(), role: m.role, content, createdAt: m.created_at || null };
+          const row = {
+            id: newId(),
+            role: m.role,
+            content,
+            createdAt: m.created_at || null,
+            ...(m.role === "assistant" && m.model ? { model: m.model } : {}),
+          };
           if (Array.isArray(m.attachments) && m.attachments.length) {
             row.attachments = mapStoredAttachments(m.attachments);
           }
@@ -284,6 +291,11 @@ export default function App() {
         if (typeof ev?.i === "number") {
           if (seenActivity.has(ev.i)) return;
           seenActivity.add(ev.i);
+        }
+        if (ev?.name === "route") {
+          const model = String(ev.detail || "").trim();
+          if (model) patchAssistant((m) => ({ ...m, model }));
+          return;
         }
         if (ev?.name === "assistant" && typeof ev.detail === "string") {
           patchAssistant((m) => ({ ...m, content: ev.detail }));
@@ -370,6 +382,7 @@ export default function App() {
           id: chat.provider_id || "",
           name: chat.provider_name || "",
           model: chat.model || "",
+          auto: Boolean(chat.auto),
         });
         if (hasThinkingCapability(caps)) {
           setThinkingMode((prev) => readStoredThinkingMode(defaultThinkingMode(caps) || prev));
@@ -679,7 +692,8 @@ export default function App() {
         role: "assistant",
         content: "",
         createdAt: now,
-        model: providerInfo.model || providerInfo.name || "",
+        // Auto picks per turn — don't label with the Settings default model.
+        model: providerInfo.auto ? "" : (providerInfo.model || providerInfo.name || ""),
         streaming: true,
         thinking: { ...emptyThinking(t("thinking")), visible: true, active: true },
       },
@@ -874,7 +888,7 @@ export default function App() {
             greeting={<WelcomeHero hint={greeting.hint} title={greeting.title} />}
             lang={lang}
             messages={messages}
-            modelLabel={providerInfo.model || providerInfo.name || ""}
+            modelLabel={providerInfo.auto ? "" : (providerInfo.model || providerInfo.name || "")}
             userLabel={user.display_name || user.username || ""}
             onReuseMessage={reuseMessage}
           />

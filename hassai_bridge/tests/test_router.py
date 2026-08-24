@@ -293,7 +293,8 @@ def test_provider_without_role_models_keeps_its_model():
     assert rt.role_model(DEEPSEEK, "deep") == ""
 
 
-def test_sticky_turn_keeps_the_escalated_model():
+def test_sticky_provider_still_picks_fast_model_on_short_follow_up():
+    """Provider stickiness must not lock the planning model onto short chat."""
     cfg = _dual_cfg()
     rt.resolve(
         cfg, providers=[DUAL], active=DUAL, session_id="m1",
@@ -304,7 +305,24 @@ def test_sticky_turn_keeps_the_escalated_model():
         user_text="mersi", tools_active=True,
     )
     assert follow_up["reason"] == "sticky"
-    assert follow_up["provider"]["model"] == "deepseek-reasoner"
+    assert follow_up["provider"]["id"] == DUAL["id"]
+    assert follow_up["role"] == "fast"
+    assert follow_up["provider"]["model"] == "deepseek-chat"
+
+
+def test_new_session_does_not_inherit_sticky_role():
+    cfg = _dual_cfg()
+    rt.resolve(
+        cfg, providers=[DUAL], active=DUAL, session_id="old",
+        user_text="hai sa planuim arhitectura sistemului", tools_active=True,
+    )
+    fresh = rt.resolve(
+        cfg, providers=[DUAL], active=DUAL, session_id="new",
+        user_text="ce faci", tools_active=True,
+    )
+    assert fresh["reason"] != "sticky"
+    assert fresh["role"] == "fast"
+    assert fresh["provider"]["model"] == "deepseek-chat"
 
 
 def test_manual_mode_reports_the_configured_model():
