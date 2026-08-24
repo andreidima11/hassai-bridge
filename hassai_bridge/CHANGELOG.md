@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.15
+
+Camera snapshots come back clean.
+
+### Fix
+- **No more broken "Generated image" under a snapshot** — camera snaps travelled in the same list as images the AI creates, so each one also got drawn a second time as a generated picture. The chat already shows the snapshot from the attachment; only images that really came from image generation are rendered that way now
+- **No more `[Photos shown in chat: …]` in the reply** — that note is meant only for the AI, to tell it the picture was already displayed. Models copied it into their own answers, sometimes half-written. It is now removed from the reply, from the live text as it arrives, and from the saved message
+
 ## 1.0.14
 
 Auto mode is now one tap away in the chat bar.
