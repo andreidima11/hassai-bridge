@@ -1,5 +1,16 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.13
+
+Auto mode now picks the model as well as the provider.
+
+### Features
+- **A cheap model and a strong one on the same provider** — each provider can name a model for short chat and device commands and another for planning and long context. Auto mode switches between them by itself, so DeepSeek can answer chitchat on `deepseek-chat` and plan on `deepseek-reasoner` without leaving the provider or its prompt cache. Leave them empty to keep using the single model as before
+- Once a conversation moves up to the stronger model it stays there, same as it stays on its provider
+
+### Fix
+- **Changing a provider's type no longer leaves the old API URL behind.** Editing a provider and switching it to Gemini or Qwen kept the previous address, so it quietly kept calling the old API. A custom URL is still left alone — proxies are a real use — but a mismatched address now shows a warning naming the expected one, and a **Use default** button next to the field fills in the right URL for the selected type
+
 ## 1.0.12
 
 Gemini and Qwen join the provider list, and the bridge can now pick the provider for you.
