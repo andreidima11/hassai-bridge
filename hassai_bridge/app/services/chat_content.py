@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from services import chat_media
@@ -207,6 +208,21 @@ def build_multimodal_content(
         # Keep markers for live LLM turns; stored display text is stripped separately.
         return str(parts[0]["text"])
     return parts
+
+
+# History replays a "[Photos shown in chat: …]" note on assistant turns that
+# carried a photo, so the model knows the picture was already displayed. Models
+# copy the formatting they see, so the note comes back in fresh replies — strip
+# it from anything the user reads. The closing bracket is optional because a
+# half-written echo is just as visible.
+_PHOTO_NOTE_RE = re.compile(r"[ \t]*\n{0,2}[ \t]*\[Photos shown in chat:[^\]\n]*\]?", re.I)
+
+
+def strip_photo_notes(text: str) -> str:
+    """Drop the photo replay marker if a model echoed it into its own reply."""
+    if not text or "photos shown in chat" not in text.lower():
+        return text
+    return _PHOTO_NOTE_RE.sub("", text).strip()
 
 
 def row_to_message(row: dict, *, user_id: str) -> dict:
