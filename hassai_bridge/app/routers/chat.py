@@ -242,6 +242,33 @@ def _recall_provider(
     return secondary or active
 
 
+_SECONDARY_TOOLS_HINT = (
+    "You are the tool-orchestration helper for this turn. "
+    "Call tools if you still need facts. "
+    "Do not write the final user-facing answer — another model will speak to the user."
+)
+
+
+def _messages_for_secondary_tools(messages: list[dict]) -> list[dict]:
+    """Transcript for secondary tool rounds (hint: tools only, no final voice)."""
+    return list(messages) + [{"role": "system", "content": _SECONDARY_TOOLS_HINT}]
+
+
+def _should_finalize_on_primary(
+    *,
+    active: dict,
+    secondary: dict | None,
+    call_provider: dict | None,
+    tool_calls: list | None,
+) -> bool:
+    """Secondary produced a text answer — primary should speak to the user."""
+    if not secondary or call_provider is None:
+        return False
+    if call_provider is not secondary and call_provider.get("id") != secondary.get("id"):
+        return False
+    return not (tool_calls or [])
+
+
 def _vision_required_error(cfg: dict) -> JSONResponse:
     lang = cfg.get("language") or "en"
     if lang == "ro":
@@ -2683,13 +2710,27 @@ async def chat_completions(request: Request):
                 elif image_provider and re_provider is image_provider:
                     _secondary_used_for_recall = True
                 last = _round >= round_limit - 1
+                # Last round has no tools — always speak with primary (not secondary).
+                if last and secondary and (
+                    re_provider is secondary
+                    or re_provider.get("id") == secondary.get("id")
+                ):
+                    re_provider = active
                 think_id = f"think-{_round + 1}"
                 think_t0 = time.time()
                 await emit_think(think_id, "running")
                 try:
                     await _check_trace(trace_id)
+                    recall_msgs = (
+                        _messages_for_secondary_tools(augmented)
+                        if secondary and (
+                            re_provider is secondary
+                            or re_provider.get("id") == secondary.get("id")
+                        )
+                        else augmented
+                    )
                     result = await providers.chat_completion(
-                        augmented,
+                        recall_msgs,
                         model=model,
                         tools=None if last else effective_tools,
                         tool_choice=tool_choice,
@@ -2707,6 +2748,37 @@ async def chat_completions(request: Request):
                 round_msg = result.get("choices", [{}])[0].get("message", {})
                 pc.log_provider_usage(re_provider, result.get("usage"), user_id=user_id)
                 await emit_think(think_id, "done", think_t0, _message_reasoning(round_msg))
+                # Secondary returned text without tools → discard and finalize on primary.
+                if _should_finalize_on_primary(
+                    active=active,
+                    secondary=secondary,
+                    call_provider=re_provider,
+                    tool_calls=round_msg.get("tool_calls"),
+                ):
+                    think_id_f = f"think-{_round + 1}-final"
+                    think_t0_f = time.time()
+                    await emit_think(think_id_f, "running")
+                    try:
+                        await _check_trace(trace_id)
+                        result = await providers.chat_completion(
+                            augmented,
+                            model=model,
+                            tools=None,
+                            tool_choice=tool_choice,
+                            provider=active,
+                            thinking=pc.thinking_for_provider(thinking_cfg, active),
+                            cache_conv_id=session_id,
+                        )
+                    except TraceCancelled:
+                        raise
+                    except Exception as e:
+                        log.error("Primary finalize failed (round %s): %s", _round + 1, e)
+                        _trace_done(trace_id)
+                        return _provider_upstream_error(e)
+                    last_call_provider = active
+                    round_msg = result.get("choices", [{}])[0].get("message", {})
+                    pc.log_provider_usage(active, result.get("usage"), user_id=user_id)
+                    await emit_think(think_id_f, "done", think_t0_f, _message_reasoning(round_msg))
                 _round += 1
         except TraceCancelled:
             log.info("[%s] Chat cancelled trace=%s (agent loop)", user_id, trace_id)
@@ -2779,7 +2851,7 @@ async def chat_completions(request: Request):
             )
             if assistant_content:
                 all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
-                asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary, active=active))
+                asyncio.create_task(_safe_extract(user_id, all_msgs, provider=active, active=active))
 
         # Track usage statistics
         _elapsed_ms = int((time.time() - _req_start) * 1000)
@@ -2895,6 +2967,14 @@ async def chat_completions(request: Request):
                 # this was narration and gets pulled back out of the reply.
                 round_text = ""
                 round_text_started = 0.0
+                hold_secondary_voice = bool(
+                    secondary
+                    and stream_call_provider
+                    and (
+                        stream_call_provider is secondary
+                        or stream_call_provider.get("id") == secondary.get("id")
+                    )
+                )
                 think_id = f"think-{round_i}"
                 think_t0 = time.time()
                 think_open = True
@@ -2996,10 +3076,13 @@ async def chat_completions(request: Request):
                                 })
                                 async for part in flush_activity():
                                     yield part
-                            full_response += content
                             if not round_text:
                                 round_text_started = time.time()
                             round_text += content
+                            # Secondary tool rounds: never stream voice to the user.
+                            if hold_secondary_voice:
+                                continue
+                            full_response += content
                             # Hold the first moments back: narration is short and
                             # the tool call lands right after it, so waiting here
                             # keeps it from flashing in the chat before we can
@@ -3031,7 +3114,8 @@ async def chat_completions(request: Request):
 
                 if has_tool_calls and tc_accum and round_text:
                     # Narration, not the answer — move it to the step timeline.
-                    full_response = full_response[: len(full_response) - len(round_text)]
+                    if not hold_secondary_voice:
+                        full_response = full_response[: len(full_response) - len(round_text)]
                     say = _say_event(round_i, round_text)
                     if say:
                         await on_stream_activity(say)
@@ -3042,6 +3126,26 @@ async def chat_completions(request: Request):
                     yield part
 
                 if not (has_tool_calls and tc_accum):
+                    if _should_finalize_on_primary(
+                        active=active,
+                        secondary=secondary,
+                        call_provider=stream_call_provider,
+                        tool_calls=None,
+                    ):
+                        # Discard any secondary prose; primary speaks to the user.
+                        round_text = ""
+                        stream_call_provider = active
+                        round_i += 1
+                        current_gen = providers.chat_completion_stream(
+                            augmented,
+                            model=model,
+                            tools=None,
+                            tool_choice=tool_choice,
+                            provider=active,
+                            thinking=pc.thinking_for_provider(thinking_cfg, active),
+                            cache_conv_id=session_id,
+                        )
+                        continue
                     yield "data: [DONE]\n\n"
                     break
 
@@ -3142,13 +3246,27 @@ async def chat_completions(request: Request):
                     secondary_used = True
                 elif image_provider and re_provider is image_provider:
                     secondary_used = True
-                stream_call_provider = re_provider
                 if any(name in lt.HA_MUTATING_TOOLS for name in _tool_names(internal_tcs)) and rounds_left <= 1:
                     rounds_left += 1
                 rounds_left -= 1
                 round_i += 1
+                # Last round has no tools — always speak with primary (not secondary).
+                if rounds_left <= 0 and secondary and (
+                    re_provider is secondary
+                    or re_provider.get("id") == secondary.get("id")
+                ):
+                    re_provider = active
+                stream_call_provider = re_provider
+                recall_msgs = (
+                    _messages_for_secondary_tools(augmented)
+                    if secondary and (
+                        re_provider is secondary
+                        or re_provider.get("id") == secondary.get("id")
+                    )
+                    else augmented
+                )
                 current_gen = providers.chat_completion_stream(
-                    augmented,
+                    recall_msgs,
                     model=model,
                     tools=None if rounds_left <= 0 else effective_tools,
                     tool_choice=tool_choice,
@@ -3176,7 +3294,7 @@ async def chat_completions(request: Request):
                 )
                 if clean_response:
                     all_msgs = messages + [{"role": "assistant", "content": clean_response}]
-                    asyncio.create_task(_safe_extract(user_id, all_msgs, provider=secondary, active=active))
+                    asyncio.create_task(_safe_extract(user_id, all_msgs, provider=active, active=active))
 
             _stream_elapsed = int((time.time() - _req_start) * 1000)
             log.info(f"[{user_id}] Stream response: {len(full_response)} chars, {_stream_elapsed}ms, search={search_used}")
@@ -3380,8 +3498,9 @@ async def _safe_extract(
 ):
     """Safely run memory extraction in background with per-user lock and timeout."""
     active = active or providers.get_active_provider()
+    # Memory extraction uses the primary provider (not secondary).
     if provider is None:
-        provider = providers.get_secondary_provider(active)
+        provider = active
     if user_id not in _extraction_locks:
         _extraction_locks[user_id] = asyncio.Lock()
 

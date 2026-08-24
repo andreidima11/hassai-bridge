@@ -466,7 +466,7 @@
         </div>
         <div class="card" style="margin-top:16px">
           <h2 data-i18n="settings.secondaryProviders">Secondary Providers</h2>
-          <p class="card-muted" data-i18n="settings.secondaryProvidersDesc">Secondary providers handle memory operations (extraction, consolidation) and can be assigned to primary providers for tool call re-processing.</p>
+          <p class="card-muted" data-i18n="settings.secondaryProvidersDesc">Secondary providers handle intermediate tool re-processing for a primary. Final answers and memory (extraction, consolidation) always use the primary provider.</p>
           <div id="secondaryProvidersList"></div>
           <div style="margin-top:12px">
             <button class="btn btn-primary btn-sm" onclick="openAddSecondaryProvider()" data-i18n="settings.addSecondaryProvider">+ Add Secondary Provider</button>
@@ -530,7 +530,7 @@
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.secondaryProvider">Secondary Provider</h3>
-            <p class="card-muted hint" data-i18n="settings.secondaryProviderDesc">Optional. Select a secondary provider to handle tool call re-processing (cost reduction / faster processing) and memory operations for this provider.</p>
+            <p class="card-muted hint" data-i18n="settings.secondaryProviderDesc">Optional. Handles intermediate tool re-processing only (Frigate, search, skills). The final spoken answer and memory always use the primary provider.</p>
             <select id="provSecondary">
               <option value="" data-i18n="settings.noSecondary">— None —</option>
             </select>
@@ -618,7 +618,7 @@
         <div class="page-back" onclick="cancelSecProviderForm()">← <span data-i18n="settings.tabProviders">Providers</span></div>
         <div class="card">
           <h2 id="secProviderFormTitle" data-i18n="settings.addSecondaryProvider">Add Secondary Provider</h2>
-          <span class="card-muted" data-i18n="settings.secProviderModalDesc">Configure a secondary AI provider for memory operations</span>
+          <span class="card-muted" data-i18n="settings.secProviderModalDesc">Configure a secondary AI provider for intermediate tool rounds</span>
 
           <div class="modal-section" style="margin-top:16px">
             <label data-i18n="settings.providerType">Type</label>
@@ -857,7 +857,7 @@
       </div>
       <div class="card" style="margin-top:16px">
         <h2 data-i18n="settings.autoConsolidation">Auto Consolidation</h2>
-        <p class="card-muted" data-i18n="settings.autoConsolidationDesc">Automatically consolidates memories on a schedule — merges duplicates, removes outdated facts, and keeps memory organized. Uses the secondary provider assigned to the active primary provider.</p>
+        <p class="card-muted" data-i18n="settings.autoConsolidationDesc">Automatically consolidates memories on a schedule — merges duplicates, removes outdated facts, and keeps memory organized. Uses the active primary provider.</p>
         <div class="toggle-row">
           <span data-i18n="settings.autoConsolidationEnabled">Auto consolidation enabled</span>
           <label class="toggle"><input type="checkbox" id="acEnabled"><span class="slider"></span></label>

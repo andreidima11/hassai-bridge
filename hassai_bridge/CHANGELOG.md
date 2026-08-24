@@ -1,5 +1,14 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.31
+
+Auxiliary (secondary) LLM only runs intermediate tool rounds; primary always speaks and owns memory.
+
+### Features
+- **Secondary = tools only** — Frigate/search/skills re-calls stay on secondary; if secondary returns text without tools, primary writes the final user-facing answer (stream + non-stream)
+- **Memory on primary** — extract and consolidate (auto + manual) use the active primary provider, not secondary
+- **Settings copy** — secondary descriptions clarify tools-only vs primary voice/memory
+
 ## 1.0.30
 
 Gemini tool loops (HA / Frigate) no longer die with INVALID_ARGUMENT after the first tool.
