@@ -611,6 +611,9 @@ def get_conversation_history(user_id, limit=20, session_id: str | None = None):
         attachments = meta.get("attachments")
         if isinstance(attachments, list) and attachments:
             item["attachments"] = attachments
+        tool_calls = meta.get("tool_calls")
+        if isinstance(tool_calls, list) and tool_calls:
+            item["tool_calls"] = tool_calls
         reasoning = meta.get("reasoning_content")
         if not reasoning:
             for ev in reversed(meta.get("activity") or []):
