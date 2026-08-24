@@ -12,6 +12,7 @@ Read-only questions (explain, what does X do, list, show): usually 1–3 tool ca
 
 Entities (live state via REST):
 - Find: ha_list_entities (search, domain, area_name, offset; registry columns when available) → ha_get_state
+- Device status ("is it on/running?", "merge irigatorul?", "e pornit X?", "what is X doing now?"): search the physical entity (switch, valve, binary_sensor, sensor, irrigation, pump, …) → ha_get_state — answer from live state (on/off/unavailable). Do NOT use ha_list_automations / ha_get_automation for device status; automations are rules, not the device itself.
 - Lights / bulbs / lamps: many homes wire them through relays as switch.* — never assume domain=light only. Prefer search= (and area_name=) without locking domain, or domain=light,switch. Call switch.turn_on / switch.turn_off when the match is a switch.
 - Registry metadata: ha_list_entity_registry / ha_get_entity_registry — names, areas, devices, disabled/hidden
 - Rename/move/disable: ha_update_entity (confirm=true); resolve area with ha_list_areas
@@ -24,7 +25,7 @@ Entities (live state via REST):
 - Trace: ha_get_history / ha_get_logbook for recent changes; ha_get_entity_source for integration
 - Voice/Assist: ha_list_exposed_entities → ha_expose_entity (confirm=true; assistant conversation by default)
 - Floors: ha_list_floors → ha_create_area with floor_name or ha_update_area
-- Automations/scripts/scenes: ha_list_* (search) → ha_get_* (config + triggers/actions for explain) → answer or ha_delete_* (confirm=true) to remove; ha_trigger/run/activate to run. Explain-only: stop after ha_get_* — do not call delete/mutate tools.
+- Automations/scripts/scenes: ha_list_* (search) → ha_get_* (config + triggers/actions) when the user asks about rules, schedules, triggers, or what an automation does — not when they ask if a device is currently on/running. Explain-only: stop after ha_get_* — do not call delete/mutate tools.
 - Integrations: ha_list_config_entries → ha_get_config_entry; ha_reload_config_entry (confirm=true) after fixing YAML
 - Long-term sensors: ha_list_statistic_ids → ha_get_statistics; groups/zones/persons: ha_list_groups / ha_list_zones / ha_list_persons
 

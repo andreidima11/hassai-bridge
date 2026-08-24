@@ -7,9 +7,9 @@ produce HTTP 400 rather than being ignored:
 * ``tool_choice`` accepts only ``auto``.
 * Every function needs both ``description`` and ``parameters``; OpenAI lets
   either be omitted.
-* Thinking is ``{"thinking": {"type": "enabled"}}`` with a separate top-level
-  ``reasoning_effort``. Unlike DeepSeek, prior ``reasoning_content`` is dropped
-  by the server, so it never has to be echoed back.
+* Thinking is ``{"thinking": {"type": "enabled", "clear_thinking": false}}`` with
+  a separate top-level ``reasoning_effort``. Preserved Thinking keeps prior
+  ``reasoning_content`` in context for tool loops and better prompt-cache hits.
 * Prompt cache is reported the OpenAI way, in
   ``usage.prompt_tokens_details.cached_tokens``, with no miss counter.
 """
@@ -105,11 +105,41 @@ def resolve_thinking(
 def apply_thinking_payload(payload: dict, thinking: dict | None, *, provider: dict | None = None) -> None:
     if not thinking:
         return
-    payload["thinking"] = {"type": "enabled" if thinking.get("enabled") else "disabled"}
+    enabled = bool(thinking.get("enabled"))
+    thinking_body: dict = {"type": "enabled" if enabled else "disabled"}
+    if enabled:
+        # Preserved Thinking — docs.z.ai recommends clear_thinking=false for agents.
+        thinking_body["clear_thinking"] = False
+    payload["thinking"] = thinking_body
     effort = thinking.get("effort")
     model = str((provider or {}).get("model") or payload.get("model") or "")
     if effort and supports_reasoning_effort(model):
         payload["reasoning_effort"] = effort
+
+
+def assistant_turn(message: dict) -> dict:
+    """Preserve reasoning_content for GLM tool / multi-turn loops."""
+    out = dict(message)
+    if "reasoning_content" in message or out.get("tool_calls"):
+        out["reasoning_content"] = message.get("reasoning_content") or ""
+    return out
+
+
+def prepare_messages_for_tools(messages: list[dict] | None) -> list[dict]:
+    """Ensure assistant turns carry reasoning_content when tools are active."""
+    out: list[dict] = []
+    for msg in messages or []:
+        if not isinstance(msg, dict):
+            out.append(msg)
+            continue
+        if msg.get("role") != "assistant":
+            out.append(msg)
+            continue
+        row = dict(msg)
+        reasoning = row.get("reasoning_content")
+        row["reasoning_content"] = str(reasoning) if reasoning else ""
+        out.append(row)
+    return out
 
 
 def clamp_temperature(value):
@@ -156,3 +186,19 @@ def cache_tokens_from_usage(usage: dict | None) -> tuple[int, int]:
     prompt = int(usage.get("prompt_tokens") or 0)
     miss = max(prompt - hit, 0)
     return hit, miss
+
+
+def log_cache_usage(provider: dict | None, usage: dict | None, *, user_id: str = "") -> None:
+    if not is_glm_provider(provider) or not isinstance(usage, dict):
+        return
+    hit, miss = cache_tokens_from_usage(usage)
+    if hit or miss:
+        from logging import getLogger
+
+        prefix = f"[{user_id}] " if user_id else ""
+        getLogger("hassai.providers").info(
+            "%sGLM prompt cache: hit=%s miss=%s",
+            prefix,
+            hit,
+            miss,
+        )

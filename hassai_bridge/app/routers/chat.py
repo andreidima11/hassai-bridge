@@ -143,6 +143,40 @@ def build_stable_system_parts(
     return parts
 
 
+def _inject_late_user_context(messages: list[dict], context: str) -> None:
+    """Prefix volatile context onto the last user turn (KV-cache friendly).
+
+    Stable system + conversation history stay byte-identical across turns; only
+    the final user message carries fresh memory / retrieval context.
+    """
+    ctx = (context or "").strip()
+    if not ctx or not messages:
+        return
+    prefix = ctx + "\n\n"
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") != "user":
+            continue
+        row = dict(messages[i])
+        content = row.get("content")
+        if isinstance(content, str):
+            row["content"] = prefix + content if content else ctx
+        elif isinstance(content, list):
+            parts = list(content)
+            if parts and isinstance(parts[0], dict) and parts[0].get("type") == "text":
+                parts[0] = {
+                    **parts[0],
+                    "text": prefix + str(parts[0].get("text") or ""),
+                }
+            else:
+                parts.insert(0, {"type": "text", "text": prefix})
+            row["content"] = parts
+        else:
+            row["content"] = ctx
+        messages[i] = row
+        return
+    messages.append({"role": "system", "content": ctx})
+
+
 # Text a model writes in the same turn as a tool call is narration ("let me
 # check the terrace light"), not the answer. It belongs in the step timeline —
 # in the chat body it reads like padding, and the voice reads it out loud.
@@ -1710,23 +1744,36 @@ def _context_budget(provider: dict) -> int:
 
 
 def _trim_messages_kv_friendly(messages: list[dict], max_tokens: int) -> list[dict]:
-    """Trim oldest conversation turns only — no summary injection (KV-cache friendly)."""
-    system_msgs = [m for m in messages if m.get("role") == "system"]
-    other_msgs = [m for m in messages if m.get("role") != "system"]
+    """Trim oldest conversation turns only — no summary injection (KV-cache friendly).
 
-    system_tokens = sum(_estimate_tokens(m.get("content")) for m in system_msgs)
-    budget = max_tokens - system_tokens
-    if budget <= 0:
-        return system_msgs
+    Preserves message order (including volatile context prefixed on the last user
+    turn) instead of hoisting every system message to the front.
+    """
+    if not messages:
+        return messages
 
-    kept = list(other_msgs)
-    while kept:
-        used = sum(_estimate_tokens(m.get("content")) for m in kept)
-        if used <= budget:
+    def token_count(msgs: list[dict]) -> int:
+        return sum(_estimate_tokens(m.get("content")) for m in msgs)
+
+    if token_count(messages) <= max_tokens:
+        return messages
+
+    kept = list(messages)
+    leading_system = 0
+    while leading_system < len(kept) and kept[leading_system].get("role") == "system":
+        leading_system += 1
+
+    while token_count(kept) > max_tokens:
+        drop_idx = None
+        for i in range(leading_system, len(kept)):
+            if kept[i].get("role") in ("user", "assistant", "tool"):
+                drop_idx = i
+                break
+        if drop_idx is None:
             break
-        kept.pop(0)
+        kept.pop(drop_idx)
 
-    return system_msgs + kept
+    return kept
 
 # ══════════════════════════════════════════════════
 # AI-driven search via function-calling (tool_calls)
@@ -2292,7 +2339,7 @@ async def chat_completions(request: Request):
 
     user_ctx = user_context_for_prompt(user_id, request)
 
-    # 3) System prompt: stable prefix first (KV-cache friendly), volatile context second
+    # 3) System prompt: stable prefix (KV-cache friendly); memory goes on last user turn
     bridge_hint = bt.system_hint(cfg)
     memory_hint = mt.system_hint(cfg)
     stable_parts = build_stable_system_parts(
@@ -2303,27 +2350,22 @@ async def chat_completions(request: Request):
         memory_hint=memory_hint or "",
         agentic=_agentic_instruction(),
     )
-    volatile_parts = []
-
+    stable_extras = []
     if user_ctx:
-        volatile_parts.append(user_ctx)
-    if mem_ctx:
-        volatile_parts.append(mem_ctx)
+        stable_extras.append(user_ctx)
     if search_enabled:
-        volatile_parts.append(_build_search_instruction(cfg))
+        stable_extras.append(_build_search_instruction(cfg))
     ha_hint = ha_api.ha_system_hint(cfg)
     if ha_hint:
-        volatile_parts.append(ha_hint)
+        stable_extras.append(ha_hint)
     from services import frigate_tools as ft
 
     frigate_hint = ft.system_hint()
     if frigate_hint:
-        volatile_parts.append(frigate_hint)
+        stable_extras.append(frigate_hint)
 
-    if stable_parts:
-        augmented.append({"role": "system", "content": "\n\n".join(stable_parts)})
-    if volatile_parts:
-        augmented.append({"role": "system", "content": "\n\n".join(volatile_parts)})
+    if stable_parts or stable_extras:
+        augmented.append({"role": "system", "content": "\n\n".join(stable_parts + stable_extras)})
 
     # 4) Conversation history — only add DB history if incoming messages
     #    don't already contain a conversation (HA sends full history)
@@ -2343,6 +2385,9 @@ async def chat_completions(request: Request):
     # 5) Current messages — clients replay the transcript without CoT, so restore
     #    it from the stored history (DeepSeek requires it back alongside tools).
     augmented.extend(cc.backfill_reasoning(messages, history) if has_incoming_history else messages)
+
+    if mem_ctx:
+        _inject_late_user_context(augmented, mem_ctx)
 
     user_attachments: list[dict] = []
     if last_user_message is not None:

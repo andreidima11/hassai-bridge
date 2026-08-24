@@ -83,8 +83,27 @@ def test_glm_thinking_payload_shape():
     thinking = zi.resolve_thinking({**GLM, "thinking_mode": "high"}, user_text="planuim ceva")
     payload = {"model": "glm-5.2"}
     zi.apply_thinking_payload(payload, thinking, provider=GLM)
-    assert payload["thinking"] == {"type": "enabled"}
+    assert payload["thinking"] == {"type": "enabled", "clear_thinking": False}
     assert payload["reasoning_effort"] == "high"
+
+
+def test_glm_thinking_off_has_no_clear_thinking():
+    thinking = zi.resolve_thinking({**GLM, "thinking_mode": "off"})
+    payload = {"model": "glm-5.2"}
+    zi.apply_thinking_payload(payload, thinking, provider=GLM)
+    assert payload["thinking"] == {"type": "disabled"}
+    assert "clear_thinking" not in payload["thinking"]
+
+
+def test_glm_assistant_turn_preserves_reasoning():
+    msg = {
+        "role": "assistant",
+        "content": None,
+        "reasoning_content": "check lights",
+        "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "x", "arguments": "{}"}}],
+    }
+    out = pc.assistant_turn(GLM, msg)
+    assert out["reasoning_content"] == "check lights"
 
 
 def test_glm_thinking_off_disables_and_asks_for_no_effort():
