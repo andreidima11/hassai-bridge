@@ -1746,14 +1746,18 @@ async function fetchProviderModels() {
       modelInput.parentElement.appendChild(dl);
     }
     modelInput.setAttribute('list', listId);
+    const fastInput = document.getElementById('provModelFast');
+    const deepInput = document.getElementById('provModelDeep');
+    if (fastInput) fastInput.setAttribute('list', listId);
+    if (deepInput) deepInput.setAttribute('list', listId);
     dl.innerHTML = models.map((m) => {
       const id = _modelEntryId(m);
       return id ? `<option value="${escapeHtml(id)}">` : '';
     }).join('');
     const ok = _populateModelPicker(models, modelInput, 'provModelPicker');
     const roleOpts = { allowEmpty: true, silent: true };
-    _populateModelPicker(models, document.getElementById('provModelFast'), 'provModelFastPicker', roleOpts);
-    _populateModelPicker(models, document.getElementById('provModelDeep'), 'provModelDeepPicker', roleOpts);
+    _populateModelPicker(models, fastInput, 'provModelFastPicker', roleOpts);
+    _populateModelPicker(models, deepInput, 'provModelDeepPicker', roleOpts);
     return ok;
   }
 
