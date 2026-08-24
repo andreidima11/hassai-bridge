@@ -620,11 +620,47 @@ def _compact_activity(events: list | None) -> list[dict]:
     return out
 
 
+_TOOL_ARG_CHARS = 400
+_TOOL_RESULT_CHARS = 240
+# How many recent stored turns replay their tool calls to the model.
+_TOOL_REPLAY_TURNS = 6
+
+
+def _tool_trace(messages: list[dict], start: int) -> list[dict]:
+    """Compact record of the tools this turn actually ran, for the transcript.
+
+    Stored so the next turn can replay real calls instead of a bare sentence
+    claiming the job is done.
+    """
+    results: dict[str, str] = {}
+    for msg in messages[start:]:
+        if msg.get("role") == "tool":
+            results[str(msg.get("tool_call_id") or "")] = str(msg.get("content") or "")
+    trace: list[dict] = []
+    for msg in messages[start:]:
+        if msg.get("role") != "assistant":
+            continue
+        for call in msg.get("tool_calls") or []:
+            fn = call.get("function") or {}
+            name = str(fn.get("name") or "")
+            if not name:
+                continue
+            call_id = str(call.get("id") or "")
+            trace.append({
+                "id": call_id,
+                "name": name,
+                "arguments": str(fn.get("arguments") or "{}")[:_TOOL_ARG_CHARS],
+                "result": results.get(call_id, "")[:_TOOL_RESULT_CHARS],
+            })
+    return trace
+
+
 def _activity_meta(
     trace_id: str,
     events: list | None = None,
     attachments: list | None = None,
     reasoning_content: str | None = None,
+    tool_calls: list | None = None,
 ) -> dict | None:
     merged = list(events or [])
     if trace_id and trace_id in _traces:
@@ -637,6 +673,8 @@ def _activity_meta(
         meta["activity"] = compact
     if attachments:
         meta["attachments"] = attachments
+    if tool_calls:
+        meta["tool_calls"] = tool_calls
     reasoning = _store_reasoning(reasoning_content)
     if reasoning:
         meta["reasoning_content"] = reasoning
@@ -1567,6 +1605,9 @@ def _sanitize_message_roles(messages: list[dict]) -> list[dict]:
             cleaned
             and cleaned[-1].get("role") == role
             and role != "tool"
+            # Merging away a tool call would leave its result orphaned.
+            and not cleaned[-1].get("tool_calls")
+            and not m.get("tool_calls")
             and isinstance(cleaned[-1].get("content"), str)
             and isinstance(content, str)
             and not cc.has_images(content)
@@ -2266,7 +2307,15 @@ async def chat_completions(request: Request):
     incoming_roles = {m.get("role") for m in messages}
     has_incoming_history = "assistant" in incoming_roles and "user" in incoming_roles
     if history and not has_incoming_history:
-        augmented.extend(cc.row_to_message(row, user_id=user_id) for row in history)
+        # Only the most recent turns replay their tool calls; older ones keep just
+        # the text so a long conversation does not carry every tool result along.
+        replay_from = len(history) - _TOOL_REPLAY_TURNS
+        for index, row in enumerate(history):
+            augmented.extend(
+                cc.row_to_messages(
+                    row, user_id=user_id, replay_tools=index >= replay_from,
+                )
+            )
 
     # 5) Current messages — clients replay the transcript without CoT, so restore
     #    it from the stored history (DeepSeek requires it back alongside tools).
@@ -2303,6 +2352,8 @@ async def chat_completions(request: Request):
         augmented = _trim_messages_kv_friendly(augmented, max_ctx)
     else:
         augmented = _trim_messages(augmented, max_ctx)
+    # Trimming cuts from the front and can separate a call from its result.
+    augmented = cc.drop_orphan_tool_messages(augmented)
 
     # Frigate / Imagine snaps live on assistant turns for the UI. Never replay them
     # as assistant image_url to the LLM (DeepSeek Vision HTTP 400, etc.).
@@ -2428,6 +2479,7 @@ async def chat_completions(request: Request):
         max_rounds = _agent_max_rounds(cfg)
         round_limit = max_rounds
         _round = 0
+        tool_trace_start = len(augmented)
         last_call_provider = chat_provider
         try:
             while _round < round_limit:
@@ -2572,7 +2624,8 @@ async def chat_completions(request: Request):
             result["choices"][0]["message"]["content"] = assistant_content
 
         # Save & extract memories
-        if assistant_content or generated_attachments:
+        turn_tools = _tool_trace(augmented, tool_trace_start)
+        if assistant_content or generated_attachments or turn_tools:
             add_conversation_message(
                 user_id, "assistant", assistant_content,
                 session_id=session_id,
@@ -2581,6 +2634,7 @@ async def chat_completions(request: Request):
                     activity_events,
                     generated_attachments,
                     reasoning_content=_message_reasoning_full(final_msg),
+                    tool_calls=turn_tools,
                 ),
             )
             if assistant_content:
@@ -2648,6 +2702,7 @@ async def chat_completions(request: Request):
         rounds_left = _agent_max_rounds(cfg)
         sse_buf: list[str] = []
         round_i = 0
+        tool_trace_start = len(augmented)
         stream_call_provider = chat_provider
         last_content_push = 0.0
         stream_usage: dict = {}
@@ -2927,7 +2982,8 @@ async def chat_completions(request: Request):
                     cache_conv_id=session_id,
                 )
 
-            if full_response or generated_attachments:
+            turn_tools = _tool_trace(augmented, tool_trace_start)
+            if full_response or generated_attachments or turn_tools:
                 clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
                 clean_response = cc.strip_photo_notes(clean_response)
                 add_conversation_message(
@@ -2937,6 +2993,7 @@ async def chat_completions(request: Request):
                         trace_id,
                         attachments=generated_attachments,
                         reasoning_content=_store_reasoning(last_think_reasoning),
+                        tool_calls=turn_tools,
                     ),
                 )
                 if clean_response:

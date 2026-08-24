@@ -225,6 +225,85 @@ def strip_photo_notes(text: str) -> str:
     return _PHOTO_NOTE_RE.sub("", text).strip()
 
 
+def row_to_messages(row: dict, *, user_id: str, replay_tools: bool = True) -> list[dict]:
+    """Expand one stored row into the turns the model should see.
+
+    An assistant turn that used tools becomes three parts: the call, the result,
+    and the sentence the user read. Replaying only the sentence taught weaker
+    models the wrong lesson — they saw "user asks for an action, assistant says
+    it is done" with no tool anywhere, and copied that on the next command,
+    claiming success without touching anything.
+    """
+    base = row_to_message(row, user_id=user_id)
+    calls = row.get("tool_calls") if isinstance(row.get("tool_calls"), list) else []
+    if not replay_tools or base.get("role") != "assistant" or not calls:
+        return [base]
+
+    tool_calls = []
+    results = []
+    for call in calls:
+        if not isinstance(call, dict):
+            continue
+        name = str(call.get("name") or "").strip()
+        if not name:
+            continue
+        call_id = str(call.get("id") or "") or f"h{len(tool_calls)}"
+        tool_calls.append({
+            "id": call_id,
+            "type": "function",
+            "function": {"name": name, "arguments": str(call.get("arguments") or "{}")},
+        })
+        results.append({
+            "role": "tool",
+            "tool_call_id": call_id,
+            "content": str(call.get("result") or "(no output recorded)"),
+        })
+    if not tool_calls:
+        return [base]
+
+    out: list[dict] = [{"role": "assistant", "content": "", "tool_calls": tool_calls}]
+    out.extend(results)
+    if content_text(base.get("content")):
+        out.append(base)
+    return out
+
+
+def drop_orphan_tool_messages(messages: list[dict] | None) -> list[dict]:
+    """Keep tool calls and their results together after trimming.
+
+    A ``tool`` turn without the assistant call it answers is rejected outright —
+    DashScope replies "messages with role 'tool' must be a response to a
+    preceding message with 'tool_calls'" — and the reverse is just as bad.
+    """
+    known: set[str] = set()
+    kept: list[dict] = []
+    for msg in messages or []:
+        role = msg.get("role")
+        if role == "assistant" and msg.get("tool_calls"):
+            known.update(str(tc.get("id") or "") for tc in msg["tool_calls"])
+            kept.append(msg)
+            continue
+        if role == "tool":
+            if str(msg.get("tool_call_id") or "") in known:
+                kept.append(msg)
+            continue
+        kept.append(msg)
+
+    answered = {str(m.get("tool_call_id") or "") for m in kept if m.get("role") == "tool"}
+    out: list[dict] = []
+    for msg in kept:
+        if msg.get("role") == "assistant" and msg.get("tool_calls"):
+            live = [tc for tc in msg["tool_calls"] if str(tc.get("id") or "") in answered]
+            if live:
+                msg = {**msg, "tool_calls": live}
+            elif content_text(msg.get("content")):
+                msg = {k: v for k, v in msg.items() if k != "tool_calls"}
+            else:
+                continue
+        out.append(msg)
+    return out
+
+
 def row_to_message(row: dict, *, user_id: str) -> dict:
     role = str(row.get("role") or "user")
     attachments = row.get("attachments") if isinstance(row.get("attachments"), list) else []
