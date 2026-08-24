@@ -134,7 +134,27 @@ def test_gemini_retryable_400_detects_invalid_argument_with_tools():
     payload = {"tools": [{"type": "function"}]}
     body = '[{"error":{"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}]'
     assert gm.is_gemini_retryable_400(400, body, payload)
-    assert not gm.is_gemini_retryable_400(400, body, {})
+    assert gm.is_gemini_retryable_400(400, body, {"messages": []})
+    assert not gm.is_gemini_retryable_400(400, body, None)
+
+
+def test_gemini_ensure_tool_result_names():
+    msgs = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{
+                "id": "c1",
+                "type": "function",
+                "function": {"name": "frigate_events", "arguments": "{}"},
+            }],
+        },
+        {"role": "tool", "tool_call_id": "c1", "content": "ok"},
+    ]
+    out = gm.ensure_tool_result_names(msgs)
+    assert out[1]["name"] == "frigate_events"
+    prepared = gm.prepare_messages_for_tools(msgs)
+    assert prepared[1]["name"] == "frigate_events"
 
 
 def test_gemini_injects_skip_on_all_replayed_tool_calls():

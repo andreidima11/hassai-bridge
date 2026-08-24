@@ -256,6 +256,7 @@ def row_to_messages(row: dict, *, user_id: str, replay_tools: bool = True) -> li
         results.append({
             "role": "tool",
             "tool_call_id": call_id,
+            "name": name,
             "content": str(call.get("result") or "(no output recorded)"),
         })
     if not tool_calls:
