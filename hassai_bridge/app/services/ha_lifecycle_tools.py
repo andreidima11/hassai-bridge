@@ -93,7 +93,10 @@ TOOL_SPECS: dict[str, dict] = {
     },
     # ── Todo / shopping ───────────────────────────────────
     "ha_list_todo_lists": {
-        "description": "List todo.* list entities (shopping lists, tasks).",
+        "description": (
+            "List todo.* list entities with config_entry_id (needed to delete a whole list). "
+            "Local lists use domain local_todo."
+        ),
         "parameters": {
             "type": "object",
             "properties": {"search": {"type": "string"}},
@@ -105,6 +108,51 @@ TOOL_SPECS: dict[str, dict] = {
             "type": "object",
             "properties": {"entity_id": {"type": "string"}},
             "required": ["entity_id"],
+        },
+    },
+    "ha_create_todo_list": {
+        "description": (
+            "Create a new Local To-do list (HA local_todo integration). "
+            "confirm=true required."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "List display name"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["name", "confirm"],
+        },
+    },
+    "ha_delete_todo_list": {
+        "description": (
+            "Delete an entire todo list (removes the local_todo config entry). "
+            "Pass entity_id (todo.*) or entry_id. Not for cloud lists (Google etc.) — "
+            "those need ha_delete_config_entry on their integration. confirm=true required."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "entry_id": {"type": "string"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["confirm"],
+        },
+    },
+    "ha_clear_todo_list": {
+        "description": (
+            "Clear items on a todo list. completed_only=true (default) removes finished "
+            "items; false removes all items. confirm=true required."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string"},
+                "completed_only": {"type": "boolean"},
+                "confirm": {"type": "boolean"},
+            },
+            "required": ["entity_id", "confirm"],
         },
     },
     "ha_add_todo_item": {
@@ -143,7 +191,7 @@ TOOL_SPECS: dict[str, dict] = {
         },
     },
     "ha_remove_todo_item": {
-        "description": "Remove a todo item. confirm=true required.",
+        "description": "Remove a todo item (uid or summary). confirm=true required.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -157,7 +205,7 @@ TOOL_SPECS: dict[str, dict] = {
     "ha_shopping_list": {
         "description": (
             "Legacy shopping_list integration. action=list|add|complete|incomplete|clear|remove. "
-            "Writes need confirm=true."
+            "Cannot delete the shopping_list itself (built-in). Writes need confirm=true."
         ),
         "parameters": {
             "type": "object",
@@ -746,8 +794,21 @@ async def _delete_calendar_event(args: dict) -> str:
 
 # ── Todo ────────────────────────────────────────────────────
 
+async def _todo_registry_map() -> dict[str, dict]:
+    """entity_id → entity registry row."""
+    entities = await _ws({"type": "config/entity_registry/list"})
+    if not isinstance(entities, list):
+        return {}
+    return {
+        str(e.get("entity_id") or ""): e
+        for e in entities
+        if isinstance(e, dict) and str(e.get("entity_id") or "").startswith("todo.")
+    }
+
+
 async def _list_todo_lists(args: dict) -> str:
     states = await _ha()._fetch_states_cached()
+    reg = await _todo_registry_map()
     search = (args.get("search") or "").strip().lower()
     rows = []
     for st in states:
@@ -757,10 +818,14 @@ async def _list_todo_lists(args: dict) -> str:
         name = (st.get("attributes") or {}).get("friendly_name") or eid
         if search and search not in eid.lower() and search not in str(name).lower():
             continue
+        meta = reg.get(eid) or {}
         rows.append({
             "entity_id": eid,
             "name": name,
             "state": st.get("state"),
+            "platform": meta.get("platform"),
+            "config_entry_id": meta.get("config_entry_id"),
+            "deletable": meta.get("platform") == "local_todo" and bool(meta.get("config_entry_id")),
         })
     return _dump(rows) if rows else "No todo lists found."
 
@@ -771,6 +836,116 @@ async def _list_todo_items(args: dict) -> str:
         return "Error: entity_id is required"
     result = await _ws({"type": "todo/item/list", "entity_id": entity_id})
     return _dump(result)
+
+
+async def _create_todo_list(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    name = (args.get("name") or "").strip()
+    if not name:
+        return "Error: name is required"
+    started = await _core("POST", "/config/config_entries/flow", json_body={"handler": "local_todo"})
+    if not isinstance(started, dict) or not started.get("flow_id"):
+        return f"Error: could not start local_todo flow\n{_dump(started)}"
+    if started.get("type") == "create_entry":
+        return f"OK: created todo list '{name}'\n{_dump(started)}"
+    flow_id = started["flow_id"]
+    result = await _core(
+        "POST",
+        f"/config/config_entries/flow/{flow_id}",
+        json_body={"todo_list_name": name},
+    )
+    if isinstance(result, dict) and result.get("type") == "create_entry":
+        return f"OK: created Local To-do list '{name}'\n{_dump(result)}"
+    if isinstance(result, dict) and result.get("type") == "form":
+        # retry with errors exposed
+        return f"Error: local_todo flow needs more input\n{_dump(result)}"
+    return f"OK: local_todo flow finished\n{_dump(result)}"
+
+
+async def _delete_todo_list(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    entry_id = (args.get("entry_id") or "").strip()
+    entity_id = (args.get("entity_id") or "").strip()
+    if not entry_id and not entity_id:
+        return "Error: entity_id or entry_id is required"
+    platform = None
+    if not entry_id:
+        reg = await _todo_registry_map()
+        meta = reg.get(entity_id) or {}
+        entry_id = (meta.get("config_entry_id") or "").strip()
+        platform = meta.get("platform")
+        if not entry_id:
+            # fallback: match local_todo entries by title / entity slug
+            entries = await _ws({"type": "config_entries/get", "domain": "local_todo"})
+            rows = entries if isinstance(entries, list) else []
+            needle = entity_id.removeprefix("todo.").replace("_", " ").lower()
+            name_attr = ""
+            try:
+                st = await _core("GET", f"/states/{entity_id}")
+                if isinstance(st, dict):
+                    name_attr = str((st.get("attributes") or {}).get("friendly_name") or "").lower()
+            except Exception:
+                pass
+            for e in rows:
+                title = str(e.get("title") or "").lower()
+                if title == name_attr or title.replace(" ", "_") == entity_id.removeprefix("todo.") or needle in title:
+                    entry_id = str(e.get("entry_id") or "")
+                    platform = "local_todo"
+                    break
+        if not entry_id:
+            return (
+                f"Error: no config_entry_id for {entity_id}. "
+                "Only Local To-do lists can be deleted this way; "
+                "cloud lists need ha_delete_config_entry on their integration."
+            )
+        if platform and platform != "local_todo":
+            return (
+                f"Error: {entity_id} is platform={platform}, not local_todo. "
+                f"Use ha_delete_config_entry entry_id={entry_id} if you really want to remove that integration instance."
+            )
+    result = await _core("DELETE", f"/config/config_entries/entry/{entry_id}")
+    _ha()._STATES_CACHE["ts"] = 0.0
+    return f"OK: deleted todo list entry {entry_id}" + (f" ({entity_id})" if entity_id else "") + f"\n{_dump(result)}"
+
+
+async def _clear_todo_list(args: dict) -> str:
+    if msg := _require_confirm(args):
+        return msg
+    entity_id = (args.get("entity_id") or "").strip()
+    if not entity_id:
+        return "Error: entity_id is required"
+    completed_only = args.get("completed_only")
+    if completed_only is None:
+        completed_only = True
+    if completed_only:
+        await _core(
+            "POST",
+            "/services/todo/remove_completed_items",
+            json_body={"entity_id": entity_id},
+        )
+        return f"OK: removed completed items from {entity_id}"
+    result = await _ws({"type": "todo/item/list", "entity_id": entity_id})
+    items = []
+    if isinstance(result, dict):
+        items = result.get("items") or []
+    elif isinstance(result, list):
+        items = result
+    uids = [
+        str(it.get("uid") or it.get("summary") or "").strip()
+        for it in items
+        if isinstance(it, dict)
+    ]
+    uids = [u for u in uids if u]
+    if not uids:
+        return f"OK: {entity_id} already empty"
+    await _core(
+        "POST",
+        "/services/todo/remove_item",
+        json_body={"entity_id": entity_id, "item": uids},
+    )
+    return f"OK: removed {len(uids)} items from {entity_id}"
 
 
 async def _add_todo_item(args: dict) -> str:
@@ -810,7 +985,24 @@ async def _remove_todo_item(args: dict) -> str:
     item = (args.get("item") or "").strip()
     if not entity_id or not item:
         return "Error: entity_id and item are required"
-    await _core("POST", "/services/todo/remove_item", json_body={"entity_id": entity_id, "item": item})
+    # Resolve summary → uid when needed
+    try:
+        listed = await _ws({"type": "todo/item/list", "entity_id": entity_id})
+        rows = (listed.get("items") if isinstance(listed, dict) else listed) or []
+        if isinstance(rows, list):
+            for it in rows:
+                if not isinstance(it, dict):
+                    continue
+                if str(it.get("uid") or "") == item or str(it.get("summary") or "").lower() == item.lower():
+                    item = str(it.get("uid") or item)
+                    break
+    except Exception:
+        pass
+    await _core(
+        "POST",
+        "/services/todo/remove_item",
+        json_body={"entity_id": entity_id, "item": [item]},
+    )
     return f"OK: removed item from {entity_id}"
 
 
@@ -1497,6 +1689,9 @@ HANDLERS.update({
     "ha_delete_calendar_event": _delete_calendar_event,
     "ha_list_todo_lists": _list_todo_lists,
     "ha_list_todo_items": _list_todo_items,
+    "ha_create_todo_list": _create_todo_list,
+    "ha_delete_todo_list": _delete_todo_list,
+    "ha_clear_todo_list": _clear_todo_list,
     "ha_add_todo_item": _add_todo_item,
     "ha_update_todo_item": _update_todo_item,
     "ha_remove_todo_item": _remove_todo_item,
