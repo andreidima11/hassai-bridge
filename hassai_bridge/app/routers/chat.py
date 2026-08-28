@@ -2359,10 +2359,11 @@ async def chat_completions(request: Request):
         search_enabled=search_enabled,
     )
     effective_tools = effective_tools if effective_tools else None
-    if compact_tools and effective_tools:
-        log.debug(
-            "[%s] Compact tools: %s → %s (class=%s)",
+    if effective_tools and len(all_tools) != len(effective_tools):
+        log.info(
+            "[%s] Tools trimmed: %s → %s (class=%s, provider=%s)",
             user_id, len(all_tools), len(effective_tools), route_klass,
+            active.get("type") or active.get("name") or "?",
         )
 
     # Authenticate when an API key is configured

@@ -85,6 +85,53 @@ def test_cloud_provider_keeps_full_tools_without_eco():
     assert names == {"ha_list_entities", "ha_create_backup"}
 
 
+def test_openai_hard_caps_over_128_tools():
+    tools = [_tool(f"ha_tool_{i}") for i in range(140)]
+    # Map unknown ha_* names to entities via default tool_category fallback.
+    tools.append(_tool("frigate_events"))
+    tools.append(_tool("memory_search"))
+    out, trimmed = tp.filter_chat_tools(
+        tools,
+        provider=CLOUD,
+        cfg=CFG,
+        user_text="arata ultima inregistrare video de la curte",
+        route_klass="simple",
+    )
+    assert trimmed is True
+    assert len(out) <= tp.OPENAI_MAX_TOOLS
+    names = {t["function"]["name"] for t in out}
+    assert "frigate_events" in names
+    assert "memory_search" in names
+
+
+def test_openai_full_profile_still_caps_at_128():
+    tools = [_tool(f"ha_list_entities_{i}") for i in range(150)]
+    cfg = {"performance": {"tool_profile": "full"}}
+    out, trimmed = tp.filter_chat_tools(
+        tools,
+        provider=CLOUD,
+        cfg=cfg,
+        user_text="hello",
+        route_klass="simple",
+    )
+    assert trimmed is True
+    assert len(out) == tp.OPENAI_MAX_TOOLS
+
+
+def test_frigate_kept_for_romanian_courtyard_video():
+    tools = [_tool("frigate_events"), _tool("frigate_snapshot"), _tool("ha_get_state")]
+    out, _ = tp.filter_chat_tools(
+        tools,
+        provider=LOCAL,
+        cfg=CFG,
+        user_text="Imi poti arata ultima inregistrare video de la curte",
+        route_klass="simple",
+    )
+    names = {t["function"]["name"] for t in out}
+    assert "frigate_events" in names
+    assert "frigate_snapshot" in names
+
+
 def test_local_history_limit():
     assert tp.effective_history_limit({"performance": {"history_limit": 10, "local_history_limit": 6}}, LOCAL) == 6
     assert tp.effective_history_limit({"performance": {"history_limit": 10}}, CLOUD) == 10

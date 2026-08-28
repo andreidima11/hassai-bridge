@@ -12,6 +12,9 @@ from services import deepseek as ds
 PROFILE_FULL = "full"
 PROFILE_AUTO = "auto"
 
+# OpenAI Chat Completions rejects tools arrays longer than 128.
+OPENAI_MAX_TOOLS = 128
+
 # HA categories included per routing class when profile is auto/compact.
 _ROUTE_HA_CATEGORIES: dict[str, frozenset[str] | None] = {
     "simple": frozenset({"entities", "control"}),
@@ -24,7 +27,8 @@ _ROUTE_HA_CATEGORIES: dict[str, frozenset[str] | None] = {
 }
 
 _FRIGATE_RE = re.compile(
-    r"\b(frigate|camera|cam(?:era)?s?|nvr|surveillance|recordings?|snapshot)\b",
+    r"\b(frigate|camera|camer[aă]|cam(?:era)?s?|nvr|surveillance|recordings?|"
+    r"snapshot|video|clip|înregistr\w*|inregistr\w*|curte|porch|yard|driveway)\b",
     re.I,
 )
 _IMAGE_GEN_RE = re.compile(
@@ -64,11 +68,40 @@ _MEDIA_TOOL_NAMES = frozenset({
     "media_list", "media_read", "media_write",
 })
 
+# Higher score = keep when hard-capping under provider max.
+_HA_CAT_PRIORITY: dict[str, int] = {
+    "entities": 100,
+    "control": 95,
+    "calendar": 80,
+    "automations": 75,
+    "diagnostics": 70,
+    "helpers": 65,
+    "registry": 60,
+    "integrations": 55,
+    "dashboards": 50,
+    "config_files": 45,
+    "hacs": 35,
+    "zigbee": 30,
+    "network": 25,
+    "addons": 20,
+    "updates": 15,
+    "backups": 12,
+    "upload": 10,
+    "restart": 5,
+}
+
 
 def tool_profile_mode(cfg: dict | None) -> str:
     perf = (cfg or {}).get("performance") if isinstance((cfg or {}).get("performance"), dict) else {}
     mode = str(perf.get("tool_profile") or PROFILE_AUTO).strip().lower()
     return mode if mode in (PROFILE_AUTO, PROFILE_FULL) else PROFILE_AUTO
+
+
+def provider_tools_max(provider: dict | None) -> int | None:
+    """Hard tool-count limit for the outbound API, or None if unknown/unlimited."""
+    if oai.is_openai_provider(provider):
+        return OPENAI_MAX_TOOLS
+    return None
 
 
 def should_compact_tools(
@@ -108,20 +141,14 @@ def _tool_name(tool: dict) -> str:
     return str(fn.get("name") or "")
 
 
-def filter_chat_tools(
+def _intent_filter_tools(
     tools: list[dict],
     *,
-    provider: dict | None,
     cfg: dict | None,
     user_text: str,
-    route_klass: str = "simple",
-    search_enabled: bool = False,
-) -> tuple[list[dict], bool]:
-    """Return (filtered tools, compact_prompt)."""
-    compact = should_compact_tools(provider, cfg)
-    if not compact:
-        return list(tools), False
-
+    route_klass: str,
+    search_enabled: bool,
+) -> list[dict]:
     text = user_text or ""
     allow_frigate = bool(_FRIGATE_RE.search(text))
     allow_image = bool(_IMAGE_GEN_RE.search(text))
@@ -130,8 +157,6 @@ def filter_chat_tools(
 
     ha_cats = ha_categories_for_turn(cfg, route_klass, compact=True)
     if ds.looks_like_automation_edit(text):
-        # "creează o automatizare" is classified as control (create verb), but
-        # create/edit tools live in the automations category (deep-only by default).
         ha_cats = set(ha_cats) | {"automations", "diagnostics"}
     if _CALENDAR_TODO_RE.search(text):
         ha_cats = set(ha_cats) | {"calendar"}
@@ -174,6 +199,91 @@ def filter_chat_tools(
             continue
         # Memory, bridge read, skills — small and usually useful.
         out.append(tool)
+    return out
+
+
+def _tool_keep_score(name: str, *, user_text: str, route_klass: str) -> int:
+    """Higher score = keep when hard-capping under provider max."""
+    if not name:
+        return 0
+    if name in _FRIGATE_TOOLS:
+        return 1000 if _FRIGATE_RE.search(user_text or "") else 200
+    if name == "search_web":
+        return 900
+    if name.startswith("memory_") or name.startswith("skill_") or name.startswith("hassai_"):
+        return 850
+    if name == "generate_image":
+        return 800
+    if name in _MEDIA_TOOL_NAMES:
+        return 750
+    if not name.startswith("ha_"):
+        return 700
+    cat = hta.tool_category(name)
+    score = _HA_CAT_PRIORITY.get(cat, 40)
+    preferred = _ROUTE_HA_CATEGORIES.get(route_klass)
+    if preferred is None or cat in preferred:
+        score += 20
+    return score
+
+
+def cap_tools(
+    tools: list[dict],
+    limit: int,
+    *,
+    user_text: str = "",
+    route_klass: str = "simple",
+) -> list[dict]:
+    """Keep at most `limit` tools, preferring intent-relevant ones."""
+    if limit <= 0 or len(tools) <= limit:
+        return list(tools)
+    ranked = sorted(
+        enumerate(tools),
+        key=lambda it: (
+            -_tool_keep_score(_tool_name(it[1]), user_text=user_text, route_klass=route_klass),
+            it[0],
+        ),
+    )
+    keep_idx = {idx for idx, _ in ranked[:limit]}
+    return [t for i, t in enumerate(tools) if i in keep_idx]
+
+
+def filter_chat_tools(
+    tools: list[dict],
+    *,
+    provider: dict | None,
+    cfg: dict | None,
+    user_text: str,
+    route_klass: str = "simple",
+    search_enabled: bool = False,
+) -> tuple[list[dict], bool]:
+    """Return (filtered tools, compact_prompt).
+
+    Always enforces provider hard limits (OpenAI ≤ 128 tools) even when
+    tool_profile=full — otherwise ChatGPT returns HTTP 400.
+    """
+    max_tools = provider_tools_max(provider)
+    compact = should_compact_tools(provider, cfg)
+    over_limit = max_tools is not None and len(tools) > max_tools
+    need_intent = compact or over_limit
+
+    if not need_intent:
+        return list(tools), False
+
+    if compact:
+        out = _intent_filter_tools(
+            tools,
+            cfg=cfg,
+            user_text=user_text,
+            route_klass=route_klass,
+            search_enabled=search_enabled,
+        )
+    else:
+        # Cloud over OpenAI 128: keep full set then hard-cap by relevance
+        # so Frigate/camera turns still get frigate_* tools.
+        out = list(tools)
+
+    if max_tools is not None and len(out) > max_tools:
+        out = cap_tools(out, max_tools, user_text=user_text, route_klass=route_klass)
 
     return out, True
 
