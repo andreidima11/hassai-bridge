@@ -57,6 +57,11 @@ def test_planning_wording_beats_a_stray_control_verb():
     assert rt.classify(text, tools_active=True) == "deep"
 
 
+def test_create_automation_classifies_as_deep():
+    assert rt.classify("creează o automatizare", tools_active=True) == "deep"
+    assert rt.classify("creaza o automatizare care stinge luminile", tools_active=True) == "deep"
+
+
 def test_images_always_classify_as_vision():
     assert rt.classify("salut", has_images=True, tools_active=True) == "vision"
 

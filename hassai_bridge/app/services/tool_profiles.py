@@ -7,6 +7,7 @@ import re
 from services import ha_tool_access as hta
 from services import openai_api as oai
 from services import router as provider_router
+from services import deepseek as ds
 
 PROFILE_FULL = "full"
 PROFILE_AUTO = "auto"
@@ -119,6 +120,10 @@ def filter_chat_tools(
     allow_media = bool(_MEDIA_RE.search(text))
 
     ha_cats = ha_categories_for_turn(cfg, route_klass, compact=True)
+    if ds.looks_like_automation_edit(text):
+        # "creează o automatizare" is classified as control (create verb), but
+        # create/edit tools live in the automations category (deep-only by default).
+        ha_cats = set(ha_cats) | {"automations", "diagnostics"}
 
     out: list[dict] = []
     for tool in tools:

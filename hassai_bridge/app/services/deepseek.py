@@ -95,6 +95,22 @@ def looks_like_control(text: str) -> bool:
     return bool(_CONTROL_RE.search(str(text or "").lower()))
 
 
+_AUTOMATION_SCOPE_RE = re.compile(
+    r"\b(?:"
+    r"automatiza(?:re|rii|ția|tia|ții|tii)?|automation|automations|"
+    r"(?:creeaz|creaz|adaug|modific|actualiz|edit|create|update|make|f[aă]|[sș]terge|delete|remove)"
+    r".{0,40}script|"
+    r"script(?:uri)?\s+(?:nou|new|care|that|with|pentru|for)"
+    r")\b",
+    re.I | re.S,
+)
+
+
+def looks_like_automation_edit(text: str) -> bool:
+    """Create/edit/delete automation or script — needs automations tools, not just control."""
+    return bool(_AUTOMATION_SCOPE_RE.search(str(text or "")))
+
+
 def auto_thinking_decision(user_text: str, *, tools_active: bool = False) -> dict:
     """Heuristic: simple chat and short HA commands off; planning on.
 
