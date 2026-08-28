@@ -110,6 +110,10 @@ def classify(user_text: str, *, has_images: bool = False, tools_active: bool = F
     decision = ds.auto_thinking_decision(user_text or "", tools_active=tools_active)
     reason = decision.get("reason") or ""
     if reason == "control":
+        # Create/edit automation shares control verbs ("creează") but needs the
+        # deep tool set (ha_create_automation) and usually a stronger model.
+        if ds.looks_like_automation_edit(user_text):
+            return "deep"
         # The thinking classifier checks control verbs before planning ones, which
         # is right for thinking (both end up on high effort) but wrong here: words
         # like "automatizare" make "hai să planificăm automatizarea casei" look

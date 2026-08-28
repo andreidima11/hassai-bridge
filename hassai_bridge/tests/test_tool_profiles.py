@@ -104,3 +104,37 @@ def test_ha_categories_simple_vs_deep():
     assert "entities" in simple and "control" in simple
     assert "automations" not in simple
     assert "automations" in deep
+
+
+def test_create_automation_keeps_ha_create_tool_when_compact():
+    tools = [
+        _tool("ha_list_entities"),
+        _tool("ha_call_service"),
+        _tool("ha_create_automation"),
+        _tool("ha_reload"),
+    ]
+    out, compact = tp.filter_chat_tools(
+        tools,
+        provider=LOCAL,
+        cfg=CFG,
+        user_text="creează o automatizare care stinge luminile la 23:00",
+        route_klass="control",
+    )
+    names = {t["function"]["name"] for t in out}
+    assert compact is True
+    assert "ha_create_automation" in names
+    assert "ha_reload" in names
+
+
+def test_light_command_still_drops_create_automation():
+    tools = [_tool("ha_call_service"), _tool("ha_create_automation")]
+    out, _ = tp.filter_chat_tools(
+        tools,
+        provider=LOCAL,
+        cfg=CFG,
+        user_text="stinge lumina living",
+        route_klass="control",
+    )
+    names = {t["function"]["name"] for t in out}
+    assert "ha_call_service" in names
+    assert "ha_create_automation" not in names
