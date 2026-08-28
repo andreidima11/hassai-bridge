@@ -54,8 +54,10 @@ logging.getLogger().addHandler(_buf_handler)
 log = logging.getLogger("hassai")
 
 # ── Rate limiting (sliding window per IP, capped to prevent leak) ──
+# Behind HA Ingress every browser tab + the HA integration share one client IP.
+# Sensor polls and UI GETs must not burn the budget or chat/HA look "dead".
 _rate_buckets: dict[str, list[float]] = defaultdict(list)
-_RATE_LIMIT = 60  # requests per minute
+_RATE_LIMIT = 180  # mutating / chat requests per minute per IP
 _RATE_WINDOW = 60.0  # seconds
 _RATE_MAX_IPS = 10000  # max tracked IPs
 # Chunked backup restore can be 80+ POSTs for a large ZIP — never throttle those.
@@ -69,6 +71,20 @@ _RATE_LIMIT_EXEMPT_PREFIXES = (
 
 def _rate_limit_exempt(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in _RATE_LIMIT_EXEMPT_PREFIXES)
+
+
+def _should_rate_limit(method: str, path: str) -> bool:
+    """Only throttle write/chat traffic — never GETs (sensors, UI, logs)."""
+    m = (method or "GET").upper()
+    if m in ("GET", "HEAD", "OPTIONS"):
+        return False
+    if not path.startswith(("/v1/", "/api/")):
+        return False
+    if "/chat/activity/" in path:
+        return False
+    if _rate_limit_exempt(path):
+        return False
+    return True
 
 
 @asynccontextmanager
@@ -207,16 +223,11 @@ async def strip_ingress_prefix(request: Request, call_next):
 
 @app.middleware("http")
 async def rate_limit_and_timing(request: Request, call_next):
-    """Rate limiting (chat endpoints) + request timing logs."""
+    """Rate limiting (chat/mutating endpoints) + request timing logs."""
     start = time.time()
     path = request.url.path
 
-    # Rate limit chat and API endpoints (skip live activity polls + backup import/export)
-    if (
-        path.startswith(("/v1/", "/api/"))
-        and "/chat/activity/" not in path
-        and not _rate_limit_exempt(path)
-    ):
+    if _should_rate_limit(request.method, path):
         client_ip = request.client.host if request.client else "unknown"
         now = time.time()
         bucket = _rate_buckets[client_ip]
@@ -227,6 +238,7 @@ async def rate_limit_and_timing(request: Request, call_next):
             return JSONResponse(
                 status_code=429,
                 content={"error": "Rate limit exceeded. Try again later."},
+                headers={"Retry-After": "15"},
             )
         bucket.append(now)
         # Evict stale IPs to prevent unbounded growth (#6)

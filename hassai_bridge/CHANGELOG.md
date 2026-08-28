@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.33
+
+Creating an automation no longer fails under Eco Mode / local tool compaction.
+
+### Fix
+- **„Creează o automatizare” → no tools** — create/edit automation intents were classified as `control`, which hid `ha_create_automation`; they now escalate to `deep` and keep automations (+ reload) tools when compacting
+
 ## 1.0.32
 
 Per-category toggles for what the secondary LLM may handle on tool rounds.
