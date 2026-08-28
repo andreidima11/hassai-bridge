@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.38
+
+### Fix
+- **Delete todo lists** — `ha_create_todo_list`, `ha_delete_todo_list`, `ha_clear_todo_list` for Local To-do lists (previously only items could be removed)
+
 ## 1.0.37
 
 Major Home Assistant tool expansion: calendar/todo, helpers, traces, and more.
