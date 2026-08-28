@@ -129,11 +129,10 @@ def test_switch_provider_unknown_lists_options(cfg_env):
     assert "DeepSeek" in out
 
 
-def test_switch_model_and_eco(cfg_env):
-    bt._switch_provider({"model": "deepseek-reasoner", "eco_mode": True})
+def test_switch_model(cfg_env):
+    bt._switch_provider({"model": "deepseek-reasoner"})
     active = next(p for p in _load()["providers"] if p["id"] == "ds")
     assert active["model"] == "deepseek-reasoner"
-    assert active["eco_mode"] is True
 
 
 def test_run_tool_respects_toggle(cfg_env):

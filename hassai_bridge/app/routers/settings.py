@@ -493,7 +493,6 @@ async def add_provider(data: dict):
         "temperature": temperature,
         "system_prompt": system_prompt,
         "role_models": _clean_role_models(data.get("role_models")),
-        "eco_mode": bool(data.get("eco_mode", False)),
         "secondary_provider": str(data.get("secondary_provider") or "").strip(),
         "vision_provider": str(data.get("vision_provider") or "").strip(),
         "image_generation_provider": str(data.get("image_generation_provider") or "").strip(),
@@ -513,7 +512,7 @@ async def update_provider(provider_id: str, data: dict):
     cfg = load_config()
     for p in cfg.get("providers", []):
         if p["id"] == provider_id:
-            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "image_generation_provider", "eco_mode", "thinking_mode", "role_models"):
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "image_generation_provider", "thinking_mode", "role_models"):
                 if key in data:
                     val = data[key]
                     if key == "system_prompt" and isinstance(val, str):

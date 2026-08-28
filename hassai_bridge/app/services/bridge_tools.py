@@ -151,15 +151,14 @@ TOOL_SPECS: list[dict] = [
         "function": {
             "name": "hassai_switch_provider",
             "description": (
-                "Switch which AI provider or model answers from now on, or toggle Eco Mode on the "
-                "active provider. Use hassai_list_providers first to get the exact names."
+                "Switch which AI provider or model answers from now on. "
+                "Use hassai_list_providers first to get the exact names."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "provider": {"type": "string", "description": "Provider name or id."},
                     "model": {"type": "string", "description": "Model id on the target provider."},
-                    "eco_mode": {"type": "boolean", "description": "Toggle Eco Mode."},
                 },
             },
         },
@@ -221,7 +220,7 @@ def tool_detail(name: str, args: dict) -> str:
     if name == "hassai_switch_provider":
         return " ".join(
             str(v) for v in (args.get("provider"), args.get("model")) if v
-        ) or ("eco" if "eco_mode" in args else "")
+        )
     if name == "hassai_usage_stats":
         return f"{args.get('days') or 30}d"
     return ""
@@ -249,7 +248,7 @@ def system_hint(cfg: dict | None = None) -> str:
     if write_on:
         lines.append(
             "You can change yourself too: hassai_set_setting for add-on settings and tool "
-            "permissions, hassai_switch_provider for the AI provider, model or Eco Mode. "
+            "permissions, hassai_switch_provider for the AI provider or model. "
             "The user manages this add-on, so just do it when they ask, then confirm the new value."
         )
     return "\n".join(lines)
@@ -295,7 +294,6 @@ def _status(user_id: str, cfg: dict) -> str:
         f"HASSAI Bridge {VERSION} (add-on {ADDON_VERSION}), up {_uptime()}.",
         f"Active provider: {active.get('name') or '?'} ({active.get('type') or '?'}) — "
         f"model {active.get('model') or '?'}"
-        + (", Eco Mode on" if active.get("eco_mode") else ""),
     ]
     if secondary:
         lines.append(
@@ -436,7 +434,7 @@ def _list_providers(cfg: dict) -> str:
         lines.append("  (none configured)")
     for p in primaries:
         mark = " ← active" if p.get("id") == active_id else ""
-        eco = ", eco" if p.get("eco_mode") else ""
+        eco = ""
         lines.append(
             f"  • {p.get('name') or p.get('id')} ({p.get('type') or '?'}) — "
             f"model {p.get('model') or '?'}{eco}{mark}"
@@ -469,9 +467,8 @@ def _match_provider(candidates: list[dict], needle: str) -> dict | None:
 def _switch_provider(args: dict) -> str:
     provider = str(args.get("provider") or "").strip()
     model = str(args.get("model") or "").strip()
-    eco = args.get("eco_mode")
-    if not provider and not model and eco is None:
-        return "Error: pass provider, model or eco_mode."
+    if not provider and not model:
+        return "Error: pass provider or model."
 
     fresh = load_config()
     primaries = fresh.get("providers") or []
@@ -494,9 +491,6 @@ def _switch_provider(args: dict) -> str:
     if model:
         target["model"] = model
         changes.append(f"model → {model}")
-    if isinstance(eco, bool):
-        target["eco_mode"] = eco
-        changes.append(f"Eco Mode → {'on' if eco else 'off'}")
 
     save_config(fresh)
     log.info("Provider switched via chat: %s", "; ".join(changes))

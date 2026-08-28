@@ -33,16 +33,14 @@ def test_stable_parts_append_personality_after_bridge_hints():
     parts = build_stable_system_parts(
         global_prompt="You are HASSAI.",
         provider_personality="Speak like a pirate.",
-        eco_instruction="Be concise.",
         bridge_hint="[HASSAI Bridge] You run as an add-on.",
         memory_hint="Use memories when relevant.",
         agentic="Work style: autonomous agent.",
     )
     assert parts[0] == "You are HASSAI."
-    assert parts[1] == "Be concise."
-    assert "[HASSAI Bridge]" in parts[2]
-    assert "memories" in parts[3]
-    assert "autonomous agent" in parts[4]
+    assert "[HASSAI Bridge]" in parts[1]
+    assert "memories" in parts[2]
+    assert "autonomous agent" in parts[3]
     assert parts[-1].startswith("Personality (follow for tone")
     assert "Speak like a pirate." in parts[-1]
 

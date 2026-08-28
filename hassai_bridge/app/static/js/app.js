@@ -605,12 +605,6 @@ async function loadUsageStats() {
       document.getElementById('statsSkills').textContent = '—';
     }
 
-    // Eco Mode stats
-    const eco = stats.eco_mode || {};
-    document.getElementById('statsEcoRequests').textContent = _formatNumber(eco.requests || 0);
-    document.getElementById('statsEcoSaved').textContent = _formatNumber(eco.saved_tokens || 0);
-    document.getElementById('statsEcoAvg').textContent = _formatNumber(eco.avg_completion_eco || 0);
-    document.getElementById('statsNormalAvg').textContent = _formatNumber(eco.avg_completion_normal || 0);
 
     // Secondary Provider stats
     const sec = stats.secondary || {};
@@ -891,11 +885,6 @@ async function loadSettings() {
     document.getElementById('perfParallelFetch').checked = perf.parallel_page_fetch !== false;
     _applyPerformanceFields(perf, 'perf');
 
-    // Security
-    const sec = cfg.security || {};
-    const _defaultEcoPrompt = 'Be concise. No filler words, no pleasantries, no sign-offs. Answer directly without restating the question. Skip explanations unless explicitly asked. Keep responses short and to the point.';
-    document.getElementById('securityEcoPrompt').value = sec.eco_prompt || _defaultEcoPrompt;
-
     // System prompt
     document.getElementById('systemPrompt').value = cfg.system_prompt || '';
     const haDefault = await loadHaAgentPromptDefault();
@@ -967,12 +956,9 @@ async function saveSettings() {
   }
 }
 
-async function saveEcoSettings() {
+async function savePerfSettings() {
   try {
     await api('PUT', '/api/settings/', {
-      security: {
-        eco_prompt: document.getElementById('securityEcoPrompt').value,
-      },
       performance: {
         ..._collectPerformanceFields('perf'),
       },
@@ -983,10 +969,9 @@ async function saveEcoSettings() {
   }
 }
 
-/** @deprecated use saveEcoSettings */
-async function saveSecuritySettings() {
-  return saveEcoSettings();
-}
+/** @deprecated */
+async function saveEcoSettings() { return savePerfSettings(); }
+async function saveSecuritySettings() { return savePerfSettings(); }
 
 async function checkHealth() {
   try {
@@ -1545,7 +1530,6 @@ function openAddProvider() {
   document.getElementById('provSystemPrompt').value = '';
   document.getElementById('provModelFast').value = '';
   document.getElementById('provModelDeep').value = '';
-  document.getElementById('provEcoMode').checked = false;
   _populateSecondarySelect(null);
   document.getElementById('provSecondary').value = '';
   updateProviderCapabilitySections(document.getElementById('provType').value);
@@ -1581,7 +1565,6 @@ function editProvider(id) {
   document.getElementById('provSystemPrompt').value = p.system_prompt || '';
   document.getElementById('provModelFast').value = (p.role_models || {}).fast || '';
   document.getElementById('provModelDeep').value = (p.role_models || {}).deep || '';
-  document.getElementById('provEcoMode').checked = !!p.eco_mode;
   _populateSecondarySelect(id);
   document.getElementById('provSecondary').value = p.secondary_provider || '';
   const thinkingEl = document.getElementById('provThinkingMode');
@@ -1713,7 +1696,6 @@ async function saveProvider() {
     thinking_mode: document.getElementById('provThinkingMode')?.value || 'auto',
     vision_provider: document.getElementById('provVision').value || '',
     image_generation_provider: document.getElementById('provImageGen').value || '',
-    eco_mode: document.getElementById('provEcoMode').checked,
   };
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
   try {

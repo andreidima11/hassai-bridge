@@ -1,5 +1,20 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.35
+
+Eco Mode removed — it did not reduce tokens in practice.
+
+### Changes
+- **Remove Eco Mode** — no per-provider toggle, eco prompt, `/seteco`, eco stats, or eco-driven compaction; Settings tab renamed to **Performance** (local AI tool profile / history only)
+- Cloud providers stay full tools/history; local AI compaction unchanged
+
+## 1.0.34
+
+Intermittent HTTP 429 no longer freezes the whole add-on behind Ingress.
+
+### Fix
+- **Rate limit → everything dead** — GET polls (HA sensors info/health/stats, UI, logs) no longer count toward the limit; only chat/mutating requests are throttled (180/min), with `Retry-After`
+
 ## 1.0.33
 
 Creating an automation no longer fails under Eco Mode / local tool compaction.
