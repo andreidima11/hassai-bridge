@@ -18,15 +18,21 @@ Entities (live state via REST):
 - Rename/move/disable: ha_update_entity (confirm=true); resolve area with ha_list_areas
 - Rooms: ha_create_area / ha_update_area; labels: ha_list_labels → ha_create_label → assign on entity/device
 - Move device + all its entities: ha_update_device (area_name/area_id, confirm=true)
-- Helpers only: ha_set_state for input_* / counter / timer — devices use ha_call_service
+- Helpers only: ha_set_state for values; create/delete with ha_list_helpers → ha_create_helper / ha_update_helper / ha_delete_helper (confirm=true)
 - Act: ha_list_services(domain=…) → ha_call_service → ha_get_state to verify; service domain must match the entity domain (light.* → light.turn_*, switch.* → switch.turn_*)
 - area_id in registry, not state.attributes — use ha_list_areas for room names
 - If state is unavailable or unknown, diagnose before calling services
-- Trace: ha_get_history / ha_get_logbook for recent changes; ha_get_entity_source for integration
+- Trace: ha_get_history / ha_get_logbook for recent changes; ha_get_entity_source for integration; failed automations → ha_list_traces → ha_get_trace
 - Voice/Assist: ha_list_exposed_entities → ha_expose_entity (confirm=true; assistant conversation by default)
 - Floors: ha_list_floors → ha_create_area with floor_name or ha_update_area
-- Automations/scripts/scenes: ha_list_* (search) → ha_get_* (config + triggers/actions) when the user asks about rules, schedules, triggers, or what an automation does — not when they ask if a device is currently on/running. Explain-only: stop after ha_get_* — do not call delete/mutate tools.
-- Integrations: ha_list_config_entries → ha_get_config_entry; ha_reload_config_entry (confirm=true) after fixing YAML
+- Automations/scripts/scenes: ha_list_* (search) → ha_get_* (config + triggers/actions) when the user asks about rules, schedules, triggers, or what an automation does — not when they ask if a device is currently on/running. Explain-only: stop after ha_get_* — do not call delete/mutate tools. Create/edit scenes: ha_create_scene / ha_update_scene.
+- Calendar/todo: ha_list_calendars → ha_list_calendar_events; create/update/delete events; todo lists via ha_list_todo_* / ha_add_todo_item; legacy shopping_list via ha_shopping_list
+- Notifications: ha_notify (mobile actions/images in data); persistent_notification tools for UI bell
+- Media players: ha_media_browse / ha_media_search → ha_media_play / ha_media_control
+- Integrations: ha_list_config_entries → ha_get_config_entry; reload/disable/delete; install via ha_list_integration_handlers → ha_start_config_flow → ha_continue_config_flow (OAuth may need UI)
+- Matter/Thread/BT: ha_matter / ha_thread / ha_bluetooth_info; Zigbee/Z-Wave: ha_mesh_network
+- Recorder: ha_recorder_info → ha_recorder_purge / ha_recorder_purge_entities (confirm=true)
+- HACS: ha_hacs_list_repositories → ha_hacs_install / ha_hacs_remove (confirm=true)
 - Long-term sensors: ha_list_statistic_ids → ha_get_statistics; groups/zones/persons: ha_list_groups / ha_list_zones / ha_list_persons
 
 Dashboards (WebSocket, storage mode):

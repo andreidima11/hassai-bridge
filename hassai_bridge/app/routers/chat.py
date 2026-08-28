@@ -1054,6 +1054,7 @@ _CMD_I18N = {
         "help.setprovider": "• `/setprovider [name|#]` — Switch active AI provider",
         "help.set2nd": "• `/set2nd [name|#|off]` — Set or disable secondary provider",
         "help.stats": "• `/stats [overview|users|memory|providers]` — Usage statistics",
+        "help.consolidation": "• `/consolidation [on|off|daily|weekly|every Nh|now]` — Auto memory consolidation schedule",
         "help.lang": "• `/lang [en|ro]` — Change language",
         "help.version": "• `/version` — Current version",
         "help.help": "• `/help` — This command list",
@@ -1113,6 +1114,13 @@ _CMD_I18N = {
         "lang.ok": "🌐 Language changed to **{lang}**",
         "lang.invalid": "❌ Unsupported language `{arg}`. Available: `en`, `ro`.",
 
+        "consolidation.status": "🧠 **Auto consolidation:** {status}",
+        "consolidation.hint": "Usage: `/consolidation on|off` · `daily [hour]` · `weekly [hour]` · `every 6h` · `now`",
+        "consolidation.ok": "✅ Auto consolidation: **{status}**",
+        "consolidation.now_ok": "✅ Consolidation finished for your memories.",
+        "consolidation.now_fail": "❌ Consolidation failed: {error}",
+        "consolidation.invalid": "❌ Invalid args.\n\n`/consolidation on|off` · `daily [0-23]` · `weekly [0-23]` · `every 6h` · `now`",
+
         "stats.title_overview": "📊 **Usage Statistics (last {days} days):**",
         "stats.totalRequests": "Total Requests",
         "stats.totalTokens": "Total Tokens",
@@ -1157,6 +1165,7 @@ _CMD_I18N = {
         "help.setprovider": "• `/setprovider [nume|#]` — Schimbă providerul AI activ",
         "help.set2nd": "• `/set2nd [nume|#|off]` — Setează sau dezactivează providerul secundar",
         "help.stats": "• `/stats [overview|users|memory|providers]` — Statistici utilizare",
+        "help.consolidation": "• `/consolidation [on|off|daily|weekly|every Nh|now]` — Program consolidare automată memorie",
         "help.lang": "• `/lang [en|ro]` — Schimbă limba",
         "help.version": "• `/version` — Versiunea curentă",
         "help.help": "• `/help` — Lista de comenzi",
@@ -1215,6 +1224,13 @@ _CMD_I18N = {
         "lang.current": "🌐 **Limbă:** {lang}\n\nFolosește `/lang en` sau `/lang ro` pentru a schimba.",
         "lang.ok": "🌐 Limba schimbată la **{lang}**",
         "lang.invalid": "❌ Limbă nesuportată `{arg}`. Disponibile: `en`, `ro`.",
+
+        "consolidation.status": "🧠 **Consolidare automată:** {status}",
+        "consolidation.hint": "Utilizare: `/consolidation on|off` · `daily [ora]` · `weekly [ora]` · `every 6h` · `now`",
+        "consolidation.ok": "✅ Consolidare automată: **{status}**",
+        "consolidation.now_ok": "✅ Consolidarea memoriilor tale s-a terminat.",
+        "consolidation.now_fail": "❌ Consolidarea a eșuat: {error}",
+        "consolidation.invalid": "❌ Argumente invalide.\n\n`/consolidation on|off` · `daily [0-23]` · `weekly [0-23]` · `every 6h` · `now`",
 
         "stats.title_overview": "📊 **Statistici utilizare (ultimele {days} zile):**",
         "stats.totalRequests": "Total cereri",
@@ -1290,7 +1306,7 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
         lines = [T("help.title"), ""]
         for k in ("health", "settings", "info", "memory", "models",
                    "setmodel", "setprovider", "set2nd",
-                   "stats", "lang", "version", "help"):
+                   "stats", "consolidation", "lang", "version", "help"):
             lines.append(T(f"help.{k}"))
         return "\n".join(lines)
 
@@ -1500,6 +1516,88 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
         return T("set2nd.ok", name=match.get("name", match["id"]),
                   type=match.get("type", "?"), provider=active.get("name", active["id"]))
 
+    elif command in ("/consolidation", "/consolidare"):
+        from config import save_config
+        from services.consolidation_schedule import format_status, normalize_auto_consolidation
+        from services.memory_engine import consolidate_memories
+
+        mem = cfg.setdefault("memory", {})
+        ac = normalize_auto_consolidation(mem.get("auto_consolidation"))
+        lang = cfg.get("language", "en")
+
+        def _save_ac(block: dict) -> str:
+            mem["auto_consolidation"] = normalize_auto_consolidation(block)
+            save_config(cfg)
+            return T("consolidation.ok", status=format_status(mem["auto_consolidation"], lang=lang))
+
+        if not arg:
+            return (
+                f"{T('consolidation.status', status=format_status(ac, lang=lang))}\n\n"
+                f"{T('consolidation.hint')}"
+            )
+
+        parts = arg.lower().split()
+        action = parts[0]
+
+        if action in ("on", "enable", "activ", "activeaza", "activează"):
+            ac["enabled"] = True
+            return _save_ac(ac)
+
+        if action in ("off", "disable", "dezactiv", "dezactiveaza", "dezactivează"):
+            ac["enabled"] = False
+            return _save_ac(ac)
+
+        if action in ("now", "acum", "run"):
+            try:
+                active = get_active_provider()
+                await consolidate_memories(user_id, provider=active)
+                return T("consolidation.now_ok")
+            except Exception as e:
+                return T("consolidation.now_fail", error=str(e))
+
+        if action in ("daily", "zilnic"):
+            hour = ac["hour"]
+            if len(parts) > 1:
+                try:
+                    hour = int(parts[1])
+                except ValueError:
+                    return T("consolidation.invalid")
+            if not 0 <= hour <= 23:
+                return T("consolidation.invalid")
+            ac["enabled"] = True
+            ac["schedule"] = "daily"
+            ac["hour"] = hour
+            return _save_ac(ac)
+
+        if action in ("weekly", "saptamanal", "săptămânal"):
+            hour = ac["hour"]
+            if len(parts) > 1:
+                try:
+                    hour = int(parts[1])
+                except ValueError:
+                    return T("consolidation.invalid")
+            if not 0 <= hour <= 23:
+                return T("consolidation.invalid")
+            ac["enabled"] = True
+            ac["schedule"] = "weekly"
+            ac["hour"] = hour
+            return _save_ac(ac)
+
+        if action in ("every", "interval", "fiecare"):
+            raw_h = parts[1] if len(parts) > 1 else ""
+            raw_h = raw_h.rstrip("hH")
+            try:
+                hours = int(raw_h)
+            except ValueError:
+                return T("consolidation.invalid")
+            if not 1 <= hours <= 168:
+                return T("consolidation.invalid")
+            ac["enabled"] = True
+            ac["schedule"] = "interval"
+            ac["interval_hours"] = hours
+            return _save_ac(ac)
+
+        return T("consolidation.invalid")
 
     elif command == "/lang":
         from config import save_config

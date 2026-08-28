@@ -24,6 +24,7 @@ from . import lovelace_tools as lt
 from . import entity_tools as et
 from . import ha_tool_access as hta
 from . import supervisor_admin_tools as sat
+from . import ha_lifecycle_tools as hlt
 
 _DASHBOARD_URL = {
     "type": "string",
@@ -237,6 +238,9 @@ def build_ha_tools(cfg: dict | None = None, *, categories: set[str] | None = Non
     for name, spec in sat.TOOL_SPECS.items():
         if hta.tool_category(name) in enabled:
             merged[name] = spec
+    for name, spec in hlt.TOOL_SPECS.items():
+        if hta.tool_category(name) in enabled:
+            merged[name] = spec
     return [_tool(name, spec) for name, spec in merged.items()]
 
 
@@ -255,6 +259,9 @@ def ha_tool_names(cfg: dict | None = None, *, categories: set[str] | None = None
         if hta.tool_category(name) in enabled:
             names.add(name)
     for name in sat.TOOL_SPECS:
+        if hta.tool_category(name) in enabled:
+            names.add(name)
+    for name in hlt.TOOL_SPECS:
         if hta.tool_category(name) in enabled:
             names.add(name)
     return names
@@ -1196,7 +1203,7 @@ _TOOL_SPECS: dict[str, dict] = {
     },
 }
 
-HA_TOOL_NAMES = set(_TOOL_SPECS) | set(sat.TOOL_SPECS)
+HA_TOOL_NAMES = set(_TOOL_SPECS) | set(sat.TOOL_SPECS) | set(hlt.TOOL_SPECS)
 
 
 def ha_system_hint(
@@ -1229,7 +1236,7 @@ async def run_ha_tool(name: str, args: dict, cfg: dict | None = None) -> str:
             cfg = {}
     if not hta.tool_enabled(name, cfg):
         return f"Error: HA tool '{name}' is disabled in Settings (HA tool permissions)."
-    handler = _HANDLERS.get(name) or sat.HANDLERS.get(name)
+    handler = _HANDLERS.get(name) or sat.HANDLERS.get(name) or hlt.HANDLERS.get(name)
     if handler is None:
         return f"Error: unknown HA tool '{name}'"
     try:
@@ -2573,3 +2580,4 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_write_file": _write_file,
 }
 _HANDLERS.update(sat.HANDLERS)
+_HANDLERS.update(hlt.HANDLERS)

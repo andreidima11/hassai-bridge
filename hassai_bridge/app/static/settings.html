@@ -857,13 +857,21 @@
           <label class="toggle"><input type="checkbox" id="acEnabled"><span class="slider"></span></label>
         </div>
         <label data-i18n="settings.acSchedule">Schedule</label>
-        <select id="acSchedule">
+        <select id="acSchedule" onchange="onAcScheduleChange()">
           <option value="daily" data-i18n="settings.acDaily">Daily</option>
           <option value="weekly" data-i18n="settings.acWeekly">Weekly (Monday)</option>
+          <option value="interval" data-i18n="settings.acInterval">Every N hours</option>
         </select>
-        <label data-i18n="settings.acHour">Hour (0-23)</label>
-        <input type="number" id="acHour" value="3" min="0" max="23">
-        <p class="card-muted hint" data-i18n="settings.acHourDesc">The hour of the day when consolidation runs (server time, 24h format).</p>
+        <div id="acHourRow">
+          <label data-i18n="settings.acHour">Hour (0-23)</label>
+          <input type="number" id="acHour" value="3" min="0" max="23">
+          <p class="card-muted hint" data-i18n="settings.acHourDesc">The hour of the day when consolidation runs (server time, 24h format).</p>
+        </div>
+        <div id="acIntervalRow" style="display:none">
+          <label data-i18n="settings.acIntervalHours">Interval (hours)</label>
+          <input type="number" id="acIntervalHours" value="6" min="1" max="168">
+          <p class="card-muted hint" data-i18n="settings.acIntervalHoursDesc">How often consolidation runs when schedule is “Every N hours” (1–168).</p>
+        </div>
       </div>
       <div class="btn-row">
         <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>

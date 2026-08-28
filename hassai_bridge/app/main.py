@@ -20,9 +20,10 @@ from pathlib import Path
 
 from database import init_db, cleanup_old_conversations, get_all_users
 from core.auth import get_ingress_path, require_api_key_or_webui, _INGRESS_RE
-from core.config import VERSION, BUILD_ID, load_config
+from core.config import VERSION, BUILD_ID, load_config, save_config
 from services.knowledge_graph import init_graph_tables
 from services.memory_engine import consolidate_memories
+from services.consolidation_schedule import normalize_auto_consolidation, should_run_now
 from services.providers import get_active_provider
 from routers import chat, memory, settings, skills, conversations
 
@@ -115,31 +116,25 @@ async def lifespan(app: FastAPI):
 
 async def _auto_consolidation_loop():
     """Background loop that runs memory consolidation on schedule."""
-    last_run_date = None
+    last_daily_key = None
     while True:
         try:
             await asyncio.sleep(60)  # check every minute
             cfg = load_config()
-            ac = cfg.get("memory", {}).get("auto_consolidation", {})
-            if not ac.get("enabled", False):
+            ac = normalize_auto_consolidation(
+                (cfg.get("memory") or {}).get("auto_consolidation"),
+            )
+            due, new_key = should_run_now(ac, last_daily_key=last_daily_key)
+            if not due:
                 continue
 
-            now = datetime.now()
-            schedule = ac.get("schedule", "daily")
-            target_hour = ac.get("hour", 3)
+            if new_key is not None:
+                last_daily_key = new_key
 
-            if now.hour != target_hour:
-                continue
-
-            # Determine if we should run based on schedule
-            run_key = now.strftime("%Y-%m-%d")
-            if schedule == "weekly" and now.weekday() != 0:  # Monday
-                continue
-            if run_key == last_run_date:
-                continue
-
-            last_run_date = run_key
-            log.info(f"Auto-consolidation triggered ({schedule}, hour={target_hour})")
+            log.info(
+                "Auto-consolidation triggered (%s hour=%s interval=%sh)",
+                ac["schedule"], ac["hour"], ac["interval_hours"],
+            )
 
             # Memory consolidation uses the primary provider (final voice / quality).
             active = get_active_provider()
@@ -151,6 +146,15 @@ async def _auto_consolidation_loop():
                     log.info(f"Auto-consolidation complete for user: {user_id}")
                 except Exception as e:
                     log.error(f"Auto-consolidation failed for {user_id}: {e}")
+
+            # Persist last run for interval schedules (survives restart).
+            if ac["schedule"] == "interval":
+                fresh = load_config()
+                mem = fresh.setdefault("memory", {})
+                block = normalize_auto_consolidation(mem.get("auto_consolidation"))
+                block["last_run_at"] = time.time()
+                mem["auto_consolidation"] = block
+                save_config(fresh)
 
         except asyncio.CancelledError:
             break
