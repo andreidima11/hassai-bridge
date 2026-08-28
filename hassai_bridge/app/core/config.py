@@ -109,8 +109,10 @@ DEFAULT_CONFIG = {
         "extract_prompt": "",
         "auto_consolidation": {
             "enabled": False,
-            "schedule": "daily",
+            "schedule": "daily",  # daily | weekly | interval
             "hour": 3,
+            "interval_hours": 6,
+            "last_run_at": 0,
         },
     },
     "performance": {
@@ -154,6 +156,8 @@ DEFAULT_CONFIG = {
         "registry": True,
         "automations": True,
         "integrations": True,
+        "calendar": True,
+        "helpers": True,
         "dashboards": True,
         "config_files": True,
         "diagnostics": True,
@@ -164,6 +168,7 @@ DEFAULT_CONFIG = {
         "network": True,
         "upload": True,
         "zigbee": True,
+        "hacs": True,
     },
 }
 

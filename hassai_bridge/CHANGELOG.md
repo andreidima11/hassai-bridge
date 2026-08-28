@@ -1,5 +1,30 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.37
+
+Major Home Assistant tool expansion: calendar/todo, helpers, traces, and more.
+
+### Features
+- **Calendar & todo** — list/create/update/delete calendar events; todo lists + shopping list
+- **Helpers CRUD** — create/update/delete `input_*`, timer, counter, schedule (UI storage helpers)
+- **Automation traces** — `ha_list_traces` / `ha_get_trace` for failed runs
+- **Interactive notify** — `ha_notify` with actions/images; persistent notifications
+- **Integrations admin** — disable/remove entries, start/continue config & options flows
+- **Media players** — browse, search, play_media, volume/queue controls
+- **Matter / Thread / Bluetooth** — commission/diagnostics + OTBR/Thread datasets + BT device list
+- **Scenes editor** — create/update/get scene config (plus existing activate/delete)
+- **Recorder** — info, purge/repack, purge entities, validate statistics
+- **HACS** — list/info/install/update/remove repositories
+- New Settings toggles: **calendar**, **helpers**, **hacs** (Matter/BT under zigbee)
+
+## 1.0.36
+
+Automatic memory consolidation can run on a custom interval, including from chat.
+
+### Features
+- **Interval schedule** — Auto Consolidation supports daily, weekly (Monday), or every N hours (1–168); Settings UI + persisted `last_run_at` for intervals
+- **Chat command** — `/consolidation` (alias `/consolidare`): status, `on`/`off`, `daily [hour]`, `weekly [hour]`, `every 6h`, `now`
+
 ## 1.0.35
 
 Eco Mode removed — it did not reduce tokens in practice.

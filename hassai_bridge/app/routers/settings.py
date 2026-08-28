@@ -250,7 +250,16 @@ async def update_settings(data: SettingsUpdate):
     if data.frigate is not None:
         cfg.setdefault("frigate", {}).update(data.frigate)
     if data.memory is not None:
-        cfg["memory"].update(data.memory)
+        incoming = dict(data.memory)
+        if isinstance(incoming.get("auto_consolidation"), dict):
+            from services.consolidation_schedule import normalize_auto_consolidation
+            prev = (cfg.get("memory") or {}).get("auto_consolidation") or {}
+            merged = dict(prev) if isinstance(prev, dict) else {}
+            merged.update(incoming["auto_consolidation"])
+            if "last_run_at" not in incoming["auto_consolidation"]:
+                merged["last_run_at"] = (prev or {}).get("last_run_at", 0) if isinstance(prev, dict) else 0
+            incoming["auto_consolidation"] = normalize_auto_consolidation(merged)
+        cfg["memory"].update(incoming)
     if data.voice is not None:
         incoming = dict(data.voice)
         # Blank key from the UI means "leave the stored one alone".

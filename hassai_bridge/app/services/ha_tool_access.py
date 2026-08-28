@@ -7,20 +7,23 @@ from typing import Any
 # Settings keys (ha_tools.<key>) — all default True when missing.
 CATEGORY_KEYS: dict[str, str] = {
     "entities": "Read entities, states, history, services, statistics",
-    "control": "Call services, set helpers, run scripts and scenes",
+    "control": "Call services, notifications, media players, run scripts and scenes",
     "registry": "Mutate areas, labels, devices, floors, entity registry",
-    "automations": "Create, edit, delete automations and scripts",
-    "integrations": "List and reload config entries (not OAuth pairing)",
+    "automations": "Create/edit automations, scripts, scenes; list/get traces",
+    "integrations": "List, reload, disable, remove, configure integrations (flows)",
+    "calendar": "Calendars, events, todo lists, shopping list",
+    "helpers": "Create, update, delete input_*, timer, counter, schedule helpers",
     "dashboards": "Lovelace dashboards, views, cards",
     "config_files": "List, read, write text YAML in /config",
-    "diagnostics": "Logs, problems, config check, partial reload, jobs",
+    "diagnostics": "Logs, problems, config check, reload, recorder purge",
     "backups": "Supervisor backup list, create, restore",
     "addons": "Add-on start, stop, restart, list",
     "updates": "Check and install HA Core, OS, Supervisor, add-on updates",
     "restart": "Restart Home Assistant Core or reboot the host",
     "network": "Network info, ping, port checks",
     "upload": "Write binary files to /config, /media, /share",
-    "zigbee": "ZHA permit/remove and Z-Wave heal (via integration services)",
+    "zigbee": "ZHA / Z-Wave / Matter / Thread / Bluetooth diagnostics and pairing",
+    "hacs": "HACS repository list, install/update, remove",
 }
 
 DEFAULT_HA_TOOLS: dict[str, bool] = {k: True for k in CATEGORY_KEYS}
@@ -60,6 +63,14 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "ha_trigger_automation": "control",
     "ha_run_script": "control",
     "ha_activate_scene": "control",
+    "ha_notify": "control",
+    "ha_list_persistent_notifications": "control",
+    "ha_create_persistent_notification": "control",
+    "ha_dismiss_persistent_notification": "control",
+    "ha_media_browse": "control",
+    "ha_media_search": "control",
+    "ha_media_play": "control",
+    "ha_media_control": "control",
     # registry
     "ha_update_entity": "registry",
     "ha_create_area": "registry",
@@ -78,8 +89,37 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "ha_update_automation": "automations",
     "ha_create_script": "automations",
     "ha_update_script": "automations",
+    "ha_get_scene": "automations",
+    "ha_create_scene": "automations",
+    "ha_update_scene": "automations",
+    "ha_list_traces": "automations",
+    "ha_get_trace": "automations",
     # integrations
     "ha_reload_config_entry": "integrations",
+    "ha_delete_config_entry": "integrations",
+    "ha_disable_config_entry": "integrations",
+    "ha_update_config_entry": "integrations",
+    "ha_list_integration_handlers": "integrations",
+    "ha_start_config_flow": "integrations",
+    "ha_continue_config_flow": "integrations",
+    "ha_start_options_flow": "integrations",
+    # calendar / todo
+    "ha_list_calendars": "calendar",
+    "ha_list_calendar_events": "calendar",
+    "ha_create_calendar_event": "calendar",
+    "ha_update_calendar_event": "calendar",
+    "ha_delete_calendar_event": "calendar",
+    "ha_list_todo_lists": "calendar",
+    "ha_list_todo_items": "calendar",
+    "ha_add_todo_item": "calendar",
+    "ha_update_todo_item": "calendar",
+    "ha_remove_todo_item": "calendar",
+    "ha_shopping_list": "calendar",
+    # helpers
+    "ha_list_helpers": "helpers",
+    "ha_create_helper": "helpers",
+    "ha_update_helper": "helpers",
+    "ha_delete_helper": "helpers",
     # dashboards
     "ha_list_dashboards": "dashboards",
     "ha_get_dashboard": "dashboards",
@@ -105,6 +145,10 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "ha_check_config": "diagnostics",
     "ha_reload": "diagnostics",
     "ha_get_job": "diagnostics",
+    "ha_recorder_info": "diagnostics",
+    "ha_recorder_purge": "diagnostics",
+    "ha_recorder_purge_entities": "diagnostics",
+    "ha_recorder_validate": "diagnostics",
     # backups
     "ha_list_backups": "backups",
     "ha_create_backup": "backups",
@@ -130,8 +174,17 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "ha_check_port": "network",
     # upload
     "ha_upload_file": "upload",
-    # zigbee
+    # zigbee / matter / thread / bt
     "ha_mesh_network": "zigbee",
+    "ha_matter": "zigbee",
+    "ha_thread": "zigbee",
+    "ha_bluetooth_info": "zigbee",
+    # hacs
+    "ha_hacs_info": "hacs",
+    "ha_hacs_list_repositories": "hacs",
+    "ha_hacs_repository_info": "hacs",
+    "ha_hacs_install": "hacs",
+    "ha_hacs_remove": "hacs",
 }
 
 

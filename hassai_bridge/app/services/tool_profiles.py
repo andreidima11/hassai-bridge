@@ -18,7 +18,7 @@ _ROUTE_HA_CATEGORIES: dict[str, frozenset[str] | None] = {
     "control": frozenset({"entities", "control"}),
     "deep": frozenset({
         "entities", "control", "automations", "diagnostics",
-        "config_files", "registry",
+        "config_files", "registry", "calendar", "helpers", "integrations",
     }),
     "vision": None,  # keep all user-enabled categories
 }
@@ -39,6 +39,20 @@ _MEDIA_RE = re.compile(
     r"\b(media|photo|video|file|folder|share|upload|download)\b",
     re.I,
 )
+_CALENDAR_TODO_RE = re.compile(
+    r"\b(calendar|eveniment|event|todo|to-?do|shopping|cump[aă]r[aă]tur|list[aă]\s+de\s+cump)\b",
+    re.I,
+)
+_HELPER_RE = re.compile(
+    r"\b(helper|input_boolean|input_number|input_text|input_select|input_datetime|"
+    r"input_button|timer|counter|schedule)\b",
+    re.I,
+)
+_TRACE_RE = re.compile(
+    r"\b(trace|traces|de\s+ce\s+(a\s+)?e[sș]uat|failed\s+automation|automation\s+fail)\b",
+    re.I,
+)
+_HACS_RE = re.compile(r"\b(hacs|custom\s+card|custom\s+integration)\b", re.I)
 
 _FRIGATE_TOOLS = frozenset({
     "frigate_list_cameras", "frigate_events", "frigate_snapshot",
@@ -119,6 +133,14 @@ def filter_chat_tools(
         # "creează o automatizare" is classified as control (create verb), but
         # create/edit tools live in the automations category (deep-only by default).
         ha_cats = set(ha_cats) | {"automations", "diagnostics"}
+    if _CALENDAR_TODO_RE.search(text):
+        ha_cats = set(ha_cats) | {"calendar"}
+    if _HELPER_RE.search(text):
+        ha_cats = set(ha_cats) | {"helpers"}
+    if _TRACE_RE.search(text):
+        ha_cats = set(ha_cats) | {"automations", "diagnostics"}
+    if _HACS_RE.search(text):
+        ha_cats = set(ha_cats) | {"hacs"}
 
     out: list[dict] = []
     for tool in tools:

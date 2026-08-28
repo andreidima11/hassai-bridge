@@ -698,8 +698,8 @@ async function loadHaToolCategories() {
   } catch {
     _haToolCategoryKeys = [
       'entities', 'control', 'registry', 'automations', 'integrations',
-      'dashboards', 'config_files', 'diagnostics', 'backups', 'addons',
-      'updates', 'restart', 'network', 'upload', 'zigbee',
+      'calendar', 'helpers', 'dashboards', 'config_files', 'diagnostics',
+      'backups', 'addons', 'updates', 'restart', 'network', 'upload', 'zigbee', 'hacs',
     ];
   }
   return _haToolCategoryKeys;
@@ -874,6 +874,9 @@ async function loadSettings() {
     document.getElementById('acEnabled').checked = ac.enabled || false;
     document.getElementById('acSchedule').value = ac.schedule || 'daily';
     document.getElementById('acHour').value = ac.hour ?? 3;
+    const acInterval = document.getElementById('acIntervalHours');
+    if (acInterval) acInterval.value = ac.interval_hours ?? 6;
+    onAcScheduleChange();
     document.getElementById('memAutoExtract').checked = cfg.memory.auto_extract;
     document.getElementById('memMax').value = cfg.memory.max_memories_per_user;
 
@@ -896,6 +899,14 @@ async function loadSettings() {
   } catch (e) {
     toast(t('toast.settingsError', { msg: e.message }), true);
   }
+}
+
+function onAcScheduleChange() {
+  const schedule = document.getElementById('acSchedule')?.value || 'daily';
+  const hourRow = document.getElementById('acHourRow');
+  const intervalRow = document.getElementById('acIntervalRow');
+  if (hourRow) hourRow.style.display = schedule === 'interval' ? 'none' : '';
+  if (intervalRow) intervalRow.style.display = schedule === 'interval' ? '' : 'none';
 }
 
 async function saveSettings() {
@@ -921,6 +932,7 @@ async function saveSettings() {
           enabled: document.getElementById('acEnabled').checked,
           schedule: document.getElementById('acSchedule').value,
           hour: parseInt(document.getElementById('acHour').value) || 3,
+          interval_hours: parseInt(document.getElementById('acIntervalHours')?.value) || 6,
         },
       },
       performance: {
