@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.39
+
+### Fix
+- **ChatGPT HTTP 400 “tools array too long”** — OpenAI allows max 128 tools; after the HA tool expansion we sent ~156. Cloud OpenAI now hard-caps at 128 (Frigate/camera turns keep `frigate_*` when you ask about video/curte/înregistrări)
+
 ## 1.0.38
 
 ### Fix
