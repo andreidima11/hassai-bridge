@@ -60,13 +60,9 @@ def tool_profile_mode(cfg: dict | None) -> str:
 def should_compact_tools(
     provider: dict | None,
     cfg: dict | None,
-    *,
-    eco_mode: bool = False,
 ) -> bool:
     if tool_profile_mode(cfg) == PROFILE_FULL:
         return False
-    if eco_mode:
-        return True
     return oai._is_local_provider(provider)
 
 
@@ -104,12 +100,11 @@ def filter_chat_tools(
     provider: dict | None,
     cfg: dict | None,
     user_text: str,
-    eco_mode: bool = False,
     route_klass: str = "simple",
     search_enabled: bool = False,
 ) -> tuple[list[dict], bool]:
     """Return (filtered tools, compact_prompt)."""
-    compact = should_compact_tools(provider, cfg, eco_mode=eco_mode)
+    compact = should_compact_tools(provider, cfg)
     if not compact:
         return list(tools), False
 
@@ -164,15 +159,13 @@ def filter_chat_tools(
 def effective_history_limit(
     cfg: dict | None,
     provider: dict | None,
-    *,
-    eco_mode: bool = False,
 ) -> int:
     perf = (cfg or {}).get("performance") if isinstance((cfg or {}).get("performance"), dict) else {}
     try:
         base = int(perf.get("history_limit", 10))
     except (TypeError, ValueError):
         base = 10
-    if should_compact_tools(provider, cfg, eco_mode=eco_mode):
+    if should_compact_tools(provider, cfg):
         try:
             local_cap = int(perf.get("local_history_limit", 6))
         except (TypeError, ValueError):
@@ -181,7 +174,7 @@ def effective_history_limit(
     return base
 
 
-def tool_replay_turns(cfg: dict | None, provider: dict | None, *, eco_mode: bool = False) -> int:
+def tool_replay_turns(cfg: dict | None, provider: dict | None) -> int:
     perf = (cfg or {}).get("performance") if isinstance((cfg or {}).get("performance"), dict) else {}
     try:
         configured = int(perf.get("tool_replay_turns", 0))
@@ -189,6 +182,6 @@ def tool_replay_turns(cfg: dict | None, provider: dict | None, *, eco_mode: bool
         configured = 0
     if configured > 0:
         return configured
-    if should_compact_tools(provider, cfg, eco_mode=eco_mode):
+    if should_compact_tools(provider, cfg):
         return 3
     return 6

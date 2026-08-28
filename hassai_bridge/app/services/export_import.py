@@ -419,7 +419,7 @@ def _settings_readme(cfg: dict, inventory: dict) -> str:
         "This ZIP restores EVERYTHING from Settings, not just the database:",
         "  - Providers + secondary providers (API keys included)",
         "  - Users / profiles / Assist API keys",
-        "  - Language, prompts, Eco Mode, tool permissions",
+        "  - Language, prompts, Performance, tool permissions",
         "  - Voice (Google key, STT/TTS engines, Whisper/Piper URLs, Chirp voice)",
         "  - Memory, Frigate, SearXNG, performance",
         "  - Conversations + memories (hassai.db)",

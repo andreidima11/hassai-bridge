@@ -823,33 +823,6 @@ def get_usage_stats(days=30):
             (cutoff,)
         ).fetchone()["c"]
 
-        # Eco mode usage
-        eco_count = conn.execute(
-            "SELECT COUNT(*) as c FROM usage_stats WHERE created_at >= ? AND eco_mode = 1",
-            (cutoff,)
-        ).fetchone()["c"]
-
-        eco_tokens = conn.execute(
-            """SELECT COALESCE(SUM(tokens_completion),0) as completion
-               FROM usage_stats WHERE created_at >= ? AND eco_mode = 1""",
-            (cutoff,)
-        ).fetchone()["completion"]
-
-        non_eco_avg = conn.execute(
-            """SELECT CAST(AVG(tokens_completion) AS INTEGER) as avg_comp
-               FROM usage_stats WHERE created_at >= ? AND eco_mode = 0 AND tokens_completion > 0""",
-            (cutoff,)
-        ).fetchone()["avg_comp"] or 0
-
-        eco_avg = conn.execute(
-            """SELECT CAST(AVG(tokens_completion) AS INTEGER) as avg_comp
-               FROM usage_stats WHERE created_at >= ? AND eco_mode = 1 AND tokens_completion > 0""",
-            (cutoff,)
-        ).fetchone()["avg_comp"] or 0
-
-        # Eco mode savings estimate: difference between average non-eco and eco completion tokens × eco requests
-        eco_saved_tokens = max(0, (non_eco_avg - eco_avg) * eco_count) if eco_count and non_eco_avg else 0
-
         # Secondary provider usage
         secondary_count = conn.execute(
             "SELECT COUNT(*) as c FROM usage_stats WHERE created_at >= ? AND secondary_used = 1",
@@ -885,13 +858,6 @@ def get_usage_stats(days=30):
         "search_requests": search_count,
         "stream_requests": stream_count,
         "non_stream_requests": total - stream_count,
-        "eco_mode": {
-            "requests": eco_count,
-            "completion_tokens": eco_tokens,
-            "saved_tokens": eco_saved_tokens,
-            "avg_completion_eco": eco_avg,
-            "avg_completion_normal": non_eco_avg,
-        },
         "secondary": {
             "requests": secondary_count,
             "tokens": secondary_tokens,

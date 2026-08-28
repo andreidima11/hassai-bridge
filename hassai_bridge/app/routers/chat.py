@@ -114,7 +114,6 @@ def build_stable_system_parts(
     *,
     global_prompt: str = "",
     provider_personality: str = "",
-    eco_instruction: str = "",
     bridge_hint: str = "",
     memory_hint: str = "",
     agentic: str = "",
@@ -129,8 +128,6 @@ def build_stable_system_parts(
     persona = (provider_personality or "").strip()
     if base:
         parts.append(base)
-    if eco_instruction:
-        parts.append(eco_instruction)
     if bridge_hint:
         parts.append(bridge_hint)
     if memory_hint:
@@ -1056,7 +1053,6 @@ _CMD_I18N = {
         "help.setmodel": "• `/setmodel [name|#]` — Change model on the active provider",
         "help.setprovider": "• `/setprovider [name|#]` — Switch active AI provider",
         "help.set2nd": "• `/set2nd [name|#|off]` — Set or disable secondary provider",
-        "help.seteco": "• `/seteco [on|off]` — Toggle Eco Mode on the active provider",
         "help.stats": "• `/stats [overview|users|memory|providers]` — Usage statistics",
         "help.lang": "• `/lang [en|ro]` — Change language",
         "help.version": "• `/version` — Current version",
@@ -1112,8 +1108,6 @@ _CMD_I18N = {
         "set2nd.notfound": "❌ Secondary provider `{arg}` not found. Use `/set2nd` to see available.",
         "set2nd.ok": "✅ Secondary provider set to **{name}** ({type}) for **{provider}**",
 
-        "seteco.status": "🌿 **Eco Mode** on **{provider}**: {status}\n\nUse `/seteco on` to enable, `/seteco off` to disable.",
-        "seteco.ok": "🌿 Eco Mode **{status}** for **{provider}**",
 
         "lang.current": "🌐 **Language:** {lang}\n\nUse `/lang en` or `/lang ro` to change.",
         "lang.ok": "🌐 Language changed to **{lang}**",
@@ -1126,9 +1120,6 @@ _CMD_I18N = {
         "stats.completionTokens": "Completion",
         "stats.searchRequests": "Search Requests",
         "stats.streamRequests": "Stream / Non-stream",
-        "stats.ecoMode": "Eco Mode",
-        "stats.ecoRequests": "Eco Requests",
-        "stats.ecoSaved": "Tokens Saved (est.)",
         "stats.secondary": "Secondary Provider",
         "stats.secondaryCalls": "Secondary Calls",
         "stats.secondaryTokens": "Secondary Tokens",
@@ -1165,7 +1156,6 @@ _CMD_I18N = {
         "help.setmodel": "• `/setmodel [nume|#]` — Schimbă modelul pe providerul activ",
         "help.setprovider": "• `/setprovider [nume|#]` — Schimbă providerul AI activ",
         "help.set2nd": "• `/set2nd [nume|#|off]` — Setează sau dezactivează providerul secundar",
-        "help.seteco": "• `/seteco [on|off]` — Comută Eco Mode pe providerul activ",
         "help.stats": "• `/stats [overview|users|memory|providers]` — Statistici utilizare",
         "help.lang": "• `/lang [en|ro]` — Schimbă limba",
         "help.version": "• `/version` — Versiunea curentă",
@@ -1221,8 +1211,6 @@ _CMD_I18N = {
         "set2nd.notfound": "❌ Providerul secundar `{arg}` nu a fost găsit. Folosește `/set2nd` pentru a vedea lista.",
         "set2nd.ok": "✅ Provider secundar setat la **{name}** ({type}) pentru **{provider}**",
 
-        "seteco.status": "🌿 **Eco Mode** pe **{provider}**: {status}\n\nFolosește `/seteco on` pentru a activa, `/seteco off` pentru a dezactiva.",
-        "seteco.ok": "🌿 Eco Mode **{status}** pentru **{provider}**",
 
         "lang.current": "🌐 **Limbă:** {lang}\n\nFolosește `/lang en` sau `/lang ro` pentru a schimba.",
         "lang.ok": "🌐 Limba schimbată la **{lang}**",
@@ -1235,9 +1223,6 @@ _CMD_I18N = {
         "stats.completionTokens": "Completare",
         "stats.searchRequests": "Cereri cu căutare",
         "stats.streamRequests": "Stream / Non-stream",
-        "stats.ecoMode": "Eco Mode",
-        "stats.ecoRequests": "Cereri Eco",
-        "stats.ecoSaved": "Tokeni economisiți (est.)",
         "stats.secondary": "Provider Secundar",
         "stats.secondaryCalls": "Apeluri secundare",
         "stats.secondaryTokens": "Tokeni secundari",
@@ -1304,7 +1289,7 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
     if command == "/help":
         lines = [T("help.title"), ""]
         for k in ("health", "settings", "info", "memory", "models",
-                   "setmodel", "setprovider", "set2nd", "seteco",
+                   "setmodel", "setprovider", "set2nd",
                    "stats", "lang", "version", "help"):
             lines.append(T(f"help.{k}"))
         return "\n".join(lines)
@@ -1515,24 +1500,6 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
         return T("set2nd.ok", name=match.get("name", match["id"]),
                   type=match.get("type", "?"), provider=active.get("name", active["id"]))
 
-    elif command == "/seteco":
-        from config import save_config
-        active = get_active_provider()
-
-        if not arg:
-            status = T("on") if active.get("eco_mode") else T("off")
-            return T("seteco.status", provider=active.get("name", active["id"]), status=status)
-
-        enable = arg.lower() in ("1", "on", "true", "yes")
-        all_providers = cfg.get("providers", [])
-        for p in all_providers:
-            if p["id"] == active["id"]:
-                p["eco_mode"] = enable
-                break
-        cfg["providers"] = all_providers
-        save_config(cfg)
-        status = T("on") if enable else T("off")
-        return T("seteco.ok", provider=active.get("name", active["id"]), status=status)
 
     elif command == "/lang":
         from config import save_config
@@ -1566,17 +1533,12 @@ def _handle_stats_command(arg: str, user_id: str, cfg: dict) -> str:
     if sub in ("", "overview"):
         s = get_usage_stats(30)
         tok = s["tokens"]
-        eco = s["eco_mode"]
         sec = s["secondary"]
         lines = [T("stats.title_overview", days=30), ""]
         lines.append(f"• **{T('stats.totalRequests')}:** {s['total_requests']:,}")
         lines.append(f"• **{T('stats.totalTokens')}:** {tok['total']:,} ({T('stats.promptTokens')}: {tok['prompt']:,} / {T('stats.completionTokens')}: {tok['completion']:,})")
         lines.append(f"• **{T('stats.searchRequests')}:** {s['search_requests']:,}")
         lines.append(f"• **{T('stats.streamRequests')}:** {s['stream_requests']:,} / {s['non_stream_requests']:,}")
-        lines.append("")
-        lines.append(f"🌿 **{T('stats.ecoMode')}:**")
-        lines.append(f"• **{T('stats.ecoRequests')}:** {eco['requests']:,}")
-        lines.append(f"• **{T('stats.ecoSaved')}:** {eco['saved_tokens']:,}")
         lines.append("")
         lines.append(f"🔗 **{T('stats.secondary')}:**")
         lines.append(f"• **{T('stats.secondaryCalls')}:** {sec['requests']:,}")
@@ -2295,7 +2257,6 @@ async def chat_completions(request: Request):
         provider=active,
         cfg=cfg,
         user_text=last_user_msg,
-        eco_mode=bool(active.get("eco_mode")),
         route_klass=route_klass,
         search_enabled=search_enabled,
     )
@@ -2367,21 +2328,8 @@ async def chat_completions(request: Request):
     secondary = providers.get_secondary_provider(active)
     global_prompt, provider_personality = resolve_provider_personality(active, cfg)
 
-    # Eco Mode: append conciseness instruction to reduce output tokens
-    eco_instruction = ""
-    if active.get("eco_mode"):
-        default_eco = (
-            "Be concise. No filler words, no pleasantries, no sign-offs. "
-            "Answer directly without restating the question. "
-            "Skip explanations unless explicitly asked. "
-            "Keep responses short and to the point."
-        )
-        eco_instruction = cfg.get("security", {}).get("eco_prompt", "").strip() or default_eco
-
     # 2) Memory + history retrieval (parallel)
-    history_limit = tp.effective_history_limit(
-        cfg, active, eco_mode=bool(active.get("eco_mode")),
-    )
+    history_limit = tp.effective_history_limit(cfg, active)
     memories, history = await asyncio.gather(
         retrieve_relevant_memories(user_id, last_user_msg),
         asyncio.to_thread(get_conversation_history, user_id, history_limit, session_id),
@@ -2399,7 +2347,6 @@ async def chat_completions(request: Request):
     stable_parts = build_stable_system_parts(
         global_prompt=global_prompt,
         provider_personality=provider_personality,
-        eco_instruction=eco_instruction,
         bridge_hint=bridge_hint or "",
         memory_hint=memory_hint or "",
         agentic=_agentic_instruction(),
@@ -2441,7 +2388,7 @@ async def chat_completions(request: Request):
         # Only the most recent turns replay their tool calls; older ones keep just
         # the text so a long conversation does not carry every tool result along.
         replay_from = len(history) - tp.tool_replay_turns(
-            cfg, active, eco_mode=bool(active.get("eco_mode")),
+            cfg, active,
         )
         for index, row in enumerate(history):
             augmented.extend(
@@ -2872,8 +2819,7 @@ async def chat_completions(request: Request):
                 tokens_total=usage.get("total_tokens", 0),
                 response_time_ms=int((time.time() - _req_start) * 1000),
                 stream=False, search_used=_search_used,
-                eco_mode=bool(chat_provider.get("eco_mode")),
-                secondary_used=_image_provider_used or _secondary_used_for_recall,
+                                secondary_used=_image_provider_used or _secondary_used_for_recall,
                 cache_hit_tokens=cache_hit,
                 cache_miss_tokens=cache_miss,
                 cost_usd=pricing.estimate_cost(
@@ -3326,8 +3272,7 @@ async def chat_completions(request: Request):
                         ),
                         response_time_ms=int((time.time() - _req_start) * 1000),
                         stream=True, search_used=search_used,
-                        eco_mode=bool(chat_provider.get("eco_mode")),
-                        secondary_used=secondary_used,
+                                                secondary_used=secondary_used,
                         cache_hit_tokens=cache_hit,
                         cache_miss_tokens=cache_miss,
                         cost_usd=pricing.estimate_cost(
@@ -3350,8 +3295,7 @@ async def chat_completions(request: Request):
                         tokens_total=_prompt_tokens + _estimate_tokens(full_response),
                         response_time_ms=int((time.time() - _req_start) * 1000),
                         stream=True, search_used=search_used,
-                        eco_mode=bool(chat_provider.get("eco_mode")),
-                        secondary_used=secondary_used,
+                                                secondary_used=secondary_used,
                         cost_usd=pricing.estimate_cost(
                             stat_prov,
                             {

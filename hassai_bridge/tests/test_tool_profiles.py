@@ -71,30 +71,23 @@ def test_frigate_kept_when_mentioned():
     assert "frigate_events" in names
 
 
-def test_eco_mode_compacts_cloud_provider():
+def test_cloud_provider_keeps_full_tools_without_eco():
     tools = [_tool("ha_list_entities"), _tool("ha_create_backup")]
     out, compact = tp.filter_chat_tools(
         tools,
         provider=CLOUD,
         cfg=CFG,
         user_text="aprinde lumina",
-        eco_mode=True,
         route_klass="control",
     )
     names = {t["function"]["name"] for t in out}
-    assert compact is True
-    assert "ha_create_backup" not in names
+    assert compact is False
+    assert names == {"ha_list_entities", "ha_create_backup"}
 
 
 def test_local_history_limit():
     assert tp.effective_history_limit({"performance": {"history_limit": 10, "local_history_limit": 6}}, LOCAL) == 6
     assert tp.effective_history_limit({"performance": {"history_limit": 10}}, CLOUD) == 10
-
-
-def test_eco_mode_uses_compact_history_limit():
-    cfg = {"performance": {"history_limit": 10, "local_history_limit": 6}}
-    assert tp.effective_history_limit(cfg, CLOUD, eco_mode=True) == 6
-    assert tp.effective_history_limit(cfg, CLOUD, eco_mode=False) == 10
 
 
 def test_ha_categories_simple_vs_deep():
