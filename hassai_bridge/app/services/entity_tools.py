@@ -26,7 +26,7 @@ Entities (live state via REST):
 - Voice/Assist: ha_list_exposed_entities → ha_expose_entity (confirm=true; assistant conversation by default)
 - Floors: ha_list_floors → ha_create_area with floor_name or ha_update_area
 - Automations/scripts/scenes: ha_list_* (search) → ha_get_* (config + triggers/actions) when the user asks about rules, schedules, triggers, or what an automation does — not when they ask if a device is currently on/running. Explain-only: stop after ha_get_* — do not call delete/mutate tools. Create/edit scenes: ha_create_scene / ha_update_scene.
-- Calendar/todo: ha_list_calendars → ha_list_calendar_events; create/update/delete events; todo lists via ha_list_todo_* / ha_add_todo_item; legacy shopping_list via ha_shopping_list
+- Calendar/todo: ha_list_calendars → ha_list_calendar_events; create/update/delete events; todo lists via ha_list_todo_* / ha_create_todo_list / ha_delete_todo_list / ha_clear_todo_list / ha_add_todo_item; legacy shopping_list via ha_shopping_list (cannot delete the built-in shopping list itself)
 - Notifications: ha_notify (mobile actions/images in data); persistent_notification tools for UI bell
 - Media players: ha_media_browse / ha_media_search → ha_media_play / ha_media_control
 - Integrations: ha_list_config_entries → ha_get_config_entry; reload/disable/delete; install via ha_list_integration_handlers → ha_start_config_flow → ha_continue_config_flow (OAuth may need UI)

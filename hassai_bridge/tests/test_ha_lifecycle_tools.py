@@ -50,3 +50,11 @@ def test_helper_domains():
 
 def test_config_id_slug():
     assert hlt._config_id({}, {"name": "Evening Lights!"}) == "evening_lights"
+
+
+def test_todo_list_crud_categorized():
+    assert tool_category("ha_create_todo_list") == "calendar"
+    assert tool_category("ha_delete_todo_list") == "calendar"
+    assert tool_category("ha_clear_todo_list") == "calendar"
+    assert "ha_create_todo_list" in hlt.TOOL_SPECS
+    assert "ha_delete_todo_list" in hlt.HANDLERS
