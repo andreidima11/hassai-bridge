@@ -46,6 +46,11 @@ export function VoiceMode({ lang, phase, replyAudioUrl, error, onUtterance, onSp
             stopPlayback();
             onSpokenEnd?.();
           },
+          onError: (err) => {
+            if (cancelled) return;
+            setLocalError(String(err?.message || err) || tr(lang, "voiceFailed"));
+            setMicPhase("error");
+          },
           onUtterance: async (blob) => {
             if (cancelled) return;
             setMicPhase("transcribing");
@@ -71,6 +76,7 @@ export function VoiceMode({ lang, phase, replyAudioUrl, error, onUtterance, onSp
           session.close();
           return;
         }
+        await session.resume?.();
         sessionRef.current = session;
         setMicPhase("listening");
       } catch {
