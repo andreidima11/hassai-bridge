@@ -122,8 +122,10 @@ export function Composer({
 
   useEffect(() => () => recorderRef.current?.cancel(), []);
 
+  const startingRef = useRef(false);
+
   const toggleRecording = async () => {
-    if (transcribing) return;
+    if (transcribing || startingRef.current) return;
     if (recording) {
       const handle = recorderRef.current;
       recorderRef.current = null;
@@ -155,12 +157,33 @@ export function Composer({
       setAttachError(tr(lang, blocked === "insecure" ? "voiceNeedsHttps" : "voiceUnsupported"));
       return;
     }
+    startingRef.current = true;
+    // Drop any orphaned previous handle (double-tap race).
+    recorderRef.current?.cancel();
+    recorderRef.current = null;
     try {
-      recorderRef.current = await startRecording();
+      const handle = await startRecording({
+        onDead: () => {
+          if (recorderRef.current !== handle) return;
+          handle.cancel();
+          recorderRef.current = null;
+          setRecording(false);
+          setAttachError(tr(lang, "voiceFailed"));
+        },
+      });
+      // Tap again while getUserMedia was pending — discard this stream.
+      if (!startingRef.current) {
+        handle.cancel();
+        return;
+      }
+      await handle.resume?.();
+      recorderRef.current = handle;
       setAttachError("");
       setRecording(true);
     } catch {
       setAttachError(tr(lang, "voiceNoPermission"));
+    } finally {
+      startingRef.current = false;
     }
   };
 

@@ -21,6 +21,25 @@ export function micBlockedReason() {
   return "";
 }
 
+/** Browsers often create AudioContext as "suspended" until resumed after a gesture. */
+async function ensureAudioRunning(ctx) {
+  if (!ctx) return;
+  if (ctx.state === "suspended") {
+    try {
+      await ctx.resume();
+    } catch {
+      /* autoplay / policy — caller may retry on next click */
+    }
+  }
+}
+
+function attachStreamWatch(stream, onDead) {
+  const tracks = stream.getAudioTracks?.() || stream.getTracks?.() || [];
+  for (const track of tracks) {
+    track.onended = () => onDead?.(new Error("mic_track_ended"));
+  }
+}
+
 function downsample(input, fromRate, toRate) {
   if (toRate >= fromRate) return input;
   const ratio = fromRate / toRate;
@@ -76,20 +95,34 @@ function encodeWav(samples, sampleRate) {
  * Start recording from the microphone.
  * Resolves to a handle with stop() → WAV blob, cancel(), and a live level.
  */
-export async function startRecording({ onLevel } = {}) {
+export async function startRecording({ onLevel, onDead } = {}) {
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
   });
   const Ctx = window.AudioContext || window.webkitAudioContext;
   const ctx = new Ctx();
+  await ensureAudioRunning(ctx);
   const source = ctx.createMediaStreamSource(stream);
   const processor = ctx.createScriptProcessor(4096, 1, 1);
   const chunks = [];
   let total = 0;
   let stopped = false;
+  let deadNotified = false;
+
+  const notifyDead = (err) => {
+    if (stopped || deadNotified) return;
+    deadNotified = true;
+    onDead?.(err instanceof Error ? err : new Error(String(err || "mic_dead")));
+  };
+
+  attachStreamWatch(stream, notifyDead);
 
   processor.onaudioprocess = (event) => {
     if (stopped) return;
+    if (ctx.state === "suspended") {
+      ensureAudioRunning(ctx);
+      return;
+    }
     const data = event.inputBuffer.getChannelData(0);
     chunks.push(new Float32Array(data));
     total += data.length;
@@ -123,6 +156,10 @@ export async function startRecording({ onLevel } = {}) {
 
   return {
     cancel: teardown,
+    resume: () => ensureAudioRunning(ctx),
+    get running() {
+      return !stopped && ctx.state === "running";
+    },
     async stop() {
       const rate = ctx.sampleRate;
       teardown();
@@ -152,6 +189,8 @@ const VAD = {
   // Speech must clear the measured noise floor by this factor.
   floorMultiplier: 2.5,
   minThreshold: 0.012,
+  // Cap so a loud calibration burst cannot permanently mute speech detection.
+  maxNoiseFloor: 0.08,
   // Consecutive loud frames before we call it speech (kills keyboard clicks).
   startFrames: 2,
   // Silence before the turn is considered finished.
@@ -195,6 +234,7 @@ export async function createVoiceSession({
   });
   const Ctx = window.AudioContext || window.webkitAudioContext;
   const ctx = new Ctx();
+  await ensureAudioRunning(ctx);
   const source = ctx.createMediaStreamSource(stream);
   const processor = ctx.createScriptProcessor(4096, 1, 1);
 
@@ -212,7 +252,20 @@ export async function createVoiceSession({
 
   const frameMs = (4096 / ctx.sampleRate) * 1000;
 
-  const threshold = () => Math.max(VAD.minThreshold, noiseFloor * VAD.floorMultiplier);
+  const threshold = () =>
+    Math.max(VAD.minThreshold, Math.min(VAD.maxNoiseFloor, noiseFloor) * VAD.floorMultiplier);
+
+  const recalibrate = () => {
+    noiseFloor = 0;
+    calibrated = 0;
+    loudRun = 0;
+    quietMs = 0;
+    speaking = false;
+    bargeRun = 0;
+    captured = [];
+    capturedSamples = 0;
+    preroll.length = 0;
+  };
 
   const finish = () => {
     const frames = captured;
@@ -229,8 +282,23 @@ export async function createVoiceSession({
     onUtterance?.(encodeWav(resampled, TARGET_RATE));
   };
 
+  attachStreamWatch(stream, (err) => {
+    if (closed) return;
+    onError?.(err);
+  });
+
+  const onVisibility = () => {
+    if (closed) return;
+    if (document.visibilityState === "visible") ensureAudioRunning(ctx);
+  };
+  document.addEventListener("visibilitychange", onVisibility);
+
   processor.onaudioprocess = (event) => {
     if (closed) return;
+    if (ctx.state === "suspended") {
+      ensureAudioRunning(ctx);
+      return;
+    }
     const frame = new Float32Array(event.inputBuffer.getChannelData(0));
     const level = rms(frame);
     onLevel?.(level);
@@ -240,6 +308,7 @@ export async function createVoiceSession({
       calibrated += 1;
       return;
     }
+    noiseFloor = Math.min(noiseFloor, VAD.maxNoiseFloor);
 
     if (!capturing) {
       // Assistant is talking: only watch for the user cutting in.
@@ -259,7 +328,7 @@ export async function createVoiceSession({
 
     if (!speaking) {
       // Track the room while it is quiet so the threshold follows the noise.
-      if (!loud) noiseFloor = noiseFloor * 0.95 + level * 0.05;
+      if (!loud) noiseFloor = Math.min(VAD.maxNoiseFloor, noiseFloor * 0.95 + level * 0.05);
       preroll.push(frame);
       if (preroll.length > VAD.prerollFrames) preroll.shift();
       loudRun = loud ? loudRun + 1 : 0;
@@ -302,10 +371,14 @@ export async function createVoiceSession({
       captured = [];
       capturedSamples = 0;
       preroll.length = 0;
+      // Fresh noise floor each time we start listening again (avoids stuck-high threshold).
+      if (value) recalibrate();
     },
+    resume: () => ensureAudioRunning(ctx),
     close() {
       if (closed) return;
       closed = true;
+      document.removeEventListener("visibilitychange", onVisibility);
       try {
         processor.disconnect();
         silent.disconnect();
