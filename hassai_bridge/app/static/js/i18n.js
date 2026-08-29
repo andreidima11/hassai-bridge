@@ -116,6 +116,8 @@ const TRANSLATIONS = {
     'settings.autoRoutingPeakNow': 'On peak pricing right now: {list}.',
     'settings.addProvider': '+ Add Provider',
     'settings.editProvider': 'Edit Provider',
+    'settings.providerNotFound': 'Provider not found',
+    'settings.secondaryProviderNotFound': 'Secondary provider not found',
     'settings.providerModalDesc': 'Configure the AI provider connection',
     'settings.connection': 'Connection',
     'settings.advanced': 'Advanced',
@@ -334,6 +336,7 @@ const TRANSLATIONS = {
     'settings.fullExportDesc': 'Export or restore the full add-on: every Settings tab (Voice — Google key and Whisper/Piper, Frigate, SearXNG, Memory, tool permissions, prompts, Performance), providers, users, conversations, memories, chat images and spoken audio. Import replaces current data.',
     'settings.fullExportWarn': 'The ZIP includes secrets (provider keys, user keys, Google voice key). Store it safely. Open README.txt inside the archive to see what was packed.',
     'settings.downloadFullExport': 'Download backup ZIP',
+    'settings.downloadHint': 'Chrome/Edge may ask where to save. Otherwise the ZIP goes to your computer’s Downloads folder (e.g. hassai-export-2026-08-30.zip) — the browser often does not show a folder picker inside Home Assistant.',
     'settings.importFull': 'Import ZIP…',
     'settings.importFromShare': 'Import from /share',
     'settings.importFromShareDesc': 'In the Home Assistant app the file dialog closes the add-on. Copy the ZIP to the Home Assistant /share folder and pick it from the list instead.',
@@ -347,7 +350,22 @@ const TRANSLATIONS = {
     'settings.checkConnection': 'Check Connection',
     'settings.language': 'Language',
     'settings.dynamicGreetings': 'Dynamic greetings',
-    'settings.dynamicGreetingsDesc': 'Rotate empty-chat titles by time, holidays, and weather.',
+    'settings.dynamicGreetingsDesc': 'Rotate empty-chat titles by time, holidays, and weather. Optionally refresh an AI-written pool every few days.',
+    'settings.greetingsPoolDesc': 'Builds a seasonal message pool with the selected provider (Christmas in December, Easter near spring, etc.). Curated built-in greetings remain as fallback.',
+    'settings.greetingsRefreshDays': 'Refresh every (days)',
+    'settings.greetingsPoolSize': 'Pool size',
+    'settings.greetingsProvider': 'Provider',
+    'settings.greetingsProviderActive': 'Active chat provider (default)',
+    'settings.greetingsModel': 'Model',
+    'settings.greetingsModelPlaceholder': 'Leave blank for fast / default model',
+    'settings.greetingsLoadModels': 'Load models',
+    'settings.greetingsModelHint': 'Leave blank to use the provider’s fast role model (or its default model).',
+    'settings.greetingsStatus': 'Pool status',
+    'settings.greetingsStatusLine': '{status} · {count} messages · last: {when} · {provider} / {model}',
+    'settings.greetingsGenerateNow': 'Generate now',
+    'settings.greetingsGenerating': 'Generating…',
+    'settings.greetingsGenerated': 'Greeting pool updated',
+    'settings.greetingsModelsLoaded': 'Loaded {count} models',
 
     // Users
     'users.title': 'Users',
@@ -458,6 +476,9 @@ const TRANSLATIONS = {
     'toast.serverRestarting': 'Server is restarting...',
     'toast.restartError': 'Error restarting: {msg}',
     'toast.backupDownloaded': 'Backup downloaded!',
+    'toast.backupSavedAs': 'Backup saved as {name}',
+    'toast.backupInDownloads': 'Backup saved as {name} — check your Downloads folder (the browser usually does not ask where to save inside Home Assistant).',
+    'toast.exportUseBrowser': 'Open HASSAI Settings in a desktop browser (Chrome/Edge/Safari) to download the backup — the Home Assistant app blocks file downloads.',
     'toast.fullExportStarted': 'Full export downloading…',
     'toast.fullImportDone': 'Full import done! Reloading…',
     'toast.importProgress': 'Uploading… {pct}%',
@@ -704,6 +725,8 @@ const TRANSLATIONS = {
     'settings.autoRoutingPeakNow': 'Acum la tarif de vârf: {list}.',
     'settings.addProvider': '+ Adaugă provider',
     'settings.editProvider': 'Editează provider',
+    'settings.providerNotFound': 'Provider negăsit',
+    'settings.secondaryProviderNotFound': 'Provider secundar negăsit',
     'settings.providerModalDesc': 'Configurează conexiunea la providerul AI',
     'settings.connection': 'Conexiune',
     'settings.advanced': 'Avansat',
@@ -922,6 +945,7 @@ const TRANSLATIONS = {
     'settings.fullExportDesc': 'Exportă sau restaurează tot add-on-ul: fiecare filă din Setări (Voce — cheie Google și Whisper/Piper, Frigate, SearXNG, Memorie, permisiuni tool-uri, prompturi, Performanță), provideri, utilizatori, conversații, memorii, imagini din chat și audio vorbit. Importul înlocuiește datele curente.',
     'settings.fullExportWarn': 'ZIP-ul include secrete (chei provideri, chei utilizatori, cheia Google pentru voce). Păstrează-l în siguranță. Deschide README.txt din arhivă ca să vezi ce a fost împachetat.',
     'settings.downloadFullExport': 'Descarcă backup ZIP',
+    'settings.downloadHint': 'Chrome/Edge poate cere unde să salvezi. Altfel ZIP-ul ajunge în folderul Downloads de pe calculator (ex. hassai-export-2026-08-30.zip) — în Home Assistant browserul rareori arată dialogul „Salvează ca…”.',
     'settings.importFull': 'Importă ZIP…',
     'settings.importFromShare': 'Importă din /share',
     'settings.importFromShareDesc': 'În aplicația Home Assistant dialogul de fișiere închide add-on-ul. Copiază ZIP-ul în folderul /share din Home Assistant și alege-l din listă.',
@@ -935,7 +959,22 @@ const TRANSLATIONS = {
     'settings.checkConnection': 'Verifică conexiune',
     'settings.language': 'Limbă',
     'settings.dynamicGreetings': 'Saluturi dinamice',
-    'settings.dynamicGreetingsDesc': 'Rotire titluri pe chat gol după oră, sărbători și vreme.',
+    'settings.dynamicGreetingsDesc': 'Rotire titluri pe chat gol după oră, sărbători și vreme. Opțional, un pool scris de AI se reînnoiește la câteva zile.',
+    'settings.greetingsPoolDesc': 'Construiește un pool sezonier cu providerul ales (Crăciun în decembrie, Paște primăvara etc.). Mesajele predefinite rămân ca fallback.',
+    'settings.greetingsRefreshDays': 'Reînnoire la (zile)',
+    'settings.greetingsPoolSize': 'Mărime pool',
+    'settings.greetingsProvider': 'Provider',
+    'settings.greetingsProviderActive': 'Providerul activ din chat (implicit)',
+    'settings.greetingsModel': 'Model',
+    'settings.greetingsModelPlaceholder': 'Gol = model fast / implicit',
+    'settings.greetingsLoadModels': 'Încarcă modele',
+    'settings.greetingsModelHint': 'Lasă gol ca să folosească modelul fast al providerului (sau modelul lui implicit).',
+    'settings.greetingsStatus': 'Status pool',
+    'settings.greetingsStatusLine': '{status} · {count} mesaje · ultima: {when} · {provider} / {model}',
+    'settings.greetingsGenerateNow': 'Generează acum',
+    'settings.greetingsGenerating': 'Se generează…',
+    'settings.greetingsGenerated': 'Pool-ul de saluturi a fost actualizat',
+    'settings.greetingsModelsLoaded': 'Încărcate {count} modele',
 
     // Users
     'users.title': 'Utilizatori',
@@ -1046,6 +1085,9 @@ const TRANSLATIONS = {
     'toast.serverRestarting': 'Serverul se restartează...',
     'toast.restartError': 'Eroare la restart: {msg}',
     'toast.backupDownloaded': 'Backup descărcat!',
+    'toast.backupSavedAs': 'Backup salvat ca {name}',
+    'toast.backupInDownloads': 'Backup salvat ca {name} — uită-te în folderul Downloads (în Home Assistant browserul de obicei nu întreabă unde să salveze).',
+    'toast.exportUseBrowser': 'Deschide Setările HASSAI într-un browser pe desktop (Chrome/Edge/Safari) ca să descarci backup-ul — aplicația Home Assistant blochează descărcările.',
     'toast.fullExportStarted': 'Exportul complet se descarcă…',
     'toast.fullImportDone': 'Import complet! Se reîncarcă…',
     'toast.importProgress': 'Se încarcă… {pct}%',
@@ -1210,21 +1252,21 @@ function t(key, params = {}) {
  */
 function applyTranslations() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
-    el.textContent = t(el.dataset.i18n);
+    if (el) el.textContent = t(el.dataset.i18n);
   });
   document.querySelectorAll('[data-i18n-html]').forEach(el => {
     // Only use innerHTML for hardcoded translation keys (safe) — never user input
     const key = el.dataset.i18nHtml;
     const translated = t(key);
-    if (translated !== key) {
+    if (el && translated !== key) {
       el.innerHTML = translated;
     }
   });
   document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
-    el.placeholder = t(el.dataset.i18nPlaceholder);
+    if (el) el.placeholder = t(el.dataset.i18nPlaceholder);
   });
   document.querySelectorAll('[data-i18n-title]').forEach(el => {
-    el.title = t(el.dataset.i18nTitle);
+    if (el) el.title = t(el.dataset.i18nTitle);
   });
   // Update html lang attribute
   document.documentElement.lang = currentLang;

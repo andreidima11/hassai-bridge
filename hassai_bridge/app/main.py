@@ -102,6 +102,7 @@ async def lifespan(app: FastAPI):
 
     # Start auto-consolidation scheduler
     consolidation_task = asyncio.create_task(_auto_consolidation_loop())
+    greetings_task = asyncio.create_task(_greeting_pool_loop())
 
     print("╔══════════════════════════════════════════════╗")
     print(f"║       HASSAI Bridge {VERSION} Started        ║")
@@ -112,6 +113,24 @@ async def lifespan(app: FastAPI):
     print("╚══════════════════════════════════════════════╝")
     yield
     consolidation_task.cancel()
+    greetings_task.cancel()
+
+
+async def _greeting_pool_loop():
+    """Refresh seasonal LLM greeting pool when stale (hourly check)."""
+    await asyncio.sleep(20)  # let providers settle after boot
+    while True:
+        try:
+            from services import greeting_pool as gp
+            if gp.needs_refresh():
+                log.info("Greeting pool refresh due")
+                await gp.ensure_fresh()
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.error(f"Greeting pool loop error: {e}")
+            await asyncio.sleep(600)
 
 
 async def _auto_consolidation_loop():

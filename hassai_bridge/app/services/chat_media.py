@@ -24,8 +24,10 @@ MAX_BYTES = 1_500_000
 MAX_DOC_BYTES = 4_000_000
 MAX_DOC_CHARS = 100_000
 MAX_AUDIO_BYTES = 5_000_000
+MAX_VIDEO_BYTES = 40_000_000
 _ALLOWED_MIME = frozenset({"image/jpeg", "image/png", "image/webp", "image/gif"})
 _AUDIO_MIME = frozenset({"audio/mpeg", "audio/wav", "audio/ogg", "audio/webm", "audio/mp4"})
+_VIDEO_MIME = frozenset({"video/mp4", "video/webm", "video/quicktime"})
 _DOC_MIME = frozenset({
     "application/pdf",
     "application/json",
@@ -81,6 +83,9 @@ def _ext_for_mime(mime: str) -> str:
         "audio/ogg": "ogg",
         "audio/webm": "weba",
         "audio/mp4": "m4a",
+        "video/mp4": "mp4",
+        "video/webm": "webm",
+        "video/quicktime": "mov",
     }.get(mime, "bin")
 
 
@@ -368,6 +373,24 @@ def persist_audio_bytes(user_id: str, raw: bytes, mime: str = "audio/mpeg", *, n
     return out
 
 
+def persist_video_bytes(user_id: str, raw: bytes, mime: str = "video/mp4", *, name: str = "") -> dict:
+    """Save one Frigate (or other) video clip for chat playback."""
+    if not raw:
+        raise ValueError("empty video")
+    if len(raw) > MAX_VIDEO_BYTES:
+        raise ValueError("video too large")
+    mime = str(mime or "video/mp4").split(";", 1)[0].strip().lower()
+    if mime not in _VIDEO_MIME:
+        mime = "video/mp4"
+    att_id = uuid.uuid4().hex[:16]
+    path = _safe_user_dir(user_id) / f"{att_id}.{_ext_for_mime(mime)}"
+    path.write_bytes(raw)
+    out = {"id": att_id, "mime": mime, "kind": "video"}
+    if name:
+        out["name"] = str(name)[:120]
+    return out
+
+
 def _normalize_upload(raw: bytes, *, filename: str = "", content_type: str = "") -> tuple[bytes, str]:
     """Resize/compress uploads; convert to JPEG when possible (incl. HEIC on server)."""
     if not raw:
@@ -445,9 +468,14 @@ def _normalize_upload(raw: bytes, *, filename: str = "", content_type: str = "")
 
 
 def save_uploaded_file(user_id: str, raw: bytes, *, filename: str = "", content_type: str = "") -> dict:
-    """Process and persist one chat upload (image or document); returns attachment metadata."""
-    doc_mime = resolve_doc_mime(filename=filename, content_type=content_type)
+    """Process and persist one chat upload (image, document, or video); returns attachment metadata."""
     name = str(filename or "")[:120]
+    ctype = str(content_type or "").split(";", 1)[0].strip().lower()
+    lower_name = name.lower()
+    if ctype in _VIDEO_MIME or lower_name.endswith((".mp4", ".webm", ".mov", ".m4v")):
+        mime = ctype if ctype in _VIDEO_MIME else "video/mp4"
+        return persist_video_bytes(user_id, raw, mime=mime, name=name)
+    doc_mime = resolve_doc_mime(filename=filename, content_type=content_type)
     if doc_mime:
         return persist_document_bytes(user_id, raw, mime=doc_mime, name=name)
     processed, mime = _normalize_upload(raw, filename=filename, content_type=content_type)

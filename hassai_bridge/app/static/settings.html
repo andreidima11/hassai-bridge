@@ -338,9 +338,34 @@
         <div class="toggle-row" style="margin-top:14px">
           <div>
             <div data-i18n="settings.dynamicGreetings">Dynamic greetings</div>
-            <p class="card-muted" style="margin:4px 0 0" data-i18n="settings.dynamicGreetingsDesc">Rotate empty-chat titles by time, holidays, and weather.</p>
+            <p class="card-muted" style="margin:4px 0 0" data-i18n="settings.dynamicGreetingsDesc">Rotate empty-chat titles by time, holidays, and weather. Optionally refresh an AI-written pool every few days.</p>
           </div>
-          <label class="toggle"><input type="checkbox" id="settingsDynamicGreetings" checked><span class="slider"></span></label>
+          <label class="toggle"><input type="checkbox" id="settingsDynamicGreetings" checked onchange="onDynamicGreetingsToggle()"><span class="slider"></span></label>
+        </div>
+        <div id="greetingsPoolSettings" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+          <p class="card-muted" style="margin:0 0 12px" data-i18n="settings.greetingsPoolDesc">Builds a seasonal message pool with the selected provider (Christmas in December, Easter near spring, etc.). Curated built-in greetings remain as fallback.</p>
+          <label data-i18n="settings.greetingsRefreshDays">Refresh every (days)</label>
+          <input type="number" id="greetingsRefreshDays" value="7" min="1" max="90">
+          <label data-i18n="settings.greetingsPoolSize">Pool size</label>
+          <input type="number" id="greetingsPoolSize" value="40" min="12" max="80">
+          <label data-i18n="settings.greetingsProvider">Provider</label>
+          <select id="greetingsProvider" onchange="onGreetingsProviderChange()">
+            <option value="" data-i18n="settings.greetingsProviderActive">Active chat provider (default)</option>
+          </select>
+          <label data-i18n="settings.greetingsModel">Model</label>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="greetingsModel" list="greetingsModelList" placeholder="" style="flex:1" data-i18n-placeholder="settings.greetingsModelPlaceholder">
+            <button type="button" class="btn btn-secondary" onclick="loadGreetingsModels()" data-i18n="settings.greetingsLoadModels">Load models</button>
+          </div>
+          <datalist id="greetingsModelList"></datalist>
+          <p class="card-muted hint" style="margin-top:6px" data-i18n="settings.greetingsModelHint">Leave blank to use the provider’s fast role model (or its default model).</p>
+          <div class="toggle-row" style="margin-top:14px;align-items:flex-start">
+            <div style="flex:1;min-width:0">
+              <div data-i18n="settings.greetingsStatus">Pool status</div>
+              <p class="card-muted" id="greetingsStatusText" style="margin:4px 0 0">—</p>
+            </div>
+            <button type="button" class="btn btn-primary" id="greetingsGenerateBtn" onclick="generateGreetingsNow()" data-i18n="settings.greetingsGenerateNow">Generate now</button>
+          </div>
         </div>
       </div>
 
@@ -912,6 +937,7 @@
           </span>
           <button type="button" class="btn btn-sm" onclick="toggleShareImport()" data-i18n="settings.importFromShare">Import from /share</button>
         </div>
+        <p class="card-muted hint" style="margin-top:8px" data-i18n="settings.downloadHint">Chrome/Edge may ask where to save. Otherwise the ZIP goes to your computer’s Downloads folder (e.g. hassai-export-2026-08-30.zip) — the browser often does not show a folder picker inside Home Assistant.</p>
         <p class="card-muted hint" style="margin-top:8px" data-i18n="settings.importFromShareDesc">In the Home Assistant app the file dialog closes the add-on. Copy the ZIP to the Home Assistant <code>/share</code> folder and pick it from the list instead.</p>
         <div id="shareImportList" style="display:none;margin-top:8px"></div>
         <p id="backupImportStatus" class="card-muted hint" style="margin-top:8px;display:none"></p>

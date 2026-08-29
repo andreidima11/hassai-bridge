@@ -133,6 +133,16 @@ DEFAULT_CONFIG = {
     "knowledge_cutoff": "2024-01",
     "language": "en",
     "dynamic_greetings": True,
+    "greetings": {
+        "refresh_days": 7,
+        "pool_size": 40,
+        "provider_id": "",
+        "model": "",
+        "last_generated_at": 0,
+        "last_season_key": "",
+        "status": "idle",
+        "error": "",
+    },
     "users": {
         "default_user": "",
         "api_keys": {},

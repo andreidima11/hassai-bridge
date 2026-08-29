@@ -1,4 +1,4 @@
-"""Frigate camera tools: recent events + snapshots into chat.
+"""Frigate camera tools: recent events, snapshots, and video clips into chat.
 
 Prefers the Frigate HTTP API (HA add-on). Falls back to /media/frigate clips
 when the API is unreachable but the media folder is mounted.
@@ -28,6 +28,9 @@ _DEFAULT_BASE_URLS = (
 )
 
 _CAMERA_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+_VIDEO_EXT = frozenset({".mp4", ".mkv", ".mov", ".webm", ".m4v"})
+_MAX_CLIP_BYTES = 40 * 1024 * 1024
+_CLIP_TIMEOUT = 60.0
 
 
 def _cfg() -> dict:
@@ -102,16 +105,17 @@ async def _get_json(path: str, params: dict | None = None) -> Any:
         return resp.json()
 
 
-async def _get_bytes(path: str, params: dict | None = None) -> tuple[bytes, str]:
+async def _get_bytes(path: str, params: dict | None = None, *, timeout: float | None = None) -> tuple[bytes, str]:
     url = f"{base_url()}{path}"
-    async with httpx.AsyncClient(timeout=_timeout(), follow_redirects=True) as client:
+    to = float(timeout if timeout is not None else _timeout())
+    async with httpx.AsyncClient(timeout=to, follow_redirects=True) as client:
         resp = await client.get(url, params=params or {})
         if resp.status_code >= 400:
             raise ValueError(f"Frigate API {resp.status_code} for {path}: {resp.text[:120]}")
-        ctype = (resp.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
+        ctype = (resp.headers.get("content-type") or "application/octet-stream").split(";")[0].strip()
         data = resp.content
         if not data:
-            raise ValueError("Empty image from Frigate")
+            raise ValueError("Empty response from Frigate")
         return data, ctype
 
 
@@ -230,9 +234,10 @@ def _event_line(ev: dict) -> str:
         zone_s = f" — zone: {', '.join(str(z) for z in zones[:3])}"
     eid = ev.get("id") or ""
     snap = "yes" if ev.get("has_snapshot") else "no"
+    clip = "yes" if ev.get("has_clip") else "no"
     return (
         f"• {start} — {cam} / {label} ({score_s}) — {status}{zone_s} — "
-        f"snapshot={snap} — id={eid}"
+        f"snapshot={snap} clip={clip} — id={eid}"
     )
 
 
@@ -245,13 +250,15 @@ async def list_events(
     limit: int = 8,
     *,
     include_snapshot: bool = False,
+    include_clip: bool = False,
 ) -> dict:
-    """Return recent events. Optionally attach snapshots for the listed events.
+    """Return recent events. Optionally attach a snapshot or video clip.
 
     Returns {
       "text": str,
       "image": first snap or None (back-compat),
       "images": list of {"bytes", "filename", "mime"},
+      "videos": list of {"bytes", "filename", "mime"},
     }
     """
     cam = _normalize_camera(camera) if camera else ""
@@ -261,7 +268,12 @@ async def list_events(
     except (TypeError, ValueError):
         lim = 8
 
-    params: dict[str, Any] = {"limit": lim, "has_snapshot": 1}
+    # When the user wants a video clip, prefer events that have one.
+    params: dict[str, Any] = {"limit": lim}
+    if include_clip and not include_snapshot:
+        params["has_clip"] = 1
+    else:
+        params["has_snapshot"] = 1
     if cam:
         params["camera"] = cam
     if lab:
@@ -273,21 +285,32 @@ async def list_events(
             events = []
     except Exception as api_err:
         log.info("Frigate events API failed (%s); using media fallback", api_err)
-        return await _events_from_media(cam, lim, include_snapshot=include_snapshot)
+        return await _events_from_media(
+            cam, lim, include_snapshot=include_snapshot, include_clip=include_clip,
+        )
 
     if not events:
         where = f" on {cam}" if cam else ""
         what = f" ({lab})" if lab else ""
+        want = "clips" if include_clip and not include_snapshot else "snapshots"
         return {
-            "text": f"No recent Frigate events{where}{what} with snapshots.",
+            "text": f"No recent Frigate events{where}{what} with {want}.",
             "image": None,
             "images": [],
+            "videos": [],
         }
 
     header = f"Recent Frigate events ({len(events)}):"
     lines = [header] + [_event_line(ev) for ev in events]
     images: list[dict] = []
-    if include_snapshot:
+    videos: list[dict] = []
+
+    if include_clip:
+        clip_result = await _attach_newest_clip(events, cam, lines)
+        if clip_result:
+            videos.append(clip_result)
+
+    if include_snapshot and not videos:
         top = events[0]
         eid = str(top.get("id") or "")
         if eid and top.get("has_snapshot"):
@@ -318,14 +341,57 @@ async def list_events(
                 except Exception as snap_err:
                     lines.append(f"(Could not fetch latest frame: {snap_err})")
 
+    if include_clip and not videos:
+        lines.append(
+            "No video clip attached — events may lack has_clip, or Frigate recordings "
+            "are disabled for that camera. Try frigate_clip with a specific event_id."
+        )
+
     return {
         "text": "\n".join(lines),
         "image": images[0] if images else None,
         "images": images,
+        "videos": videos,
     }
 
 
-async def _events_from_media(camera: str, limit: int, *, include_snapshot: bool) -> dict:
+async def _attach_newest_clip(events: list[dict], camera: str, lines: list[str]) -> dict | None:
+    for ev in events:
+        eid = str(ev.get("id") or "").strip()
+        if not eid:
+            continue
+        if ev.get("has_clip") is False:
+            continue
+        try:
+            data, mime = await _get_bytes(
+                f"/api/events/{eid}/clip.mp4",
+                timeout=_CLIP_TIMEOUT,
+            )
+        except Exception as clip_err:
+            lines.append(f"(Could not fetch clip for {eid}: {clip_err})")
+            continue
+        if len(data) > _MAX_CLIP_BYTES:
+            lines.append(f"(Clip for {eid} is too large: {len(data)} bytes)")
+            continue
+        cam_name = ev.get("camera") or camera or "camera"
+        lines.append(
+            f"Attached video clip for latest event: {cam_name} / {ev.get('label')} — id={eid}."
+        )
+        return {
+            "bytes": data,
+            "filename": f"frigate-{cam_name}-{eid[:12]}.mp4",
+            "mime": mime if mime.startswith("video/") else "video/mp4",
+        }
+    return None
+
+
+async def _events_from_media(
+    camera: str,
+    limit: int,
+    *,
+    include_snapshot: bool,
+    include_clip: bool = False,
+) -> dict:
     root = media_frigate_root()
     if not root:
         return {
@@ -335,36 +401,41 @@ async def _events_from_media(camera: str, limit: int, *, include_snapshot: bool)
             ),
             "image": None,
             "images": [],
+            "videos": [],
         }
     clips = root / "clips"
     base = clips if clips.is_dir() else root
-    files: list[Path] = []
+    image_files: list[Path] = []
+    video_files: list[Path] = []
     try:
         for path in base.iterdir():
             if not path.is_file():
                 continue
-            if path.suffix.lower() not in cf.IMAGE_EXT:
-                continue
             if camera and not path.name.lower().startswith(camera.lower() + "-"):
                 continue
-            # Skip clean copies for listing preference
-            if "-clean" in path.stem:
-                continue
-            files.append(path)
+            ext = path.suffix.lower()
+            if ext in _VIDEO_EXT:
+                video_files.append(path)
+            elif ext in cf.IMAGE_EXT:
+                if "-clean" in path.stem:
+                    continue
+                image_files.append(path)
     except OSError as exc:
-        return {"text": f"Error reading {base}: {exc}", "image": None, "images": []}
+        return {"text": f"Error reading {base}: {exc}", "image": None, "images": [], "videos": []}
 
-    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    files = files[:limit]
-    if not files:
+    image_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    video_files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    list_files = (video_files if include_clip else image_files)[:limit]
+    if not list_files and not image_files and not video_files:
         return {
-            "text": f"No snapshot files under {base}" + (f" for {camera}" if camera else "") + ".",
+            "text": f"No media files under {base}" + (f" for {camera}" if camera else "") + ".",
             "image": None,
             "images": [],
+            "videos": [],
         }
 
     lines = [f"Recent Frigate media files ({base}):"]
-    for path in files:
+    for path in (video_files[:limit] if include_clip else image_files[:limit]) or image_files[:limit]:
         try:
             when = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
         except OSError:
@@ -372,8 +443,24 @@ async def _events_from_media(camera: str, limit: int, *, include_snapshot: bool)
         lines.append(f"• {when} — {path.name}")
 
     images: list[dict] = []
-    if include_snapshot and files:
-        path = files[0]
+    videos: list[dict] = []
+    if include_clip and video_files:
+        path = video_files[0]
+        try:
+            data = path.read_bytes()
+            if len(data) > _MAX_CLIP_BYTES:
+                lines.append(f"(Clip {path.name} is too large)")
+            else:
+                videos.append({
+                    "bytes": data,
+                    "filename": path.name,
+                    "mime": "video/mp4",
+                })
+                lines.append(f"Attached video {path.name}.")
+        except OSError as exc:
+            lines.append(f"(Could not read {path.name}: {exc})")
+    elif include_snapshot and image_files:
+        path = image_files[0]
         try:
             images.append({
                 "bytes": path.read_bytes(),
@@ -388,6 +475,7 @@ async def _events_from_media(camera: str, limit: int, *, include_snapshot: bool)
         "text": "\n".join(lines),
         "image": images[0] if images else None,
         "images": images,
+        "videos": videos,
     }
 
 
@@ -397,7 +485,7 @@ async def snapshot(camera: str = "", event_id: str = "") -> dict:
     cam = _normalize_camera(camera) if camera else ""
 
     def _one(text: str, image: dict) -> dict:
-        return {"text": text, "image": image, "images": [image]}
+        return {"text": text, "image": image, "images": [image], "videos": []}
 
     if eid:
         data, mime = await _get_bytes(f"/api/events/{eid}/snapshot.jpg")
@@ -454,14 +542,91 @@ async def snapshot(camera: str = "", event_id: str = "") -> dict:
         ) from api_err
 
 
+async def clip(
+    event_id: str = "",
+    camera: str = "",
+    *,
+    start_ts: float | int | None = None,
+    end_ts: float | int | None = None,
+    padding: int = 0,
+) -> dict:
+    """Fetch one Frigate video clip (event clip or camera time range)."""
+    eid = str(event_id or "").strip()
+    cam = _normalize_camera(camera) if camera else ""
+    try:
+        pad = max(0, min(int(padding or 0), 30))
+    except (TypeError, ValueError):
+        pad = 0
+
+    def _video(text: str, data: bytes, filename: str, mime: str) -> dict:
+        if len(data) > _MAX_CLIP_BYTES:
+            raise ValueError(f"clip too large ({len(data)} bytes; max {_MAX_CLIP_BYTES})")
+        return {
+            "text": text,
+            "image": None,
+            "images": [],
+            "videos": [{
+                "bytes": data,
+                "filename": filename,
+                "mime": mime if str(mime).startswith("video/") else "video/mp4",
+            }],
+        }
+
+    if eid:
+        params = {"padding": pad} if pad else None
+        data, mime = await _get_bytes(
+            f"/api/events/{eid}/clip.mp4",
+            params,
+            timeout=_CLIP_TIMEOUT,
+        )
+        return _video(
+            f"Video clip for event {eid}.",
+            data,
+            f"frigate-event-{eid[:16]}.mp4",
+            mime,
+        )
+
+    if cam and start_ts is not None and end_ts is not None:
+        try:
+            start = float(start_ts)
+            end = float(end_ts)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("start_ts and end_ts must be unix timestamps") from exc
+        if end <= start:
+            raise ValueError("end_ts must be after start_ts")
+        if end - start > 600:
+            raise ValueError("clip window too long (max 10 minutes)")
+        data, mime = await _get_bytes(
+            f"/api/{cam}/start/{start}/end/{end}/clip.mp4",
+            timeout=_CLIP_TIMEOUT,
+        )
+        return _video(
+            f"Recording clip from {cam} ({_fmt_ts(start)} → {_fmt_ts(end)}).",
+            data,
+            f"frigate-{cam}-{int(start)}-{int(end)}.mp4",
+            mime,
+        )
+
+    # Newest event with a clip (optionally filtered by camera)
+    result = await list_events(camera=cam, limit=5, include_clip=True)
+    if result.get("videos"):
+        return result
+    raise ValueError(
+        "Need event_id=, or camera= with start_ts/end_ts, or a recent event that has a clip. "
+        "Call frigate_events first and use an id where clip=yes."
+    )
+
+
 def system_hint() -> str:
     if not is_enabled():
         return ""
     return (
         "Frigate cameras (real NVR — never use generate_image / Imagine): "
         "When the user asks what was detected (people, cars, times, parked/still on camera), "
-        "call frigate_events with include_snapshot=false and answer in natural language from the "
-        "event list — do not attach photos unless they explicitly ask to see/show snaps or a photo. "
-        "Only then use include_snapshot=true (one newest snap) or frigate_snapshot for a specific "
-        "camera or event_id. Do not call frigate_events with include_snapshot on every turn."
+        "call frigate_events with include_snapshot=false and include_clip=false and answer in "
+        "natural language from the event list. "
+        "When they ask for a photo/snap/imagine, use include_snapshot=true or frigate_snapshot. "
+        "When they ask for video / recording / clip / înregistrare / filmare, use frigate_clip "
+        "(or frigate_events with include_clip=true) — NEVER substitute a snapshot for a video request. "
+        "Event lines show clip=yes/no; prefer ids with clip=yes."
     )

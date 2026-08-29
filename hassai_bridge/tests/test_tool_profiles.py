@@ -119,7 +119,12 @@ def test_openai_full_profile_still_caps_at_128():
 
 
 def test_frigate_kept_for_romanian_courtyard_video():
-    tools = [_tool("frigate_events"), _tool("frigate_snapshot"), _tool("ha_get_state")]
+    tools = [
+        _tool("frigate_events"),
+        _tool("frigate_snapshot"),
+        _tool("frigate_clip"),
+        _tool("ha_get_state"),
+    ]
     out, _ = tp.filter_chat_tools(
         tools,
         provider=LOCAL,
@@ -130,6 +135,7 @@ def test_frigate_kept_for_romanian_courtyard_video():
     names = {t["function"]["name"] for t in out}
     assert "frigate_events" in names
     assert "frigate_snapshot" in names
+    assert "frigate_clip" in names
 
 
 def test_local_history_limit():

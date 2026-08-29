@@ -19,6 +19,8 @@ def test_user_context_for_prompt(monkeypatch):
     ctx = user_context_for_prompt("andrei")
     assert "Andrei" in ctx
     assert "[User]" in ctx
+    assert "do NOT address them by name in every reply" in ctx
+    assert "only rarely" in ctx
 
 
 def test_user_context_empty_for_default():

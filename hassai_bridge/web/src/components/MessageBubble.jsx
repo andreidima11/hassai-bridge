@@ -4,7 +4,7 @@ import { MessageActions } from "./MessageActions.jsx";
 import { DocumentIcon, SparklesIcon, SpeakerIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
 import { Thinking } from "./Thinking.jsx";
-import { isDocumentAttachment } from "../lib/images.js";
+import { isDocumentAttachment, isVideoAttachment, isImageAttachment } from "../lib/images.js";
 import { tr } from "../lib/i18n.js";
 import { useSmoothStreamText } from "../lib/smoothStream.js";
 
@@ -31,7 +31,8 @@ export function stripDuplicateAttachmentMarkdown(text, attachments) {
 
 function AttachmentGallery({ attachments, align = "start", lang = "en" }) {
   if (!attachments?.length) return null;
-  const images = attachments.filter((item) => !isDocumentAttachment(item));
+  const images = attachments.filter((item) => isImageAttachment(item));
+  const videos = attachments.filter((item) => isVideoAttachment(item));
   const docs = attachments.filter((item) => isDocumentAttachment(item));
   return (
     <div
@@ -39,6 +40,30 @@ function AttachmentGallery({ attachments, align = "start", lang = "en" }) {
         align === "end" ? "items-end" : "items-start"
       }`}
     >
+      {videos.length ? (
+        <div className={`flex max-w-full flex-col gap-2 ${align === "end" ? "items-end" : "items-start"}`}>
+          {videos.map((vid) => {
+            const src = vid.previewUrl || vid.url || vid.dataUrl;
+            if (!src) return null;
+            return (
+              <video
+                key={vid.id || src}
+                controls
+                playsInline
+                preload="metadata"
+                className={
+                  align === "end"
+                    ? "max-h-56 max-w-full rounded-[18px] border border-white/10 bg-black"
+                    : "max-h-80 max-w-full rounded-xl border border-white/10 bg-black"
+                }
+                src={src}
+              >
+                {tr(lang, "videoUnsupported") || "Video not supported"}
+              </video>
+            );
+          })}
+        </div>
+      ) : null}
       {images.length ? (
         <div className={`flex max-w-full flex-wrap gap-2 ${align === "end" ? "justify-end" : ""}`}>
           {images.map((img) => (

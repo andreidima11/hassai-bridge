@@ -200,5 +200,8 @@ def user_context_for_prompt(username: str, request: Request | None = None) -> st
     return (
         "[User]\n"
         f"You are assisting {display} (Home Assistant user). "
-        "Use their name naturally when appropriate, in the same language they write in."
+        "Know their name for context, but do NOT address them by name in every reply — "
+        "it sounds unnatural. Prefer plain answers with no name. "
+        "Use the name only rarely (e.g. a warm opening on a new chat, or when it clearly helps). "
+        "Never start most replies with their name. Match their language."
     )

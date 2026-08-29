@@ -53,7 +53,8 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.container > .panel').forEach(p => p.classList.remove('active'));
     tab.classList.add('active');
     const panelId = tab.dataset.panel;
-    document.getElementById(panelId).classList.add('active');
+    const panel = document.getElementById(panelId);
+    if (panel) panel.classList.add('active');
     if (panelId === 'statistics') loadUsageStats();
     if (panelId === 'logs') { loadLogs(); _startLogsAutoRefresh(); }
     if (panelId === 'skills') loadSkills();
@@ -85,7 +86,8 @@ document.querySelectorAll('.settings-tab').forEach(stab => {
     parent.querySelectorAll('.settings-tab').forEach(s => s.classList.remove('active'));
     parent.querySelectorAll('.settings-subpanel').forEach(p => p.classList.remove('active'));
     stab.classList.add('active');
-    document.getElementById(stab.dataset.stab).classList.add('active');
+    const sub = document.getElementById(stab.dataset.stab);
+    if (sub) sub.classList.add('active');
     if (stab.dataset.stab === 'stab-stats-model' && _cachedUsageStats) {
       requestAnimationFrame(() => _renderUsageCharts(_cachedUsageStats));
     }
@@ -112,6 +114,21 @@ function setText(id, value) {
   if (el) el.textContent = value;
 }
 
+function setVal(id, value) {
+  const el = typeof id === 'string' ? document.getElementById(id) : id;
+  if (el) el.value = value;
+}
+
+function setChecked(id, value) {
+  const el = typeof id === 'string' ? document.getElementById(id) : id;
+  if (el) el.checked = !!value;
+}
+
+function showEl(id, on = true) {
+  const el = typeof id === 'string' ? document.getElementById(id) : id;
+  if (el) el.style.display = on ? '' : 'none';
+}
+
 // ── API helpers ──
 async function api(method, path, body = null) {
   const opts = { method, credentials: 'same-origin', headers: { 'Content-Type': 'application/json' } };
@@ -130,6 +147,15 @@ function escapeHtml(s) {
   const d = document.createElement('div');
   d.textContent = s || '';
   return d.innerHTML;
+}
+
+/** Escape for double-quoted HTML attributes (data-*). */
+function escapeAttr(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function formatMemKeywords(keywords) {
@@ -553,6 +579,7 @@ function _drawBarChart(canvas, labels, values, color) {
 }
 
 function _buildLegend(container, data, colors) {
+  if (!container) return;
   container.innerHTML = data.map((d, i) =>
     `<span class="chart-legend-item"><span class="chart-legend-dot" style="background:${colors[i % colors.length]}"></span>${escapeHtml(d.label)} (${d.value})</span>`
   ).join('');
@@ -587,34 +614,34 @@ function _renderUsageCharts(stats) {
 }
 
 async function loadUsageStats() {
-  const days = parseInt(document.getElementById('statsPeriod').value) || 30;
+  const days = parseInt(document.getElementById('statsPeriod')?.value) || 30;
   try {
     const stats = await api('GET', `/api/settings/stats?days=${days}`);
 
     // Overview
-    document.getElementById('statsRequests').textContent = _formatNumber(stats.total_requests);
-    document.getElementById('statsTokens').textContent = _formatNumber(stats.tokens.total);
-    document.getElementById('statsSearches').textContent = _formatNumber(stats.search_requests);
+    setText('statsRequests', _formatNumber(stats.total_requests));
+    setText('statsTokens', _formatNumber((stats.tokens || {}).total));
+    setText('statsSearches', _formatNumber(stats.search_requests));
 
     // Skills count
     try {
       const skillsList = await api('GET', '/api/skills/');
       const enabledSkills = skillsList.filter(s => !s.disabled).length;
-      document.getElementById('statsSkills').textContent = `${enabledSkills} / ${skillsList.length}`;
+      setText('statsSkills', `${enabledSkills} / ${skillsList.length}`);
     } catch {
-      document.getElementById('statsSkills').textContent = '—';
+      setText('statsSkills', '—');
     }
 
 
     // Secondary Provider stats
     const sec = stats.secondary || {};
-    document.getElementById('statsSecondaryRequests').textContent = _formatNumber(sec.requests || 0);
-    document.getElementById('statsSecondaryTokens').textContent = _formatNumber(sec.tokens || 0);
+    setText('statsSecondaryRequests', _formatNumber(sec.requests || 0));
+    setText('statsSecondaryTokens', _formatNumber(sec.tokens || 0));
 
     // Prompt cache stats (aggregate)
     const kv = stats.kv_cache || {};
-    document.getElementById('statsCacheHit').textContent = _formatNumber(kv.hit_tokens || 0);
-    document.getElementById('statsCacheMiss').textContent = _formatNumber(kv.miss_tokens || 0);
+    setText('statsCacheHit', _formatNumber(kv.hit_tokens || 0));
+    setText('statsCacheMiss', _formatNumber(kv.miss_tokens || 0));
 
     const modelsWithCache = (stats.by_model || []).filter(
       (m) => (m.cache_hit_tokens || 0) > 0 || (m.cache_miss_tokens || 0) > 0,
@@ -624,24 +651,29 @@ async function loadUsageStats() {
     _renderUsageCharts(stats);
 
     // Provider detail table
-    document.getElementById('statsProviderTable').innerHTML = stats.by_provider.length
-      ? stats.by_provider.map(p => `
+    const provTable = document.getElementById('statsProviderTable');
+    if (provTable) {
+      provTable.innerHTML = (stats.by_provider || []).length
+        ? stats.by_provider.map(p => `
         <div class="stats-detail-row">
           <span class="stats-detail-name">${escapeHtml(p.provider_name || p.provider_id)} <span class="stats-detail-badge">${escapeHtml(p.provider_type)}</span></span>
           <span class="stats-detail-num">${p.requests} req</span>
           <span class="stats-detail-meta">${_formatNumber(p.tokens)} tok</span>
           <span class="stats-detail-meta">${_formatMs(p.avg_response_ms)} avg</span>
         </div>`).join('')
-      : `<p class="card-muted">${t('stats.noData')}</p>`;
+        : `<p class="card-muted">${t('stats.noData')}</p>`;
+    }
 
     // Model detail table
-    document.getElementById('statsModelTable').innerHTML = stats.by_model.length
-      ? stats.by_model.map(m => {
-        const cacheBits = [];
-        if ((m.cache_hit_tokens || 0) > 0) cacheBits.push(`${t('stats.cacheHitShort')}: ${_formatNumber(m.cache_hit_tokens)}`);
-        if ((m.cache_miss_tokens || 0) > 0) cacheBits.push(`${t('stats.cacheMissShort')}: ${_formatNumber(m.cache_miss_tokens)}`);
-        const cacheMeta = cacheBits.length ? `<span class="stats-detail-meta">${cacheBits.join(' · ')}</span>` : '';
-        return `
+    const modelTable = document.getElementById('statsModelTable');
+    if (modelTable) {
+      modelTable.innerHTML = (stats.by_model || []).length
+        ? stats.by_model.map(m => {
+          const cacheBits = [];
+          if ((m.cache_hit_tokens || 0) > 0) cacheBits.push(`${t('stats.cacheHitShort')}: ${_formatNumber(m.cache_hit_tokens)}`);
+          if ((m.cache_miss_tokens || 0) > 0) cacheBits.push(`${t('stats.cacheMissShort')}: ${_formatNumber(m.cache_miss_tokens)}`);
+          const cacheMeta = cacheBits.length ? `<span class="stats-detail-meta">${cacheBits.join(' · ')}</span>` : '';
+          return `
         <div class="stats-detail-row">
           <span class="stats-detail-name">${escapeHtml(m.model)} <span class="stats-detail-badge">${escapeHtml(m.provider_type)}</span></span>
           <span class="stats-detail-num">${m.requests} req</span>
@@ -649,8 +681,9 @@ async function loadUsageStats() {
           <span class="stats-detail-meta">${_formatMs(m.avg_response_ms)} avg</span>
           ${cacheMeta}
         </div>`;
-      }).join('')
-      : `<p class="card-muted">${t('stats.noData')}</p>`;
+        }).join('')
+        : `<p class="card-muted">${t('stats.noData')}</p>`;
+    }
 
     const cacheModelTable = document.getElementById('statsCacheModelTable');
     if (cacheModelTable) {
@@ -665,14 +698,17 @@ async function loadUsageStats() {
     }
 
     // User detail table
-    document.getElementById('statsUserTable').innerHTML = stats.by_user.length
-      ? stats.by_user.map(u => `
+    const userTable = document.getElementById('statsUserTable');
+    if (userTable) {
+      userTable.innerHTML = (stats.by_user || []).length
+        ? stats.by_user.map(u => `
         <div class="stats-detail-row">
           <span class="stats-detail-name">${escapeHtml(u.user_id)}</span>
           <span class="stats-detail-num">${u.requests} req</span>
           <span class="stats-detail-meta">${_formatNumber(u.tokens)} tok</span>
         </div>`).join('')
-      : `<p class="card-muted">${t('stats.noData')}</p>`;
+        : `<p class="card-muted">${t('stats.noData')}</p>`;
+    }
 
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
@@ -789,12 +825,13 @@ async function loadSettings() {
     // Apply saved language (also persist so the chat page can read it)
     const savedLang = cfg.language || 'en';
     setLanguage(savedLang, true);
-    const langEl = document.getElementById('settingsLang');
-    if (langEl) langEl.value = savedLang;
-    const topLang = document.getElementById('langSelect');
-    if (topLang) topLang.value = savedLang;
-    const dynEl = document.getElementById('settingsDynamicGreetings');
-    if (dynEl) dynEl.checked = cfg.dynamic_greetings !== false;
+    setVal('settingsLang', savedLang);
+    setVal('langSelect', savedLang);
+    setChecked('settingsDynamicGreetings', cfg.dynamic_greetings !== false);
+    fillGreetingsProviderSelect(cfg.providers || [], (cfg.greetings || {}).provider_id || '');
+    applyGreetingsSettings(cfg.greetings || {});
+    onDynamicGreetingsToggle();
+    refreshGreetingsStatus();
 
     // Providers
     _allProviders = cfg.providers || [];
@@ -805,39 +842,37 @@ async function loadSettings() {
     renderProvidersList();
     renderSecondaryProvidersList();
     await loadRouting();
+    // Re-fill greetings provider list after providers are known
+    fillGreetingsProviderSelect(_allProviders, (cfg.greetings || {}).provider_id || '');
+    applyGreetingsSettings(cfg.greetings || {});
+    onDynamicGreetingsToggle();
+    refreshGreetingsStatus();
 
     // SearXNG
-    document.getElementById('sxEnabled').checked = cfg.searxng.enabled;
-    document.getElementById('knowledgeCutoff').value = cfg.knowledge_cutoff || '';
-    document.getElementById('sxUrl').value = cfg.searxng.base_url;
-    document.getElementById('sxMaxResults').value = cfg.searxng.max_results;
-    document.getElementById('sxMaxChars').value = cfg.searxng.max_page_chars;
-    document.getElementById('sxCacheTtl').value = cfg.searxng.cache_ttl || 300;
+    const sx = cfg.searxng || {};
+    setChecked('sxEnabled', sx.enabled);
+    setVal('knowledgeCutoff', cfg.knowledge_cutoff || '');
+    setVal('sxUrl', sx.base_url || '');
+    setVal('sxMaxResults', sx.max_results ?? 5);
+    setVal('sxMaxChars', sx.max_page_chars ?? 4000);
+    setVal('sxCacheTtl', sx.cache_ttl || 300);
 
     // Frigate
     const fr = cfg.frigate || {};
-    const frEn = document.getElementById('frigateEnabled');
-    if (frEn) frEn.checked = fr.enabled !== false;
-    const frUrl = document.getElementById('frigateUrl');
-    if (frUrl) frUrl.value = fr.base_url || 'http://ccab4aaf-frigate:5000';
-    const frTo = document.getElementById('frigateTimeout');
-    if (frTo) frTo.value = fr.timeout ?? 12;
+    setChecked('frigateEnabled', fr.enabled !== false);
+    setVal('frigateUrl', fr.base_url || 'http://ccab4aaf-frigate:5000');
+    setVal('frigateTimeout', fr.timeout ?? 12);
 
     // Voice
     const voice = cfg.voice || {};
-    const vEn = document.getElementById('voiceEnabled');
-    if (vEn) vEn.checked = voice.enabled === true;
+    setChecked('voiceEnabled', voice.enabled === true);
     const vKey = document.getElementById('voiceKey');
     // Never echo the stored key back; blank means "keep it".
     if (vKey) vKey.placeholder = voice.google_api_key ? '•••••••• (saved)' : 'AIza…';
-    const vLang = document.getElementById('voiceLanguage');
-    if (vLang) vLang.value = voice.language || 'ro-RO';
-    const vRate = document.getElementById('voiceRate');
-    if (vRate) vRate.value = voice.speaking_rate ?? 1;
-    const vMax = document.getElementById('voiceMaxChars');
-    if (vMax) vMax.value = voice.max_reply_chars ?? 800;
-    const vAuto = document.getElementById('voiceAutoplay');
-    if (vAuto) vAuto.checked = voice.autoplay !== false;
+    setVal('voiceLanguage', voice.language || 'ro-RO');
+    setVal('voiceRate', voice.speaking_rate ?? 1);
+    setVal('voiceMaxChars', voice.max_reply_chars ?? 800);
+    setChecked('voiceAutoplay', voice.autoplay !== false);
     const vControls = document.getElementById('voiceControls');
     if (vControls) {
       const c = voice.controls || 'both';
@@ -847,55 +882,49 @@ async function loadSettings() {
     const localTts = voice.local_tts || {};
     setVoiceEngineValue('voiceSttEngine', voice.stt_engine);
     setVoiceEngineValue('voiceTtsEngine', voice.tts_engine);
-    const vSttUrl = document.getElementById('voiceLocalSttUrl');
-    if (vSttUrl) vSttUrl.value = localStt.url || '';
-    const vSttModel = document.getElementById('voiceLocalSttModel');
-    if (vSttModel) vSttModel.value = localStt.model || '';
-    const vTtsUrl = document.getElementById('voiceLocalTtsUrl');
-    if (vTtsUrl) vTtsUrl.value = localTts.url || '';
-    const vTtsVoice = document.getElementById('voiceLocalTtsVoice');
-    if (vTtsVoice) vTtsVoice.value = localTts.voice || '';
-    const vLocalTimeout = document.getElementById('voiceLocalTimeout');
-    if (vLocalTimeout) vLocalTimeout.value = localStt.timeout ?? localTts.timeout ?? 60;
+    setVal('voiceLocalSttUrl', localStt.url || '');
+    setVal('voiceLocalSttModel', localStt.model || '');
+    setVal('voiceLocalTtsUrl', localTts.url || '');
+    setVal('voiceLocalTtsVoice', localTts.voice || '');
+    setVal('voiceLocalTimeout', localStt.timeout ?? localTts.timeout ?? 60);
     bindVoiceEngineToggles();
     renderVoiceEngineSections();
     await loadVoiceVoices(voice.voice || 'Kore');
     renderVoiceMicStatus();
+    const vLang = document.getElementById('voiceLanguage');
     if (vLang && !vLang.dataset.bound) {
       vLang.dataset.bound = '1';
       vLang.addEventListener('change', () => loadVoiceVoices(document.getElementById('voiceVoice')?.value));
     }
 
     // Memory
-    document.getElementById('memEnabled').checked = cfg.memory.enabled;
-
-    // Auto-consolidation
-    const ac = cfg.memory.auto_consolidation || {};
-    document.getElementById('acEnabled').checked = ac.enabled || false;
-    document.getElementById('acSchedule').value = ac.schedule || 'daily';
-    document.getElementById('acHour').value = ac.hour ?? 3;
-    const acInterval = document.getElementById('acIntervalHours');
-    if (acInterval) acInterval.value = ac.interval_hours ?? 6;
+    const mem = cfg.memory || {};
+    setChecked('memEnabled', mem.enabled);
+    const ac = mem.auto_consolidation || {};
+    setChecked('acEnabled', ac.enabled || false);
+    setVal('acSchedule', ac.schedule || 'daily');
+    setVal('acHour', ac.hour ?? 3);
+    setVal('acIntervalHours', ac.interval_hours ?? 6);
     onAcScheduleChange();
-    document.getElementById('memAutoExtract').checked = cfg.memory.auto_extract;
-    document.getElementById('memMax').value = cfg.memory.max_memories_per_user;
+    setChecked('memAutoExtract', mem.auto_extract);
+    setVal('memMax', mem.max_memories_per_user ?? 500);
 
     // Performance
     const perf = cfg.performance || {};
     _cachedPerformance = perf;
-    document.getElementById('perfHistoryLimit').value = perf.history_limit || 10;
-    document.getElementById('perfAgentRounds').value = perf.agent_max_rounds || 16;
-    document.getElementById('perfParallelFetch').checked = perf.parallel_page_fetch !== false;
+    setVal('perfHistoryLimit', perf.history_limit || 10);
+    setVal('perfAgentRounds', perf.agent_max_rounds || 16);
+    setChecked('perfParallelFetch', perf.parallel_page_fetch !== false);
     _applyPerformanceFields(perf, 'perf');
 
     // System prompt
-    document.getElementById('systemPrompt').value = cfg.system_prompt || '';
+    setVal('systemPrompt', cfg.system_prompt || '');
     const haDefault = await loadHaAgentPromptDefault();
     await loadHaToolCategories();
     renderHaToolAccess(cfg);
     await loadBridgeToolGroups();
     renderBridgeToolAccess(cfg);
-    document.getElementById('haAgentPrompt').value = cfg.ha_agent_prompt || haDefault;
+    setVal('haAgentPrompt', cfg.ha_agent_prompt || haDefault);
   } catch (e) {
     toast(t('toast.settingsError', { msg: e.message }), true);
   }
@@ -907,6 +936,149 @@ function onAcScheduleChange() {
   const intervalRow = document.getElementById('acIntervalRow');
   if (hourRow) hourRow.style.display = schedule === 'interval' ? 'none' : '';
   if (intervalRow) intervalRow.style.display = schedule === 'interval' ? '' : 'none';
+}
+
+function onDynamicGreetingsToggle() {
+  const on = document.getElementById('settingsDynamicGreetings')?.checked !== false;
+  const box = document.getElementById('greetingsPoolSettings');
+  if (box) box.style.display = on ? '' : 'none';
+}
+
+function collectGreetingsSettings() {
+  return {
+    refresh_days: parseInt(document.getElementById('greetingsRefreshDays')?.value, 10) || 7,
+    pool_size: parseInt(document.getElementById('greetingsPoolSize')?.value, 10) || 40,
+    provider_id: (document.getElementById('greetingsProvider')?.value || '').trim(),
+    model: (document.getElementById('greetingsModel')?.value || '').trim(),
+  };
+}
+
+function applyGreetingsSettings(g) {
+  const block = g && typeof g === 'object' ? g : {};
+  setVal('greetingsRefreshDays', block.refresh_days ?? 7);
+  setVal('greetingsPoolSize', block.pool_size ?? 40);
+  setVal('greetingsModel', block.model || '');
+  const sel = document.getElementById('greetingsProvider');
+  if (sel) {
+    const want = block.provider_id || '';
+    sel.value = [...sel.options].some((o) => o.value === want) ? want : '';
+  }
+}
+
+function fillGreetingsProviderSelect(providers, selectedId) {
+  const sel = document.getElementById('greetingsProvider');
+  if (!sel) return;
+  const activeLabel = t('settings.greetingsProviderActive') || 'Active chat provider (default)';
+  const want = selectedId || sel.value || '';
+  sel.innerHTML = '';
+  const opt0 = document.createElement('option');
+  opt0.value = '';
+  opt0.textContent = activeLabel;
+  sel.appendChild(opt0);
+  for (const p of providers || []) {
+    if (!p?.id) continue;
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = `${p.name || p.id}${p.model ? ` — ${p.model}` : ''}`;
+    sel.appendChild(opt);
+  }
+  sel.value = [...sel.options].some((o) => o.value === want) ? want : '';
+}
+
+function _formatGreetingsStatus(st) {
+  if (!st || typeof st !== 'object') return '—';
+  const status = st.status || 'idle';
+  const count = st.item_count ?? 0;
+  const when = st.last_generated_at
+    ? new Date(Number(st.last_generated_at) * 1000).toLocaleString()
+    : '—';
+  const prov = st.resolved_provider_name || st.resolved_provider_id || '—';
+  const model = st.resolved_model || '—';
+  let line = t('settings.greetingsStatusLine', {
+    status,
+    count,
+    when,
+    provider: prov,
+    model,
+  });
+  if (!line || line === 'settings.greetingsStatusLine') {
+    line = `${status} · ${count} msgs · ${when} · ${prov} / ${model}`;
+  }
+  if (st.error) line += ` — ${st.error}`;
+  return line;
+}
+
+async function refreshGreetingsStatus() {
+  const el = document.getElementById('greetingsStatusText');
+  if (!el) return;
+  try {
+    const st = await api('GET', '/api/settings/greetings');
+    el.textContent = _formatGreetingsStatus(st);
+  } catch {
+    el.textContent = '—';
+  }
+}
+
+async function onGreetingsProviderChange() {
+  const list = document.getElementById('greetingsModelList');
+  if (list) list.innerHTML = '';
+}
+
+async function loadGreetingsModels() {
+  const pid = (document.getElementById('greetingsProvider')?.value || '').trim()
+    || _activeProviderId
+    || (_allProviders[0] && _allProviders[0].id)
+    || '';
+  if (!pid) {
+    toast(t('toast.error', { msg: 'No provider' }), true);
+    return;
+  }
+  try {
+    const data = await api('GET', `/api/settings/providers/${encodeURIComponent(pid)}/models`);
+    const models = data.models || data || [];
+    const list = document.getElementById('greetingsModelList');
+    if (!list) return;
+    list.innerHTML = '';
+    const arr = Array.isArray(models) ? models : [];
+    for (const m of arr) {
+      const id = typeof m === 'string' ? m : (m?.id || m?.name || '');
+      if (!id) continue;
+      const opt = document.createElement('option');
+      opt.value = id;
+      list.appendChild(opt);
+    }
+    toast(t('settings.greetingsModelsLoaded', { count: arr.length }) || `Loaded ${arr.length} models`);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function generateGreetingsNow() {
+  const btn = document.getElementById('greetingsGenerateBtn');
+  const el = document.getElementById('greetingsStatusText');
+  try {
+    if (btn) btn.disabled = true;
+    if (el) el.textContent = t('settings.greetingsGenerating') || 'Generating…';
+    // Persist provider/model/interval before forcing a run.
+    await api('PUT', '/api/settings/', {
+      dynamic_greetings: true,
+      greetings: collectGreetingsSettings(),
+    });
+    setChecked('settingsDynamicGreetings', true);
+    onDynamicGreetingsToggle();
+    const st = await api('POST', '/api/settings/greetings/regenerate');
+    if (el) el.textContent = _formatGreetingsStatus(st);
+    if (st?.status === 'error') {
+      toast(t('toast.error', { msg: st.error || 'generation failed' }), true);
+    } else {
+      toast(t('settings.greetingsGenerated') || 'Greeting pool updated');
+    }
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+    refreshGreetingsStatus();
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function saveSettings() {
@@ -951,6 +1123,7 @@ async function saveSettings() {
       knowledge_cutoff: document.getElementById('knowledgeCutoff').value,
       language: document.getElementById('settingsLang').value,
       dynamic_greetings: document.getElementById('settingsDynamicGreetings')?.checked !== false,
+      greetings: collectGreetingsSettings(),
       ha_tools: collectHaTools(),
       bridge_tools: collectBridgeTools(),
       voice: collectVoice(),
@@ -963,6 +1136,7 @@ async function saveSettings() {
     toast(t('toast.settingsSaved'));
     persistLanguage(document.getElementById('settingsLang')?.value || currentLang);
     loadSystemInfo();
+    refreshGreetingsStatus();
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
@@ -1466,6 +1640,7 @@ const PROVIDER_TYPE_NAMES = {
 
 function renderProvidersList() {
   const container = document.getElementById('providersList');
+  if (!container) return;
   if (!_allProviders.length) {
     container.innerHTML = `<p class="card-muted">${t('settings.noProviders')}</p>`;
     _fillDefaultProviderSelect();
@@ -1481,6 +1656,7 @@ function renderProvidersList() {
     const visLabel = visProv ? `<span class="provider-secondary-badge">${t('settings.visionShort')}: ${escapeHtml(visProv.name)}</span>` : '';
     const imgProv = p.image_generation_provider ? _allSecondaryProviders.find(x => x.id === p.image_generation_provider) : null;
     const imgLabel = imgProv ? `<span class="provider-secondary-badge">${t('settings.imageGenShort')}: ${escapeHtml(imgProv.name)}</span>` : '';
+    const idAttr = escapeAttr(p.id);
     return `
       <div class="provider-item${activeClass}">
         <div class="provider-info">
@@ -1494,28 +1670,44 @@ function renderProvidersList() {
           <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
         </div>
         <div class="provider-actions">
-          ${!isActive ? `<button class="btn btn-sm btn-success" onclick="activateProvider('${escapeHtml(p.id)}')">${t('settings.setDefaultProvider')}</button>` : ''}
-          <button class="btn btn-sm" onclick="editProvider('${escapeHtml(p.id)}')">${t('settings.edit')}</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteProvider('${escapeHtml(p.id)}')">${t('users.delete')}</button>
+          ${!isActive ? `<button type="button" class="btn btn-sm btn-success" data-prov-action="activate" data-prov-id="${idAttr}">${t('settings.setDefaultProvider')}</button>` : ''}
+          <button type="button" class="btn btn-sm" data-prov-action="edit" data-prov-id="${idAttr}">${t('settings.edit')}</button>
+          <button type="button" class="btn btn-sm btn-danger" data-prov-action="delete" data-prov-id="${idAttr}">${t('users.delete')}</button>
         </div>
       </div>`;
   }).join('');
   _fillDefaultProviderSelect();
 }
 
+function _onProvidersListClick(e) {
+  const btn = e.target.closest('[data-prov-action]');
+  if (!btn || !document.getElementById('providersList')?.contains(btn)) return;
+  const id = btn.getAttribute('data-prov-id');
+  if (!id) return;
+  const action = btn.getAttribute('data-prov-action');
+  if (action === 'edit') editProvider(id);
+  else if (action === 'delete') deleteProvider(id);
+  else if (action === 'activate') activateProvider(id);
+}
+
+document.getElementById('providersList')?.addEventListener('click', _onProvidersListClick);
+
 function _populateSecondarySelect(excludeId) {
   const sel = document.getElementById('provSecondary');
+  if (!sel) return;
   sel.innerHTML = `<option value="">${t('settings.noSecondary')}</option>`;
   for (const p of _allSecondaryProviders) {
-    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
+    if (excludeId && p.id === excludeId) continue;
+    sel.innerHTML += `<option value="${escapeAttr(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
   }
 }
 
 function _populateVisionSelect() {
   const sel = document.getElementById('provVision');
+  if (!sel) return;
   sel.innerHTML = `<option value="">${t('settings.noVision')}</option>`;
   for (const p of _allSecondaryProviders) {
-    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
+    sel.innerHTML += `<option value="${escapeAttr(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
   }
 }
 
@@ -1524,83 +1716,74 @@ function _populateImageGenSelect() {
   if (!sel) return;
   sel.innerHTML = `<option value="">${t('settings.noImageGen')}</option>`;
   for (const p of _allSecondaryProviders) {
-    sel.innerHTML += `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
+    sel.innerHTML += `<option value="${escapeAttr(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
   }
 }
 
-function openAddProvider() {
-  _editingProviderId = null;
-  document.getElementById('providerFormTitle').textContent = t('settings.addProvider');
-  document.getElementById('provType').value = 'local';
-  document.getElementById('provName').value = '';
-  document.getElementById('provUrl').value = 'http://localhost:1234';
-  document.getElementById('provApiKey').value = '';
-  document.getElementById('provModel').value = '';
-  document.getElementById('provTimeout').value = 120;
-  document.getElementById('provMaxTokens').value = 2048;
-  document.getElementById('provTemperature').value = 0.7;
-  document.getElementById('provSystemPrompt').value = '';
-  document.getElementById('provModelFast').value = '';
-  document.getElementById('provModelDeep').value = '';
-  _populateSecondarySelect(null);
-  document.getElementById('provSecondary').value = '';
-  updateProviderCapabilitySections(document.getElementById('provType').value);
+function _fillProviderForm(p) {
+  setText('providerFormTitle', p
+    ? t('settings.editProvider')
+    : t('settings.addProvider'));
+  setVal('provType', p?.type || 'local');
+  setVal('provName', p?.name || '');
+  setVal('provUrl', p
+    ? (normalizeProviderUrl(p.base_url) || p.base_url || '')
+    : 'http://localhost:1234');
+  setVal('provApiKey', p?.api_key || '');
+  setVal('provModel', p?.model || '');
+  setVal('provTimeout', p?.timeout || 120);
+  setVal('provMaxTokens', p?.max_tokens || 2048);
+  setVal('provTemperature', p?.temperature ?? 0.7);
+  setVal('provSystemPrompt', p?.system_prompt || '');
+  setVal('provModelFast', (p?.role_models || {}).fast || '');
+  setVal('provModelDeep', (p?.role_models || {}).deep || '');
+  _populateSecondarySelect(p?.id || null);
+  setVal('provSecondary', p?.secondary_provider || '');
+  setVal('provThinkingMode', p?.thinking_mode || 'auto');
+  updateProviderCapabilitySections(p?.type || 'local');
   _syncProviderPerfFromGlobal();
   _populateVisionSelect();
-  document.getElementById('provVision').value = '';
+  setVal('provVision', p?.vision_provider || '');
   _populateImageGenSelect();
-  document.getElementById('provImageGen').value = '';
+  setVal('provImageGen', p?.image_generation_provider || '');
   _resetModelPicker(document.getElementById('provModel'), 'provModelPicker');
   _resetModelPicker(document.getElementById('provModelFast'), 'provModelFastPicker');
   _resetModelPicker(document.getElementById('provModelDeep'), 'provModelDeepPicker');
-  const dl = document.getElementById('provModelList'); if (dl) dl.remove();
-  document.getElementById('provTestSection').style.display = 'none';
-  document.getElementById('provTestResult').style.display = 'none';
+  const dl = document.getElementById('provModelList');
+  if (dl) dl.remove();
+  showEl('provTestSection', !!p);
+  showEl('provTestResult', false);
   onProvTypeChange();
-  document.getElementById('providersMain').style.display = 'none';
-  document.getElementById('providerPage').style.display = '';
+  showEl('providersMain', false);
+  showEl('providerPage', true);
+}
+
+function openAddProvider() {
+  try {
+    _editingProviderId = null;
+    _fillProviderForm(null);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
 }
 
 function editProvider(id) {
-  const p = _allProviders.find(x => x.id === id);
-  if (!p) return;
-  _editingProviderId = id;
-  document.getElementById('providerFormTitle').textContent = t('settings.editProvider');
-  document.getElementById('provType').value = p.type || 'local';
-  document.getElementById('provName').value = p.name || '';
-  document.getElementById('provUrl').value = normalizeProviderUrl(p.base_url) || p.base_url || '';
-  document.getElementById('provApiKey').value = p.api_key || '';
-  document.getElementById('provModel').value = p.model || '';
-  document.getElementById('provTimeout').value = p.timeout || 120;
-  document.getElementById('provMaxTokens').value = p.max_tokens || 2048;
-  document.getElementById('provTemperature').value = p.temperature ?? 0.7;
-  document.getElementById('provSystemPrompt').value = p.system_prompt || '';
-  document.getElementById('provModelFast').value = (p.role_models || {}).fast || '';
-  document.getElementById('provModelDeep').value = (p.role_models || {}).deep || '';
-  _populateSecondarySelect(id);
-  document.getElementById('provSecondary').value = p.secondary_provider || '';
-  const thinkingEl = document.getElementById('provThinkingMode');
-  if (thinkingEl) thinkingEl.value = p.thinking_mode || 'auto';
-  updateProviderCapabilitySections(p.type || 'local');
-  _syncProviderPerfFromGlobal();
-  _populateVisionSelect();
-  document.getElementById('provVision').value = p.vision_provider || '';
-  _populateImageGenSelect();
-  document.getElementById('provImageGen').value = p.image_generation_provider || '';
-  _resetModelPicker(document.getElementById('provModel'), 'provModelPicker');
-  _resetModelPicker(document.getElementById('provModelFast'), 'provModelFastPicker');
-  _resetModelPicker(document.getElementById('provModelDeep'), 'provModelDeepPicker');
-  const dl2 = document.getElementById('provModelList'); if (dl2) dl2.remove();
-  document.getElementById('provTestSection').style.display = '';
-  document.getElementById('provTestResult').style.display = 'none';
-  onProvTypeChange();
-  document.getElementById('providersMain').style.display = 'none';
-  document.getElementById('providerPage').style.display = '';
+  try {
+    const p = _allProviders.find(x => x.id === id);
+    if (!p) {
+      toast(t('toast.error', { msg: t('settings.providerNotFound') }), true);
+      return;
+    }
+    _editingProviderId = id;
+    _fillProviderForm(p);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
 }
 
 function cancelProviderForm() {
-  document.getElementById('providerPage').style.display = 'none';
-  document.getElementById('providersMain').style.display = '';
+  showEl('providerPage', false);
+  showEl('providersMain', true);
   _editingProviderId = null;
 }
 
@@ -1669,20 +1852,24 @@ function onSecProvUrlInput() {
 }
 
 function onProvTypeChange() {
-  const ptype = document.getElementById('provType').value;
+  const ptype = document.getElementById('provType')?.value || 'local';
   // Pre-fill URL if empty or still a known default
   const urlField = document.getElementById('provUrl');
-  const currentUrl = urlField.value.trim();
-  const defaultUrls = [...Object.values(PROVIDER_TYPE_URLS), ...LEGACY_PROVIDER_URLS];
-  if (!currentUrl || defaultUrls.includes(currentUrl)) {
-    urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
+  if (urlField) {
+    const currentUrl = urlField.value.trim();
+    const defaultUrls = [...Object.values(PROVIDER_TYPE_URLS), ...LEGACY_PROVIDER_URLS];
+    if (!currentUrl || defaultUrls.includes(currentUrl)) {
+      urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
+    }
   }
   // Pre-fill name if empty or still a known default
   const nameField = document.getElementById('provName');
-  const currentName = nameField.value.trim();
-  const defaultNames = Object.values(PROVIDER_TYPE_NAMES);
-  if (!currentName || defaultNames.includes(currentName)) {
-    nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
+  if (nameField) {
+    const currentName = nameField.value.trim();
+    const defaultNames = Object.values(PROVIDER_TYPE_NAMES);
+    if (!currentName || defaultNames.includes(currentName)) {
+      nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
+    }
   }
   updateProviderCapabilitySections(ptype);
   if (ptype === 'local') _syncProviderPerfFromGlobal();
@@ -1902,6 +2089,7 @@ async function fetchProviderModels() {
 
 function renderSecondaryProvidersList() {
   const container = document.getElementById('secondaryProvidersList');
+  if (!container) return;
   if (!_allSecondaryProviders.length) {
     container.innerHTML = `<p class="card-muted">${t('settings.noSecondaryProviders')}</p>`;
     return;
@@ -1916,6 +2104,7 @@ function renderSecondaryProvidersList() {
     const useHint = onCount
       ? ` · ${t('settings.secUseForCount', { n: onCount })}`
       : '';
+    const idAttr = escapeAttr(p.id);
     return `
       <div class="provider-item">
         <div class="provider-info">
@@ -1926,12 +2115,24 @@ function renderSecondaryProvidersList() {
           <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}${useHint}</div>
         </div>
         <div class="provider-actions">
-          <button class="btn btn-sm" onclick="editSecondaryProvider('${escapeHtml(p.id)}')">${t('settings.edit')}</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteSecondaryProvider('${escapeHtml(p.id)}')">${t('users.delete')}</button>
+          <button type="button" class="btn btn-sm" data-sec-action="edit" data-sec-id="${idAttr}">${t('settings.edit')}</button>
+          <button type="button" class="btn btn-sm btn-danger" data-sec-action="delete" data-sec-id="${idAttr}">${t('users.delete')}</button>
         </div>
       </div>`;
   }).join('');
 }
+
+function _onSecondaryProvidersListClick(e) {
+  const btn = e.target.closest('[data-sec-action]');
+  if (!btn || !document.getElementById('secondaryProvidersList')?.contains(btn)) return;
+  const id = btn.getAttribute('data-sec-id');
+  if (!id) return;
+  const action = btn.getAttribute('data-sec-action');
+  if (action === 'edit') editSecondaryProvider(id);
+  else if (action === 'delete') deleteSecondaryProvider(id);
+}
+
+document.getElementById('secondaryProvidersList')?.addEventListener('click', _onSecondaryProvidersListClick);
 
 let _secUseForMeta = null;
 
@@ -2004,53 +2205,64 @@ function setSecUseForAll(on) {
 }
 
 async function openAddSecondaryProvider() {
-  _editingSecProviderId = null;
-  document.getElementById('secProviderFormTitle').textContent = t('settings.addSecondaryProvider');
-  document.getElementById('secProvType').value = 'local';
-  document.getElementById('secProvName').value = '';
-  document.getElementById('secProvUrl').value = 'http://localhost:1234';
-  document.getElementById('secProvApiKey').value = '';
-  document.getElementById('secProvModel').value = '';
-  document.getElementById('secProvTimeout').value = 120;
-  document.getElementById('secProvMaxTokens').value = 2048;
-  document.getElementById('secProvTemperature').value = 0.7;
-  document.getElementById('secProvTestSection').style.display = 'none';
-  document.getElementById('secProvTestResult').style.display = 'none';
-  _resetModelPicker(document.getElementById('secProvModel'), 'secProvModelPicker');
-  onSecProvTypeChange();
-  await loadSecUseForMeta();
-  renderSecUseFor((_secUseForMeta && _secUseForMeta.defaults) || {});
-  document.getElementById('providersMain').style.display = 'none';
-  document.getElementById('secProviderPage').style.display = '';
+  try {
+    _editingSecProviderId = null;
+    setText('secProviderFormTitle', t('settings.addSecondaryProvider'));
+    setVal('secProvType', 'local');
+    setVal('secProvName', '');
+    setVal('secProvUrl', 'http://localhost:1234');
+    setVal('secProvApiKey', '');
+    setVal('secProvModel', '');
+    setVal('secProvTimeout', 120);
+    setVal('secProvMaxTokens', 2048);
+    setVal('secProvTemperature', 0.7);
+    showEl('secProvTestSection', false);
+    showEl('secProvTestResult', false);
+    _resetModelPicker(document.getElementById('secProvModel'), 'secProvModelPicker');
+    onSecProvTypeChange();
+    await loadSecUseForMeta();
+    renderSecUseFor((_secUseForMeta && _secUseForMeta.defaults) || {});
+    showEl('providersMain', false);
+    showEl('secProviderPage', true);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
 }
 
 async function editSecondaryProvider(id) {
-  const p = _allSecondaryProviders.find(x => x.id === id);
-  if (!p) return;
-  _editingSecProviderId = id;
-  document.getElementById('secProviderFormTitle').textContent = t('settings.editSecondaryProvider');
-  document.getElementById('secProvType').value = p.type || 'local';
-  document.getElementById('secProvName').value = p.name || '';
-  document.getElementById('secProvUrl').value = normalizeProviderUrl(p.base_url) || p.base_url || '';
-  document.getElementById('secProvApiKey').value = p.api_key || '';
-  document.getElementById('secProvModel').value = p.model || '';
-  document.getElementById('secProvTimeout').value = p.timeout || 120;
-  document.getElementById('secProvMaxTokens').value = p.max_tokens || 2048;
-  document.getElementById('secProvTemperature').value = p.temperature ?? 0.7;
-  document.getElementById('secProvTestSection').style.display = '';
-  document.getElementById('secProvTestResult').style.display = 'none';
-  _resetModelPicker(document.getElementById('secProvModel'), 'secProvModelPicker');
-  onSecProvTypeChange();
-  await loadSecUseForMeta();
-  renderSecUseFor(p.use_for || (_secUseForMeta && _secUseForMeta.defaults) || {});
-  document.getElementById('providersMain').style.display = 'none';
-  document.getElementById('secProviderPage').style.display = '';
+  try {
+    const p = _allSecondaryProviders.find(x => x.id === id);
+    if (!p) {
+      toast(t('toast.error', { msg: t('settings.secondaryProviderNotFound') }), true);
+      return;
+    }
+    _editingSecProviderId = id;
+    setText('secProviderFormTitle', t('settings.editSecondaryProvider'));
+    setVal('secProvType', p.type || 'local');
+    setVal('secProvName', p.name || '');
+    setVal('secProvUrl', normalizeProviderUrl(p.base_url) || p.base_url || '');
+    setVal('secProvApiKey', p.api_key || '');
+    setVal('secProvModel', p.model || '');
+    setVal('secProvTimeout', p.timeout || 120);
+    setVal('secProvMaxTokens', p.max_tokens || 2048);
+    setVal('secProvTemperature', p.temperature ?? 0.7);
+    showEl('secProvTestSection', true);
+    showEl('secProvTestResult', false);
+    _resetModelPicker(document.getElementById('secProvModel'), 'secProvModelPicker');
+    onSecProvTypeChange();
+    await loadSecUseForMeta();
+    renderSecUseFor(p.use_for || (_secUseForMeta && _secUseForMeta.defaults) || {});
+    showEl('providersMain', false);
+    showEl('secProviderPage', true);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
 }
 
 function cancelSecProviderForm() {
-  document.getElementById('secProviderPage').style.display = 'none';
-  document.getElementById('providerPage').style.display = 'none';
-  document.getElementById('providersMain').style.display = '';
+  showEl('secProviderPage', false);
+  showEl('providerPage', false);
+  showEl('providersMain', true);
   _editingSecProviderId = null;
 }
 
@@ -2073,18 +2285,22 @@ async function testSecProviderFromPage() {
 }
 
 function onSecProvTypeChange() {
-  const ptype = document.getElementById('secProvType').value;
+  const ptype = document.getElementById('secProvType')?.value || 'local';
   const urlField = document.getElementById('secProvUrl');
-  const currentUrl = urlField.value.trim();
-  const defaultUrls = [...Object.values(PROVIDER_TYPE_URLS), ...LEGACY_PROVIDER_URLS];
-  if (!currentUrl || defaultUrls.includes(currentUrl)) {
-    urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
+  if (urlField) {
+    const currentUrl = urlField.value.trim();
+    const defaultUrls = [...Object.values(PROVIDER_TYPE_URLS), ...LEGACY_PROVIDER_URLS];
+    if (!currentUrl || defaultUrls.includes(currentUrl)) {
+      urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
+    }
   }
   const nameField = document.getElementById('secProvName');
-  const currentName = nameField.value.trim();
-  const defaultNames = Object.values(PROVIDER_TYPE_NAMES);
-  if (!currentName || defaultNames.includes(currentName)) {
-    nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
+  if (nameField) {
+    const currentName = nameField.value.trim();
+    const defaultNames = Object.values(PROVIDER_TYPE_NAMES);
+    if (!currentName || defaultNames.includes(currentName)) {
+      nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
+    }
   }
   _refreshProviderUrlMismatch(ptype, 'secProvUrl', 'secProvUrlMismatch');
 }
@@ -2408,15 +2624,18 @@ const closeUserModal = closeUserPage;
 const deselectUser = closeUserPage;
 
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') {
-    if (document.getElementById('addUserPage').style.display !== 'none') closeAddUserPage();
-    else if (document.getElementById('userDetailPage').style.display !== 'none') closeUserPage();
-    else if (document.getElementById('addMemoryPage').style.display !== 'none') closeAddMemoryPage();
-    else if (document.getElementById('skillEditorPage').style.display !== 'none') closeSkillEditor();
-    else if (document.getElementById('convDetailPage').style.display !== 'none') closeConvPage();
-    else if (document.getElementById('secProviderPage').style.display !== 'none') cancelSecProviderForm();
-    else if (document.getElementById('providerPage').style.display !== 'none') cancelProviderForm();
-  }
+  if (e.key !== 'Escape') return;
+  const visible = (id) => {
+    const el = document.getElementById(id);
+    return el && el.style.display !== 'none';
+  };
+  if (visible('addUserPage')) closeAddUserPage();
+  else if (visible('userDetailPage')) closeUserPage();
+  else if (visible('addMemoryPage')) closeAddMemoryPage();
+  else if (visible('skillEditorPage')) closeSkillEditor();
+  else if (visible('convDetailPage')) closeConvPage();
+  else if (visible('secProviderPage')) cancelSecProviderForm();
+  else if (visible('providerPage')) cancelProviderForm();
 });
 
 // ── Memory functions ──
@@ -2894,9 +3113,10 @@ async function downloadViaBlob(path, filename) {
     throw new Error(err.detail || `HTTP ${resp.status}`);
   }
   const blob = await resp.blob();
-  // Companion WebView often navigates the Ingress iframe to the blob URL (kicks you
-  // out of the add-on). Prefer the File System Access API, else only use <a download>
-  // when the attribute is honored; never assign location.href to the blob.
+  // Prefer Save As (Chrome/Edge). In HA Ingress iframes / Safari / Firefox this
+  // API is often missing — then we fall back to the browser Downloads folder
+  // (no location picker). Never assign location.href to the blob (Companion kicks
+  // you out of the add-on).
   if (typeof window.showSaveFilePicker === 'function') {
     try {
       const handle = await window.showSaveFilePicker({
@@ -2906,10 +3126,14 @@ async function downloadViaBlob(path, filename) {
       const writable = await handle.createWritable();
       await writable.write(blob);
       await writable.close();
-      return;
+      return { method: 'picker', filename };
     } catch (e) {
-      if (e && e.name === 'AbortError') return;
-      /* fall through */
+      if (e && e.name === 'AbortError') {
+        const cancel = new Error('cancelled');
+        cancel.code = 'cancelled';
+        throw cancel;
+      }
+      /* fall through to <a download> */
     }
   }
   const companion = /Home Assistant/i.test(navigator.userAgent || '');
@@ -2929,6 +3153,7 @@ async function downloadViaBlob(path, filename) {
   } finally {
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
+  return { method: 'anchor', filename };
 }
 
 async function refreshAfterImport() {
@@ -2982,13 +3207,19 @@ async function uploadChunked(file, kind) {
 }
 
 async function downloadFullExport() {
+  const day = new Date().toISOString().slice(0, 10);
+  const filename = `hassai-export-${day}.zip`;
   try {
     setBackupStatus(t('toast.fullExportStarted'));
-    await downloadViaBlob('/api/settings/export', 'hassai-export.zip');
-    setBackupStatus('');
-    toast(t('toast.backupDownloaded'));
+    const result = await downloadViaBlob('/api/settings/export', filename);
+    const msg = result.method === 'picker'
+      ? t('toast.backupSavedAs', { name: result.filename })
+      : t('toast.backupInDownloads', { name: result.filename });
+    setBackupStatus(msg);
+    toast(msg);
   } catch (e) {
     setBackupStatus('');
+    if (e && e.code === 'cancelled') return;
     toast(t('toast.restoreError', { msg: e.message }), true);
   }
 }
@@ -3086,6 +3317,7 @@ let _convSessionId = '';
 
 async function refreshConvUsers() {
   const select = document.getElementById('convUserSelect');
+  if (!select) return;
   const prev = select.value;
   try {
     const [cfg, memData] = await Promise.all([
@@ -3591,8 +3823,10 @@ const _htcTotal = 4;
 function _htcUpdate() {
   document.querySelectorAll('.htc-slide').forEach((s, i) => s.classList.toggle('active', i === _htcIndex));
   document.querySelectorAll('.htc-dot').forEach((d, i) => d.classList.toggle('active', i === _htcIndex));
-  document.querySelector('.htc-prev').disabled = _htcIndex === 0;
+  const prevBtn = document.querySelector('.htc-prev');
+  if (prevBtn) prevBtn.disabled = _htcIndex === 0;
   const nextBtn = document.querySelector('.htc-next');
+  if (!nextBtn) return;
   nextBtn.textContent = _htcIndex === _htcTotal - 1 ? '✓' : t('htc.next');
   nextBtn.disabled = _htcIndex === _htcTotal - 1;
 }
@@ -3611,7 +3845,7 @@ async function loadStatsMemory() {
   try {
     const memUsers = await api('GET', '/api/memory/users');
     const users = memUsers.users || [];
-    document.getElementById('statsMemUsers').textContent = users.length;
+    setText('statsMemUsers', users.length);
 
     // Load per-user stats
     let totalMem = 0;
@@ -3628,33 +3862,39 @@ async function loadStatsMemory() {
       } catch { /* skip */ }
     }
 
-    document.getElementById('statsMemTotal').textContent = totalMem;
+    setText('statsMemTotal', totalMem);
     // Auto-extract status
     try {
       const cfg = await api('GET', '/api/settings/');
-      document.getElementById('statsMemAutoExtract').textContent = cfg.memory.auto_extract ? t('status.active') : t('status.disabled');
+      setText('statsMemAutoExtract', (cfg.memory || {}).auto_extract ? t('status.active') : t('status.disabled'));
     } catch {
-      document.getElementById('statsMemAutoExtract').textContent = '—';
+      setText('statsMemAutoExtract', '—');
     }
 
     // User table
-    document.getElementById('statsMemoryUserTable').innerHTML = userStats.length
-      ? userStats.map(u => `
+    const userTable = document.getElementById('statsMemoryUserTable');
+    if (userTable) {
+      userTable.innerHTML = userStats.length
+        ? userStats.map(u => `
         <div class="stats-detail-row">
           <span class="stats-detail-name">${escapeHtml(u.name)}</span>
           <span class="stats-detail-num">${u.total} memories</span>
         </div>`).join('')
-      : `<p class="card-muted">${t('stats.noData')}</p>`;
+        : `<p class="card-muted">${t('stats.noData')}</p>`;
+    }
 
     // Category table
     const catEntries = Object.entries(catAgg).sort((a, b) => b[1] - a[1]);
-    document.getElementById('statsMemoryCatTable').innerHTML = catEntries.length
-      ? catEntries.map(([cat, count]) => `
+    const catTable = document.getElementById('statsMemoryCatTable');
+    if (catTable) {
+      catTable.innerHTML = catEntries.length
+        ? catEntries.map(([cat, count]) => `
         <div class="stats-detail-row">
           <span class="stats-detail-name">${t('cat.' + cat) || cat}</span>
           <span class="stats-detail-num">${count}</span>
         </div>`).join('')
-      : `<p class="card-muted">${t('stats.noData')}</p>`;
+        : `<p class="card-muted">${t('stats.noData')}</p>`;
+    }
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
@@ -3669,19 +3909,22 @@ async function loadStatsSkills() {
     const generated = list.filter(s => s.generated).length;
     const totalUsage = list.reduce((sum, s) => sum + (s.usage_count || 0), 0);
 
-    document.getElementById('statsSkillsTotal').textContent = total;
-    document.getElementById('statsSkillsEnabled').textContent = enabled;
-    document.getElementById('statsSkillsBuiltin').textContent = builtin;
-    document.getElementById('statsSkillsGenerated').textContent = generated;
-    document.getElementById('statsSkillsTotalUsage').textContent = totalUsage;
+    setText('statsSkillsTotal', total);
+    setText('statsSkillsEnabled', enabled);
+    setText('statsSkillsBuiltin', builtin);
+    setText('statsSkillsGenerated', generated);
+    setText('statsSkillsTotalUsage', totalUsage);
 
-    document.getElementById('statsSkillsTable').innerHTML = list.length
-      ? list.map(s => `
+    const skillsTable = document.getElementById('statsSkillsTable');
+    if (skillsTable) {
+      skillsTable.innerHTML = list.length
+        ? list.map(s => `
         <div class="stats-detail-row">
           <span class="stats-detail-name">${escapeHtml(s.name)} ${s.generated ? '<span class="stats-detail-badge">user</span>' : '<span class="stats-detail-badge">built-in</span>'}</span>
           <span class="stats-detail-meta">${s.disabled ? '⏸ disabled' : '✅ active'} · ${t('stats.used')} ${s.usage_count || 0}x</span>
         </div>`).join('')
-      : `<p class="card-muted">${t('stats.noData')}</p>`;
+        : `<p class="card-muted">${t('stats.noData')}</p>`;
+    }
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }
@@ -3692,10 +3935,10 @@ async function loadStatsServer() {
     const info = await api('GET', '/api/settings/info');
     _cachedInfo = info;
 
-    document.getElementById('statsServerUptime').textContent = formatUptime(info.uptime_seconds);
-    document.getElementById('statsServerVersion').textContent = formatAppVersion(info.version);
-    document.getElementById('statsServerEndpoints').textContent = info.endpoints.length;
-    document.getElementById('statsServerProviders').textContent = (info.providers || []).length;
+    setText('statsServerUptime', formatUptime(info.uptime_seconds));
+    setText('statsServerVersion', formatAppVersion(info.version));
+    setText('statsServerEndpoints', (info.endpoints || []).length);
+    setText('statsServerProviders', (info.providers || []).length);
 
     // Server details
     const details = [
