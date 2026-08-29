@@ -42,6 +42,7 @@ def test_list_events_api_with_snapshot():
             "start_time": 1_700_000_000.0,
             "end_time": 1_700_000_010.0,
             "has_snapshot": True,
+            "has_clip": True,
         },
         {
             "id": "evt-2",
@@ -51,6 +52,7 @@ def test_list_events_api_with_snapshot():
             "start_time": 1_699_999_000.0,
             "end_time": 1_699_999_020.0,
             "has_snapshot": True,
+            "has_clip": False,
         },
     ]
 
@@ -58,7 +60,7 @@ def test_list_events_api_with_snapshot():
         assert path == "/api/events"
         return events
 
-    async def fake_bytes(path, params=None):
+    async def fake_bytes(path, params=None, **kwargs):
         assert "/snapshot.jpg" in path
         return b"\xff\xd8\xffsnap", "image/jpeg"
 
@@ -71,6 +73,7 @@ def test_list_events_api_with_snapshot():
 
     result = asyncio.run(_run())
     assert "person" in result["text"]
+    assert "clip=yes" in result["text"]
     assert len(result["images"]) == 1
     assert result["image"]["filename"].startswith("frigate-front-")
     assert result["image"]["bytes"].startswith(b"\xff\xd8")
@@ -87,7 +90,7 @@ def test_list_events_snapshot_only_one_even_with_many_events():
 
     calls = []
 
-    async def fake_bytes(path, params=None):
+    async def fake_bytes(path, params=None, **kwargs):
         calls.append(path)
         return b"\xff\xd8\xff", "image/jpeg"
 
@@ -104,15 +107,64 @@ def test_list_events_snapshot_only_one_even_with_many_events():
     assert "evt-1" in calls[0]
 
 
+def test_list_events_include_clip_attaches_mp4():
+    events = [
+        {
+            "id": "evt-clip",
+            "camera": "yard",
+            "label": "person",
+            "has_clip": True,
+            "has_snapshot": True,
+            "start_time": 1_700_000_000.0,
+        },
+    ]
+
+    async def fake_json(path, params=None):
+        assert params.get("has_clip") == 1
+        return events
+
+    async def fake_bytes(path, params=None, **kwargs):
+        assert path.endswith("/clip.mp4")
+        return b"\x00\x00\x00\x18ftypmp42", "video/mp4"
+
+    async def _run():
+        with (
+            patch.object(ft, "_get_json", side_effect=fake_json),
+            patch.object(ft, "_get_bytes", side_effect=fake_bytes),
+        ):
+            return await ft.list_events(include_clip=True, limit=3)
+
+    result = asyncio.run(_run())
+    assert result["videos"]
+    assert result["videos"][0]["mime"] == "video/mp4"
+    assert not result["images"]
+
+
+def test_clip_by_event_id():
+    async def fake_bytes(path, params=None, **kwargs):
+        assert path == "/api/events/abc123/clip.mp4"
+        return b"mp4bytes", "video/mp4"
+
+    async def _run():
+        with patch.object(ft, "_get_bytes", side_effect=fake_bytes):
+            return await ft.clip(event_id="abc123")
+
+    result = asyncio.run(_run())
+    assert "abc123" in result["text"]
+    assert result["videos"][0]["bytes"] == b"mp4bytes"
+
+
 def test_system_hint_mentions_no_imagine():
     with patch.object(ft, "is_enabled", return_value=True):
         hint = ft.system_hint()
     assert "generate_image" in hint
     assert "include_snapshot=false" in hint
+    assert "frigate_clip" in hint
+    assert "înregistrare" in hint or "recording" in hint
 
 
 def test_snapshot_latest_jpg():
-    async def fake_bytes(path, params=None):
+    async def fake_bytes(path, params=None, **kwargs):
         assert path == "/api/gate/latest.jpg"
         return b"jpegdata", "image/jpeg"
 
@@ -146,6 +198,7 @@ def test_system_hint_when_enabled():
         hint = ft.system_hint()
         assert "frigate_events" in hint
         assert "frigate_snapshot" in hint
+        assert "frigate_clip" in hint
 
 
 def test_health_status_media_fallback(tmp_path: Path):
@@ -154,9 +207,6 @@ def test_health_status_media_fallback(tmp_path: Path):
 
     cf.set_roots_for_test((str(media),))
     try:
-        async def boom():
-            raise RuntimeError("no api")
-
         async def _run():
             with (
                 patch.object(ft, "_cfg", return_value={"enabled": True, "base_url": "http://frigate:5000", "timeout": 12}),

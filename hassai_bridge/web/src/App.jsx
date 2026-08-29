@@ -50,20 +50,31 @@ function sessionTitle(row, lang) {
 }
 
 function mapStoredAttachments(items) {
-  return (items || []).map((item) => ({
-    id: item.id,
-    mime: item.mime,
-    name: item.name || "",
-    kind: item.kind || (String(item.mime || "").startsWith("image/") ? "image" : "document"),
-    previewUrl: apiUrl(item.url),
-    url: apiUrl(item.url),
-  }));
+  return (items || []).map((item) => {
+    const mime = String(item.mime || "");
+    let kind = item.kind;
+    if (!kind) {
+      if (mime.startsWith("image/")) kind = "image";
+      else if (mime.startsWith("video/")) kind = "video";
+      else if (mime.startsWith("audio/")) kind = "audio";
+      else kind = "document";
+    }
+    return {
+      id: item.id,
+      mime: item.mime,
+      name: item.name || "",
+      kind,
+      previewUrl: apiUrl(item.url),
+      url: apiUrl(item.url),
+    };
+  });
 }
 
 export default function App() {
   const [lang, setLang] = useState(readStoredLang);
   const [atmosphere, setAtmosphere] = useState({});
   const [dynamicGreetings, setDynamicGreetings] = useState(true);
+  const [greetingPool, setGreetingPool] = useState([]);
   const [greetingNonce, setGreetingNonce] = useState(() => Date.now() % 100000);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [input, setInput] = useState(() => readDraftText());
@@ -123,8 +134,8 @@ export default function App() {
     if (!dynamicGreetings) {
       return { title: t("welcome"), hint: t("welcomeHint") };
     }
-    return pickGreeting(lang, atmosphere, new Date(), greetingNonce);
-  }, [dynamicGreetings, lang, atmosphere, greetingNonce, t]);
+    return pickGreeting(lang, atmosphere, new Date(), greetingNonce, greetingPool);
+  }, [dynamicGreetings, lang, atmosphere, greetingNonce, greetingPool, t]);
 
   const listedSessions = useMemo(() => {
     const inDb = sessions.some((s) => s.session_id === sessionId);
@@ -373,6 +384,7 @@ export default function App() {
         username = nextUser.username || "default";
         setUser(nextUser);
         setDynamicGreetings(data.dynamic_greetings !== false);
+        setGreetingPool(Array.isArray(data.greeting_pool) ? data.greeting_pool : []);
         setVoiceConfig(data.voice && typeof data.voice === "object" ? data.voice : { enabled: false });
         setAtmosphere(data.atmosphere && typeof data.atmosphere === "object" ? data.atmosphere : {});
         const chat = data.chat || {};

@@ -369,17 +369,27 @@ function scoreGreeting(entry, activeTags) {
 /**
  * Pick a contextual greeting. Stable for the same day + period + weather bucket
  * so re-renders don't flicker; changes across visits/times.
+ * @param {string} lang
+ * @param {object} atmosphere
+ * @param {Date} date
+ * @param {number} nonce
+ * @param {Array} extraPool — optional LLM-generated items (same shape as GREETINGS)
  */
-export function pickGreeting(lang = "en", atmosphere = {}, date = new Date(), nonce = 0) {
+export function pickGreeting(lang = "en", atmosphere = {}, date = new Date(), nonce = 0, extraPool = []) {
   const period = dayPeriod(date);
   const holiday = holidayId(lang, date);
   const wx = weatherTags(atmosphere, period);
   const active = new Set(["general", period, ...wx]);
   if (holiday) active.add(holiday);
 
+  const catalog = Array.isArray(extraPool) && extraPool.length
+    ? [...extraPool, ...GREETINGS]
+    : GREETINGS;
+
   let bestScore = -1;
   const pool = [];
-  for (const entry of GREETINGS) {
+  for (const entry of catalog) {
+    if (!entry?.tags?.length) continue;
     const score = scoreGreeting(entry, active);
     if (score <= 0) continue;
     if (score > bestScore) {
@@ -399,6 +409,7 @@ export function pickGreeting(lang = "en", atmosphere = {}, date = new Date(), no
     wx.join(",") || "-",
     lang,
     String(nonce || 0),
+    String(extraPool?.length || 0),
   ].join("|");
   const chosen = use[pickIndex(seed, use.length)] || fallback[0];
   return {

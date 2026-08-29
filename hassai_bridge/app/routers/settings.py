@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 import socket
 from pathlib import Path
@@ -20,6 +21,12 @@ def _require_admin_key(request: Request):
     """Import-free admin auth — delegates to main._require_admin_key at runtime."""
     from main import _require_admin_key as _auth
     return _auth(request)
+
+
+def _provider_id_slug(name: str) -> str:
+    """Stable id fragment from a display name — alnum + underscore only."""
+    slug = re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
+    return slug or "provider"
 
 
 router = APIRouter(
@@ -56,6 +63,7 @@ class SettingsUpdate(BaseModel):
     knowledge_cutoff: str | None = None
     language: str | None = None
     dynamic_greetings: bool | None = None
+    greetings: dict | None = None
     ha_tools: dict | None = None
     bridge_tools: dict | None = None
     active_provider: str | None = None
@@ -280,6 +288,18 @@ async def update_settings(data: SettingsUpdate):
         cfg["language"] = data.language
     if data.dynamic_greetings is not None:
         cfg["dynamic_greetings"] = bool(data.dynamic_greetings)
+    if data.greetings is not None:
+        from services.greeting_pool import normalize_greetings_cfg
+        prev = cfg.get("greetings") if isinstance(cfg.get("greetings"), dict) else {}
+        merged = dict(prev)
+        incoming = dict(data.greetings)
+        # Preserve generation metadata unless explicitly sent.
+        for key in ("last_generated_at", "last_season_key", "status", "error"):
+            if key not in incoming:
+                if key in prev:
+                    merged[key] = prev[key]
+        merged.update(incoming)
+        cfg["greetings"] = normalize_greetings_cfg(merged)
     if data.ha_tools is not None:
         cfg.setdefault("ha_tools", {}).update(data.ha_tools)
     if data.bridge_tools is not None:
@@ -299,6 +319,19 @@ async def update_settings(data: SettingsUpdate):
 
         provider_router.reset_state()
     return {"status": "ok", "config": cfg}
+
+
+@router.get("/greetings")
+async def greetings_status():
+    from services import greeting_pool as gp
+    return gp.status_payload()
+
+
+@router.post("/greetings/regenerate")
+async def greetings_regenerate():
+    """Force-refresh the LLM greeting pool with the configured provider/model."""
+    from services import greeting_pool as gp
+    return await gp.regenerate(force=True)
 
 
 @router.put("/users/default")
@@ -479,8 +512,8 @@ async def add_provider(data: dict):
     else:
         base_url = providers.normalize_provider_base_url(base_url)
 
-    # Generate a stable ID from type + name
-    pid = f"{ptype}_{name.lower().replace(' ', '_').replace('-', '_')}"
+    # Generate a stable ID from type + name (safe for HTML/JS attributes)
+    pid = f"{ptype}_{_provider_id_slug(name)}"
     # Ensure unique
     cfg = load_config()
     existing_ids = {p["id"] for p in cfg.get("providers", [])}
@@ -631,7 +664,7 @@ async def add_secondary_provider(data: dict):
     else:
         base_url = providers.normalize_provider_base_url(base_url)
 
-    pid = f"sec_{ptype}_{name.lower().replace(' ', '_').replace('-', '_')}"
+    pid = f"sec_{ptype}_{_provider_id_slug(name)}"
     cfg = load_config()
     existing_ids = {p["id"] for p in cfg.get("secondary_providers", [])}
     if pid in existing_ids:

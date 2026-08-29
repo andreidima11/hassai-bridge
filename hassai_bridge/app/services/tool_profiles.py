@@ -59,7 +59,7 @@ _TRACE_RE = re.compile(
 _HACS_RE = re.compile(r"\b(hacs|custom\s+card|custom\s+integration)\b", re.I)
 
 _FRIGATE_TOOLS = frozenset({
-    "frigate_list_cameras", "frigate_events", "frigate_snapshot",
+    "frigate_list_cameras", "frigate_events", "frigate_snapshot", "frigate_clip",
 })
 _BRIDGE_WRITE_TOOLS = frozenset({
     "hassai_set_setting", "hassai_switch_provider",

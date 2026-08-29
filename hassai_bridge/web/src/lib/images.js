@@ -410,3 +410,14 @@ export function canSendMessage(text, images) {
 export function isDocumentAttachment(item) {
   return item?.kind === "document" || (item?.text && !String(item?.mime || "").startsWith("image/"));
 }
+
+export function isVideoAttachment(item) {
+  const mime = String(item?.mime || "").toLowerCase();
+  return item?.kind === "video" || mime.startsWith("video/");
+}
+
+export function isImageAttachment(item) {
+  if (isDocumentAttachment(item) || isVideoAttachment(item) || item?.kind === "audio") return false;
+  const mime = String(item?.mime || "").toLowerCase();
+  return !mime || mime.startsWith("image/");
+}

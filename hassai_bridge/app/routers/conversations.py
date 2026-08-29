@@ -71,10 +71,22 @@ async def me(request: Request):
     from services import voice as vc
 
     dynamic = cfg.get("dynamic_greetings") is not False
+    greeting_pool = []
+    if dynamic:
+        try:
+            from services import greeting_pool as gp
+            greeting_pool = gp.public_items(80)
+            # Lazy refresh in background — don't block /api/me
+            if gp.needs_refresh(cfg):
+                import asyncio
+                asyncio.create_task(gp.ensure_fresh())
+        except Exception:
+            greeting_pool = []
     return {
         "user": _public_profile(match),
         "language": cfg.get("language") or "en",
         "dynamic_greetings": dynamic,
+        "greeting_pool": greeting_pool,
         "build": BUILD_ID,
         "voice": vc.public_status(cfg),
         "atmosphere": await atm.snapshot() if dynamic else {},
@@ -142,6 +154,10 @@ async def chat_media(request: Request, attachment_id: str):
         ".ogg": "audio/ogg",
         ".weba": "audio/webm",
         ".m4a": "audio/mp4",
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".mov": "video/quicktime",
+        ".m4v": "video/mp4",
     }.get(path.suffix.lower(), "application/octet-stream")
     return FileResponse(path, media_type=mime, filename=path.name)
 
@@ -155,6 +171,14 @@ def _attachment_payload(user_id: str, att: dict, fallback_name: str = "") -> dic
             "mime": att.get("mime") or "audio/mpeg",
             "name": att.get("name") or fallback_name or "audio",
             "kind": "audio",
+            "url": public_url,
+        }
+    if kind == "video":
+        return {
+            "id": att["id"],
+            "mime": att.get("mime") or "video/mp4",
+            "name": att.get("name") or fallback_name or "video",
+            "kind": "video",
             "url": public_url,
         }
     if kind == "document":

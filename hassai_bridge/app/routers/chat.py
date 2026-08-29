@@ -56,7 +56,7 @@ log = logging.getLogger("hassai.chat")
 router = APIRouter()
 
 _MEDIA_TOOL_NAMES = {"media_list", "media_read", "media_delete"}
-_FRIGATE_TOOL_NAMES = {"frigate_list_cameras", "frigate_events", "frigate_snapshot"}
+_FRIGATE_TOOL_NAMES = {"frigate_list_cameras", "frigate_events", "frigate_snapshot", "frigate_clip"}
 
 
 def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
@@ -1984,8 +1984,9 @@ _FRIGATE_TOOLS = [
                 "Recent Frigate detections (person, car, animal, …) from the real NVR — "
                 "not AI image generation. Default: text-only summary for the user "
                 "(who/when/camera/still on camera). Pass camera= / label= to filter. "
-                "Set include_snapshot=true only when the user explicitly asks to see/show "
-                "a photo or snap — attaches one newest snapshot, not every event."
+                "Set include_snapshot=true only for a photo/snap. "
+                "Set include_clip=true when the user wants video/recording/clip/înregistrare "
+                "(attaches one newest event clip — never substitute a snapshot for video)."
             ),
             "parameters": {
                 "type": "object",
@@ -2009,6 +2010,13 @@ _FRIGATE_TOOLS = [
                             "attaches one newest snapshot, not a gallery."
                         ),
                     },
+                    "include_clip": {
+                        "type": "boolean",
+                        "description": (
+                            "Default false. True when the user wants video/recording/clip — "
+                            "attaches one newest event clip.mp4 (not a snapshot)."
+                        ),
+                    },
                 },
             },
         },
@@ -2020,13 +2028,52 @@ _FRIGATE_TOOLS = [
             "description": (
                 "Fetch a real Frigate camera/event snapshot into the chat (not Imagine). "
                 "Prefer camera= for the latest frame, or event_id= from frigate_events "
-                "when the user asks for the photo of a specific detection."
+                "when the user asks for the photo of a specific detection. "
+                "Do NOT use this when the user asked for video — use frigate_clip instead."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "camera": {"type": "string", "description": "Frigate camera name"},
                     "event_id": {"type": "string", "description": "Frigate event id"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "frigate_clip",
+            "description": (
+                "Fetch a real Frigate video clip into the chat (MP4). "
+                "Use when the user asks for video, recording, clip, filmare, or înregistrare. "
+                "Prefer event_id= from frigate_events where clip=yes. "
+                "Or camera= with start_ts/end_ts (unix seconds, max 10 minutes). "
+                "Never answer a video request with frigate_snapshot."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "event_id": {
+                        "type": "string",
+                        "description": "Frigate event id that has clip=yes",
+                    },
+                    "camera": {
+                        "type": "string",
+                        "description": "Camera name (with start_ts/end_ts, or alone for newest clip)",
+                    },
+                    "start_ts": {
+                        "type": "number",
+                        "description": "Unix start timestamp for a recording window",
+                    },
+                    "end_ts": {
+                        "type": "number",
+                        "description": "Unix end timestamp for a recording window",
+                    },
+                    "padding": {
+                        "type": "integer",
+                        "description": "Extra seconds around an event clip (0–30)",
+                    },
                 },
             },
         },
@@ -2053,20 +2100,30 @@ async def _run_frigate_tool(
                 label=str(args.get("label") or ""),
                 limit=args.get("limit") or 8,
                 include_snapshot=bool(args.get("include_snapshot")),
+                include_clip=bool(args.get("include_clip")),
             )
         elif fn_name == "frigate_snapshot":
             result = await ft.snapshot(
                 camera=str(args.get("camera") or ""),
                 event_id=str(args.get("event_id") or ""),
             )
+        elif fn_name == "frigate_clip":
+            result = await ft.clip(
+                event_id=str(args.get("event_id") or ""),
+                camera=str(args.get("camera") or ""),
+                start_ts=args.get("start_ts"),
+                end_ts=args.get("end_ts"),
+                padding=args.get("padding") or 0,
+            )
         else:
             return f"Error: unknown Frigate tool {fn_name}"
 
         text = result.get("text") or "OK"
         images = list(result.get("images") or [])
+        videos = list(result.get("videos") or [])
         if result.get("image") and not images:
             images = [result["image"]]
-        if images and generated_attachments is not None:
+        if generated_attachments is not None:
             for image in images:
                 if not image or not image.get("bytes"):
                     continue
@@ -2074,9 +2131,22 @@ async def _run_frigate_tool(
                     user_id,
                     image["bytes"],
                     filename=image.get("filename") or "frigate.jpg",
+                    content_type=image.get("mime") or "image/jpeg",
                 )
                 generated_attachments.append(att)
-            if "Attached" not in text and "Showing" not in text:
+            for video in videos:
+                if not video or not video.get("bytes"):
+                    continue
+                att = cm.persist_video_bytes(
+                    user_id,
+                    video["bytes"],
+                    mime=video.get("mime") or "video/mp4",
+                    name=video.get("filename") or "frigate.mp4",
+                )
+                generated_attachments.append(att)
+            if videos and "Attached video" not in text and "Video clip" not in text and "Recording clip" not in text:
+                text = f"{text}\nShowing video clip in the chat."
+            elif images and not videos and "Attached" not in text and "Showing" not in text:
                 text = f"{text}\nShowing snapshot in the chat."
         return text
     except ValueError as exc:

@@ -1,5 +1,16 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.41
+
+### Features
+- **Frigate video in chat** — `frigate_clip` + `include_clip` on events; MP4 playback in the bubble (no more snapshot substitutes for video/înregistrare)
+- **AI greeting pool** — when Dynamic greetings is on: refresh every N days, seasonal/holiday-aware (Christmas, Easter, …), pick provider + model, **Generate now**; curated greetings stay as fallback
+
+### Fix
+- **Settings crash / Edit provider** — null-safe DOM updates; provider actions via `data-prov-id` (IDs with quotes/special chars)
+- **Backup download toast** — dated ZIP name; clearer picker vs Downloads messaging
+- **Name in every reply** — know the HA user, but don’t address them by name on most answers
+
 ## 1.0.40
 
 ### Fix
