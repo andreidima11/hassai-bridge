@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.40
+
+### Fix
+- **Voice not detecting speech until close/reopen** — resume suspended AudioContext, guard push-to-talk double-start, watch dead mic tracks, recalibrate VAD when returning to listen, resume audio on tab focus
+
 ## 1.0.39
 
 ### Fix
