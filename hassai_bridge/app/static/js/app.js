@@ -916,6 +916,7 @@ async function loadSettings() {
     setVal('perfAgentRounds', perf.agent_max_rounds || 16);
     setChecked('perfParallelFetch', perf.parallel_page_fetch !== false);
     _applyPerformanceFields(perf, 'perf');
+    loadToolkitAudit();
 
     // System prompt
     setVal('systemPrompt', cfg.system_prompt || '');
@@ -1152,6 +1153,30 @@ async function savePerfSettings() {
     toast(t('toast.settingsSaved'));
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+async function loadToolkitAudit() {
+  const el = document.getElementById('toolkitAuditList');
+  if (!el) return;
+  el.textContent = t('info.loading') || 'Loading...';
+  try {
+    const data = await api('GET', '/api/settings/toolkit-audit?limit=20');
+    const events = data.events || [];
+    if (!events.length) {
+      el.textContent = t('settings.toolkitAuditEmpty') || 'No events yet.';
+      return;
+    }
+    el.innerHTML = events.map((ev) => {
+      const when = ev.ts ? new Date(ev.ts * 1000).toLocaleString() : '';
+      const packs = (ev.packs || []).join(', ') || '—';
+      const tok = (ev.tools_tokens_before || ev.tools_tokens_after)
+        ? ` · ~${ev.tools_tokens_before || 0}→${ev.tools_tokens_after || 0} tok`
+        : '';
+      return `<div style="margin-bottom:6px"><code>${ev.event || '?'}</code> ${packs}${tok}<br><span style="opacity:.7">${when} ${ev.detail || ''}</span></div>`;
+    }).join('');
+  } catch (e) {
+    el.textContent = e.message || 'Error';
   }
 }
 

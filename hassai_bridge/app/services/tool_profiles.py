@@ -66,7 +66,7 @@ _BRIDGE_WRITE_TOOLS = frozenset({
     "hassai_set_setting", "hassai_switch_provider",
 })
 _MEDIA_TOOL_NAMES = frozenset({
-    "media_list", "media_read", "media_write",
+    "media_list", "media_read", "media_delete",
 })
 
 # Higher score = keep when hard-capping under provider max.

@@ -3,7 +3,11 @@
 ## 1.2.0
 
 ### Features
-- **Dynamic toolkits** — Settings → Performance → Dynamic sends a small core (media, memory, bridge read, `activate_toolkits`) and loads HA/Frigate/image packs on demand; respects HA/Bridge permission toggles (including new **media** permission)
+- **Dynamic toolkits (enterprise)** — Settings → Performance → Dynamic uses a short **LLM pack router** (JSON) before each turn instead of regex hot-path; core stays lean + `activate_toolkits`; packs sticky per session
+- **Persisted session state** — sticky packs and chat provider/model overrides survive restarts (SQLite `session_state`, L1 + write-through)
+- **Safer media tools** — `media_list` / `media_read` stay in core when media is enabled; `media_delete` requires pack `media_write` (router or activate)
+- **Toolkit audit** — route / activate / deny events in DB; Settings → Performance shows the last 20
+- **Chat UX** — active pack chips + Clear packs when Dynamic is on
 - **Tool token logging** — each turn logs estimated tool-schema tokens before/after filtering (and after pack activate)
 - **Short tool descriptions** — in Dynamic mode, tool descriptions are collapsed to one short line (parameters kept) to save more input tokens
 

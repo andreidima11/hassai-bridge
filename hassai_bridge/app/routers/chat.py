@@ -918,6 +918,7 @@ async def _invoke_internal_tool(
                 cfg=toolkit_state.get("cfg"),
                 packs=packs,
                 session_id=session_id or "",
+                user_id=str(toolkit_state.get("user_id") or user_id or ""),
                 current_active=toolkit_state.get("active_packs") or set(),
                 provider=toolkit_state.get("provider") or provider,
                 user_text=toolkit_state.get("user_text") or "",
@@ -947,6 +948,18 @@ async def _invoke_internal_tool(
             if isinstance(t, dict)
         }
         if fn_name and fn_name not in active_names:
+            try:
+                from core import database as db
+
+                db.add_toolkit_audit(
+                    user_id=str(toolkit_state.get("user_id") or user_id or ""),
+                    session_id=session_id or "",
+                    event="inactive_tool",
+                    packs=[tk.pack_for_tool(fn_name) or ""],
+                    detail=fn_name,
+                )
+            except Exception:
+                pass
             return tk.tool_inactive_message(
                 fn_name, toolkit_state.get("eligible") or {},
             ), False
@@ -2516,18 +2529,66 @@ async def chat_completions(request: Request):
     toolkit_state: dict = {"enabled": False, "effective": None, "all_tools": all_tools}
 
     if tp.tool_profile_mode(cfg) == tp.PROFILE_DYNAMIC:
+        from services import pack_router as pr
+        from core import database as db
+
+        eligible_preview = tk.eligible_packs(
+            cfg,
+            all_tools,
+            frigate_available=frigate_in_tools,
+            image_gen_available=image_gen_in_tools,
+            skills_available=skills_in_tools,
+        )
+        before_tok = tk.estimate_tools_tokens(all_tools)
+        route_decision = await pr.route_packs(
+            last_user_msg,
+            eligible_preview,
+            provider=active,
+            model=route.get("model") or active.get("model"),
+        )
+        primed = set(route_decision.get("packs") or ())
+        try:
+            db.add_toolkit_audit(
+                user_id=user_id,
+                session_id=session_id or "",
+                event="route",
+                packs=primed,
+                detail=(
+                    f"confidence={route_decision.get('confidence')} "
+                    f"reason={route_decision.get('reason')}"
+                ),
+                tools_tokens_before=before_tok,
+            )
+        except Exception:
+            pass
+
         effective_tools, active_packs, eligible = tk.resolve_dynamic_tools(
             all_tools,
             cfg=cfg,
             user_text=last_user_msg,
             route_klass=route_klass,
             session_id=session_id or "",
+            user_id=user_id,
             provider=active,
+            primed_packs=primed,
             frigate_available=frigate_in_tools,
             image_gen_available=image_gen_in_tools,
             skills_available=skills_in_tools,
         )
         compact_tools = True
+        after_tok = tk.estimate_tools_tokens(effective_tools)
+        try:
+            db.add_toolkit_audit(
+                user_id=user_id,
+                session_id=session_id or "",
+                event="route_applied",
+                packs=active_packs,
+                detail=f"tools={len(effective_tools)}",
+                tools_tokens_before=before_tok,
+                tools_tokens_after=after_tok,
+            )
+        except Exception:
+            pass
         toolkit_state = {
             "enabled": True,
             "all_tools": all_tools,
@@ -2541,14 +2602,15 @@ async def chat_completions(request: Request):
             "frigate_available": frigate_in_tools,
             "image_gen_available": image_gen_in_tools,
             "skills_available": skills_in_tools,
+            "user_id": user_id,
+            "routed_packs": sorted(primed),
         }
         log.info(
-            "[%s] Dynamic toolkits: %s → %s tools, ~%s → ~%s tool-tokens (saved ~%s, packs=%s, class=%s)",
+            "[%s] Dynamic toolkits: %s → %s tools, ~%s → ~%s tool-tokens (saved ~%s, packs=%s, route=%s)",
             user_id, len(all_tools), len(effective_tools),
-            tk.estimate_tools_tokens(all_tools),
-            tk.estimate_tools_tokens(effective_tools),
-            max(0, tk.estimate_tools_tokens(all_tools) - tk.estimate_tools_tokens(effective_tools)),
-            sorted(active_packs) or "-", route_klass,
+            before_tok, after_tok, max(0, before_tok - after_tok),
+            sorted(active_packs) or "-",
+            route_decision.get("reason"),
         )
     else:
         effective_tools, compact_tools = tp.filter_chat_tools(
@@ -2835,6 +2897,14 @@ async def chat_completions(request: Request):
             "provider": chat_provider.get("name") or "",
             "role": route.get("role") or "",
             "reason": route.get("reason") or "",
+        })
+    routed = toolkit_state.get("routed_packs") if isinstance(toolkit_state, dict) else None
+    if routed:
+        _trace_push(trace_id, {
+            "id": "toolkits-route",
+            "name": "toolkits",
+            "detail": ", ".join(routed),
+            "status": "done",
         })
 
     async def emit_think(

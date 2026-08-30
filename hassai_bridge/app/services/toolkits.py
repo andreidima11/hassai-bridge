@@ -2,9 +2,9 @@
 
 When ``performance.tool_profile == "dynamic"``, chat sends only a small core
 (plus an ``activate_toolkits`` meta-tool) and expands packs per turn. Settings
-toggles (``ha_tools.*``, ``bridge_tools.*`` including ``media``, etc.) remain a
-hard gate: a disabled category can never be activated. Media tools are core when
-``bridge_tools.media`` is on (assembled into ``all_tools``); otherwise omitted.
+toggles remain a hard gate. Pack priming uses the LLM pack router (not regex).
+``media_list``/``media_read`` are core when ``bridge_tools.media`` is on;
+``media_delete`` requires pack ``media_write``.
 """
 
 from __future__ import annotations
@@ -18,20 +18,22 @@ from services import tool_profiles as tp
 
 ACTIVATE_TOOL = "activate_toolkits"
 
-# Non-HA packs (HA packs reuse ha_tool_access.CATEGORY_KEYS).
 PACK_FRIGATE = "frigate"
 PACK_BRIDGE_WRITE = "bridge_write"
 PACK_IMAGE_GEN = "image_gen"
 PACK_SKILLS = "skills"
+PACK_MEDIA_WRITE = "media_write"
 
 NON_HA_PACK_KEYS: dict[str, str] = {
     PACK_FRIGATE: "Frigate cameras, events, snapshots and clips",
     PACK_BRIDGE_WRITE: "Change HASSAI settings, provider or model",
     PACK_IMAGE_GEN: "Generate images",
     PACK_SKILLS: "Run installed skills",
+    PACK_MEDIA_WRITE: "Delete files in /media and /share",
 }
 
-_MEDIA_NAMES = frozenset({"media_list", "media_read", "media_delete"})
+_MEDIA_READ_NAMES = frozenset({"media_list", "media_read"})
+_MEDIA_WRITE_NAMES = frozenset({"media_delete"})
 _FRIGATE_NAMES = frozenset({
     "frigate_list_cameras", "frigate_events", "frigate_snapshot", "frigate_clip",
 })
@@ -41,7 +43,6 @@ _BRIDGE_READ_NAMES = frozenset({
 })
 _MEMORY_PREFIX = "memory_"
 
-# session_id -> {packs: set[str], ts: float}
 _sticky: dict[str, dict] = {}
 _STICKY_TTL_SEC = 30 * 60
 _STICKY_MAX = 2000
@@ -58,33 +59,72 @@ def _prune_sticky(now: float | None = None) -> None:
             _sticky.pop(sid, None)
 
 
-def clear_sticky(session_id: str | None) -> None:
+def _persist_sticky(session_id: str, packs: set[str], user_id: str = "") -> None:
+    try:
+        from core import database as db
+
+        db.upsert_session_state(
+            user_id,
+            session_id,
+            db.KIND_TOOLKIT_STICKY,
+            {"packs": sorted(packs), "ts": time.time()},
+        )
+    except Exception:
+        pass
+
+
+def _hydrate_sticky(session_id: str, user_id: str = "") -> set[str]:
+    try:
+        from core import database as db
+
+        data = db.get_session_state(user_id, session_id, db.KIND_TOOLKIT_STICKY)
+        if not data:
+            return set()
+        packs = {str(p).strip() for p in (data.get("packs") or []) if str(p).strip()}
+        if packs:
+            _sticky[session_id] = {"packs": packs, "ts": float(data.get("ts") or time.time())}
+        return packs
+    except Exception:
+        return set()
+
+
+def clear_sticky(session_id: str | None, user_id: str = "") -> None:
     sid = str(session_id or "").strip()
     if sid:
         _sticky.pop(sid, None)
+        try:
+            from core import database as db
+
+            db.clear_session_state(sid, db.KIND_TOOLKIT_STICKY)
+        except Exception:
+            pass
 
 
-def get_sticky(session_id: str | None) -> set[str]:
+def get_sticky(session_id: str | None, user_id: str = "") -> set[str]:
     sid = str(session_id or "").strip()
     if not sid:
         return set()
     _prune_sticky()
     row = _sticky.get(sid)
-    if not row:
-        return set()
-    if time.time() - float(row.get("ts") or 0) > _STICKY_TTL_SEC:
+    if row and time.time() - float(row.get("ts") or 0) <= _STICKY_TTL_SEC:
+        return set(row.get("packs") or ())
+    if row:
         _sticky.pop(sid, None)
-        return set()
-    return set(row.get("packs") or ())
+    return _hydrate_sticky(sid, user_id)
 
 
-def set_sticky(session_id: str | None, packs: set[str] | list[str]) -> set[str]:
+def set_sticky(
+    session_id: str | None,
+    packs: set[str] | list[str],
+    user_id: str = "",
+) -> set[str]:
     sid = str(session_id or "").strip()
     if not sid:
         return set()
     _prune_sticky()
-    merged = get_sticky(sid) | {str(p).strip() for p in packs if str(p).strip()}
+    merged = get_sticky(sid, user_id) | {str(p).strip() for p in packs if str(p).strip()}
     _sticky[sid] = {"packs": merged, "ts": time.time()}
+    _persist_sticky(sid, merged, user_id)
     return merged
 
 
@@ -94,17 +134,18 @@ def _tool_name(tool: dict) -> str:
 
 
 def pack_for_tool(name: str) -> str | None:
-    """Return pack id for a tool, or None if it is always-core (or unknown meta)."""
     if not name or name == ACTIVATE_TOOL:
         return None
-    if name in _MEDIA_NAMES:
-        return None  # core
+    if name in _MEDIA_READ_NAMES:
+        return None
+    if name in _MEDIA_WRITE_NAMES:
+        return PACK_MEDIA_WRITE
     if name.startswith(_MEMORY_PREFIX):
-        return None  # core when present
+        return None
     if name in _BRIDGE_READ_NAMES:
-        return None  # core when present
+        return None
     if name == "search_web":
-        return None  # core when present
+        return None
     if name in _FRIGATE_NAMES:
         return PACK_FRIGATE
     if name in _BRIDGE_WRITE_NAMES:
@@ -132,7 +173,6 @@ def eligible_packs(
     image_gen_available: bool = True,
     skills_available: bool = True,
 ) -> dict[str, str]:
-    """Pack id → short description, only packs that Settings allow and tools exist."""
     present = {_tool_name(t) for t in all_tools}
     catalog = all_pack_catalog()
     out: dict[str, str] = {}
@@ -154,54 +194,16 @@ def eligible_packs(
     if skills_available and "run_skill" in present:
         out[PACK_SKILLS] = catalog[PACK_SKILLS]
 
+    if bta.group_enabled("media", cfg) and (_MEDIA_WRITE_NAMES & present):
+        out[PACK_MEDIA_WRITE] = catalog[PACK_MEDIA_WRITE]
+
     return out
-
-
-def hot_path_packs(user_text: str, route_klass: str) -> set[str]:
-    """Server-side high-confidence packs for the first LLM call (no extra round).
-
-    Chatty / simple turns stay lean (core + activate only). HA packs are primed
-    when the router class is control/deep/vision or a domain regex matches.
-    """
-    text = user_text or ""
-    packs: set[str] = set()
-
-    from services import deepseek as ds
-
-    if ds.looks_like_automation_edit(text):
-        packs |= {"automations", "diagnostics"}
-    if tp._CALENDAR_TODO_RE.search(text):
-        packs.add("calendar")
-    if tp._HELPER_RE.search(text):
-        packs.add("helpers")
-    if tp._TRACE_RE.search(text):
-        packs |= {"automations", "diagnostics"}
-    if tp._HACS_RE.search(text):
-        packs.add("hacs")
-    if tp._FRIGATE_RE.search(text):
-        packs.add(PACK_FRIGATE)
-    if tp._IMAGE_GEN_RE.search(text):
-        packs.add(PACK_IMAGE_GEN)
-    if tp._BRIDGE_WRITE_RE.search(text):
-        packs.add(PACK_BRIDGE_WRITE)
-
-    # Broad HA priming for control/deep turns (lights, switches, etc.).
-    if route_klass in ("control", "deep"):
-        preferred = tp._ROUTE_HA_CATEGORIES.get(route_klass) or frozenset({"entities", "control"})
-        packs |= set(preferred)
-    elif route_klass == "vision":
-        packs |= {"entities", "control"}
-    elif packs & set(hta.CATEGORY_KEYS):
-        # A specific HA category regex fired on a simple turn — also need entities.
-        packs |= {"entities", "control"}
-
-    return packs
 
 
 def is_core_tool(name: str) -> bool:
     if name == ACTIVATE_TOOL:
         return True
-    if name in _MEDIA_NAMES:
+    if name in _MEDIA_READ_NAMES:
         return True
     if name.startswith(_MEMORY_PREFIX):
         return True
@@ -221,7 +223,7 @@ def tools_for_packs(all_tools: list[dict], packs: set[str] | list[str]) -> list[
             continue
         pack = pack_for_tool(name)
         if pack is None:
-            continue  # core handled separately
+            continue
         if pack in want:
             out.append(tool)
     return out
@@ -245,11 +247,11 @@ def build_activate_tool(eligible: dict[str, str]) -> dict:
         "function": {
             "name": ACTIVATE_TOOL,
             "description": (
-                "Activate Home Assistant / Frigate / image / skills tool packs needed for this "
-                "request before calling those domain tools. Only packs listed below (and enabled "
-                "in Settings) can be activated. Call this when you need tools that are not already "
-                "in your current tool list. Media, memory, and HASSAI status tools are always "
-                "available without activating.\n\nAvailable packs:\n" + catalog
+                "Activate Home Assistant / Frigate / image / skills / media-write tool packs "
+                "needed for this request before calling those domain tools. Only packs listed "
+                "below (and enabled in Settings) can be activated. Media list/read, memory, and "
+                "HASSAI status tools are always available without activating. "
+                "media_delete requires pack media_write.\n\nAvailable packs:\n" + catalog
             ),
             "parameters": {
                 "type": "object",
@@ -274,15 +276,20 @@ def resolve_dynamic_tools(
     all_tools: list[dict],
     *,
     cfg: dict | None,
-    user_text: str,
+    user_text: str = "",
     route_klass: str = "simple",
     session_id: str = "",
+    user_id: str = "",
     provider: dict | None = None,
+    primed_packs: set[str] | list[str] | None = None,
     frigate_available: bool = True,
     image_gen_available: bool = True,
     skills_available: bool = True,
 ) -> tuple[list[dict], set[str], dict[str, str]]:
-    """Return (effective_tools, active_packs, eligible_catalog)."""
+    """Return (effective_tools, active_packs, eligible_catalog).
+
+    ``primed_packs`` comes from the LLM pack router (not regex).
+    """
     eligible = eligible_packs(
         cfg,
         all_tools,
@@ -290,23 +297,20 @@ def resolve_dynamic_tools(
         image_gen_available=image_gen_available,
         skills_available=skills_available,
     )
-    sticky = get_sticky(session_id) & set(eligible)
-    primed = hot_path_packs(user_text, route_klass) & set(eligible)
+    sticky = get_sticky(session_id, user_id) & set(eligible)
+    primed = {str(p).strip() for p in (primed_packs or []) if str(p).strip()} & set(eligible)
     active = sticky | primed
 
     core = core_tools(all_tools)
     packed = tools_for_packs(all_tools, active)
     activate = build_activate_tool(eligible)
-    deduped = _dedupe_tools([activate, *core, *packed])
-    deduped = shorten_tool_descriptions(deduped)
+    deduped = shorten_tool_descriptions(_dedupe_tools([activate, *core, *packed]))
 
     max_tools = tp.provider_tools_max(provider)
     if max_tools is not None and len(deduped) > max_tools:
-        # Keep activate + as many as fit; prefer already-active packs.
         deduped = tp.cap_tools(
             deduped, max_tools, user_text=user_text, route_klass=route_klass,
         )
-        # Ensure activate survives the cap when possible.
         names = {_tool_name(t) for t in deduped}
         if ACTIVATE_TOOL not in names and eligible:
             deduped = [activate] + [t for t in deduped if _tool_name(t) != ACTIVATE_TOOL]
@@ -323,6 +327,7 @@ def expand_after_activate(
     cfg: dict | None,
     packs: list[str] | None,
     session_id: str = "",
+    user_id: str = "",
     current_active: set[str] | None = None,
     provider: dict | None = None,
     user_text: str = "",
@@ -331,7 +336,6 @@ def expand_after_activate(
     image_gen_available: bool = True,
     skills_available: bool = True,
 ) -> tuple[list[dict], set[str], str]:
-    """Apply activate_toolkits. Returns (new_effective_tools, active_packs, result_json)."""
     eligible = eligible_packs(
         cfg,
         all_tools,
@@ -346,7 +350,29 @@ def expand_after_activate(
     active = set(current_active or ()) | set(allowed)
     active &= set(eligible)
     if session_id:
-        active = set_sticky(session_id, active) & set(eligible)
+        active = set_sticky(session_id, active, user_id=user_id) & set(eligible)
+
+    try:
+        from core import database as db
+
+        if denied:
+            db.add_toolkit_audit(
+                user_id=user_id,
+                session_id=session_id,
+                event="denied_pack",
+                packs=denied,
+                detail="activate_toolkits",
+            )
+        if allowed:
+            db.add_toolkit_audit(
+                user_id=user_id,
+                session_id=session_id,
+                event="activate",
+                packs=allowed,
+                detail="activate_toolkits",
+            )
+    except Exception:
+        pass
 
     core = core_tools(all_tools)
     packed = tools_for_packs(all_tools, active)
@@ -391,13 +417,10 @@ def tool_inactive_message(name: str, eligible: dict[str, str]) -> str:
     return f"Tool '{name}' is not available in the current tool list."
 
 
-# ── Token estimate + short descriptions (dynamic mode) ─────────
-
 _DESC_MAX = 140
 
 
 def estimate_tools_tokens(tools: list[dict] | None) -> int:
-    """Rough input-token cost of a tools array (JSON length / 4)."""
     if not tools:
         return 0
     try:
@@ -428,10 +451,6 @@ def shorten_tool_descriptions(
     *,
     max_len: int = _DESC_MAX,
 ) -> list[dict]:
-    """Keep parameters; collapse verbose descriptions to one short line.
-
-    ``activate_toolkits`` keeps its catalog (needed for pack discovery).
-    """
     out: list[dict] = []
     for tool in tools:
         name = _tool_name(tool)

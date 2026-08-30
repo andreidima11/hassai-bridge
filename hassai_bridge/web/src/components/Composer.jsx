@@ -40,10 +40,13 @@ export function Composer({
   providerModel = "",
   providerAuto = false,
   providerCapabilities = {},
+  activePacks = [],
+  toolProfile = "auto",
   thinkingMode = "auto",
   onThinkingModeChange,
   onProviderModelChange,
   onProviderChange,
+  onClearPacks,
   lang = "en",
   onPickerOpen,
   onPickerSettled,
@@ -388,6 +391,8 @@ export function Composer({
           ) : null}
           <ProviderQuickSettings
             auto={providerAuto}
+            activePacks={activePacks}
+            toolProfile={toolProfile}
             capabilities={providerCapabilities}
             disabled={busy || uploading}
             lang={lang}
@@ -395,6 +400,7 @@ export function Composer({
             providerId={providerId}
             providerName={providerName}
             thinkingMode={thinkingMode}
+            onClearPacks={onClearPacks}
             onModelChange={onProviderModelChange}
             onProviderChange={onProviderChange}
             onThinkingModeChange={onThinkingModeChange}

@@ -31,24 +31,43 @@ def clear(session_id: str | None) -> None:
     sid = str(session_id or "").strip()
     if sid:
         _overrides.pop(sid, None)
+        try:
+            from core import database as db
+
+            db.clear_session_state(sid, db.KIND_CHAT_OVERRIDE)
+        except Exception:
+            pass
 
 
-def get(session_id: str | None) -> dict | None:
+def get(session_id: str | None, user_id: str = "") -> dict | None:
     sid = str(session_id or "").strip()
     if not sid:
         return None
     _prune()
     row = _overrides.get(sid)
-    if not row:
-        return None
-    if time.time() - float(row.get("ts") or 0) > _TTL_SEC:
+    if row and time.time() - float(row.get("ts") or 0) <= _TTL_SEC:
+        return {
+            "provider_id": str(row.get("provider_id") or "").strip(),
+            "model": str(row.get("model") or "").strip(),
+            "auto": bool(row.get("auto")),
+        }
+    if row:
         _overrides.pop(sid, None)
+    try:
+        from core import database as db
+
+        data = db.get_session_state(user_id, sid, db.KIND_CHAT_OVERRIDE)
+        if not data:
+            return None
+        out = {
+            "provider_id": str(data.get("provider_id") or "").strip(),
+            "model": str(data.get("model") or "").strip(),
+            "auto": bool(data.get("auto")),
+        }
+        _overrides[sid] = {**out, "ts": float(data.get("ts") or time.time())}
+        return out
+    except Exception:
         return None
-    return {
-        "provider_id": str(row.get("provider_id") or "").strip(),
-        "model": str(row.get("model") or "").strip(),
-        "auto": bool(row.get("auto")),
-    }
 
 
 def set_override(
@@ -57,13 +76,14 @@ def set_override(
     provider_id: str | None = None,
     model: str | None = None,
     auto: bool | None = None,
+    user_id: str = "",
 ) -> dict:
     """Upsert session override. Passing auto=True clears a manual provider pick."""
     sid = str(session_id or "").strip()
     if not sid:
         raise ValueError("session_id required")
     _prune()
-    prev = dict(_overrides.get(sid) or {})
+    prev = dict(_overrides.get(sid) or {}) or (get(sid, user_id) or {})
     if auto is True:
         row = {
             "provider_id": "",
@@ -91,7 +111,23 @@ def set_override(
         if provider_id is not None or model is not None:
             row["auto"] = False
     _overrides[sid] = row
-    return get(sid) or {"provider_id": "", "model": "", "auto": False}
+    try:
+        from core import database as db
+
+        db.upsert_session_state(
+            user_id,
+            sid,
+            db.KIND_CHAT_OVERRIDE,
+            {
+                "provider_id": row["provider_id"],
+                "model": row["model"],
+                "auto": row["auto"],
+                "ts": row["ts"],
+            },
+        )
+    except Exception:
+        pass
+    return get(sid, user_id) or {"provider_id": "", "model": "", "auto": False}
 
 
 def _active_from_cfg(cfg: dict | None) -> dict:
@@ -176,14 +212,25 @@ def resolve_route_for_session(
     )
 
 
-def effective_chat_info(cfg: dict, session_id: str | None = None) -> dict:
+def effective_chat_info(cfg: dict, session_id: str | None = None, user_id: str = "") -> dict:
     """Public chat block for /api/me (global default + optional session override)."""
     from services import router as provider_router
+    from services import tool_profiles as tp
+    from services import toolkits as tk
     from services.provider_capabilities import provider_chat_capabilities
 
     active = _active_from_cfg(cfg)
-    override = get(session_id)
+    override = get(session_id, user_id)
     global_auto = provider_router.is_auto(cfg)
+    tool_profile = tp.tool_profile_mode(cfg)
+    active_packs: list[str] = []
+    if tool_profile == tp.PROFILE_DYNAMIC and session_id:
+        active_packs = sorted(tk.get_sticky(session_id, user_id))
+
+    base_extra = {
+        "tool_profile": tool_profile,
+        "active_packs": active_packs,
+    }
 
     if override and override.get("auto"):
         return {
@@ -195,6 +242,7 @@ def effective_chat_info(cfg: dict, session_id: str | None = None) -> dict:
             "capabilities": provider_chat_capabilities(active),
             "auto": True,
             "session_scoped": True,
+            **base_extra,
         }
 
     if override and (override.get("provider_id") or override.get("model")):
@@ -218,6 +266,7 @@ def effective_chat_info(cfg: dict, session_id: str | None = None) -> dict:
             "capabilities": provider_chat_capabilities(view),
             "auto": False,
             "session_scoped": True,
+            **base_extra,
         }
 
     return {
@@ -229,4 +278,5 @@ def effective_chat_info(cfg: dict, session_id: str | None = None) -> dict:
         "capabilities": provider_chat_capabilities(active),
         "auto": global_auto,
         "session_scoped": False,
+        **base_extra,
     }

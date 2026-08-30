@@ -94,7 +94,9 @@ export default function App() {
   const [voiceMode, setVoiceMode] = useState(null);
   const spokenTurnRef = useRef(false);
   const handsFreeRef = useRef(false);
-  const [providerInfo, setProviderInfo] = useState({ id: "", name: "", model: "", auto: false });
+  const [providerInfo, setProviderInfo] = useState({
+    id: "", name: "", model: "", auto: false, activePacks: [], toolProfile: "auto",
+  });
   const [thinkingMode, setThinkingMode] = useState(() => readStoredThinkingMode());
   const sessionIdRef = useRef("");
   const bootDone = useRef(false);
@@ -185,6 +187,8 @@ export default function App() {
             name: chat.provider_name || "",
             model: chat.model || "",
             auto: Boolean(chat.auto),
+            activePacks: Array.isArray(chat.active_packs) ? chat.active_packs : [],
+            toolProfile: chat.tool_profile || "auto",
           });
         })
         .catch(() => {});
@@ -251,6 +255,8 @@ export default function App() {
           name: chat.provider_name || "",
           model: chat.model || "",
           auto: Boolean(chat.auto),
+            activePacks: Array.isArray(chat.active_packs) ? chat.active_packs : [],
+            toolProfile: chat.tool_profile || "auto",
         });
         if (hasThinkingCapability(caps)) {
           setThinkingMode((prev) => readStoredThinkingMode(defaultThinkingMode(caps) || prev));
@@ -428,6 +434,8 @@ export default function App() {
           name: chat.provider_name || "",
           model: chat.model || "",
           auto: Boolean(chat.auto),
+            activePacks: Array.isArray(chat.active_packs) ? chat.active_packs : [],
+            toolProfile: chat.tool_profile || "auto",
         });
         if (hasThinkingCapability(caps)) {
           setThinkingMode((prev) => readStoredThinkingMode(defaultThinkingMode(caps) || prev));
@@ -832,6 +840,8 @@ export default function App() {
       name: chat.provider_name || "",
       model: chat.model || "",
       auto: Boolean(chat.auto),
+            activePacks: Array.isArray(chat.active_packs) ? chat.active_packs : [],
+            toolProfile: chat.tool_profile || "auto",
     });
     if (hasThinkingCapability(caps)) {
       setThinkingMode((prev) => readStoredThinkingMode(defaultThinkingMode(caps) || prev));
@@ -863,6 +873,8 @@ export default function App() {
       name: chat.provider_name || providerInfo.name,
       model: chat.model || model,
       auto: false,
+        activePacks: Array.isArray(chat.active_packs) ? chat.active_packs : providerInfo.activePacks || [],
+        toolProfile: chat.tool_profile || providerInfo.toolProfile || "auto",
     });
     if (chat.capabilities) setChatCapabilities(chat.capabilities);
   }, [providerInfo.id, providerInfo.name, ensureSessionId]);
@@ -884,6 +896,8 @@ export default function App() {
           name: chat.provider_name || "",
           model: chat.model || "",
           auto: true,
+          activePacks: Array.isArray(chat.active_packs) ? chat.active_packs : [],
+          toolProfile: chat.tool_profile || providerInfo.toolProfile || "auto",
         });
         return;
       }
@@ -899,10 +913,26 @@ export default function App() {
         name: chat.provider_name || "",
         model: chat.model || "",
         auto: false,
+        activePacks: Array.isArray(chat.active_packs) ? chat.active_packs : providerInfo.activePacks || [],
+        toolProfile: chat.tool_profile || providerInfo.toolProfile || "auto",
       });
     },
     [providerInfo.id, providerInfo.auto, ensureSessionId],
   );
+
+  const clearActivePacks = useCallback(async () => {
+    const sid = sessionIdRef.current;
+    if (!sid) return;
+    const data = await apiJson(`/api/conversations/${encodeURIComponent(sid)}/toolkits`, {
+      method: "DELETE",
+    });
+    const chat = data.chat || {};
+    setProviderInfo((prev) => ({
+      ...prev,
+      activePacks: Array.isArray(chat.active_packs) ? chat.active_packs : [],
+      toolProfile: chat.tool_profile || prev.toolProfile || "auto",
+    }));
+  }, []);
 
   const deleteSession = async (id) => {
     if (!confirm(t("deleteConfirm"))) return;
@@ -986,6 +1016,8 @@ export default function App() {
             providerId={providerInfo.id}
             providerModel={providerInfo.model}
             providerName={providerInfo.name}
+            activePacks={providerInfo.activePacks || []}
+            toolProfile={providerInfo.toolProfile || "auto"}
             stopLabel={t("stop")}
             thinkingMode={thinkingMode}
             unsupportedDocLabel={t("unsupportedDocument")}
@@ -993,6 +1025,7 @@ export default function App() {
             value={input}
             onAttachmentsChange={setAttachments}
             onChange={setInput}
+            onClearPacks={clearActivePacks}
             onPickerOpen={() => {
               pickerGuardUntil.current = Date.now() + 120_000;
             }}
