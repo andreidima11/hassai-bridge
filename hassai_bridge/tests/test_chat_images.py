@@ -168,7 +168,16 @@ def test_resolve_image_provider(monkeypatch):
     monkeypatch.setattr(prov, "get_vision_provider", lambda p=None: None)
     monkeypatch.setattr(prov, "get_secondary_provider", lambda p=None: None)
     monkeypatch.setattr(prov, "find_global_vision_secondary", lambda: grok_vision)
-    assert prov.resolve_image_provider({"id": "grok-main", "type": "grok", "model": "grok-4.6"}) is grok_vision
+    # Must not auto-pick an unrelated Grok secondary just because it exists globally.
+    assert prov.resolve_image_provider({"id": "zai", "type": "glm", "model": "glm-5.2"}) is None
+    assert prov.resolve_image_provider({"id": "grok-main", "type": "grok", "model": "grok-4.6"}) is None
+
+
+def test_glm_vision_model_hints():
+    from services import providers as prov
+
+    assert prov.provider_supports_vision({"type": "glm", "model": "glm-4.5v"}) is True
+    assert prov.provider_supports_vision({"type": "glm", "model": "glm-5.2"}) is False
 
 
 def test_resolve_image_generation_provider(monkeypatch):

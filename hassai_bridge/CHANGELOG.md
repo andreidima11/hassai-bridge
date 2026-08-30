@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.43
+
+### Fix
+- **Vision no longer hijacks unrelated Grok** — image requests only use the Vision LLM / auxiliary linked on the active provider. A Grok secondary on another primary is never auto-picked (avoids surprise 403 credit errors on Z.AI etc.)
+
 ## 1.0.42
 
 ### Fix

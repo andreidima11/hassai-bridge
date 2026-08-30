@@ -79,7 +79,7 @@ PROVIDER_PRESETS = {
 
 _VISION_MODEL_HINTS = re.compile(
     r"gpt-4o|gpt-4-turbo|gpt-4-vision|gpt-4\.1|claude-3|claude-sonnet|claude-opus|gemini|llava|vision|"
-    r"qwen.*vl|pixtral|glm-4v|internvl|moondream|minicpm-v",
+    r"qwen.*vl|pixtral|glm-4v|glm-4\.5v|glm-4\.1v|glm-5.*v|internvl|moondream|minicpm-v",
     re.I,
 )
 
@@ -235,8 +235,9 @@ def find_global_vision_secondary() -> dict | None:
 def resolve_image_provider(primary: dict | None = None, secondary: dict | None = None) -> dict | None:
     """Pick provider for image requests when the primary model lacks vision.
 
-    Priority: dedicated vision provider, vision-capable secondary, then any
-    global vision secondary (e.g. Grok vision configured for another primary).
+    Only uses providers explicitly linked on the primary: dedicated Vision LLM,
+    then that primary's auxiliary (secondary) if it supports vision.
+    Never steals another primary's Grok/vision secondary from the global list.
     """
     if primary is None:
         primary = get_active_provider()
@@ -247,8 +248,7 @@ def resolve_image_provider(primary: dict | None = None, secondary: dict | None =
         secondary = get_secondary_provider(primary)
     if secondary and provider_supports_vision(secondary):
         return secondary
-    return find_global_vision_secondary()
-
+    return None
 
 def get_secondary_provider_by_id(provider_id: str) -> dict | None:
     """Get a specific secondary provider by ID."""
