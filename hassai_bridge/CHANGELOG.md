@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.46
+
+### Features
+- **OpenRouter provider** — add OpenRouter in Settings (OpenAI-compatible gateway); chat/details show the exact routed model id from the API response (e.g. `anthropic/claude-…`), not just “OpenRouter”
+
 ## 1.0.45
 
 ### Features

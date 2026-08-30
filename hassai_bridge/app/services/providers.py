@@ -1,8 +1,8 @@
 """
 Multi-provider LLM service.
 
-Supports: Local (LM Studio, Ollama, etc.), OpenAI, Grok (xAI), DeepSeek, GLM (Zhipu),
-Gemini (Google), Qwen (DashScope).
+Supports: Local (LM Studio, Ollama, etc.), OpenAI, OpenRouter, Grok (xAI), DeepSeek,
+GLM (Zhipu), Gemini (Google), Qwen (DashScope).
 All providers use the OpenAI-compatible /v1/chat/completions format.
 """
 
@@ -45,6 +45,11 @@ PROVIDER_PRESETS = {
     "openai": {
         "name": "OpenAI",
         "base_url": "https://api.openai.com/v1",
+        "requires_key": True,
+    },
+    "openrouter": {
+        "name": "OpenRouter",
+        "base_url": "https://openrouter.ai/api/v1",
         "requires_key": True,
     },
     "grok": {
@@ -323,11 +328,16 @@ def _build_url(provider: dict, path: str) -> str:
 
 
 def _provider_request_headers(provider: dict, cache_conv_id: str | None = None) -> dict:
-    extra = None
+    extra: dict | None = None
     if provider.get("type") == "grok":
         from services import grok as gk
 
         extra = gk.grok_conv_header(cache_conv_id)
+    from services import openrouter as ovr
+
+    if ovr.is_openrouter_provider(provider):
+        attrs = ovr.attribution_headers()
+        extra = {**(extra or {}), **attrs}
     return _build_headers(provider, extra=extra)
 
 
@@ -628,7 +638,7 @@ async def list_models(provider: dict | None = None) -> list[dict]:
         provider = get_active_provider()
 
     url = _build_url(provider, "/v1/models")
-    headers = _build_headers(provider)
+    headers = _provider_request_headers(provider)
 
     client = _get_client()
     resp = await client.get(url, headers=headers, timeout=15)

@@ -704,8 +704,9 @@ export default function App() {
         role: "assistant",
         content: "",
         createdAt: now,
-        // Auto picks per turn — don't label with the Settings default model.
-        model: providerInfo.auto ? "" : (providerInfo.model || providerInfo.name || ""),
+        // Prefer the configured model id — never fall back to provider name
+        // (e.g. "OpenRouter"); the live route event / history meta fill the exact id.
+        model: providerInfo.auto ? "" : (providerInfo.model || ""),
         streaming: true,
         thinking: { ...emptyThinking(t("thinking")), visible: true, active: true },
       },
@@ -901,7 +902,7 @@ export default function App() {
             greeting={<WelcomeHero hint={greeting.hint} title={greeting.title} />}
             lang={lang}
             messages={messages}
-            modelLabel={providerInfo.auto ? "" : (providerInfo.model || providerInfo.name || "")}
+            modelLabel={providerInfo.auto ? "" : (providerInfo.model || "")}
             userLabel={user.display_name || user.username || ""}
             onReuseMessage={reuseMessage}
           />

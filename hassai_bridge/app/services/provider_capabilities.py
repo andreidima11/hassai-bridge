@@ -49,6 +49,13 @@ def preset_capabilities(provider_type: str) -> dict:
                 "context_budget": 120000,
             },
         }
+    if provider_type == "openrouter":
+        return {
+            KV_CACHE: {
+                # Gateway — budget depends on the routed model; keep a generous default.
+                "context_budget": 120000,
+            },
+        }
     if provider_type == "gemini":
         return {
             THINKING: {

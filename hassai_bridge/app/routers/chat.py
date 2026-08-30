@@ -48,6 +48,7 @@ from services import gemini as gm
 from services import memory_tools as mt
 from services import bridge_tools as bt
 from services import pricing
+from services import openrouter as ovr
 from services import tool_profiles as tp
 # `router` is the FastAPI APIRouter below — alias the routing service.
 from services import router as provider_router
@@ -2979,6 +2980,20 @@ async def chat_completions(request: Request):
 
         # Save & extract memories
         turn_tools = _tool_trace(augmented, tool_trace_start)
+        reply_model = ovr.resolve_reply_model(
+            response=result if isinstance(result, dict) else None,
+            configured=chat_provider.get("model") or model,
+        )
+        if reply_model and reply_model != (chat_provider.get("model") or ""):
+            _trace_push(trace_id, {
+                "id": "route",
+                "name": "route",
+                "detail": reply_model,
+                "status": "done",
+                "provider": chat_provider.get("name") or "",
+                "role": route.get("role") or "",
+                "reason": route.get("reason") or "",
+            })
         if assistant_content or generated_attachments or turn_tools:
             add_conversation_message(
                 user_id, "assistant", assistant_content,
@@ -2989,7 +3004,7 @@ async def chat_completions(request: Request):
                     generated_attachments,
                     reasoning_content=_message_reasoning_full(final_msg),
                     tool_calls=turn_tools,
-                    model=chat_provider.get("model", ""),
+                    model=reply_model or chat_provider.get("model", ""),
                     provider_name=chat_provider.get("name", ""),
                     route=route,
                     photo_context=photo_context or None,
@@ -3015,7 +3030,7 @@ async def chat_completions(request: Request):
             add_usage_stat(
                 user_id=user_id, provider_id=stat_prov.get("id", ""),
                 provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
-                model=result.get("model", model or stat_prov.get("model", "")),
+                model=reply_model or result.get("model", model or stat_prov.get("model", "")),
                 tokens_prompt=usage.get("prompt_tokens", 0),
                 tokens_completion=usage.get("completion_tokens", 0),
                 tokens_total=usage.get("total_tokens", 0),
@@ -3038,7 +3053,7 @@ async def chat_completions(request: Request):
         result["hassai_activity"] = activity_events
         result["hassai_route"] = {
             "provider": chat_provider.get("name", ""),
-            "model": chat_provider.get("model", ""),
+            "model": reply_model or chat_provider.get("model", ""),
             "reason": route["reason"],
             "klass": route["klass"],
             "auto": route["auto"],
@@ -3063,6 +3078,7 @@ async def chat_completions(request: Request):
         stream_call_provider = chat_provider
         last_content_push = 0.0
         stream_usage: dict = {}
+        stream_model = ""
         last_think_reasoning = ""
 
         async def on_stream_activity(event: dict):
@@ -3138,6 +3154,20 @@ async def chat_completions(request: Request):
                             data = json.loads(chunk[6:])
                             if isinstance(data.get("usage"), dict):
                                 stream_usage = data["usage"]
+                            chunk_model = str(data.get("model") or "").strip()
+                            if chunk_model and chunk_model != stream_model:
+                                stream_model = chunk_model
+                                await on_stream_activity({
+                                    "id": "route",
+                                    "name": "route",
+                                    "detail": stream_model,
+                                    "status": "done",
+                                    "provider": chat_provider.get("name") or "",
+                                    "role": route.get("role") or "",
+                                    "reason": route.get("reason") or "",
+                                })
+                                async for part in flush_activity():
+                                    yield part
                             delta = data.get("choices", [{}])[0].get("delta", {})
                         except (json.JSONDecodeError, IndexError, KeyError):
                             yield chunk
@@ -3432,6 +3462,11 @@ async def chat_completions(request: Request):
                     from services import vision_handoff as vh
 
                     clean_response, photo_context = vh.finalize_reply(clean_response)
+                reply_model = ovr.resolve_reply_model(
+                    stream_model=stream_model,
+                    usage=stream_usage,
+                    configured=chat_provider.get("model") or model,
+                )
                 add_conversation_message(
                     user_id, "assistant", clean_response,
                     session_id=session_id,
@@ -3440,7 +3475,7 @@ async def chat_completions(request: Request):
                         attachments=generated_attachments,
                         reasoning_content=_store_reasoning(last_think_reasoning),
                         tool_calls=turn_tools,
-                        model=chat_provider.get("model", ""),
+                        model=reply_model or chat_provider.get("model", ""),
                         provider_name=chat_provider.get("name", ""),
                         route=route,
                         photo_context=photo_context or None,
@@ -3465,7 +3500,11 @@ async def chat_completions(request: Request):
                     add_usage_stat(
                         user_id=user_id, provider_id=stat_prov.get("id", ""),
                         provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
-                        model=model or stream_usage.get("model") or stat_prov.get("model", ""),
+                        model=ovr.resolve_reply_model(
+                            stream_model=stream_model,
+                            usage=stream_usage,
+                            configured=model or stat_prov.get("model", ""),
+                        ) or (model or stream_usage.get("model") or stat_prov.get("model", "")),
                         tokens_prompt=int(stream_usage.get("prompt_tokens") or _prompt_tokens),
                         tokens_completion=int(
                             stream_usage.get("completion_tokens")
@@ -3501,7 +3540,10 @@ async def chat_completions(request: Request):
                     add_usage_stat(
                         user_id=user_id, provider_id=stat_prov.get("id", ""),
                         provider_name=stat_prov.get("name", ""), provider_type=stat_prov.get("type", ""),
-                        model=model or stat_prov.get("model", ""),
+                        model=ovr.resolve_reply_model(
+                            stream_model=stream_model,
+                            configured=model or stat_prov.get("model", ""),
+                        ) or (model or stat_prov.get("model", "")),
                         tokens_prompt=_prompt_tokens, tokens_completion=_estimate_tokens(full_response),
                         tokens_total=_prompt_tokens + _estimate_tokens(full_response),
                         response_time_ms=int((time.time() - _req_start) * 1000),
