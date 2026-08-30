@@ -527,6 +527,10 @@
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.model">Model</h3>
+            <label id="provFilterFreeRow" class="checkbox-inline" style="display:none;margin-bottom:8px;gap:8px;align-items:center;cursor:pointer">
+              <input type="checkbox" id="provFilterFreeModels" onchange="onProvFreeModelsFilterChange()">
+              <span data-i18n="settings.filterFreeModels">Filter free models (:free)</span>
+            </label>
             <div style="display:flex;gap:8px;align-items:center">
               <input type="text" id="provModel" placeholder="e.g.: gpt-4o-mini" style="flex:1">
               <button class="btn btn-sm btn-primary" onclick="fetchProviderModels()" id="provFetchModelsBtn" data-i18n="settings.fetchModels">Fetch Models</button>
@@ -550,6 +554,39 @@
             <p class="card-muted hint" data-i18n="settings.secondaryProviderDesc">Optional. Handles intermediate tool re-processing only (Frigate, search, skills). The final spoken answer and memory always use the primary provider.</p>
             <select id="provSecondary">
               <option value="" data-i18n="settings.noSecondary">— None —</option>
+            </select>
+          </div>
+          <div class="modal-section" id="provOpenRouterSection" style="display:none">
+            <h3 data-i18n="settings.openRouterOptions">OpenRouter options</h3>
+            <p class="card-muted hint" data-i18n="settings.openRouterOptionsDesc">Optional routing extras from the OpenRouter docs. Leave defaults unless you need fallbacks, cheaper routes, or stricter privacy.</p>
+            <label data-i18n="settings.openRouterFallbacks">Fallback models</label>
+            <input type="text" id="provOrFallbacks" data-i18n-placeholder="settings.openRouterFallbacksPlaceholder" placeholder="e.g. google/gemma-2-9b-it:free, meta-llama/llama-3.3-70b-instruct">
+            <p class="card-muted hint" data-i18n="settings.openRouterFallbacksHint">Comma-separated. Tried automatically if the primary model fails (rate limit, downtime, moderation).</p>
+            <label data-i18n="settings.openRouterSort">Provider sort</label>
+            <select id="provOrSort">
+              <option value="" data-i18n="settings.openRouterSortDefault">Default (price load-balance)</option>
+              <option value="price" data-i18n="settings.openRouterSortPrice">Price</option>
+              <option value="throughput" data-i18n="settings.openRouterSortThroughput">Throughput</option>
+              <option value="latency" data-i18n="settings.openRouterSortLatency">Latency</option>
+            </select>
+            <label class="checkbox-inline" style="display:flex;margin-top:12px;gap:8px;align-items:center;cursor:pointer">
+              <input type="checkbox" id="provOrAllowFallbacks" checked>
+              <span data-i18n="settings.openRouterAllowFallbacks">Allow provider fallbacks</span>
+            </label>
+            <label data-i18n="settings.openRouterDataCollection" style="margin-top:12px">Data collection</label>
+            <select id="provOrDataCollection">
+              <option value="allow" data-i18n="settings.openRouterDataAllow">Allow</option>
+              <option value="deny" data-i18n="settings.openRouterDataDeny">Deny (no training / retention providers)</option>
+            </select>
+            <label class="checkbox-inline" style="display:flex;margin-top:12px;gap:8px;align-items:center;cursor:pointer">
+              <input type="checkbox" id="provOrZdr">
+              <span data-i18n="settings.openRouterZdr">Zero Data Retention (ZDR) only</span>
+            </label>
+            <label data-i18n="settings.openRouterCompression" style="margin-top:12px">Context compression</label>
+            <select id="provOrCompression">
+              <option value="" data-i18n="settings.openRouterCompressionDefault">Default (OpenRouter decides)</option>
+              <option value="on" data-i18n="settings.openRouterCompressionOn">On — compress middle of long prompts</option>
+              <option value="off" data-i18n="settings.openRouterCompressionOff">Off</option>
             </select>
           </div>
           <div class="modal-section" id="provThinkingSection" style="display:none">
@@ -657,11 +694,47 @@
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.model">Model</h3>
+            <label id="secProvFilterFreeRow" class="checkbox-inline" style="display:none;margin-bottom:8px;gap:8px;align-items:center;cursor:pointer">
+              <input type="checkbox" id="secProvFilterFreeModels" onchange="onSecProvFreeModelsFilterChange()">
+              <span data-i18n="settings.filterFreeModels">Filter free models (:free)</span>
+            </label>
             <div style="display:flex;gap:8px;align-items:center">
               <input type="text" id="secProvModel" placeholder="e.g.: gpt-4o-mini" style="flex:1">
               <button class="btn btn-sm btn-primary" onclick="fetchSecProviderModels()" data-i18n="settings.fetchModels">Fetch Models</button>
             </div>
             <select id="secProvModelPicker" class="input-sm" style="display:none;margin-top:8px;width:100%"></select>
+          </div>
+          <div class="modal-section" id="secOpenRouterSection" style="display:none">
+            <h3 data-i18n="settings.openRouterOptions">OpenRouter options</h3>
+            <p class="card-muted hint" data-i18n="settings.openRouterOptionsDesc">Optional routing extras from the OpenRouter docs. Leave defaults unless you need fallbacks, cheaper routes, or stricter privacy.</p>
+            <label data-i18n="settings.openRouterFallbacks">Fallback models</label>
+            <input type="text" id="secOrFallbacks" data-i18n-placeholder="settings.openRouterFallbacksPlaceholder" placeholder="e.g. google/gemma-2-9b-it:free">
+            <label data-i18n="settings.openRouterSort" style="margin-top:12px">Provider sort</label>
+            <select id="secOrSort">
+              <option value="" data-i18n="settings.openRouterSortDefault">Default (price load-balance)</option>
+              <option value="price" data-i18n="settings.openRouterSortPrice">Price</option>
+              <option value="throughput" data-i18n="settings.openRouterSortThroughput">Throughput</option>
+              <option value="latency" data-i18n="settings.openRouterSortLatency">Latency</option>
+            </select>
+            <label class="checkbox-inline" style="display:flex;margin-top:12px;gap:8px;align-items:center;cursor:pointer">
+              <input type="checkbox" id="secOrAllowFallbacks" checked>
+              <span data-i18n="settings.openRouterAllowFallbacks">Allow provider fallbacks</span>
+            </label>
+            <label data-i18n="settings.openRouterDataCollection" style="margin-top:12px">Data collection</label>
+            <select id="secOrDataCollection">
+              <option value="allow" data-i18n="settings.openRouterDataAllow">Allow</option>
+              <option value="deny" data-i18n="settings.openRouterDataDeny">Deny (no training / retention providers)</option>
+            </select>
+            <label class="checkbox-inline" style="display:flex;margin-top:12px;gap:8px;align-items:center;cursor:pointer">
+              <input type="checkbox" id="secOrZdr">
+              <span data-i18n="settings.openRouterZdr">Zero Data Retention (ZDR) only</span>
+            </label>
+            <label data-i18n="settings.openRouterCompression" style="margin-top:12px">Context compression</label>
+            <select id="secOrCompression">
+              <option value="" data-i18n="settings.openRouterCompressionDefault">Default (OpenRouter decides)</option>
+              <option value="on" data-i18n="settings.openRouterCompressionOn">On — compress middle of long prompts</option>
+              <option value="off" data-i18n="settings.openRouterCompressionOff">Off</option>
+            </select>
           </div>
           <div class="modal-section">
             <h3 data-i18n="settings.secUseForTitle">Use secondary for</h3>

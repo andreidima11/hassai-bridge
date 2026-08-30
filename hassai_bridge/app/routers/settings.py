@@ -481,6 +481,20 @@ def _clean_role_models(raw) -> dict:
     }
 
 
+def _apply_openrouter_options(provider: dict, data: dict) -> None:
+    """Persist sanitized OpenRouter extras when type is openrouter; drop otherwise."""
+    from services import openrouter as ovr
+
+    ptype = str(provider.get("type") or data.get("type") or "").strip().lower()
+    if ptype != "openrouter":
+        provider.pop("openrouter", None)
+        return
+    if "openrouter" in data:
+        provider["openrouter"] = ovr.normalize_openrouter_options(data.get("openrouter"))
+    elif "openrouter" not in provider:
+        provider["openrouter"] = ovr.normalize_openrouter_options({})
+
+
 @router.post("/providers")
 async def add_provider(data: dict):
     """Add a new provider."""
@@ -540,6 +554,7 @@ async def add_provider(data: dict):
         "image_generation_provider": str(data.get("image_generation_provider") or "").strip(),
         "thinking_mode": str(data.get("thinking_mode") or "auto").strip() or "auto",
     }
+    _apply_openrouter_options(provider, data)
     cfg.setdefault("providers", []).append(provider)
     # Auto-activate if first provider
     if len(cfg["providers"]) == 1:
@@ -562,6 +577,7 @@ async def update_provider(provider_id: str, data: dict):
                     elif key == "role_models":
                         val = _clean_role_models(val)
                     p[key] = val
+            _apply_openrouter_options(p, data)
             if p.get("base_url"):
                 p["base_url"] = providers.normalize_provider_base_url(p["base_url"])
             if (p.get("type") or data.get("type")) == "grok":
@@ -685,6 +701,7 @@ async def add_secondary_provider(data: dict):
         "temperature": temperature,
         "use_for": normalize_use_for(data.get("use_for")),
     }
+    _apply_openrouter_options(provider, data)
     cfg.setdefault("secondary_providers", []).append(provider)
     save_config(cfg)
     return {"status": "ok", "provider": provider}
@@ -701,6 +718,7 @@ async def update_secondary_provider(provider_id: str, data: dict):
                     p[key] = data[key]
             if "use_for" in data:
                 p["use_for"] = normalize_use_for(data.get("use_for"))
+            _apply_openrouter_options(p, data)
             if p.get("base_url"):
                 p["base_url"] = providers.normalize_provider_base_url(p["base_url"])
             save_config(cfg)

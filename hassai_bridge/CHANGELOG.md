@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.47
+
+### Features
+- **OpenRouter free-model filter** — checkbox before Fetch Models shows only `:free` ids
+- **OpenRouter routing options** — fallback models, provider sort (price/throughput/latency), allow fallbacks, data collection / ZDR, context compression; attribution headers use `X-OpenRouter-Title` + categories
+
 ## 1.0.46
 
 ### Features
