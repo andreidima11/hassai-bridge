@@ -3,7 +3,7 @@ import { AttachMenu } from "./AttachMenu.jsx";
 import { ChatImage } from "./ChatImage.jsx";
 import { HaFileBrowser } from "./HaFileBrowser.jsx";
 import { ArrowUpIcon, DocumentIcon, MicIcon, PlusIcon, StopIcon, WaveformIcon, XIcon } from "./Icons.jsx";
-import { micBlockedReason, micSupported, startRecording, transcribe } from "../lib/voice.js";
+import { micBlockedReason, micSupported, startRecording, transcribe, unlockPlayback } from "../lib/voice.js";
 import {
   documentAcceptAttr,
   isDocumentAttachment,
@@ -158,6 +158,8 @@ export function Composer({
       return;
     }
     startingRef.current = true;
+    // iOS Companion: unlock TTS on this tap so the reply can play after STT+chat.
+    unlockPlayback();
     // Drop any orphaned previous handle (double-tap race).
     recorderRef.current?.cancel();
     recorderRef.current = null;

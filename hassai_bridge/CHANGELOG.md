@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.42
+
+### Fix
+- **iOS Companion conversation TTS silent** — play replies through the live mic AudioContext (HTML audio stays muted while getUserMedia is open); unlock shared audio on mic / hands-free open
+
 ## 1.0.41
 
 ### Features

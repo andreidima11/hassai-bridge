@@ -246,11 +246,82 @@ export async function createVoiceSession({
   let quietMs = 0;
   let speaking = false;
   let bargeRun = 0;
+  let activeSource = null;
   const preroll = [];
   let captured = [];
   let capturedSamples = 0;
 
   const frameMs = (4096 / ctx.sampleRate) * 1000;
+
+  const stopPlay = () => {
+    if (!activeSource) return;
+    try {
+      activeSource.onended = null;
+      activeSource.stop();
+    } catch {
+      /* already stopped */
+    }
+    try {
+      activeSource.disconnect();
+    } catch {
+      /* ignore */
+    }
+    activeSource = null;
+  };
+
+  const playUrl = async (url) => {
+    const href = String(url || "").trim();
+    if (!href || closed) return;
+    stopPlay();
+    const resp = await fetch(href, { credentials: "same-origin" });
+    if (!resp.ok) throw new Error("audio_fetch");
+    const raw = await resp.arrayBuffer();
+    if (closed) return;
+    await ensureAudioRunning(ctx);
+    // slice() so decodeAudioData can take ownership on some WebKit builds
+    const decoded = await ctx.decodeAudioData(raw.slice(0));
+    if (closed) return;
+
+    // Soft-mute the live mic while we speak — iOS otherwise often ducks / earpieces TTS.
+    const tracks = stream.getAudioTracks?.() || [];
+    const prevEnabled = tracks.map((t) => t.enabled);
+    for (const track of tracks) {
+      try {
+        track.enabled = false;
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const src = ctx.createBufferSource();
+    activeSource = src;
+    src.buffer = decoded;
+    // Play through the same AudioContext that was unlocked with the mic gesture —
+    // HTMLAudioElement is often silent on iOS while getUserMedia is live.
+    src.connect(ctx.destination);
+    try {
+      await new Promise((resolve, reject) => {
+        src.onended = () => {
+          if (activeSource === src) activeSource = null;
+          resolve();
+        };
+        try {
+          src.start(0);
+        } catch (err) {
+          if (activeSource === src) activeSource = null;
+          reject(err);
+        }
+      });
+    } finally {
+      tracks.forEach((track, i) => {
+        try {
+          track.enabled = prevEnabled[i] !== false;
+        } catch {
+          /* ignore */
+        }
+      });
+    }
+  };
 
   const threshold = () =>
     Math.max(VAD.minThreshold, Math.min(VAD.maxNoiseFloor, noiseFloor) * VAD.floorMultiplier);
@@ -361,6 +432,9 @@ export async function createVoiceSession({
   processor.onerror = () => onError?.(new Error("audio_pipeline"));
 
   return {
+    stream,
+    playUrl,
+    stopPlay,
     setCapturing(value) {
       if (capturing === value) return;
       capturing = value;
@@ -378,6 +452,7 @@ export async function createVoiceSession({
     close() {
       if (closed) return;
       closed = true;
+      stopPlay();
       document.removeEventListener("visibilitychange", onVisibility);
       try {
         processor.disconnect();
@@ -432,27 +507,120 @@ export async function speak(text) {
   return resp.json();
 }
 
-let current = null;
+// iOS / HA Companion WebView: HTMLAudioElement.play() after async STT+chat is
+// NotAllowedError unless that *same* element was unlocked inside a user gesture.
+// Settings → Voice → Test works because play() stays on the click chain (and
+// often uses a data: URL). Chat TTS must unlock on mic / hands-free open.
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
 
+let playbackEl = null;
+let playbackUnlocked = false;
+let current = null;
+let blobUrl = "";
+
+function revokeBlobUrl() {
+  if (!blobUrl) return;
+  try {
+    URL.revokeObjectURL(blobUrl);
+  } catch {
+    /* ignore */
+  }
+  blobUrl = "";
+}
+
+function getPlaybackEl() {
+  if (playbackEl) return playbackEl;
+  const audio = new Audio();
+  audio.setAttribute("playsinline", "true");
+  audio.preload = "auto";
+  playbackEl = audio;
+  return audio;
+}
+
+/**
+ * Call synchronously from a tap/click (mic, hands-free). Primes the shared
+ * Audio element so later reply playback works on iOS Companion.
+ */
+export function unlockPlayback() {
+  const audio = getPlaybackEl();
+  if (playbackUnlocked) return audio;
+  try {
+    // Don't interrupt a real reply already queued on this element.
+    const src = String(audio.src || "");
+    if (src && !src.startsWith("data:audio/wav")) return audio;
+    audio.src = SILENT_WAV;
+    const done = audio.play();
+    if (done && typeof done.then === "function") {
+      done
+        .then(() => {
+          playbackUnlocked = true;
+          try {
+            if (String(audio.src || "").startsWith("data:audio/wav")) {
+              audio.pause();
+              audio.currentTime = 0;
+            }
+          } catch {
+            /* ignore */
+          }
+        })
+        .catch(() => {});
+    } else {
+      playbackUnlocked = true;
+    }
+  } catch {
+    /* ignore */
+  }
+  return audio;
+}
+
+/**
+ * Play a reply URL on the unlocked shared element. Returns the Audio node
+ * (listeners may attach onended / onerror).
+ */
 export function playAudio(url) {
+  const href = String(url || "").trim();
+  if (!href) return null;
   stopAudio();
-  const audio = new Audio(url);
+  const audio = getPlaybackEl();
   current = audio;
+  audio.onended = null;
+  audio.onerror = null;
+  revokeBlobUrl();
+  audio.src = href;
   const done = audio.play();
   if (done && typeof done.catch === "function") {
-    // Autoplay can be refused until the user interacts with the page.
-    done.catch(() => {});
+    done.catch(() => {
+      // Last resort: fetch as blob (cookies) and retry once on the same element.
+      fetch(href, { credentials: "same-origin" })
+        .then((r) => {
+          if (!r.ok) throw new Error("audio_fetch");
+          return r.blob();
+        })
+        .then((blob) => {
+          if (current !== audio) return;
+          revokeBlobUrl();
+          blobUrl = URL.createObjectURL(blob);
+          audio.src = blobUrl;
+          return audio.play();
+        })
+        .catch(() => {});
+    });
   }
   return audio;
 }
 
 export function stopAudio() {
-  if (!current) return;
+  const audio = current || playbackEl;
+  if (!audio) return;
   try {
-    current.pause();
-    current.currentTime = 0;
+    audio.onended = null;
+    audio.onerror = null;
+    audio.pause();
+    audio.currentTime = 0;
   } catch {
     /* nothing playing */
   }
   current = null;
+  revokeBlobUrl();
 }
