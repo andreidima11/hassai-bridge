@@ -63,6 +63,11 @@ DEFAULT_PRICING: dict = {
             "tier": "premium",
             "per_1m": {"cache_hit": 0.125, "cache_miss": 1.25, "output": 10.0},
         },
+        "openrouter": {
+            # Blended mid estimate — actual cost depends on the routed model.
+            "tier": "mid",
+            "per_1m": {"cache_hit": 0.25, "cache_miss": 1.0, "output": 5.0},
+        },
     },
 }
 

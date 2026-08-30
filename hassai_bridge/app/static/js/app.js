@@ -1590,6 +1590,7 @@ async function loadProviderPresets() {
 const PROVIDER_TYPE_LABELS = {
   local: 'Local (LM Studio / Ollama)',
   openai: 'OpenAI',
+  openrouter: 'OpenRouter',
   grok: 'Grok (xAI)',
   deepseek: 'DeepSeek',
   glm: 'GLM (Zhipu AI)',
@@ -1600,6 +1601,7 @@ const PROVIDER_TYPE_LABELS = {
 const PROVIDER_TYPE_URLS = {
   local: 'http://localhost:1234',
   openai: 'https://api.openai.com/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
   grok: 'https://api.x.ai/v1',
   deepseek: 'https://api.deepseek.com/v1',
   glm: 'https://api.z.ai/api/paas/v4',
@@ -1631,6 +1633,7 @@ function normalizeProviderUrl(url) {
 const PROVIDER_TYPE_NAMES = {
   local: 'LM Studio',
   openai: 'OpenAI',
+  openrouter: 'OpenRouter',
   grok: 'Grok',
   deepseek: 'DeepSeek',
   glm: 'GLM',
