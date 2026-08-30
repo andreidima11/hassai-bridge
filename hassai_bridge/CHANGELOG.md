@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.1.0
+
+### Features
+- **Session-scoped chat provider / model** — changing provider or model in the chat bar applies only to that conversation; it no longer updates the global default provider in Settings for everyone else. Auto in chat is also per-session.
+
 ## 1.0.48
 
 ### Fix

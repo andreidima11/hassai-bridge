@@ -174,6 +174,20 @@ export default function App() {
       clearDraftAttachments();
       setSidebarOpen(false);
       if (persist && dynamicGreetings) setGreetingNonce((n) => n + 1);
+      // New session → show Settings defaults (no session override yet).
+      apiJson("/api/me")
+        .then((data) => {
+          const chat = data.chat || {};
+          const caps = chat.capabilities || {};
+          setChatCapabilities(caps);
+          setProviderInfo({
+            id: chat.provider_id || "",
+            name: chat.provider_name || "",
+            model: chat.model || "",
+            auto: Boolean(chat.auto),
+          });
+        })
+        .catch(() => {});
     },
     [user.username, dynamicGreetings],
   );
@@ -227,6 +241,25 @@ export default function App() {
       setMessages(msgs);
       setAttachments([]);
       setSidebarOpen(false);
+      try {
+        const me = await apiJson(`/api/me?session_id=${encodeURIComponent(id)}`);
+        const chat = me.chat || {};
+        const caps = chat.capabilities || {};
+        setChatCapabilities(caps);
+        setProviderInfo({
+          id: chat.provider_id || "",
+          name: chat.provider_name || "",
+          model: chat.model || "",
+          auto: Boolean(chat.auto),
+        });
+        if (hasThinkingCapability(caps)) {
+          setThinkingMode((prev) => readStoredThinkingMode(defaultThinkingMode(caps) || prev));
+        } else {
+          setThinkingMode("off");
+        }
+      } catch {
+        /* keep current provider chrome */
+      }
       return msgs;
     },
     [user.username, lang, t],
@@ -785,8 +818,12 @@ export default function App() {
     setVoiceMode(null);
   }, []);
 
-  const refreshChatProvider = useCallback(async () => {
-    const data = await apiJson("/api/me");
+  const refreshChatProvider = useCallback(async (sid) => {
+    const sessionQuery = sid || sessionIdRef.current;
+    const path = sessionQuery
+      ? `/api/me?session_id=${encodeURIComponent(sessionQuery)}`
+      : "/api/me";
+    const data = await apiJson(path);
     const chat = data.chat || {};
     const caps = chat.capabilities || {};
     setChatCapabilities(caps);
@@ -803,42 +840,68 @@ export default function App() {
     }
   }, []);
 
+  const ensureSessionId = useCallback(() => {
+    let sid = sessionIdRef.current;
+    if (!sid) {
+      startNewChat({ ephemeral: false });
+      sid = sessionIdRef.current;
+    }
+    return sid;
+  }, [startNewChat]);
+
   const updateProviderModel = useCallback(async (model) => {
     const providerId = providerInfo.id;
     if (!providerId || !model) return;
-    await apiJson(`/api/settings/providers/${encodeURIComponent(providerId)}`, {
+    const sid = ensureSessionId();
+    const data = await apiJson(`/api/conversations/${encodeURIComponent(sid)}/provider`, {
       method: "PUT",
-      body: JSON.stringify({ model }),
+      body: JSON.stringify({ provider_id: providerId, model, auto: false }),
     });
-    setProviderInfo((prev) => ({ ...prev, model }));
-    await refreshChatProvider();
-  }, [providerInfo.id, refreshChatProvider]);
-
-  const setRoutingMode = useCallback(
-    (mode) => apiJson("/api/settings/", {
-      method: "PUT",
-      body: JSON.stringify({ routing: { mode } }),
-    }),
-    [],
-  );
+    const chat = data.chat || {};
+    setProviderInfo({
+      id: chat.provider_id || providerId,
+      name: chat.provider_name || providerInfo.name,
+      model: chat.model || model,
+      auto: false,
+    });
+    if (chat.capabilities) setChatCapabilities(chat.capabilities);
+  }, [providerInfo.id, providerInfo.name, ensureSessionId]);
 
   const changeProvider = useCallback(
     async (newId) => {
       if (!newId) return;
+      const sid = ensureSessionId();
       if (newId === AUTO_PROVIDER) {
         if (providerInfo.auto) return;
-        await setRoutingMode("auto");
-        await refreshChatProvider();
+        const data = await apiJson(`/api/conversations/${encodeURIComponent(sid)}/provider`, {
+          method: "PUT",
+          body: JSON.stringify({ auto: true }),
+        });
+        const chat = data.chat || {};
+        setChatCapabilities(chat.capabilities || {});
+        setProviderInfo({
+          id: chat.provider_id || "",
+          name: chat.provider_name || "",
+          model: chat.model || "",
+          auto: true,
+        });
         return;
       }
       if (newId === providerInfo.id && !providerInfo.auto) return;
-      // Picking a provider by hand turns Auto off — otherwise the choice would
-      // be silently overridden on the next message.
-      if (providerInfo.auto) await setRoutingMode("manual");
-      await apiJson(`/api/settings/providers/${encodeURIComponent(newId)}/activate`, { method: "PUT" });
-      await refreshChatProvider();
+      const data = await apiJson(`/api/conversations/${encodeURIComponent(sid)}/provider`, {
+        method: "PUT",
+        body: JSON.stringify({ provider_id: newId, auto: false }),
+      });
+      const chat = data.chat || {};
+      setChatCapabilities(chat.capabilities || {});
+      setProviderInfo({
+        id: chat.provider_id || newId,
+        name: chat.provider_name || "",
+        model: chat.model || "",
+        auto: false,
+      });
     },
-    [providerInfo.id, providerInfo.auto, refreshChatProvider, setRoutingMode],
+    [providerInfo.id, providerInfo.auto, ensureSessionId],
   );
 
   const deleteSession = async (id) => {
