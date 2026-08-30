@@ -1536,6 +1536,9 @@ function updateProviderCapabilitySections(ptype) {
   if (localPerfSection) {
     localPerfSection.style.display = ptype === 'local' ? '' : 'none';
   }
+  const orSection = document.getElementById('provOpenRouterSection');
+  if (orSection) orSection.style.display = ptype === 'openrouter' ? '' : 'none';
+  _syncOpenRouterFreeFilterUi(ptype, 'provFilterFreeRow', 'provFilterFreeModels');
 }
 
 function _applyPerformanceFields(perf, prefix) {
@@ -1612,6 +1615,8 @@ const PROVIDER_TYPE_URLS = {
 const LEGACY_PROVIDER_URLS = [
   'https://api.openai.com',
   'https://api.openai.com/v1/chat/completions',
+  'https://openrouter.ai/api/v1',
+  'https://openrouter.ai/api/v1/chat/completions',
   'https://api.x.ai',
   'https://api.x.ai/v1/chat/completions',
   'https://api.deepseek.com',
@@ -1627,7 +1632,25 @@ const LEGACY_PROVIDER_URLS = [
 function normalizeProviderUrl(url) {
   return String(url || '')
     .trim()
+    .replace(/\/+$/, '')
     .replace(/\/(chat\/completions|completions|responses|models|embeddings|images\/generations|images\/edits)$/i, '');
+}
+
+function _isKnownDefaultProviderUrl(url) {
+  const n = normalizeProviderUrl(url);
+  if (!n) return true;
+  const defaults = [...Object.values(PROVIDER_TYPE_URLS), ...LEGACY_PROVIDER_URLS]
+    .map(normalizeProviderUrl);
+  return defaults.includes(n);
+}
+
+function _applyTypeDefaultUrl(ptype, urlFieldId) {
+  const urlField = document.getElementById(urlFieldId);
+  if (!urlField) return;
+  const expected = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
+  if (_isKnownDefaultProviderUrl(urlField.value)) {
+    urlField.value = expected;
+  }
 }
 
 const PROVIDER_TYPE_NAMES = {
@@ -1743,6 +1766,7 @@ function _fillProviderForm(p) {
   _populateSecondarySelect(p?.id || null);
   setVal('provSecondary', p?.secondary_provider || '');
   setVal('provThinkingMode', p?.thinking_mode || 'auto');
+  _fillOpenRouterFields('prov', p?.openrouter || {});
   updateProviderCapabilitySections(p?.type || 'local');
   _syncProviderPerfFromGlobal();
   _populateVisionSelect();
@@ -1752,6 +1776,7 @@ function _fillProviderForm(p) {
   _resetModelPicker(document.getElementById('provModel'), 'provModelPicker');
   _resetModelPicker(document.getElementById('provModelFast'), 'provModelFastPicker');
   _resetModelPicker(document.getElementById('provModelDeep'), 'provModelDeepPicker');
+  _lastProvModels = [];
   const dl = document.getElementById('provModelList');
   if (dl) dl.remove();
   showEl('provTestSection', !!p);
@@ -1856,15 +1881,7 @@ function onSecProvUrlInput() {
 
 function onProvTypeChange() {
   const ptype = document.getElementById('provType')?.value || 'local';
-  // Pre-fill URL if empty or still a known default
-  const urlField = document.getElementById('provUrl');
-  if (urlField) {
-    const currentUrl = urlField.value.trim();
-    const defaultUrls = [...Object.values(PROVIDER_TYPE_URLS), ...LEGACY_PROVIDER_URLS];
-    if (!currentUrl || defaultUrls.includes(currentUrl)) {
-      urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
-    }
-  }
+  _applyTypeDefaultUrl(ptype, 'provUrl');
   // Pre-fill name if empty or still a known default
   const nameField = document.getElementById('provName');
   if (nameField) {
@@ -1899,6 +1916,9 @@ async function saveProvider() {
     vision_provider: document.getElementById('provVision').value || '',
     image_generation_provider: document.getElementById('provImageGen').value || '',
   };
+  if (data.type === 'openrouter') {
+    data.openrouter = _collectOpenRouterFields('prov');
+  }
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
   try {
     if (data.type === 'local') {
@@ -1963,6 +1983,164 @@ function _modelEntryId(model) {
   return String(model?.id || model?.model || model?.name || '').trim();
 }
 
+const _OR_FREE_PREF_KEY = 'hassai.openrouter.filterFree';
+let _lastProvModels = [];
+let _lastSecProvModels = [];
+
+function _readOpenRouterFreePref() {
+  try {
+    return localStorage.getItem(_OR_FREE_PREF_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function _writeOpenRouterFreePref(on) {
+  try {
+    localStorage.setItem(_OR_FREE_PREF_KEY, on ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function _isOpenRouterFreeModel(model) {
+  return _modelEntryId(model).toLowerCase().endsWith(':free');
+}
+
+function _filterModelsForPicker(models, opts = {}) {
+  const list = Array.isArray(models) ? models : [];
+  if (!opts.freeOnly) return list;
+  return list.filter(_isOpenRouterFreeModel);
+}
+
+function _syncOpenRouterFreeFilterUi(ptype, rowId, checkboxId) {
+  const row = document.getElementById(rowId);
+  const cb = document.getElementById(checkboxId);
+  if (!row) return;
+  const show = ptype === 'openrouter';
+  row.style.display = show ? 'flex' : 'none';
+  if (show && cb) {
+    cb.checked = _readOpenRouterFreePref();
+  }
+}
+
+function _compressionSelectValue(raw) {
+  if (raw === true || raw === 'on' || raw === 'true') return 'on';
+  if (raw === false || raw === 'off' || raw === 'false') return 'off';
+  return '';
+}
+
+function _fillOpenRouterFields(prefix, opts) {
+  const o = opts && typeof opts === 'object' ? opts : {};
+  const fallbacks = Array.isArray(o.fallback_models)
+    ? o.fallback_models.join(', ')
+    : String(o.fallback_models || '');
+  setVal(`${prefix}OrFallbacks`, fallbacks);
+  setVal(`${prefix}OrSort`, o.sort || '');
+  const allow = document.getElementById(`${prefix}OrAllowFallbacks`);
+  if (allow) allow.checked = o.allow_fallbacks !== false;
+  setVal(`${prefix}OrDataCollection`, o.data_collection === 'deny' ? 'deny' : 'allow');
+  const zdr = document.getElementById(`${prefix}OrZdr`);
+  if (zdr) zdr.checked = !!o.zdr;
+  setVal(`${prefix}OrCompression`, _compressionSelectValue(o.context_compression));
+}
+
+function _collectOpenRouterFields(prefix) {
+  const compression = document.getElementById(`${prefix}OrCompression`)?.value || '';
+  let context_compression = null;
+  if (compression === 'on') context_compression = true;
+  else if (compression === 'off') context_compression = false;
+  return {
+    fallback_models: String(document.getElementById(`${prefix}OrFallbacks`)?.value || '')
+      .split(/[,\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+    sort: document.getElementById(`${prefix}OrSort`)?.value || '',
+    allow_fallbacks: !!document.getElementById(`${prefix}OrAllowFallbacks`)?.checked,
+    data_collection: document.getElementById(`${prefix}OrDataCollection`)?.value === 'deny'
+      ? 'deny'
+      : 'allow',
+    zdr: !!document.getElementById(`${prefix}OrZdr`)?.checked,
+    context_compression,
+  };
+}
+
+function onProvFreeModelsFilterChange() {
+  const cb = document.getElementById('provFilterFreeModels');
+  if (cb) _writeOpenRouterFreePref(!!cb.checked);
+  if (_lastProvModels.length) _applyProvFetchedModels(_lastProvModels);
+}
+
+function onSecProvFreeModelsFilterChange() {
+  const cb = document.getElementById('secProvFilterFreeModels');
+  if (cb) _writeOpenRouterFreePref(!!cb.checked);
+  if (_lastSecProvModels.length) _applySecFetchedModels(_lastSecProvModels);
+}
+
+function _provWantsFreeModelsOnly() {
+  const ptype = document.getElementById('provType')?.value;
+  const cb = document.getElementById('provFilterFreeModels');
+  return ptype === 'openrouter' && !!cb?.checked;
+}
+
+function _secProvWantsFreeModelsOnly() {
+  const ptype = document.getElementById('secProvType')?.value;
+  const cb = document.getElementById('secProvFilterFreeModels');
+  return ptype === 'openrouter' && !!cb?.checked;
+}
+
+function _applyProvFetchedModels(models) {
+  _lastProvModels = Array.isArray(models) ? models : [];
+  const filtered = _filterModelsForPicker(_lastProvModels, { freeOnly: _provWantsFreeModelsOnly() });
+  const modelInput = document.getElementById('provModel');
+  const listId = 'provModelList';
+  let dl = document.getElementById(listId);
+  if (!dl && modelInput?.parentElement) {
+    dl = document.createElement('datalist');
+    dl.id = listId;
+    modelInput.parentElement.appendChild(dl);
+  }
+  if (modelInput) modelInput.setAttribute('list', listId);
+  const fastInput = document.getElementById('provModelFast');
+  const deepInput = document.getElementById('provModelDeep');
+  if (fastInput) fastInput.setAttribute('list', listId);
+  if (deepInput) deepInput.setAttribute('list', listId);
+  if (dl) {
+    dl.innerHTML = filtered.map((m) => {
+      const id = _modelEntryId(m);
+      return id ? `<option value="${escapeHtml(id)}">` : '';
+    }).join('');
+  }
+  const ok = _populateModelPicker(filtered, modelInput, 'provModelPicker');
+  const roleOpts = { allowEmpty: true, silent: true };
+  _populateModelPicker(filtered, fastInput, 'provModelFastPicker', roleOpts);
+  _populateModelPicker(filtered, deepInput, 'provModelDeepPicker', roleOpts);
+  return ok;
+}
+
+function _applySecFetchedModels(models) {
+  _lastSecProvModels = Array.isArray(models) ? models : [];
+  const filtered = _filterModelsForPicker(_lastSecProvModels, {
+    freeOnly: _secProvWantsFreeModelsOnly(),
+  });
+  const modelInput = document.getElementById('secProvModel');
+  const listId = 'secProvModelList';
+  let dl = document.getElementById(listId);
+  if (!dl && modelInput?.parentElement) {
+    dl = document.createElement('datalist');
+    dl.id = listId;
+    modelInput.parentElement.appendChild(dl);
+  }
+  if (modelInput) modelInput.setAttribute('list', listId);
+  if (dl) {
+    dl.innerHTML = filtered.map((m) => {
+      const id = _modelEntryId(m);
+      return id ? `<option value="${escapeHtml(id)}">` : '';
+    }).join('');
+  }
+  return _populateModelPicker(filtered, modelInput, 'secProvModelPicker');
+}
+
 function _resetModelPicker(modelInput, pickerId) {
   const picker = document.getElementById(pickerId);
   if (picker) {
@@ -2023,37 +2201,12 @@ function _populateModelPicker(models, modelInput, pickerId, opts = {}) {
 async function fetchProviderModels() {
   const baseUrl = document.getElementById('provUrl').value.trim();
   const apiKey = document.getElementById('provApiKey').value.trim();
-  const modelInput = document.getElementById('provModel');
-  const listId = 'provModelList';
   if (!baseUrl) { toast(t('settings.enterUrl'), true); return; }
-
-  async function _applyModels(models) {
-    let dl = document.getElementById(listId);
-    if (!dl) {
-      dl = document.createElement('datalist');
-      dl.id = listId;
-      modelInput.parentElement.appendChild(dl);
-    }
-    modelInput.setAttribute('list', listId);
-    const fastInput = document.getElementById('provModelFast');
-    const deepInput = document.getElementById('provModelDeep');
-    if (fastInput) fastInput.setAttribute('list', listId);
-    if (deepInput) deepInput.setAttribute('list', listId);
-    dl.innerHTML = models.map((m) => {
-      const id = _modelEntryId(m);
-      return id ? `<option value="${escapeHtml(id)}">` : '';
-    }).join('');
-    const ok = _populateModelPicker(models, modelInput, 'provModelPicker');
-    const roleOpts = { allowEmpty: true, silent: true };
-    _populateModelPicker(models, fastInput, 'provModelFastPicker', roleOpts);
-    _populateModelPicker(models, deepInput, 'provModelDeepPicker', roleOpts);
-    return ok;
-  }
 
   if (_editingProviderId) {
     try {
       const data = await api('GET', `/api/settings/providers/${encodeURIComponent(_editingProviderId)}/models`);
-      _applyModels(data.models || []);
+      _applyProvFetchedModels(data.models || []);
     } catch (e) {
       toast(t('toast.error', { msg: e.message }), true);
     }
@@ -2073,7 +2226,7 @@ async function fetchProviderModels() {
       const tempId = result.provider.id;
       try {
         const data = await api('GET', `/api/settings/providers/${encodeURIComponent(tempId)}/models`);
-        _applyModels(data.models || []);
+        _applyProvFetchedModels(data.models || []);
       } finally {
         await api('DELETE', `/api/settings/providers/${encodeURIComponent(tempId)}`);
         const cfg = await api('GET', '/api/settings/');
@@ -2222,6 +2375,8 @@ async function openAddSecondaryProvider() {
     showEl('secProvTestSection', false);
     showEl('secProvTestResult', false);
     _resetModelPicker(document.getElementById('secProvModel'), 'secProvModelPicker');
+    _lastSecProvModels = [];
+    _fillOpenRouterFields('sec', {});
     onSecProvTypeChange();
     await loadSecUseForMeta();
     renderSecUseFor((_secUseForMeta && _secUseForMeta.defaults) || {});
@@ -2252,6 +2407,8 @@ async function editSecondaryProvider(id) {
     showEl('secProvTestSection', true);
     showEl('secProvTestResult', false);
     _resetModelPicker(document.getElementById('secProvModel'), 'secProvModelPicker');
+    _lastSecProvModels = [];
+    _fillOpenRouterFields('sec', p.openrouter || {});
     onSecProvTypeChange();
     await loadSecUseForMeta();
     renderSecUseFor(p.use_for || (_secUseForMeta && _secUseForMeta.defaults) || {});
@@ -2289,14 +2446,7 @@ async function testSecProviderFromPage() {
 
 function onSecProvTypeChange() {
   const ptype = document.getElementById('secProvType')?.value || 'local';
-  const urlField = document.getElementById('secProvUrl');
-  if (urlField) {
-    const currentUrl = urlField.value.trim();
-    const defaultUrls = [...Object.values(PROVIDER_TYPE_URLS), ...LEGACY_PROVIDER_URLS];
-    if (!currentUrl || defaultUrls.includes(currentUrl)) {
-      urlField.value = PROVIDER_TYPE_URLS[ptype] || 'http://localhost:1234';
-    }
-  }
+  _applyTypeDefaultUrl(ptype, 'secProvUrl');
   const nameField = document.getElementById('secProvName');
   if (nameField) {
     const currentName = nameField.value.trim();
@@ -2305,6 +2455,9 @@ function onSecProvTypeChange() {
       nameField.value = PROVIDER_TYPE_NAMES[ptype] || '';
     }
   }
+  const orSection = document.getElementById('secOpenRouterSection');
+  if (orSection) orSection.style.display = ptype === 'openrouter' ? '' : 'none';
+  _syncOpenRouterFreeFilterUi(ptype, 'secProvFilterFreeRow', 'secProvFilterFreeModels');
   _refreshProviderUrlMismatch(ptype, 'secProvUrl', 'secProvUrlMismatch');
 }
 
@@ -2320,6 +2473,9 @@ async function saveSecondaryProvider() {
     temperature: parseFloat(document.getElementById('secProvTemperature').value) || 0.7,
     use_for: collectSecUseFor(),
   };
+  if (data.type === 'openrouter') {
+    data.openrouter = _collectOpenRouterFields('sec');
+  }
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
   try {
     if (_editingSecProviderId) {
@@ -2362,29 +2518,12 @@ async function deleteSecondaryProvider(id) {
 async function fetchSecProviderModels() {
   const baseUrl = document.getElementById('secProvUrl').value.trim();
   const apiKey = document.getElementById('secProvApiKey').value.trim();
-  const modelInput = document.getElementById('secProvModel');
-  const listId = 'secProvModelList';
   if (!baseUrl) { toast(t('settings.enterUrl'), true); return; }
-
-  async function _applyModels(models) {
-    let dl = document.getElementById(listId);
-    if (!dl) {
-      dl = document.createElement('datalist');
-      dl.id = listId;
-      modelInput.parentElement.appendChild(dl);
-    }
-    modelInput.setAttribute('list', listId);
-    dl.innerHTML = models.map((m) => {
-      const id = _modelEntryId(m);
-      return id ? `<option value="${escapeHtml(id)}">` : '';
-    }).join('');
-    _populateModelPicker(models, modelInput, 'secProvModelPicker');
-  }
 
   if (_editingSecProviderId) {
     try {
       const data = await api('GET', `/api/settings/secondary-providers/${encodeURIComponent(_editingSecProviderId)}/models`);
-      _applyModels(data.models || []);
+      _applySecFetchedModels(data.models || []);
     } catch (e) {
       toast(t('toast.error', { msg: e.message }), true);
     }
@@ -2405,7 +2544,7 @@ async function fetchSecProviderModels() {
       const tempId = result.provider.id;
       try {
         const data = await api('GET', `/api/settings/secondary-providers/${encodeURIComponent(tempId)}/models`);
-        _applyModels(data.models || []);
+        _applySecFetchedModels(data.models || []);
       } finally {
         await api('DELETE', `/api/settings/secondary-providers/${encodeURIComponent(tempId)}`);
         const secData = await api('GET', '/api/settings/secondary-providers');

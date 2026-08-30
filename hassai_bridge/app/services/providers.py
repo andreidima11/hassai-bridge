@@ -384,9 +384,11 @@ def _finalize_chat_payload(
 ) -> None:
     """Provider-specific last-mile tweaks (OpenAI tokens, prompt cache, etc.)."""
     from services import openai_api as oai
+    from services import openrouter as ovr
 
     # Belt-and-suspenders: strip max_tokens even if an earlier step re-added it.
     oai.apply_request_payload(payload, provider, cache_conv_id=cache_conv_id)
+    ovr.apply_request_extras(payload, provider)
     oai.sanitize_outbound_chat_payload(payload, provider, request_url=request_url)
 
 
