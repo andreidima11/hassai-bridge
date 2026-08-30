@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.44
+
+### Fix
+- **Vision only for the photo turn** — after a snap, text follow-ups return to the primary / Auto fast path instead of staying on the Vision LLM (and burning API spend). Historical images are stripped for non-vision models.
+
 ## 1.0.43
 
 ### Fix
