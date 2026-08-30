@@ -730,6 +730,7 @@ def _activity_meta(
     model: str | None = None,
     provider_name: str | None = None,
     route: dict | None = None,
+    photo_context: str | None = None,
 ) -> dict | None:
     merged = list(events or [])
     if trace_id and trace_id in _traces:
@@ -763,6 +764,9 @@ def _activity_meta(
             if ev.get("name") == "think" and ev.get("detail"):
                 meta["reasoning_content"] = _store_reasoning(str(ev.get("detail") or ""))
                 break
+    ctx = str(photo_context or "").strip()
+    if ctx:
+        meta["photo_context"] = ctx[:8000]
     return meta or None
 
 
@@ -2546,6 +2550,17 @@ async def chat_completions(request: Request):
     ):
         stable_extras.append(frigate_hint)
 
+    # Photo contexts from earlier Vision turns — only when this turn has no new images.
+    from services import vision_handoff as vh
+
+    photo_contexts = vh.collect_photo_contexts(history)
+    if photo_contexts and not request_has_images:
+        photo_block = vh.format_photo_context_block(
+            photo_contexts, lang=str(cfg.get("language") or "en"),
+        )
+        if photo_block:
+            stable_extras.append(photo_block)
+
     if stable_parts or stable_extras:
         augmented.append({"role": "system", "content": "\n\n".join(stable_parts + stable_extras)})
 
@@ -2625,6 +2640,14 @@ async def chat_completions(request: Request):
             user_id,
             chat_provider.get("name", "?"),
         )
+        # Ask Vision to emit a durable photo_context block for later text-only turns.
+        from services import vision_handoff as vh
+
+        handoff = vh.handoff_instruction(str(cfg.get("language") or "en"))
+        if augmented and augmented[0].get("role") == "system":
+            augmented[0]["content"] = (augmented[0].get("content") or "") + "\n\n" + handoff
+        else:
+            augmented.insert(0, {"role": "system", "content": handoff})
 
     thinking_cfg = pc.resolve_thinking(
         chat_provider,
@@ -2945,6 +2968,15 @@ async def chat_completions(request: Request):
             assistant_content = cleaned_notes
             result["choices"][0]["message"]["content"] = assistant_content
 
+        photo_context = ""
+        if _image_provider_used:
+            from services import vision_handoff as vh
+
+            visible, photo_context = vh.finalize_reply(assistant_content)
+            if visible != assistant_content:
+                assistant_content = visible
+                result["choices"][0]["message"]["content"] = assistant_content
+
         # Save & extract memories
         turn_tools = _tool_trace(augmented, tool_trace_start)
         if assistant_content or generated_attachments or turn_tools:
@@ -2960,6 +2992,7 @@ async def chat_completions(request: Request):
                     model=chat_provider.get("model", ""),
                     provider_name=chat_provider.get("name", ""),
                     route=route,
+                    photo_context=photo_context or None,
                 ),
             )
             if assistant_content:
@@ -3049,12 +3082,15 @@ async def chat_completions(request: Request):
             if not force and (now - last_content_push) < 0.05:
                 return
             last_content_push = now
+            from services import vision_handoff as vh
+
+            preview = cc.strip_photo_notes(vh.split_photo_context(full_response)[0])
             await on_stream_activity({
                 "id": "assistant-out",
                 "name": "assistant",
                 # The Web UI renders this, not the raw SSE chunks, so the photo
-                # marker has to be filtered here to stay off the screen.
-                "detail": cc.strip_photo_notes(full_response),
+                # marker / vision handoff block has to be filtered here.
+                "detail": preview,
                 "status": "running",
             })
 
@@ -3391,6 +3427,11 @@ async def chat_completions(request: Request):
             if full_response or generated_attachments or turn_tools:
                 clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
                 clean_response = cc.strip_photo_notes(clean_response)
+                photo_context = ""
+                if _image_provider_used:
+                    from services import vision_handoff as vh
+
+                    clean_response, photo_context = vh.finalize_reply(clean_response)
                 add_conversation_message(
                     user_id, "assistant", clean_response,
                     session_id=session_id,
@@ -3402,6 +3443,7 @@ async def chat_completions(request: Request):
                         model=chat_provider.get("model", ""),
                         provider_name=chat_provider.get("name", ""),
                         route=route,
+                        photo_context=photo_context or None,
                     ),
                 )
                 if clean_response:

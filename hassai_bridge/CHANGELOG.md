@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.45
+
+### Features
+- **Vision → chat handoff** — on a photo turn the Vision LLM also stores a dense (hidden) image description; text follow-ups on the primary model get that context so they still “know” the photo without staying on Vision
+
 ## 1.0.44
 
 ### Fix

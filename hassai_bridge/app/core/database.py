@@ -622,6 +622,9 @@ def get_conversation_history(user_id, limit=20, session_id: str | None = None):
                     break
         if reasoning:
             item["reasoning_content"] = reasoning
+        photo_context = str(meta.get("photo_context") or "").strip()
+        if photo_context:
+            item["photo_context"] = photo_context
         out.append(item)
     return out
 
