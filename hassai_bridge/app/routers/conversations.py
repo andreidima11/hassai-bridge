@@ -62,10 +62,10 @@ async def me(request: Request):
                 "source": "webui",
             }
     cfg = load_config()
-    from services.providers import get_active_provider
-    from services import router as provider_router
-    active = get_active_provider()
-    from services.provider_capabilities import provider_chat_capabilities
+    from services import session_chat as sc
+
+    session_id = str(request.query_params.get("session_id") or "").strip()
+    chat = sc.effective_chat_info(cfg, session_id or None)
     from services import atmosphere as atm
 
     from services import voice as vc
@@ -90,15 +90,7 @@ async def me(request: Request):
         "build": BUILD_ID,
         "voice": vc.public_status(cfg),
         "atmosphere": await atm.snapshot() if dynamic else {},
-        "chat": {
-            "provider_id": active.get("id", ""),
-            "provider_type": active.get("type", ""),
-            "provider_name": active.get("name", ""),
-            "model": active.get("model", ""),
-            "thinking_mode": active.get("thinking_mode") or "auto",
-            "capabilities": provider_chat_capabilities(active),
-            "auto": provider_router.is_auto(cfg),
-        },
+        "chat": chat,
     }
 
 
@@ -125,6 +117,53 @@ async def get_mine(request: Request, session_id: str, limit: int = 200):
         if isinstance(attachments, list) and attachments:
             item["attachments"] = cc.public_attachments(attachments, session_id)
     return {"user_id": user_id, "session_id": session_id, "messages": messages}
+
+
+@router.put("/api/conversations/{session_id}/provider")
+async def set_session_provider(request: Request, session_id: str):
+    """Set provider/model for this chat only — does not change Settings defaults."""
+    from core.config import load_config
+    from services import session_chat as sc
+
+    _current_username(request)
+    sid = str(session_id or "").strip()
+    if not sid:
+        return JSONResponse(status_code=400, content={"error": "session_id required"})
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    auto = body.get("auto")
+    provider_id = body.get("provider_id")
+    model = body.get("model")
+
+    if auto is True:
+        override = sc.set_override(sid, auto=True)
+    else:
+        cfg = load_config()
+        pool = [p for p in (cfg.get("providers") or []) if isinstance(p, dict)]
+        pid = None if provider_id is None else str(provider_id).strip()
+        mid = None if model is None else str(model).strip()
+        if pid:
+            match = next((p for p in pool if p.get("id") == pid), None)
+            if match is None:
+                return JSONResponse(status_code=404, content={"error": "Provider not found"})
+            # Switching provider without an explicit model uses that provider's Settings model.
+            if mid is None:
+                mid = str(match.get("model") or "").strip()
+        override = sc.set_override(
+            sid,
+            provider_id=pid,
+            model=mid,
+            auto=False,
+        )
+
+    cfg = load_config()
+    chat = sc.effective_chat_info(cfg, sid)
+    return {"status": "ok", "override": override, "chat": chat}
 
 
 @router.get("/api/chat/media/{attachment_id}")
@@ -296,8 +335,11 @@ async def chat_voice_speak(request: Request, data: dict):
 
 @router.delete("/api/conversations/{session_id}")
 async def delete_mine(request: Request, session_id: str):
+    from services import session_chat as sc
+
     user_id = _current_username(request)
     delete_conversation_session(user_id, session_id)
+    sc.clear(session_id)
     return {"status": "ok", "user_id": user_id, "session_id": session_id}
 
 

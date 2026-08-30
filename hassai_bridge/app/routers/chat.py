@@ -2410,10 +2410,12 @@ async def chat_completions(request: Request):
             break
 
     request_has_images = cc.current_turn_has_images(messages)
-    route = provider_router.resolve(
+    from services import session_chat as sc
+
+    route = sc.resolve_route_for_session(
         cfg,
-        active=get_active_provider(),
         session_id=session_id or "",
+        active=get_active_provider(),
         user_text=last_user_msg,
         has_images=request_has_images,
         tools_active=bool(all_tools),
@@ -2755,8 +2757,13 @@ async def chat_completions(request: Request):
                 tried.append(chat_provider.get("id", ""))
                 # Auto mode moves to the next healthy candidate instead of
                 # handing the user an error from a provider they never picked.
+                # Session-level Auto must failover even if Settings routing is manual.
+                failover_cfg = cfg
+                if route.get("auto"):
+                    rconf = provider_router.routing_config(cfg)
+                    failover_cfg = {**cfg, "routing": {**rconf, "mode": "auto"}}
                 alternate = provider_router.failover(
-                    cfg,
+                    failover_cfg,
                     tried=tried,
                     session_id=session_id or "",
                     user_text=last_user_msg,
