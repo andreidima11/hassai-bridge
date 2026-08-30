@@ -193,15 +193,45 @@ def resolve_display_name(username: str, request: Request | None = None) -> str:
     return ""
 
 
-def user_context_for_prompt(username: str, request: Request | None = None) -> str:
+def normalize_address_by_name(raw) -> str:
+    """How often replies may use the user's display name."""
+    val = str(raw or "rare").strip().lower()
+    if val in ("never", "off", "no", "false", "0"):
+        return "never"
+    if val in ("often", "always", "yes", "natural", "frequent"):
+        return "often"
+    return "rare"
+
+
+def user_context_for_prompt(
+    username: str,
+    request: Request | None = None,
+    *,
+    address_by_name: str | None = None,
+) -> str:
     display = resolve_display_name(username, request)
     if not display:
         return ""
+    mode = normalize_address_by_name(address_by_name)
+    if mode == "never":
+        style = (
+            "Know their name for context only — never address them by name in replies "
+            "(no greetings like \"Hi {name}\", no \"{name}, …\" openers)."
+        ).replace("{name}", display)
+    elif mode == "often":
+        style = (
+            "You may use their name when it feels natural and friendly, "
+            "but still avoid stuffing it into every short reply."
+        )
+    else:
+        style = (
+            "Know their name for context, but do NOT address them by name in every reply — "
+            "it sounds unnatural. Prefer plain answers with no name. "
+            "Use the name only rarely (e.g. a warm opening on a new chat, or when it clearly helps). "
+            "Never start most replies with their name."
+        )
     return (
         "[User]\n"
         f"You are assisting {display} (Home Assistant user). "
-        "Know their name for context, but do NOT address them by name in every reply — "
-        "it sounds unnatural. Prefer plain answers with no name. "
-        "Use the name only rarely (e.g. a warm opening on a new chat, or when it clearly helps). "
-        "Never start most replies with their name. Match their language."
+        f"{style} Match their language."
     )

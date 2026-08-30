@@ -948,7 +948,10 @@ export default function App() {
             voiceEnabled={voiceConfig.enabled === true}
             voiceControls={voiceConfig.controls || "both"}
             voiceSpeaks={voiceConfig.tts !== false}
-            onVoiceModeOpen={() => setVoiceMode({ phase: "listening", audioUrl: "", error: "" })}
+            onVoiceModeOpen={() => {
+              voiceApi.unlockPlayback();
+              setVoiceMode({ phase: "listening", audioUrl: "", error: "" });
+            }}
             onVoiceTranscript={(text) => send(null, { text, spoken: true })}
           />
         </div>

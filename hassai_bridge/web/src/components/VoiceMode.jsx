@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MicIcon, XIcon } from "./Icons.jsx";
 import { tr } from "../lib/i18n.js";
-import { createVoiceSession, micBlockedReason, transcribe } from "../lib/voice.js";
+import {
+  createVoiceSession,
+  micBlockedReason,
+  playAudio,
+  stopAudio,
+  unlockPlayback,
+  transcribe,
+} from "../lib/voice.js";
 
 /**
  * Hands-free conversation overlay.
@@ -19,10 +26,8 @@ export function VoiceMode({ lang, phase, replyAudioUrl, error, onUtterance, onSp
   const [localError, setLocalError] = useState("");
 
   const stopPlayback = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    audio.pause();
-    audio.currentTime = 0;
+    sessionRef.current?.stopPlay?.();
+    stopAudio();
     audioRef.current = null;
   }, []);
 
@@ -35,6 +40,9 @@ export function VoiceMode({ lang, phase, replyAudioUrl, error, onUtterance, onSp
       setMicPhase("error");
       return undefined;
     }
+
+    // Unlock HTML TTS fallback on the open tap (iOS Companion).
+    unlockPlayback();
 
     (async () => {
       try {
@@ -95,20 +103,56 @@ export function VoiceMode({ lang, phase, replyAudioUrl, error, onUtterance, onSp
     };
   }, [lang, onUtterance, onSpokenEnd, stopPlayback]);
 
-  // ── Play the reply, then hand the mic back ──
+  // ── Play the reply through the mic AudioContext (iOS-safe), then listen again ──
   useEffect(() => {
     if (!replyAudioUrl) return undefined;
-    const audio = new Audio(replyAudioUrl);
-    audioRef.current = audio;
-    const done = () => {
-      audioRef.current = null;
-      onSpokenEnd?.();
-    };
-    audio.onended = done;
-    audio.onerror = done;
-    audio.play().catch(done);
+    let cancelled = false;
+    const session = sessionRef.current;
+
+    (async () => {
+      try {
+        if (session?.playUrl) {
+          await session.playUrl(replyAudioUrl);
+        } else {
+          // Fallback (should be rare): shared HTMLAudioElement unlocked on open.
+          await new Promise((resolve) => {
+            const audio = playAudio(replyAudioUrl);
+            audioRef.current = audio;
+            if (!audio) {
+              resolve();
+              return;
+            }
+            audio.onended = resolve;
+            audio.onerror = resolve;
+          });
+        }
+      } catch {
+        // Last resort HTML path if decodeAudioData fails (odd codecs).
+        if (!cancelled) {
+          try {
+            await new Promise((resolve) => {
+              const audio = playAudio(replyAudioUrl);
+              audioRef.current = audio;
+              if (!audio) {
+                resolve();
+                return;
+              }
+              audio.onended = resolve;
+              audio.onerror = resolve;
+            });
+          } catch {
+            /* give the mic back either way */
+          }
+        }
+      }
+      if (!cancelled) onSpokenEnd?.();
+    })();
+
     return () => {
-      audio.pause();
+      cancelled = true;
+      session?.stopPlay?.();
+      stopAudio();
+      audioRef.current = null;
     };
   }, [replyAudioUrl, onSpokenEnd]);
 
