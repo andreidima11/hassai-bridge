@@ -85,6 +85,11 @@ def test_cloud_provider_keeps_full_tools_without_eco():
     assert names == {"ha_list_entities", "ha_create_backup"}
 
 
+def test_dynamic_profile_skips_local_compact():
+    assert tp.tool_profile_mode({"performance": {"tool_profile": "dynamic"}}) == tp.PROFILE_DYNAMIC
+    assert tp.should_compact_tools(LOCAL, {"performance": {"tool_profile": "dynamic"}}) is False
+
+
 def test_openai_hard_caps_over_128_tools():
     tools = [_tool(f"ha_tool_{i}") for i in range(140)]
     # Map unknown ha_* names to entities via default tool_category fallback.

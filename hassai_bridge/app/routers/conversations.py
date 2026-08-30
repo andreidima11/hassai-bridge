@@ -65,7 +65,7 @@ async def me(request: Request):
     from services import session_chat as sc
 
     session_id = str(request.query_params.get("session_id") or "").strip()
-    chat = sc.effective_chat_info(cfg, session_id or None)
+    chat = sc.effective_chat_info(cfg, session_id or None, user_id=username)
     from services import atmosphere as atm
 
     from services import voice as vc
@@ -125,7 +125,7 @@ async def set_session_provider(request: Request, session_id: str):
     from core.config import load_config
     from services import session_chat as sc
 
-    _current_username(request)
+    user_id = _current_username(request)
     sid = str(session_id or "").strip()
     if not sid:
         return JSONResponse(status_code=400, content={"error": "session_id required"})
@@ -141,7 +141,7 @@ async def set_session_provider(request: Request, session_id: str):
     model = body.get("model")
 
     if auto is True:
-        override = sc.set_override(sid, auto=True)
+        override = sc.set_override(sid, auto=True, user_id=user_id)
     else:
         cfg = load_config()
         pool = [p for p in (cfg.get("providers") or []) if isinstance(p, dict)]
@@ -159,11 +159,29 @@ async def set_session_provider(request: Request, session_id: str):
             provider_id=pid,
             model=mid,
             auto=False,
+            user_id=user_id,
         )
 
     cfg = load_config()
-    chat = sc.effective_chat_info(cfg, sid)
+    chat = sc.effective_chat_info(cfg, sid, user_id=user_id)
     return {"status": "ok", "override": override, "chat": chat}
+
+
+@router.delete("/api/conversations/{session_id}/toolkits")
+async def clear_session_toolkits(request: Request, session_id: str):
+    """Clear sticky Dynamic tool packs for this conversation."""
+    from core.config import load_config
+    from services import session_chat as sc
+    from services import toolkits as tk
+
+    user_id = _current_username(request)
+    sid = str(session_id or "").strip()
+    if not sid:
+        return JSONResponse(status_code=400, content={"error": "session_id required"})
+    tk.clear_sticky(sid, user_id=user_id)
+    cfg = load_config()
+    chat = sc.effective_chat_info(cfg, sid, user_id=user_id)
+    return {"status": "ok", "chat": chat}
 
 
 @router.get("/api/chat/media/{attachment_id}")
@@ -336,10 +354,12 @@ async def chat_voice_speak(request: Request, data: dict):
 @router.delete("/api/conversations/{session_id}")
 async def delete_mine(request: Request, session_id: str):
     from services import session_chat as sc
+    from services import toolkits as tk
 
     user_id = _current_username(request)
     delete_conversation_session(user_id, session_id)
     sc.clear(session_id)
+    tk.clear_sticky(session_id)
     return {"status": "ok", "user_id": user_id, "session_id": session_id}
 
 

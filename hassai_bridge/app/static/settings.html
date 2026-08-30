@@ -400,13 +400,13 @@
 
       <div class="card">
         <h2 data-i18n="settings.bridgeToolAccess">HASSAI Bridge tool permissions</h2>
-        <p class="card-muted" data-i18n="settings.bridgeToolAccessDesc">Control what the AI may do with the add-on itself — its memory, its own status and its own settings. All enabled by default.</p>
+        <p class="card-muted" data-i18n="settings.bridgeToolAccessDesc">Control what the AI may do with the add-on itself — its memory, status, settings, and /media|/share files. All enabled by default.</p>
         <div id="bridgeToolAccessList" class="toggle-list"></div>
       </div>
 
       <div class="card">
         <h2 data-i18n="settings.haToolAccess">Home Assistant tool permissions</h2>
-        <p class="card-muted" data-i18n="settings.haToolAccessDesc">Control which HA admin capabilities the AI can use. All enabled by default.</p>
+        <p class="card-muted" data-i18n="settings.haToolAccessDesc">Control which HA admin capabilities the AI can use. All enabled by default. Dynamic tool profile cannot activate a category that is off here.</p>
         <div id="haToolAccessList" class="toggle-list"></div>
       </div>
 
@@ -620,6 +620,7 @@
             <label data-i18n="settings.toolProfile">Tool profile</label>
             <select id="provPerfToolProfile">
               <option value="auto" data-i18n="settings.toolProfileAuto">Auto — fewer tools for simple commands</option>
+              <option value="dynamic" data-i18n="settings.toolProfileDynamic">Dynamic — activate packs on demand (saves tokens on cloud)</option>
               <option value="full" data-i18n="settings.toolProfileFull">Full — all tools every request</option>
             </select>
             <label style="margin-top:12px"><span data-i18n="settings.historyLimit">Conversation history limit</span></label>
@@ -984,16 +985,21 @@
     <div class="settings-subpanel" id="stab-perf">
       <div class="card">
         <h2 data-i18n="settings.perfTitle">Local AI performance</h2>
-        <p class="card-muted" data-i18n="settings.perfTabIntro">When the active provider is local (LM Studio / Ollama), the bridge can compact tools and history to cut latency. Cloud providers stay full-size unless you choose Full profile globally.</p>
+        <p class="card-muted" data-i18n="settings.perfTabIntro">When the active provider is local (LM Studio / Ollama), Auto can compact tools and history. Dynamic works on every provider: only a small core is sent until packs are activated (respects HA/Bridge toggles below). Full sends all tools every request (OpenAI still caps at 128).</p>
         <label data-i18n="settings.toolProfile">Tool profile</label>
         <select id="perfToolProfile">
           <option value="auto" data-i18n="settings.toolProfileAuto">Auto — fewer tools for simple commands</option>
+          <option value="dynamic" data-i18n="settings.toolProfileDynamic">Dynamic — activate packs on demand (saves tokens on cloud)</option>
           <option value="full" data-i18n="settings.toolProfileFull">Full — all tools every request</option>
         </select>
         <label style="margin-top:12px"><span data-i18n="settings.compactHistoryLimit">Local history limit</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.compactHistoryLimitDesc">(cap for local AI; cannot exceed General → history limit)</span></label>
         <input type="number" id="perfLocalHistoryLimit" value="6" min="2" max="30">
         <label style="margin-top:12px"><span data-i18n="settings.toolReplayTurns">Tool replay turns</span> <span style="color:var(--muted);font-weight:normal" data-i18n="settings.toolReplayTurnsDesc">(0 = auto: 3 compact / 6 full)</span></label>
         <input type="number" id="perfToolReplayTurns" value="0" min="0" max="12">
+        <h3 style="margin-top:18px" data-i18n="settings.toolkitAudit">Dynamic toolkits audit</h3>
+        <p class="card-muted" data-i18n="settings.toolkitAuditDesc">Recent pack route / activate events (server-side).</p>
+        <button type="button" class="btn btn-sm" onclick="loadToolkitAudit()" data-i18n="settings.toolkitAuditRefresh">Refresh</button>
+        <div id="toolkitAuditList" class="card-muted" style="margin-top:8px;font-size:.82rem;max-height:220px;overflow:auto"></div>
       </div>
       <div class="btn-row">
         <button class="btn btn-primary" onclick="savePerfSettings()" data-i18n="settings.save">Save</button>

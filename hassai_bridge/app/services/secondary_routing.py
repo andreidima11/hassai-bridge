@@ -26,7 +26,7 @@ _FRIGATE_TOOLS = frozenset({
     "frigate_list_cameras", "frigate_events", "frigate_snapshot",
 })
 _MEDIA_TOOLS = frozenset({
-    "media_list", "media_read", "media_write", "media_delete",
+    "media_list", "media_read", "media_delete",
 })
 _MEMORY_PREFIX = "memory_"
 _BRIDGE_PREFIX = "hassai_"

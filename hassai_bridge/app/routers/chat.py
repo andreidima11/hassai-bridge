@@ -47,6 +47,7 @@ from services import chat_media as cm
 from services import gemini as gm
 from services import memory_tools as mt
 from services import bridge_tools as bt
+from services import bridge_tool_access as bta
 from services import pricing
 from services import openrouter as ovr
 from services import thinking_text as tt
@@ -62,13 +63,22 @@ _FRIGATE_TOOL_NAMES = {"frigate_list_cameras", "frigate_events", "frigate_snapsh
 
 
 def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
-    if fn_name in ("search_web", "run_skill", "generate_image"):
+    if fn_name in ("search_web", "run_skill", "generate_image", "activate_toolkits"):
         return True
     if fn_name in _MEDIA_TOOL_NAMES or fn_name in _FRIGATE_TOOL_NAMES:
         return True
     if fn_name in mt.TOOL_NAMES or bt.is_bridge_tool(fn_name):
         return True
     return ha_api.is_ha_tool(fn_name, cfg)
+
+
+def _sync_effective_tools(toolkit_state: dict | None, effective_tools: list | None) -> list | None:
+    """Prefer mid-loop expansion from dynamic activate_toolkits."""
+    if toolkit_state and toolkit_state.get("enabled"):
+        live = toolkit_state.get("effective")
+        if live:
+            return live
+    return effective_tools
 
 # Identical tool+args this many times → skip and tell the model to move on.
 _AGENT_REPEAT_LIMIT = 2
@@ -350,6 +360,11 @@ def _clip_detail(value, n: int = 56) -> str:
 
 def _tool_detail(name: str, args: dict) -> str:
     args = args or {}
+    if name == "activate_toolkits":
+        packs = args.get("packs")
+        if isinstance(packs, list):
+            return _clip_detail(", ".join(str(p) for p in packs[:6]))
+        return ""
     if name == "search_web":
         return _clip_detail(args.get("query"))
     if name == "generate_image":
@@ -890,8 +905,65 @@ async def _invoke_internal_tool(
     user_id: str = "",
     session_id: str | None = None,
     generated_attachments: list | None = None,
+    toolkit_state: dict | None = None,
 ) -> tuple[str, bool]:
     """Run one bridge-handled tool. Returns (result_text, search_used)."""
+    from services import toolkits as tk
+
+    if toolkit_state and toolkit_state.get("enabled"):
+        if fn_name == tk.ACTIVATE_TOOL:
+            packs = args.get("packs") if isinstance(args.get("packs"), list) else []
+            new_tools, active, payload = tk.expand_after_activate(
+                toolkit_state.get("all_tools") or [],
+                cfg=toolkit_state.get("cfg"),
+                packs=packs,
+                session_id=session_id or "",
+                user_id=str(toolkit_state.get("user_id") or user_id or ""),
+                current_active=toolkit_state.get("active_packs") or set(),
+                provider=toolkit_state.get("provider") or provider,
+                user_text=toolkit_state.get("user_text") or "",
+                route_klass=toolkit_state.get("route_klass") or "simple",
+                frigate_available=bool(toolkit_state.get("frigate_available", True)),
+                image_gen_available=bool(toolkit_state.get("image_gen_available", True)),
+                skills_available=bool(toolkit_state.get("skills_available", True)),
+            )
+            toolkit_state["effective"] = new_tools
+            toolkit_state["active_packs"] = active
+            toolkit_state["eligible"] = tk.eligible_packs(
+                toolkit_state.get("cfg"),
+                toolkit_state.get("all_tools") or [],
+                frigate_available=bool(toolkit_state.get("frigate_available", True)),
+                image_gen_available=bool(toolkit_state.get("image_gen_available", True)),
+                skills_available=bool(toolkit_state.get("skills_available", True)),
+            )
+            log.info(
+                "Dynamic toolkits activated packs=%s tools=%s (~%s tool-tokens)",
+                sorted(active), len(new_tools), tk.estimate_tools_tokens(new_tools),
+            )
+            return payload, False
+
+        active_names = {
+            (t.get("function") or {}).get("name")
+            for t in (toolkit_state.get("effective") or [])
+            if isinstance(t, dict)
+        }
+        if fn_name and fn_name not in active_names:
+            try:
+                from core import database as db
+
+                db.add_toolkit_audit(
+                    user_id=str(toolkit_state.get("user_id") or user_id or ""),
+                    session_id=session_id or "",
+                    event="inactive_tool",
+                    packs=[tk.pack_for_tool(fn_name) or ""],
+                    detail=fn_name,
+                )
+            except Exception:
+                pass
+            return tk.tool_inactive_message(
+                fn_name, toolkit_state.get("eligible") or {},
+            ), False
+
     if fn_name == "search_web" and search_enabled:
         query = (args.get("query") or "").strip()[:200]
         if not query:
@@ -957,6 +1029,8 @@ async def _invoke_internal_tool(
         return f"[Skill '{skill_name}' result]\n{body}", False
 
     if fn_name in _MEDIA_TOOL_NAMES:
+        if not bta.group_enabled("media", load_config()):
+            return "Error: media tools are disabled in Settings (HASSAI Bridge tool permissions).", False
         return await _run_media_tool(fn_name, args, user_id, generated_attachments), False
 
     if fn_name in _FRIGATE_TOOL_NAMES:
@@ -992,6 +1066,7 @@ async def _append_internal_tool_results(
     session_id: str | None = None,
     generated_attachments: list | None = None,
     cfg: dict | None = None,
+    toolkit_state: dict | None = None,
 ) -> bool:
     """Append tool-role messages for internal calls. Returns search_used."""
     if cfg is None:
@@ -1033,6 +1108,7 @@ async def _append_internal_tool_results(
                 user_id=user_id,
                 session_id=session_id,
                 generated_attachments=generated_attachments,
+                toolkit_state=toolkit_state,
             )
             search_used = search_used or used_search
             await _fire_activity(on_event, {
@@ -2390,7 +2466,8 @@ async def chat_completions(request: Request):
     if search_enabled:
         all_tools.append(_SEARCH_WEB_TOOL)
     all_tools.extend(_build_skill_tools())
-    all_tools.extend(_MEDIA_TOOLS)
+    if bta.group_enabled("media", cfg):
+        all_tools.extend(_MEDIA_TOOLS)
     from services import frigate_tools as ft
 
     if ft.is_enabled():
@@ -2438,21 +2515,124 @@ async def chat_completions(request: Request):
         has_images=request_has_images,
         tools_active=bool(all_tools),
     )
-    effective_tools, compact_tools = tp.filter_chat_tools(
-        all_tools,
-        provider=active,
-        cfg=cfg,
-        user_text=last_user_msg,
-        route_klass=route_klass,
-        search_enabled=search_enabled,
+    from services import toolkits as tk
+
+    frigate_in_tools = any(
+        (t.get("function") or {}).get("name") in _FRIGATE_TOOL_NAMES for t in all_tools
     )
-    effective_tools = effective_tools if effective_tools else None
-    if effective_tools and len(all_tools) != len(effective_tools):
-        log.info(
-            "[%s] Tools trimmed: %s → %s (class=%s, provider=%s)",
-            user_id, len(all_tools), len(effective_tools), route_klass,
-            active.get("type") or active.get("name") or "?",
+    skills_in_tools = any(
+        (t.get("function") or {}).get("name") == "run_skill" for t in all_tools
+    )
+    image_gen_in_tools = any(
+        (t.get("function") or {}).get("name") == "generate_image" for t in all_tools
+    )
+    toolkit_state: dict = {"enabled": False, "effective": None, "all_tools": all_tools}
+
+    if tp.tool_profile_mode(cfg) == tp.PROFILE_DYNAMIC:
+        from services import pack_router as pr
+        from core import database as db
+
+        eligible_preview = tk.eligible_packs(
+            cfg,
+            all_tools,
+            frigate_available=frigate_in_tools,
+            image_gen_available=image_gen_in_tools,
+            skills_available=skills_in_tools,
         )
+        before_tok = tk.estimate_tools_tokens(all_tools)
+        route_decision = await pr.route_packs(
+            last_user_msg,
+            eligible_preview,
+            provider=active,
+            model=route.get("model") or active.get("model"),
+        )
+        primed = set(route_decision.get("packs") or ())
+        try:
+            db.add_toolkit_audit(
+                user_id=user_id,
+                session_id=session_id or "",
+                event="route",
+                packs=primed,
+                detail=(
+                    f"confidence={route_decision.get('confidence')} "
+                    f"reason={route_decision.get('reason')}"
+                ),
+                tools_tokens_before=before_tok,
+            )
+        except Exception:
+            pass
+
+        effective_tools, active_packs, eligible = tk.resolve_dynamic_tools(
+            all_tools,
+            cfg=cfg,
+            user_text=last_user_msg,
+            route_klass=route_klass,
+            session_id=session_id or "",
+            user_id=user_id,
+            provider=active,
+            primed_packs=primed,
+            frigate_available=frigate_in_tools,
+            image_gen_available=image_gen_in_tools,
+            skills_available=skills_in_tools,
+        )
+        compact_tools = True
+        after_tok = tk.estimate_tools_tokens(effective_tools)
+        try:
+            db.add_toolkit_audit(
+                user_id=user_id,
+                session_id=session_id or "",
+                event="route_applied",
+                packs=active_packs,
+                detail=f"tools={len(effective_tools)}",
+                tools_tokens_before=before_tok,
+                tools_tokens_after=after_tok,
+            )
+        except Exception:
+            pass
+        toolkit_state = {
+            "enabled": True,
+            "all_tools": all_tools,
+            "effective": effective_tools,
+            "active_packs": active_packs,
+            "eligible": eligible,
+            "cfg": cfg,
+            "provider": active,
+            "user_text": last_user_msg,
+            "route_klass": route_klass,
+            "frigate_available": frigate_in_tools,
+            "image_gen_available": image_gen_in_tools,
+            "skills_available": skills_in_tools,
+            "user_id": user_id,
+            "routed_packs": sorted(primed),
+        }
+        log.info(
+            "[%s] Dynamic toolkits: %s → %s tools, ~%s → ~%s tool-tokens (saved ~%s, packs=%s, route=%s)",
+            user_id, len(all_tools), len(effective_tools),
+            before_tok, after_tok, max(0, before_tok - after_tok),
+            sorted(active_packs) or "-",
+            route_decision.get("reason"),
+        )
+    else:
+        effective_tools, compact_tools = tp.filter_chat_tools(
+            all_tools,
+            provider=active,
+            cfg=cfg,
+            user_text=last_user_msg,
+            route_klass=route_klass,
+            search_enabled=search_enabled,
+        )
+        if effective_tools and len(all_tools) != len(effective_tools):
+            log.info(
+                "[%s] Tools trimmed: %s → %s tools, ~%s → ~%s tool-tokens (class=%s, provider=%s)",
+                user_id, len(all_tools), len(effective_tools),
+                tk.estimate_tools_tokens(all_tools),
+                tk.estimate_tools_tokens(effective_tools),
+                route_klass,
+                active.get("type") or active.get("name") or "?",
+            )
+    effective_tools = effective_tools if effective_tools else None
+    if toolkit_state.get("enabled") and effective_tools is not None:
+        toolkit_state["effective"] = effective_tools
 
     # Authenticate when an API key is configured
     _validate_api_key(request)
@@ -2718,6 +2898,14 @@ async def chat_completions(request: Request):
             "role": route.get("role") or "",
             "reason": route.get("reason") or "",
         })
+    routed = toolkit_state.get("routed_packs") if isinstance(toolkit_state, dict) else None
+    if routed:
+        _trace_push(trace_id, {
+            "id": "toolkits-route",
+            "name": "toolkits",
+            "detail": ", ".join(routed),
+            "status": "done",
+        })
 
     async def emit_think(
         think_id: str,
@@ -2837,8 +3025,10 @@ async def chat_completions(request: Request):
                     session_id=session_id,
                     generated_attachments=generated_attachments,
                     cfg=cfg,
+                    toolkit_state=toolkit_state,
                 ):
                     _search_used = True
+                effective_tools = _sync_effective_tools(toolkit_state, effective_tools)
 
                 # Imagine can take 30–90s; a second LLM round often trips HA Ingress 504.
                 # When this round was only generate_image and we have images, finish now.
@@ -3105,7 +3295,7 @@ async def chat_completions(request: Request):
     # After tools run, we start another stream — same agentic loop as JSON.
 
     async def stream_wrapper():
-        nonlocal augmented
+        nonlocal augmented, effective_tools
         full_response = ""
         fingerprints: list[str] = []
         generated_attachments: list[dict] = []
@@ -3463,8 +3653,10 @@ async def chat_completions(request: Request):
                     session_id=session_id,
                     generated_attachments=generated_attachments,
                     cfg=cfg,
+                    toolkit_state=toolkit_state,
                 ):
                     search_used = True
+                effective_tools = _sync_effective_tools(toolkit_state, effective_tools)
                 new_generated = generated_attachments[prev_generated:]
                 if new_generated:
                     image_md = _markdown_for_generated_attachments(new_generated, session_id, full_response)

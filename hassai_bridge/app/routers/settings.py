@@ -101,6 +101,14 @@ async def bridge_tool_groups():
     return {"groups": GROUP_KEYS}
 
 
+@router.get("/toolkit-audit")
+async def toolkit_audit(limit: int = 20):
+    """Recent Dynamic toolkits route/activate events (newest first)."""
+    from core.database import get_toolkit_audit
+
+    return {"events": get_toolkit_audit(limit)}
+
+
 @router.get("/secondary-use-for-categories")
 async def secondary_use_for_categories():
     """Categories a secondary provider can be opted into for tool recall."""

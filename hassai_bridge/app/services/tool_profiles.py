@@ -11,6 +11,7 @@ from services import deepseek as ds
 
 PROFILE_FULL = "full"
 PROFILE_AUTO = "auto"
+PROFILE_DYNAMIC = "dynamic"
 
 # OpenAI Chat Completions rejects tools arrays longer than 128.
 OPENAI_MAX_TOOLS = 128
@@ -65,7 +66,7 @@ _BRIDGE_WRITE_TOOLS = frozenset({
     "hassai_set_setting", "hassai_switch_provider",
 })
 _MEDIA_TOOL_NAMES = frozenset({
-    "media_list", "media_read", "media_write",
+    "media_list", "media_read", "media_delete",
 })
 
 # Higher score = keep when hard-capping under provider max.
@@ -94,7 +95,7 @@ _HA_CAT_PRIORITY: dict[str, int] = {
 def tool_profile_mode(cfg: dict | None) -> str:
     perf = (cfg or {}).get("performance") if isinstance((cfg or {}).get("performance"), dict) else {}
     mode = str(perf.get("tool_profile") or PROFILE_AUTO).strip().lower()
-    return mode if mode in (PROFILE_AUTO, PROFILE_FULL) else PROFILE_AUTO
+    return mode if mode in (PROFILE_AUTO, PROFILE_FULL, PROFILE_DYNAMIC) else PROFILE_AUTO
 
 
 def provider_tools_max(provider: dict | None) -> int | None:
@@ -108,7 +109,8 @@ def should_compact_tools(
     provider: dict | None,
     cfg: dict | None,
 ) -> bool:
-    if tool_profile_mode(cfg) == PROFILE_FULL:
+    mode = tool_profile_mode(cfg)
+    if mode in (PROFILE_FULL, PROFILE_DYNAMIC):
         return False
     return oai._is_local_provider(provider)
 

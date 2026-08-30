@@ -49,9 +49,12 @@ export function ProviderQuickSettings({
   capabilities,
   thinkingMode,
   auto = false,
+  activePacks = [],
+  toolProfile = "auto",
   onThinkingModeChange,
   onModelChange,
   onProviderChange,
+  onClearPacks,
   lang,
   disabled = false,
 }) {
@@ -232,6 +235,34 @@ export function ProviderQuickSettings({
             })}
           </div>
           <div className="mt-1 text-[11px] text-muted-foreground">{thinkingLabel}</div>
+        </div>
+      ) : null}
+
+      {toolProfile === "dynamic" ? (
+        <div className="mt-3 border-t border-white/10 pt-3">
+          <div className="mb-1.5 text-[12px] text-muted-foreground">{tr(lang, "activePacksLabel")}</div>
+          {activePacks?.length ? (
+            <div className="mb-2 flex flex-wrap gap-1">
+              {activePacks.map((pack) => (
+                <span
+                  key={pack}
+                  className="rounded-lg bg-white/[0.06] px-2 py-0.5 text-[11px] text-foreground"
+                >
+                  {pack}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="mb-2 text-[11px] text-muted-foreground">{tr(lang, "activePacksEmpty")}</div>
+          )}
+          <button
+            type="button"
+            className="rounded-xl bg-white/[0.06] px-2.5 py-1.5 text-[12px] text-muted-foreground hover:bg-white/[0.1] hover:text-foreground disabled:opacity-40"
+            disabled={disabled || !activePacks?.length}
+            onClick={() => onClearPacks?.()}
+          >
+            {tr(lang, "clearPacks")}
+          </button>
         </div>
       ) : null}
     </div>

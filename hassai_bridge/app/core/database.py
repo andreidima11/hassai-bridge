@@ -255,10 +255,42 @@ def init_db():
                         conn.execute(f"ALTER TABLE usage_stats ADD COLUMN {col} {decl}")
                     except sqlite3.OperationalError:
                         pass
+            # v7: session_state + toolkit_audit created via CREATE IF NOT EXISTS below
             conn.execute(
                 "UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1",
                 (DB_SCHEMA_VERSION, time.time()),
             )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS session_state (
+                user_id TEXT NOT NULL DEFAULT '',
+                session_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                data TEXT NOT NULL DEFAULT '{}',
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (user_id, session_id, kind)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_session_state_sid ON session_state(session_id)"
+        )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS toolkit_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts REAL NOT NULL,
+                user_id TEXT NOT NULL DEFAULT '',
+                session_id TEXT NOT NULL DEFAULT '',
+                event TEXT NOT NULL,
+                packs_json TEXT NOT NULL DEFAULT '[]',
+                detail TEXT NOT NULL DEFAULT '',
+                tools_tokens_before INTEGER NOT NULL DEFAULT 0,
+                tools_tokens_after INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_toolkit_audit_ts ON toolkit_audit(ts DESC)"
+        )
 
 
 # ── FTS5 sync helpers (#2) ──
@@ -700,6 +732,10 @@ def delete_conversation_session(user_id, session_id):
             "DELETE FROM conversations WHERE user_id = ? AND session_id = ?",
             (user_id, session_id),
         )
+        conn.execute(
+            "DELETE FROM session_state WHERE session_id = ?",
+            (session_id,),
+        )
 
 
 def bulk_delete_conversation_sessions(user_id: str, session_ids: list[str]):
@@ -894,3 +930,121 @@ def rebuild_fts_index():
             )
         except sqlite3.OperationalError:
             pass  # FTS not available
+
+# ── Session state (provider override + toolkit sticky) ──
+
+KIND_CHAT_OVERRIDE = "chat_override"
+KIND_TOOLKIT_STICKY = "toolkit_sticky"
+
+
+def upsert_session_state(user_id: str, session_id: str, kind: str, data: dict) -> None:
+    sid = str(session_id or "").strip()
+    if not sid or not kind:
+        return
+    payload = json.dumps(data if isinstance(data, dict) else {}, ensure_ascii=False)
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO session_state (user_id, session_id, kind, data, updated_at)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, session_id, kind) DO UPDATE SET
+                 data = excluded.data,
+                 updated_at = excluded.updated_at""",
+            (str(user_id or ""), sid, kind, payload, time.time()),
+        )
+
+
+def get_session_state(user_id: str, session_id: str, kind: str) -> dict | None:
+    sid = str(session_id or "").strip()
+    if not sid or not kind:
+        return None
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT data FROM session_state
+               WHERE session_id = ? AND kind = ?
+               ORDER BY CASE WHEN user_id = ? THEN 0 ELSE 1 END
+               LIMIT 1""",
+            (sid, kind, str(user_id or "")),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        data = json.loads(row["data"] or "{}")
+        return data if isinstance(data, dict) else None
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def clear_session_state(session_id: str, kind: str | None = None) -> None:
+    sid = str(session_id or "").strip()
+    if not sid:
+        return
+    with get_db() as conn:
+        if kind:
+            conn.execute(
+                "DELETE FROM session_state WHERE session_id = ? AND kind = ?",
+                (sid, kind),
+            )
+        else:
+            conn.execute("DELETE FROM session_state WHERE session_id = ?", (sid,))
+
+
+def add_toolkit_audit(
+    *,
+    user_id: str = "",
+    session_id: str = "",
+    event: str,
+    packs: list | set | None = None,
+    detail: str = "",
+    tools_tokens_before: int = 0,
+    tools_tokens_after: int = 0,
+) -> None:
+    packs_json = json.dumps(sorted(packs or ()), ensure_ascii=False)
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO toolkit_audit
+               (ts, user_id, session_id, event, packs_json, detail,
+                tools_tokens_before, tools_tokens_after)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                time.time(),
+                str(user_id or ""),
+                str(session_id or ""),
+                str(event or ""),
+                packs_json,
+                str(detail or "")[:2000],
+                int(tools_tokens_before or 0),
+                int(tools_tokens_after or 0),
+            ),
+        )
+
+
+def get_toolkit_audit(limit: int = 20) -> list[dict]:
+    try:
+        lim = max(1, min(int(limit), 100))
+    except (TypeError, ValueError):
+        lim = 20
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, ts, user_id, session_id, event, packs_json, detail,
+                      tools_tokens_before, tools_tokens_after
+               FROM toolkit_audit ORDER BY ts DESC LIMIT ?""",
+            (lim,),
+        ).fetchall()
+    out = []
+    for r in rows:
+        try:
+            packs = json.loads(r["packs_json"] or "[]")
+        except (json.JSONDecodeError, TypeError):
+            packs = []
+        out.append({
+            "id": r["id"],
+            "ts": r["ts"],
+            "user_id": r["user_id"],
+            "session_id": r["session_id"],
+            "event": r["event"],
+            "packs": packs if isinstance(packs, list) else [],
+            "detail": r["detail"],
+            "tools_tokens_before": r["tools_tokens_before"],
+            "tools_tokens_after": r["tools_tokens_after"],
+        })
+    return out
