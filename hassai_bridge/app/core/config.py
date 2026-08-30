@@ -159,6 +159,7 @@ DEFAULT_CONFIG = {
         "memory": True,
         "status": True,
         "control": True,
+        "media": True,
     },
     "ha_tools": {
         "entities": True,

@@ -336,10 +336,12 @@ async def chat_voice_speak(request: Request, data: dict):
 @router.delete("/api/conversations/{session_id}")
 async def delete_mine(request: Request, session_id: str):
     from services import session_chat as sc
+    from services import toolkits as tk
 
     user_id = _current_username(request)
     delete_conversation_session(user_id, session_id)
     sc.clear(session_id)
+    tk.clear_sticky(session_id)
     return {"status": "ok", "user_id": user_id, "session_id": session_id}
 
 

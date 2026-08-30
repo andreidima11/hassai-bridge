@@ -11,6 +11,7 @@ GROUP_KEYS: dict[str, str] = {
     "memory": "Read and write the assistant's long-term memory",
     "status": "Read own version, provider, settings and usage",
     "control": "Change own settings, provider and model",
+    "media": "List, read and delete files in /media and /share",
 }
 
 DEFAULT_BRIDGE_TOOLS: dict[str, bool] = {k: True for k in GROUP_KEYS}

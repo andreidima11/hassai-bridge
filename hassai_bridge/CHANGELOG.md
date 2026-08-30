@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.0
+
+### Features
+- **Dynamic toolkits** — Settings → Performance → Dynamic sends a small core (media, memory, bridge read, `activate_toolkits`) and loads HA/Frigate/image packs on demand; respects HA/Bridge permission toggles (including new **media** permission)
+- **Tool token logging** — each turn logs estimated tool-schema tokens before/after filtering (and after pack activate)
+- **Short tool descriptions** — in Dynamic mode, tool descriptions are collapsed to one short line (parameters kept) to save more input tokens
+
 ## 1.1.0
 
 ### Features

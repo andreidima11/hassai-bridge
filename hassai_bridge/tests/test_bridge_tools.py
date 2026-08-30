@@ -47,7 +47,14 @@ def _load():
 # ── Gating ─────────────────────────────────────────
 
 def test_all_groups_default_on():
-    assert bta.merged_bridge_tools_config({}) == {"memory": True, "status": True, "control": True}
+    assert bta.merged_bridge_tools_config({}) == {
+        "memory": True, "status": True, "control": True, "media": True,
+    }
+
+
+def test_media_group_default_on_when_missing():
+    assert bta.group_enabled("media", {"bridge_tools": {"memory": True}}) is True
+    assert bta.group_enabled("media", {"bridge_tools": {"media": False}}) is False
 
 
 def test_status_group_hides_read_tools():

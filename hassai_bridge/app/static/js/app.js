@@ -773,7 +773,7 @@ async function loadBridgeToolGroups() {
     const data = await api('GET', '/api/settings/bridge-tool-groups');
     _bridgeToolGroupKeys = Object.keys(data.groups || {});
   } catch {
-    _bridgeToolGroupKeys = ['memory', 'status', 'control'];
+    _bridgeToolGroupKeys = ['memory', 'status', 'control', 'media'];
   }
   return _bridgeToolGroupKeys;
 }
