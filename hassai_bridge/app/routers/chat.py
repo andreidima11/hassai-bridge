@@ -2393,7 +2393,7 @@ async def chat_completions(request: Request):
             last_user_msg = cc.content_text(msg.get("content"))
             break
 
-    request_has_images = cc.messages_have_images(messages)
+    request_has_images = cc.current_turn_has_images(messages)
     route = provider_router.resolve(
         cfg,
         active=get_active_provider(),
@@ -2611,7 +2611,7 @@ async def chat_completions(request: Request):
     # as assistant image_url to the LLM (DeepSeek Vision HTTP 400, etc.).
     augmented = cc.strip_non_user_images(augmented)
 
-    request_has_images = cc.messages_have_images(augmented)
+    request_has_images = cc.current_turn_has_images(augmented)
     image_provider: dict | None = None
     chat_provider = active
     if request_has_images and not providers.provider_supports_vision(active):

@@ -181,6 +181,23 @@ def test_escalating_to_deep_work_breaks_stickiness():
     assert deep["reason"] != "sticky"
 
 
+def test_text_followup_after_photo_leaves_vision_sticky():
+    cfg = _cfg()
+    photo = rt.resolve(
+        cfg, active=DEEPSEEK, session_id="s-vis",
+        user_text="ce e in poza?", has_images=True, tools_active=True,
+    )
+    assert photo["klass"] == "vision"
+    follow = rt.resolve(
+        cfg, active=DEEPSEEK, session_id="s-vis",
+        user_text="mersi", has_images=False, tools_active=True,
+    )
+    assert follow["klass"] == "simple"
+    assert follow["role"] == "fast"
+    # One photo must not lock later text turns on the vision sticky provider.
+    assert follow["reason"] != "sticky"
+
+
 def test_stickiness_can_be_switched_off():
     cfg = _cfg(sticky_session=False)
     rt.resolve(cfg, active=OPENAI, session_id="s3", user_text="salut", tools_active=True)
