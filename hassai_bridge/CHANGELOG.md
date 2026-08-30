@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.0.48
+
+### Fix
+- **Inline `<thinking>` / `<think>` tags** — strip from the chat reply and show them in the Thinking panel; also pick up OpenRouter `reasoning` / `reasoning_details`
+- **OpenRouter provider sort clarified** — UI hint that sort picks the upstream host for the same model (shown as `model · Host`); use Fallback models for a different model on failure
+
 ## 1.0.47
 
 ### Features
