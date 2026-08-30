@@ -73,6 +73,21 @@ def test_messages_have_images():
     ]) is False
 
 
+def test_current_turn_has_images_ignores_older_photos():
+    older = {
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "what's this?"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,YQ=="}},
+        ],
+    }
+    follow = {"role": "user", "content": "and what color was it?"}
+    assert cc.messages_have_images([older, {"role": "assistant", "content": "a cat"}, follow]) is True
+    assert cc.current_turn_has_images([older, {"role": "assistant", "content": "a cat"}, follow]) is False
+    assert cc.current_turn_has_images([older]) is True
+    assert cc.current_turn_has_images([{"role": "user", "content": "hi"}]) is False
+
+
 def test_strip_non_user_images():
     msgs = [
         {"role": "user", "content": [{"type": "text", "text": "hi"}, {"type": "image_url", "image_url": {"url": "data:x"}}]},

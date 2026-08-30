@@ -314,13 +314,16 @@ def resolve(
     # Stickiness: keep the session on its provider (prompt cache), but pick this
     # turn's role — and therefore its model — fresh. Escalating to deep leaves
     # sticky so a stronger provider can win; short follow-ups must not stay on
-    # the planning model when the user configured a cheap/fast one.
+    # the planning model when the user configured a cheap/fast one. Leaving a
+    # vision turn also leaves sticky — otherwise one photo locks the chat on the
+    # expensive vision provider for every later text message.
     if conf["sticky_session"] and session_id and not exclude:
         remembered = _sticky.get(session_id)
         if remembered and (now - remembered.get("ts", 0)) <= STICKY_TTL_SEC:
             held = _by_id(usable, remembered.get("provider_id", ""))
             escalating = klass == "deep" and remembered.get("role") != "deep"
-            if held is not None and not escalating:
+            leaving_vision = remembered.get("role") == "vision" and role != "vision"
+            if held is not None and not escalating and not leaving_vision:
                 _remember(session_id, held, role, now)
                 return _decision(
                     with_role_model(held, role), klass, role, "sticky",

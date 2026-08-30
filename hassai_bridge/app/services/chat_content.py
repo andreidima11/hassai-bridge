@@ -63,6 +63,20 @@ def messages_have_images(messages: list[dict] | None) -> bool:
     return False
 
 
+def current_turn_has_images(messages: list[dict] | None) -> bool:
+    """True only if the latest user turn includes images.
+
+    Older photos in the transcript must not keep routing follow-ups to a Vision
+    LLM (that burned API spend after a single snap). Non-vision providers still
+    strip historical images via prepare_messages_for_request.
+    """
+    for msg in reversed(messages or []):
+        if msg.get("role") != "user":
+            continue
+        return has_images(msg.get("content"))
+    return False
+
+
 def strip_non_user_images(messages: list[dict] | None) -> list[dict]:
     """Drop image_url parts from assistant/tool/system messages before LLM calls."""
     out: list[dict] = []
