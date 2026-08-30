@@ -49,6 +49,7 @@ from services import memory_tools as mt
 from services import bridge_tools as bt
 from services import pricing
 from services import openrouter as ovr
+from services import thinking_text as tt
 from services import tool_profiles as tp
 # `router` is the FastAPI APIRouter below — alias the routing service.
 from services import router as provider_router
@@ -645,14 +646,24 @@ def _store_reasoning(text: str | None) -> str:
 def _message_reasoning(message: dict | None) -> str:
     if not isinstance(message, dict):
         return ""
-    return _clip_reasoning(message.get("reasoning_content") or "")
+    field = tt.message_reasoning_text(message)
+    _, inline = tt.split_inline_thinking(message.get("content") or "")
+    return _clip_reasoning(tt.merge_thinking(field, inline))
 
 
 def _message_reasoning_full(message: dict | None) -> str:
     if not isinstance(message, dict):
         return ""
-    return _store_reasoning(message.get("reasoning_content") or "")
+    field = tt.message_reasoning_text(message)
+    _, inline = tt.split_inline_thinking(message.get("content") or "")
+    return _store_reasoning(tt.merge_thinking(field, inline))
 
+
+def _finalize_assistant_text(text: str | None, message: dict | None = None) -> tuple[str, str]:
+    """Strip inline thinking tags from content; merge with API reasoning fields."""
+    visible, inline = tt.split_inline_thinking(text)
+    field = tt.message_reasoning_text(message) if isinstance(message, dict) else ""
+    return visible, tt.merge_thinking(field, inline)
 
 def _compact_activity(events: list | None) -> list[dict]:
     """Keep the last status per step id (running → done) for storage."""
@@ -2944,6 +2955,13 @@ async def chat_completions(request: Request):
                 del final_msg["tool_calls"]
 
         assistant_content = final_msg.get("content", "") or ""
+        assistant_content, inline_reasoning = _finalize_assistant_text(assistant_content, final_msg)
+        if isinstance(final_msg, dict):
+            final_msg["content"] = assistant_content
+            try:
+                result["choices"][0]["message"]["content"] = assistant_content
+            except (KeyError, IndexError, TypeError):
+                pass
         image_markdown = _markdown_for_generated_attachments(
             generated_attachments, session_id, assistant_content,
         )
@@ -2984,17 +3002,27 @@ async def chat_completions(request: Request):
             response=result if isinstance(result, dict) else None,
             configured=chat_provider.get("model") or model,
         )
-        if reply_model and reply_model != (chat_provider.get("model") or ""):
+        upstream = ""
+        if isinstance(result, dict):
+            upstream = str(result.get("provider") or "").strip()
+        route_detail = reply_model
+        if reply_model and upstream:
+            route_detail = f"{reply_model} · {upstream}"
+        if route_detail and route_detail != (chat_provider.get("model") or ""):
             _trace_push(trace_id, {
                 "id": "route",
                 "name": "route",
-                "detail": reply_model,
+                "detail": route_detail,
                 "status": "done",
                 "provider": chat_provider.get("name") or "",
                 "role": route.get("role") or "",
                 "reason": route.get("reason") or "",
+                "upstream": upstream,
             })
         if assistant_content or generated_attachments or turn_tools:
+            model_label = reply_model or chat_provider.get("model", "")
+            if model_label and upstream:
+                model_label = f"{model_label} · {upstream}"
             add_conversation_message(
                 user_id, "assistant", assistant_content,
                 session_id=session_id,
@@ -3002,9 +3030,14 @@ async def chat_completions(request: Request):
                     trace_id,
                     activity_events,
                     generated_attachments,
-                    reasoning_content=_message_reasoning_full(final_msg),
+                    reasoning_content=_store_reasoning(
+                        tt.merge_thinking(
+                            tt.message_reasoning_text(final_msg),
+                            inline_reasoning,
+                        )
+                    ),
                     tool_calls=turn_tools,
-                    model=reply_model or chat_provider.get("model", ""),
+                    model=model_label,
                     provider_name=chat_provider.get("name", ""),
                     route=route,
                     photo_context=photo_context or None,
@@ -3079,6 +3112,8 @@ async def chat_completions(request: Request):
         last_content_push = 0.0
         stream_usage: dict = {}
         stream_model = ""
+        stream_upstream = ""
+        route_label_pushed = ""
         last_think_reasoning = ""
 
         async def on_stream_activity(event: dict):
@@ -3144,6 +3179,7 @@ async def chat_completions(request: Request):
                 think_open = True
                 think_reasoning = ""
                 last_reasoning_push = 0.0
+                think_tag_parser = tt.InlineThinkingStreamParser()
                 await on_stream_activity({"id": think_id, "name": "think", "detail": "", "status": "running"})
                 async for part in flush_activity():
                     yield part
@@ -3155,16 +3191,25 @@ async def chat_completions(request: Request):
                             if isinstance(data.get("usage"), dict):
                                 stream_usage = data["usage"]
                             chunk_model = str(data.get("model") or "").strip()
-                            if chunk_model and chunk_model != stream_model:
+                            chunk_upstream = str(data.get("provider") or "").strip()
+                            if chunk_model:
                                 stream_model = chunk_model
+                            if chunk_upstream:
+                                stream_upstream = chunk_upstream
+                            route_label = stream_model
+                            if stream_model and stream_upstream:
+                                route_label = f"{stream_model} · {stream_upstream}"
+                            if route_label and route_label != route_label_pushed:
+                                route_label_pushed = route_label
                                 await on_stream_activity({
                                     "id": "route",
                                     "name": "route",
-                                    "detail": stream_model,
+                                    "detail": route_label,
                                     "status": "done",
                                     "provider": chat_provider.get("name") or "",
                                     "role": route.get("role") or "",
                                     "reason": route.get("reason") or "",
+                                    "upstream": stream_upstream,
                                 })
                                 async for part in flush_activity():
                                     yield part
@@ -3174,7 +3219,7 @@ async def chat_completions(request: Request):
                             continue
 
                         content = delta.get("content") or ""
-                        reasoning = delta.get("reasoning_content") or delta.get("reasoning")
+                        reasoning = tt.delta_reasoning_text(delta)
                         tool_calls_delta = delta.get("tool_calls")
                         finish_reason = data.get("choices", [{}])[0].get("finish_reason")
                         # Gemini may put thought_signature on delta itself (before tool_calls).
@@ -3220,6 +3265,12 @@ async def chat_completions(request: Request):
                                     gm.merge_tool_call_delta(tc_accum[idx], tc)
                             continue
 
+                        if content:
+                            vis_delta, think_delta = think_tag_parser.feed(content)
+                            if think_delta:
+                                reasoning = (reasoning or "") + think_delta
+                            content = vis_delta
+
                         if reasoning:
                             think_reasoning += reasoning
                             last_think_reasoning = think_reasoning
@@ -3237,8 +3288,8 @@ async def chat_completions(request: Request):
                                 })
                                 async for part in flush_activity():
                                     yield part
-                            yield chunk
-                            continue
+                            if not content:
+                                continue
 
                         if content:
                             if think_open:
@@ -3269,12 +3320,23 @@ async def chat_completions(request: Request):
                                 await push_assistant_preview()
                                 async for part in flush_activity():
                                     yield part
-                        yield chunk
+                        # Do not forward raw SSE content chunks that still contain
+                        # thinking tags — the Web UI reads activity "assistant" text.
+                        continue
 
                     elif chunk.strip() == "data: [DONE]":
                         break
                     else:
                         yield chunk
+
+                # Flush any buffered thinking-tag leftovers from this round.
+                vis_tail, think_tail = think_tag_parser.flush()
+                if think_tail:
+                    think_reasoning += think_tail
+                    last_think_reasoning = think_reasoning
+                if vis_tail and not hold_secondary_voice:
+                    round_text += vis_tail
+                    full_response += vis_tail
 
                 if think_open:
                     think_open = False
@@ -3457,6 +3519,8 @@ async def chat_completions(request: Request):
             if full_response or generated_attachments or turn_tools:
                 clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
                 clean_response = cc.strip_photo_notes(clean_response)
+                clean_response, inline_reasoning = tt.split_inline_thinking(clean_response)
+                last_think_reasoning = tt.merge_thinking(last_think_reasoning, inline_reasoning)
                 photo_context = ""
                 if _image_provider_used:
                     from services import vision_handoff as vh
@@ -3467,6 +3531,9 @@ async def chat_completions(request: Request):
                     usage=stream_usage,
                     configured=chat_provider.get("model") or model,
                 )
+                model_label = reply_model or chat_provider.get("model", "")
+                if model_label and stream_upstream:
+                    model_label = f"{model_label} · {stream_upstream}"
                 add_conversation_message(
                     user_id, "assistant", clean_response,
                     session_id=session_id,
@@ -3475,7 +3542,7 @@ async def chat_completions(request: Request):
                         attachments=generated_attachments,
                         reasoning_content=_store_reasoning(last_think_reasoning),
                         tool_calls=turn_tools,
-                        model=reply_model or chat_provider.get("model", ""),
+                        model=model_label,
                         provider_name=chat_provider.get("name", ""),
                         route=route,
                         photo_context=photo_context or None,
