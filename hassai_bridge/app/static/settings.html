@@ -168,6 +168,10 @@
             <div class="info-stat"><div class="info-stat-num" id="statsDynamicPercent">—</div><div class="info-stat-lbl" data-i18n="stats.dynamicSavedPercent">Saved vs full tools</div></div>
           </div>
           <p class="card-muted hint" id="statsDynamicHint" style="margin-top:8px"></p>
+          <h3 style="margin-top:16px;font-size:.95rem" data-i18n="settings.toolkitAudit">Dynamic toolkits audit</h3>
+          <p class="card-muted" data-i18n="settings.toolkitAuditDesc">Recent pack route / activate events (server-side).</p>
+          <button type="button" class="btn btn-sm" onclick="loadToolkitAudit()" data-i18n="settings.toolkitAuditRefresh">Refresh</button>
+          <div id="toolkitAuditList" class="card-muted" style="margin-top:8px;font-size:.82rem;max-height:220px;overflow:auto"></div>
         </div>
       </div>
 
@@ -331,7 +335,6 @@
       <div class="settings-tab" data-stab="stab-cameras" data-i18n="settings.tabCameras">Cameras</div>
       <div class="settings-tab" data-stab="stab-voice" data-i18n="settings.tabVoice">Voice</div>
       <div class="settings-tab" data-stab="stab-memory" data-i18n="settings.tabMemory">Memory</div>
-      <div class="settings-tab" data-stab="stab-perf" data-i18n="settings.tabPerf">Performance</div>
       <div class="settings-tab" data-stab="stab-backup" data-i18n="settings.tabBackup">Backup</div>
     </div>
 
@@ -395,7 +398,7 @@
           <option value="dynamic" data-i18n="settings.toolProfileDynamic">Dynamic — activate packs on demand (all providers)</option>
           <option value="full" data-i18n="settings.toolProfileFull">Full — all tools every request</option>
         </select>
-        <p class="card-muted hint" style="margin-top:6px" data-i18n="settings.toolProfileGlobalHint">Applies to every provider (cloud and local). Dynamic uses a small core plus on-demand packs — see Performance → audit log.</p>
+        <p class="card-muted hint" style="margin-top:6px" data-i18n="settings.toolProfileGlobalHint">Applies to every provider (cloud and local). Dynamic uses a small core plus on-demand packs — see Statistics → Model for savings and audit.</p>
       </div>
 
       <div class="card">
@@ -979,18 +982,6 @@
       </div>
       <div class="btn-row">
         <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>
-      </div>
-    </div>
-
-    <!-- ── Performance (Dynamic toolkits audit) ── -->
-    <div class="settings-subpanel" id="stab-perf">
-      <div class="card">
-        <h2 data-i18n="settings.perfTitle">Dynamic toolkits</h2>
-        <p class="card-muted" data-i18n="settings.perfTabIntro">Tool profile is set globally under Settings → General → Performance (applies to every LLM). When Dynamic is on, the server routes packs before each turn and the model can activate more mid-chat.</p>
-        <h3 style="margin-top:18px" data-i18n="settings.toolkitAudit">Dynamic toolkits audit</h3>
-        <p class="card-muted" data-i18n="settings.toolkitAuditDesc">Recent pack route / activate events (server-side).</p>
-        <button type="button" class="btn btn-sm" onclick="loadToolkitAudit()" data-i18n="settings.toolkitAuditRefresh">Refresh</button>
-        <div id="toolkitAuditList" class="card-muted" style="margin-top:8px;font-size:.82rem;max-height:220px;overflow:auto"></div>
       </div>
     </div>
 

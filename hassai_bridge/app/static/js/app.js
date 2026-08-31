@@ -661,6 +661,7 @@ async function loadUsageStats() {
         }) || '';
       }
     }
+    loadToolkitAudit();
 
     const modelsWithCache = (stats.by_model || []).filter(
       (m) => (m.cache_hit_tokens || 0) > 0 || (m.cache_miss_tokens || 0) > 0,
@@ -936,7 +937,6 @@ async function loadSettings() {
     setVal('perfAgentRounds', perf.agent_max_rounds || 16);
     setChecked('perfParallelFetch', perf.parallel_page_fetch !== false);
     _applyPerformanceFields(perf);
-    loadToolkitAudit();
 
     // System prompt
     setVal('systemPrompt', cfg.system_prompt || '');
@@ -1165,7 +1165,7 @@ async function saveSettings() {
 }
 
 async function savePerfSettings() {
-  await loadToolkitAudit();
+  /* legacy alias — Performance tab removed; audit lives under Statistics */
 }
 
 async function loadToolkitAudit() {

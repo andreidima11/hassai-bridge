@@ -1,5 +1,15 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.4
+
+### Fix
+- **Dynamic toolkit audit in Statistics** — route/activate audit list moved next to Dynamic savings under Statistics → Model; removed the empty Settings → Performance tab (tool profile stays under General → Performance)
+
+## 1.2.3
+
+### Features
+- **Max searches per prompt** — Settings → Search caps how many `search_web` calls the AI may make in one reply (default 3, range 1–10) so agent loops do not hammer SearXNG; leftover budget is told to the model after each search
+
 ## 1.2.2
 
 ### Features
