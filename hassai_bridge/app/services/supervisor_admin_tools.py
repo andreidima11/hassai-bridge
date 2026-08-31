@@ -604,7 +604,7 @@ def _tcp_probe(host: str, port: int, timeout: float) -> None:
 
 
 _UPLOAD_ROOTS = {
-    "config": Path("/config"),
+    "config": None,  # resolved via homeassistant._ha_config_dir()
     "media": Path("/media"),
     "share": Path("/share"),
 }
@@ -612,7 +612,11 @@ _UPLOAD_ROOTS = {
 
 def _safe_upload_path(root_key: str, rel: str) -> Path:
     root_key = (root_key or "config").strip().lower()
-    root = _UPLOAD_ROOTS.get(root_key)
+    if root_key == "config":
+        from services import homeassistant as ha_mod
+        root = ha_mod._ha_config_dir()
+    else:
+        root = _UPLOAD_ROOTS.get(root_key)
     if not root:
         raise ValueError("root must be config, media, or share")
     if not root.is_dir():

@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.11
+
+### Fix
+- **HA config mount** — with `addon_config` + `homeassistant_config`, Supervisor puts Core config at `/homeassistant` (add-on files at `/addon_config`). File tools now resolve the real HA root (configuration.yaml / custom_components) instead of reading the empty add-on `/config`
+
 ## 1.2.10
 
 ### Fix

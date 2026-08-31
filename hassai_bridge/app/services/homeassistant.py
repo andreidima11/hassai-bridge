@@ -3,7 +3,7 @@
 Uses SUPERVISOR_TOKEN:
 - Core REST API  → http://supervisor/core/api/...
 - Supervisor API → http://supervisor/...
-- HA config dir  → /config  (when homeassistant_config is mapped)
+- HA config dir  → /homeassistant (homeassistant_config map) or /config (legacy)
 """
 
 from __future__ import annotations
@@ -38,7 +38,47 @@ _SUPERVISOR = "http://supervisor"
 _TIMEOUT = 45.0
 _LOG_TIMEOUT = 60.0
 _MAX_JSON = 14_000
-_HA_CONFIG = Path("/config")
+# Home Assistant Core config (custom_components, configuration.yaml).
+# With addon_config:rw + homeassistant_config:rw, Supervisor mounts HA at
+# /homeassistant and the add-on's own folder at /config — never assume /config.
+_HA_CONFIG_OVERRIDE: Path | None = None
+
+
+def _ha_config_dir() -> Path:
+    """Resolved Home Assistant config directory inside this container."""
+    if _HA_CONFIG_OVERRIDE is not None:
+        return _HA_CONFIG_OVERRIDE
+    env = (os.environ.get("HASSAI_HA_CONFIG") or "").strip()
+    if env:
+        p = Path(env)
+        if p.is_dir():
+            return p
+
+    candidates = [Path("/homeassistant"), Path("/config")]
+    best: Path | None = None
+    best_score = -1
+    for cand in candidates:
+        if not cand.is_dir():
+            continue
+        score = 0
+        try:
+            if (cand / "configuration.yaml").is_file():
+                score += 10
+            if (cand / "custom_components").is_dir():
+                score += 5
+            if (cand / ".storage").is_dir():
+                score += 3
+        except OSError:
+            continue
+        # Prefer /homeassistant when scores tie (addon_config often owns /config).
+        if cand.as_posix() == "/homeassistant":
+            score += 1
+        if score > best_score:
+            best_score = score
+            best = cand
+    return best if best is not None else Path("/config")
+
+
 _ALLOWED_FILE_SUFFIXES = {".yaml", ".yml", ".json", ".txt", ".log", ".conf", ".cfg"}
 # Python only under custom_components/ (repair custom integrations — never elsewhere).
 _PY_SUFFIX = ".py"
@@ -229,8 +269,8 @@ def _safe_config_path(rel: str, *, allow_py: bool = False) -> Path:
     raw = (rel or "").strip().lstrip("/")
     if not raw or raw.endswith("/"):
         raise ValueError("path is required (file, not directory)")
-    target = (_HA_CONFIG / raw).resolve()
-    root = _HA_CONFIG.resolve()
+    target = (_ha_config_dir() / raw).resolve()
+    root = _ha_config_dir().resolve()
     if root not in target.parents and target != root:
         raise ValueError("path escapes /config")
     rel_posix = target.relative_to(root).as_posix()
@@ -2178,7 +2218,7 @@ async def _reload(args: dict) -> str:
 async def _dashboard_mode(url_path: str | None) -> str:
     ws_path = lt.ws_url_path(url_path)
     if ws_path is None:
-        ui_lovelace = _HA_CONFIG / "ui-lovelace.yaml"
+        ui_lovelace = _ha_config_dir() / "ui-lovelace.yaml"
         if ui_lovelace.is_file():
             return "yaml"
         return "storage"
@@ -2203,7 +2243,7 @@ async def _list_dashboards(_args: dict) -> str:
         "mode": overview_mode,
         "builtin": True,
     }
-    if overview_mode == "yaml" and (_HA_CONFIG / "ui-lovelace.yaml").is_file():
+    if overview_mode == "yaml" and (_ha_config_dir() / "ui-lovelace.yaml").is_file():
         overview["config_file"] = "ui-lovelace.yaml"
 
     lines = ["Built-in dashboards:", lt.dump_json(overview, max_chars=2000)]
@@ -2268,7 +2308,7 @@ async def _get_dashboard(args: dict) -> str:
     url_path = args.get("url_path")
     mode = await _dashboard_mode(url_path)
     if mode == "yaml":
-        ui = _HA_CONFIG / "ui-lovelace.yaml"
+        ui = _ha_config_dir() / "ui-lovelace.yaml"
         if lt.ws_url_path(url_path) is None and ui.is_file():
             return await _read_file({"path": "ui-lovelace.yaml"})
         yaml_file = lt.yaml_dashboard_file(url_path)
@@ -2544,17 +2584,20 @@ async def _append_card_yaml(args: dict) -> str:
 
 
 async def _list_files(args: dict) -> str:
-    if not _HA_CONFIG.is_dir():
-        return "Error: /config is not mounted (add-on needs homeassistant_config:rw)"
+    if not _ha_config_dir().is_dir():
+        return (
+            "Error: Home Assistant config is not mounted "
+            "(add-on needs homeassistant_config:rw; expected /homeassistant or /config)"
+        )
     sub = (args.get("subdir") or "").strip().lstrip("/")
     search = (args.get("search") or "").strip().lower()
     allow_py = _cfg_allow_custom_py()
-    base = (_HA_CONFIG / sub).resolve() if sub else _HA_CONFIG.resolve()
-    if _HA_CONFIG.resolve() not in base.parents and base != _HA_CONFIG.resolve():
+    base = (_ha_config_dir() / sub).resolve() if sub else _ha_config_dir().resolve()
+    if _ha_config_dir().resolve() not in base.parents and base != _ha_config_dir().resolve():
         return "Error: subdir escapes /config"
     if not base.is_dir():
         # Helpful hint when looking for integrations
-        cc = _HA_CONFIG / "custom_components"
+        cc = _ha_config_dir() / "custom_components"
         hint = ""
         if cc.is_dir():
             dirs = sorted(p.name for p in cc.iterdir() if p.is_dir())[:40]
@@ -2575,7 +2618,7 @@ async def _list_files(args: dict) -> str:
     # Prefer scoped walks: without subdir + allow_py, surface custom_components first.
     roots: list[Path] = [base]
     if not sub and allow_py:
-        cc = (_HA_CONFIG / "custom_components").resolve()
+        cc = (_ha_config_dir() / "custom_components").resolve()
         if cc.is_dir() and cc != base:
             roots = [cc, base]
 
@@ -2590,7 +2633,7 @@ async def _list_files(args: dict) -> str:
             if not p.is_file():
                 continue
             try:
-                rel = p.relative_to(_HA_CONFIG).as_posix()
+                rel = p.relative_to(_ha_config_dir()).as_posix()
             except ValueError:
                 continue
             if rel in seen:
@@ -2612,7 +2655,7 @@ async def _list_files(args: dict) -> str:
             break
 
     if not rows:
-        cc = _HA_CONFIG / "custom_components"
+        cc = _ha_config_dir() / "custom_components"
         extra = ""
         if allow_py and cc.is_dir():
             dirs = sorted(p.name for p in cc.iterdir() if p.is_dir())[:40]
@@ -2642,14 +2685,15 @@ async def _read_file(args: dict) -> str:
     except ValueError as exc:
         return f"Error: {exc}"
     if not path.is_file():
-        rel = path.relative_to(_HA_CONFIG).as_posix()
+        rel = path.relative_to(_ha_config_dir()).as_posix()
         hint = ""
         if rel.startswith(_CUSTOM_COMPONENTS_PREFIX) or "custom_components" in rel:
-            cc = _HA_CONFIG / "custom_components"
+            cc = _ha_config_dir() / "custom_components"
             if not cc.is_dir():
                 hint = (
-                    "\n/config/custom_components does not exist from this add-on "
-                    "(check homeassistant_config:rw map, or no custom integrations installed)."
+                    "\ncustom_components does not exist under the HA config mount "
+                    f"({_ha_config_dir()}) — check homeassistant_config:rw "
+                    "(HA files are usually at /homeassistant when addon_config also maps /config)."
                 )
             else:
                 dirs = sorted(p.name for p in cc.iterdir() if p.is_dir())[:50]
@@ -2683,7 +2727,7 @@ async def _write_file(args: dict) -> str:
     if len(content) > 400_000:
         return "Error: content too large (max 400KB)"
 
-    root = _HA_CONFIG.resolve()
+    root = _ha_config_dir().resolve()
     rel = path.relative_to(root).as_posix()
     is_py = path.suffix.lower() == _PY_SUFFIX
     old = ""

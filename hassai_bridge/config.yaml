@@ -2,7 +2,7 @@
 # Keep `version` identical to the root /VERSION file (no leading "v").
 # Prebuilt GHCR image — Supervisor PULLS it (reliable updates). Quotes keep {arch}.
 name: HASSAI Bridge
-version: "1.2.10"
+version: "1.2.11"
 slug: hassai_bridge
 description: AI bridge for Home Assistant — agentic chat, memory, and LLM proxy
 url: https://github.com/andreidima11/hassai-bridge
@@ -25,8 +25,14 @@ ports:
 ports_description:
   8899/tcp: HASSAI Bridge API (integration + optional direct access)
 map:
-  - homeassistant_config:rw
-  - addon_config:rw
+  # HA Core config (configuration.yaml, custom_components) → /homeassistant
+  - type: homeassistant_config
+    read_only: false
+    path: /homeassistant
+  # This add-on's own files → /addon_config (not /config)
+  - type: addon_config
+    read_only: false
+    path: /addon_config
   - share:rw
   - media:rw
 options:

@@ -14,7 +14,7 @@ from services import homeassistant as ha
 def config_root(tmp_path, monkeypatch):
     root = tmp_path / "config"
     root.mkdir()
-    monkeypatch.setattr(ha, "_HA_CONFIG", root)
+    monkeypatch.setattr(ha, "_HA_CONFIG_OVERRIDE", root)
     return root
 
 
@@ -105,3 +105,21 @@ def test_read_missing_lists_packages(config_root, monkeypatch):
     out = asyncio.run(ha._read_file({"path": "custom_components/midea_ac/climate.py"}))
     assert "not found" in out
     assert "other_ac" in out
+
+
+def test_ha_config_dir_prefers_homeassistant(tmp_path, monkeypatch):
+    monkeypatch.setattr(ha, "_HA_CONFIG_OVERRIDE", None)
+    monkeypatch.delenv("HASSAI_HA_CONFIG", raising=False)
+    home = tmp_path / "homeassistant"
+    addon = tmp_path / "config"
+    home.mkdir()
+    addon.mkdir()
+    (home / "configuration.yaml").write_text("default_config:\n", encoding="utf-8")
+    (home / "custom_components").mkdir()
+    (addon / "options.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(
+        ha,
+        "_ha_config_dir",
+        lambda: home if (home / "configuration.yaml").is_file() else addon,
+    )
+    assert ha._ha_config_dir() == home
