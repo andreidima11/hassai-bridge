@@ -915,7 +915,7 @@ async function loadSettings() {
     setVal('perfHistoryLimit', perf.history_limit || 10);
     setVal('perfAgentRounds', perf.agent_max_rounds || 16);
     setChecked('perfParallelFetch', perf.parallel_page_fetch !== false);
-    _applyPerformanceFields(perf, 'perf');
+    _applyPerformanceFields(perf);
     loadToolkitAudit();
 
     // System prompt
@@ -1112,7 +1112,7 @@ async function saveSettings() {
         history_limit: parseInt(document.getElementById('perfHistoryLimit').value),
         agent_max_rounds: parseInt(document.getElementById('perfAgentRounds').value) || 16,
         parallel_page_fetch: document.getElementById('perfParallelFetch').checked,
-        ..._collectPerformanceFields('perf'),
+        ..._collectPerformanceFields(),
       },
       system_prompt: document.getElementById('systemPrompt').value,
       ha_agent_prompt: (() => {
@@ -1144,16 +1144,7 @@ async function saveSettings() {
 }
 
 async function savePerfSettings() {
-  try {
-    await api('PUT', '/api/settings/', {
-      performance: {
-        ..._collectPerformanceFields('perf'),
-      },
-    });
-    toast(t('toast.settingsSaved'));
-  } catch (e) {
-    toast(t('toast.error', { msg: e.message }), true);
-  }
+  await loadToolkitAudit();
 }
 
 async function loadToolkitAudit() {
@@ -1557,54 +1548,20 @@ function updateProviderCapabilitySections(ptype) {
   if (thinkingSection) {
     thinkingSection.style.display = providerTypeCapabilities(ptype).thinking ? '' : 'none';
   }
-  const localPerfSection = document.getElementById('provLocalPerfSection');
-  if (localPerfSection) {
-    localPerfSection.style.display = ptype === 'local' ? '' : 'none';
-  }
   const orSection = document.getElementById('provOpenRouterSection');
   if (orSection) orSection.style.display = ptype === 'openrouter' ? '' : 'none';
   _syncOpenRouterFreeFilterUi(ptype, 'provFilterFreeRow', 'provFilterFreeModels');
 }
 
-function _applyPerformanceFields(perf, prefix) {
-  const p = prefix || 'perf';
-  const toolProfile = document.getElementById(`${p}ToolProfile`);
+function _applyPerformanceFields(perf) {
+  const toolProfile = document.getElementById('perfToolProfile');
   if (toolProfile) toolProfile.value = perf.tool_profile || 'auto';
-  const localHist = document.getElementById(`${p}LocalHistoryLimit`);
-  if (localHist) localHist.value = perf.local_history_limit ?? 6;
-  const replay = document.getElementById(`${p}ToolReplayTurns`);
-  if (replay) replay.value = perf.tool_replay_turns ?? 0;
-  if (prefix === 'provPerf') {
-    const hist = document.getElementById('provPerfHistoryLimit');
-    if (hist) hist.value = perf.history_limit || 10;
-  }
 }
 
-function _collectPerformanceFields(prefix) {
-  const p = prefix || 'perf';
-  const out = {
-    tool_profile: document.getElementById(`${p}ToolProfile`)?.value || 'auto',
-    local_history_limit: parseInt(document.getElementById(`${p}LocalHistoryLimit`)?.value) || 6,
-    tool_replay_turns: parseInt(document.getElementById(`${p}ToolReplayTurns`)?.value) || 0,
+function _collectPerformanceFields() {
+  return {
+    tool_profile: document.getElementById('perfToolProfile')?.value || 'auto',
   };
-  if (prefix === 'provPerf') {
-    out.history_limit = parseInt(document.getElementById('provPerfHistoryLimit')?.value) || 10;
-  }
-  return out;
-}
-
-function _syncProviderPerfFromGlobal() {
-  const perf = _cachedPerformance || {};
-  _applyPerformanceFields(perf, 'provPerf');
-}
-
-function _syncGlobalPerfFromProvider() {
-  const collected = _collectPerformanceFields('provPerf');
-  _applyPerformanceFields(collected, 'perf');
-  if (collected.history_limit != null) {
-    const hist = document.getElementById('perfHistoryLimit');
-    if (hist) hist.value = collected.history_limit;
-  }
 }
 
 async function loadProviderPresets() {
@@ -1793,7 +1750,6 @@ function _fillProviderForm(p) {
   setVal('provThinkingMode', p?.thinking_mode || 'auto');
   _fillOpenRouterFields('prov', p?.openrouter || {});
   updateProviderCapabilitySections(p?.type || 'local');
-  _syncProviderPerfFromGlobal();
   _populateVisionSelect();
   setVal('provVision', p?.vision_provider || '');
   _populateImageGenSelect();
@@ -1917,7 +1873,6 @@ function onProvTypeChange() {
     }
   }
   updateProviderCapabilitySections(ptype);
-  if (ptype === 'local') _syncProviderPerfFromGlobal();
   _refreshProviderUrlMismatch(ptype, 'provUrl', 'provUrlMismatch');
 }
 
@@ -1946,12 +1901,6 @@ async function saveProvider() {
   }
   if (!data.name) { toast(t('settings.providerNameRequired'), true); return; }
   try {
-    if (data.type === 'local') {
-      const perfPayload = _collectPerformanceFields('provPerf');
-      _cachedPerformance = { ...(_cachedPerformance || {}), ...perfPayload };
-      _syncGlobalPerfFromProvider();
-      await api('PUT', '/api/settings/', { performance: perfPayload });
-    }
     if (_editingProviderId) {
       await api('PUT', `/api/settings/providers/${encodeURIComponent(_editingProviderId)}`, data);
       toast(t('settings.providerUpdated'));

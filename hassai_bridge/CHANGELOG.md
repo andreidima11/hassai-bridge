@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.1
+
+### Fix
+- **Tool profile is global** — Dynamic / Auto / Full moved to Settings → General → Performance (applies to every provider); removed the duplicate “Local AI optimizations” block from the provider editor and local-only fields from the Performance tab (audit log only)
+
 ## 1.2.0
 
 ### Features
