@@ -51,6 +51,7 @@ from services import bridge_tool_access as bta
 from services import pricing
 from services import openrouter as ovr
 from services import thinking_text as tt
+from services import dsml_tools as dsml
 from services import tool_profiles as tp
 # `router` is the FastAPI APIRouter below — alias the routing service.
 from services import router as provider_router
@@ -647,14 +648,14 @@ _REASONING_STORE_MAX = 40_000
 
 
 def _clip_reasoning(text: str | None) -> str:
-    raw = (text or "").strip()
+    raw = dsml.strip_dsml(text or "").strip()
     if len(raw) <= _REASONING_DETAIL_MAX:
         return raw
     return raw[:_REASONING_DETAIL_MAX] + "…"
 
 
 def _store_reasoning(text: str | None) -> str:
-    raw = (text or "").strip()
+    raw = dsml.strip_dsml(text or "").strip()
     return raw[:_REASONING_STORE_MAX]
 
 
@@ -675,9 +676,12 @@ def _message_reasoning_full(message: dict | None) -> str:
 
 
 def _finalize_assistant_text(text: str | None, message: dict | None = None) -> tuple[str, str]:
-    """Strip inline thinking tags from content; merge with API reasoning fields."""
+    """Strip inline thinking tags + DSML tool markup; merge with API reasoning fields."""
     visible, inline = tt.split_inline_thinking(text)
+    visible = dsml.strip_dsml(visible)
     field = tt.message_reasoning_text(message) if isinstance(message, dict) else ""
+    field = dsml.strip_dsml(field)
+    inline = dsml.strip_dsml(inline)
     return visible, tt.merge_thinking(field, inline)
 
 def _compact_activity(events: list | None) -> list[dict]:
@@ -3083,6 +3087,11 @@ async def chat_completions(request: Request):
                 msg = result.get("choices", [{}])[0].get("message", {})
                 tool_calls = msg.get("tool_calls") or []
                 if not tool_calls:
+                    # Local secondary (e.g. Gemma) often emits search_web as DSML text.
+                    tool_calls = dsml.recover_message_tool_calls(msg)
+                if not tool_calls:
+                    if isinstance(msg, dict) and dsml.looks_like_dsml(msg.get("content") or ""):
+                        msg["content"] = dsml.strip_dsml(msg.get("content") or "")
                     break
 
                 internal_calls = [
@@ -3181,6 +3190,7 @@ async def chat_completions(request: Request):
                     return _provider_upstream_error(e)
                 last_call_provider = re_provider
                 round_msg = result.get("choices", [{}])[0].get("message", {})
+                dsml.recover_message_tool_calls(round_msg)
                 pc.log_provider_usage(re_provider, result.get("usage"), user_id=user_id)
                 await emit_think(think_id, "done", think_t0, _message_reasoning(round_msg))
                 # Secondary returned text without tools → discard and finalize on primary.
@@ -3626,6 +3636,49 @@ async def chat_completions(request: Request):
                     round_text += vis_tail
                     full_response += vis_tail
 
+                # Local secondary / DeepSeek: tool calls leaked as DSML in content.
+                if not (has_tool_calls and tc_accum):
+                    old_round = round_text
+                    cleaned_round, recovered = dsml.extract_tool_calls(round_text)
+                    if not recovered:
+                        cleaned_think, recovered = dsml.extract_tool_calls(think_reasoning)
+                        if recovered:
+                            think_reasoning = cleaned_think
+                            last_think_reasoning = think_reasoning
+                        elif dsml.looks_like_dsml(think_reasoning):
+                            think_reasoning = dsml.strip_dsml(think_reasoning)
+                            last_think_reasoning = think_reasoning
+                    if recovered:
+                        if dsml.looks_like_dsml(old_round):
+                            if (
+                                not hold_secondary_voice
+                                and old_round
+                                and full_response.endswith(old_round)
+                            ):
+                                full_response = full_response[: -len(old_round)] + cleaned_round
+                            round_text = cleaned_round
+                        for i, tc in enumerate(recovered):
+                            fn = tc.get("function") or {}
+                            tc_accum[i] = {
+                                "id": tc.get("id") or f"dsml_{i}",
+                                "name": fn.get("name") or "",
+                                "arguments": fn.get("arguments") or "{}",
+                            }
+                        has_tool_calls = True
+                        log.info(
+                            "Recovered %s DSML tool call(s) from stream text",
+                            len(recovered),
+                        )
+                    elif dsml.looks_like_dsml(round_text):
+                        cleaned_round = dsml.strip_dsml(round_text)
+                        if (
+                            not hold_secondary_voice
+                            and round_text
+                            and full_response.endswith(round_text)
+                        ):
+                            full_response = full_response[: -len(round_text)] + cleaned_round
+                        round_text = cleaned_round
+
                 if think_open:
                     think_open = False
                     if think_reasoning:
@@ -3809,6 +3862,7 @@ async def chat_completions(request: Request):
             turn_tools = _tool_trace(augmented, tool_trace_start)
             if full_response or generated_attachments or turn_tools:
                 clean_response = _strip_search_markers(full_response) if "<<SEARCH" in full_response else full_response
+                clean_response = dsml.strip_dsml(clean_response)
                 clean_response = cc.strip_photo_notes(clean_response)
                 clean_response, inline_reasoning = tt.split_inline_thinking(clean_response)
                 last_think_reasoning = tt.merge_thinking(last_think_reasoning, inline_reasoning)

@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.6
+
+### Fix
+- **DSML / leaked search_web** — when a secondary (e.g. local Gemma) emits DeepSeek-style DSML tool markup as text instead of `tool_calls`, recover and run `search_web`; strip markup from the chat UI
+- **Statistics layout** — Secondary Provider and Prompt Cache stacked; Dynamic toolkits audit list removed from the UI (events still logged server-side)
+
 ## 1.2.5
 
 ### Features
