@@ -103,6 +103,7 @@ const I18N = {
     ha_list_files: "Files",
     ha_read_file: "Read",
     ha_write_file: "Write",
+    ha_replace_in_file: "Patch",
   },
   ro: {
     you: "Tu",
@@ -157,6 +158,7 @@ const I18N = {
     ha_list_files: "Fișiere",
     ha_read_file: "Citește",
     ha_write_file: "Scrie",
+    ha_replace_in_file: "Patch",
   },
 };
 

@@ -144,6 +144,7 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "ha_list_files": "config_files",
     "ha_read_file": "config_files",
     "ha_write_file": "config_files",
+    "ha_replace_in_file": "config_files",
     # diagnostics
     "ha_get_logs": "diagnostics",
     "ha_list_problems": "diagnostics",

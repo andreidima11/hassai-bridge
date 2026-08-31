@@ -348,8 +348,10 @@ def _parse_tool_args(raw) -> dict:
     try:
         parsed = json.loads(raw)
         return parsed if isinstance(parsed, dict) else {}
-    except (json.JSONDecodeError, TypeError):
-        return {}
+    except (json.JSONDecodeError, TypeError) as exc:
+        # Truncated large JSON (typical when models rewrite whole .py files).
+        log.warning("tool arguments JSON parse failed (%s chars): %s", len(str(raw)), exc)
+        return {"_parse_error": str(exc), "_raw_len": len(str(raw))}
 
 
 def _clip_detail(value, n: int = 56) -> str:
@@ -376,6 +378,8 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(args.get("skill_name"))
     if name in {"media_list", "media_read", "media_delete"}:
         return _clip_detail(args.get("path") or args.get("search") or "")
+    if name in {"ha_read_file", "ha_write_file", "ha_replace_in_file", "ha_list_files"}:
+        return _clip_detail(args.get("path") or args.get("search") or args.get("subdir") or "")
     if name in _FRIGATE_TOOL_NAMES:
         return _clip_detail(
             args.get("camera") or args.get("event_id") or args.get("label") or ""

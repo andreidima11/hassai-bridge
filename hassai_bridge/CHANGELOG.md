@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.12
+
+### Features
+- **ha_replace_in_file** — surgical `old_text` → `new_text` edits for config / `custom_components/*.py` (same preview, `.bak`, `change_summary` flow). Prefer this for bugfixes so tool JSON stays small
+
+### Fix
+- **Large ha_write_file failures** — truncated tool-argument JSON no longer looks like a silent “path is required”; refuse full rewrites of large `.py` files and steer the model to `ha_replace_in_file`
+
 ## 1.2.11
 
 ### Fix

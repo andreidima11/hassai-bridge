@@ -76,14 +76,74 @@ def test_write_py_confirm_needs_summary(config_root, monkeypatch):
     assert target.read_text(encoding="utf-8") == "x\n"
 
 
-def test_write_py_disabled(config_root, monkeypatch):
-    monkeypatch.setattr(ha, "_cfg_allow_custom_py", lambda: False)
+def test_replace_in_file_preview_and_apply(config_root, monkeypatch):
+    monkeypatch.setattr(ha, "_cfg_allow_custom_py", lambda: True)
+    target = config_root / "custom_components" / "midea_ac" / "climate.py"
+    target.parent.mkdir(parents=True)
+    target.write_text(
+        "class X:\n    @property\n    def fan_mode(self):\n"
+        "        assert isinstance(x, int)\n        return x\n",
+        encoding="utf-8",
+    )
+    old = "        assert isinstance(x, int)\n        return x\n"
+    new = (
+        "        if not isinstance(x, int):\n"
+        "            return None\n"
+        "        return x\n"
+    )
+    preview = asyncio.run(ha._replace_in_file({
+        "path": "custom_components/midea_ac/climate.py",
+        "old_text": old,
+        "new_text": new,
+        "confirm": False,
+        "change_summary": "safe fan_mode",
+    }))
+    assert "PREVIEW only" in preview
+    assert "assert isinstance" in preview or "-" in preview
+    assert "assert isinstance(x, int)" in target.read_text(encoding="utf-8")
+
+    done = asyncio.run(ha._replace_in_file({
+        "path": "custom_components/midea_ac/climate.py",
+        "old_text": old,
+        "new_text": new,
+        "confirm": True,
+        "change_summary": "safe fan_mode",
+    }))
+    assert "OK: wrote" in done
+    text = target.read_text(encoding="utf-8")
+    assert "return None" in text
+    assert "assert isinstance(x, int)" not in text
+    assert Path(str(target) + ".bak").is_file()
+
+
+def test_write_file_rejects_large_py_rewrite(config_root, monkeypatch):
+    monkeypatch.setattr(ha, "_cfg_allow_custom_py", lambda: True)
+    target = config_root / "custom_components" / "midea_ac" / "climate.py"
+    target.parent.mkdir(parents=True)
+    target.write_text("x = 1\n", encoding="utf-8")
+    big = "x = 1\n" + ("# pad\n" * 10_000)
     out = asyncio.run(ha._write_file({
-        "path": "custom_components/x/a.py",
-        "content": "y\n",
+        "path": "custom_components/midea_ac/climate.py",
+        "content": big,
         "confirm": False,
     }))
-    assert "custom_code" in out or "Error" in out
+    assert "ha_replace_in_file" in out
+    assert target.read_text(encoding="utf-8") == "x = 1\n"
+
+
+def test_write_file_missing_path_hints_replace():
+    out = asyncio.run(ha._write_file({"content": "x", "confirm": False}))
+    assert "path is missing" in out
+    assert "ha_replace_in_file" in out
+
+
+def test_write_file_parse_error_hints_replace():
+    out = asyncio.run(ha._write_file({
+        "_parse_error": "Expecting ',' delimiter: line 1 column 80 (char 79)",
+        "_raw_len": 12000,
+    }))
+    assert "truncated or invalid" in out
+    assert "ha_replace_in_file" in out
 
 
 def test_list_files_surfaces_custom_py_first(config_root, monkeypatch):

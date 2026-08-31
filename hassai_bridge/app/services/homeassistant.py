@@ -1303,14 +1303,11 @@ _TOOL_SPECS: dict[str, dict] = {
     },
     "ha_write_file": {
         "description": (
-            "Write a text file under /config. Allowed always: YAML/JSON/txt/conf. "
-            "Python (.py) only under custom_components/ and only when "
-            "Settings → HA tools → Custom component Python (custom_code) is ON. "
-            "Workflow for .py: (1) ha_read_file, (2) ha_write_file confirm=false to get a "
-            "unified diff — show that diff to the user and ask permission, "
-            "(3) only after they agree, call again with the same content, confirm=true, "
-            "and change_summary. On confirm=true a .bak backup is written first. "
-            "After YAML: ha_check_config. After .py: reload the integration or restart HA."
+            "Write a FULL text file under /config (small files only). "
+            "For large .py fixes prefer ha_replace_in_file (old_text/new_text) — "
+            "rewriting a whole climate.py often truncates tool JSON and fails with 'path is required'. "
+            "Python only under custom_components/ when custom_code is ON. "
+            "confirm=false → diff preview; confirm=true → .bak then write (+ change_summary for .py)."
         ),
         "parameters": {
             "type": "object",
@@ -1333,6 +1330,33 @@ _TOOL_SPECS: dict[str, dict] = {
                 },
             },
             "required": ["path", "content", "confirm"],
+        },
+    },
+    "ha_replace_in_file": {
+        "description": (
+            "Surgical edit: replace one unique old_text snippet with new_text in a config file. "
+            "PREFERRED for custom_components/*.py bugfixes (keeps tool args small). "
+            "old_text must match exactly once. Same confirm / change_summary / .bak rules as ha_write_file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Relative to HA config root"},
+                "old_text": {
+                    "type": "string",
+                    "description": "Exact existing snippet to replace (include enough context to be unique)",
+                },
+                "new_text": {"type": "string", "description": "Replacement snippet"},
+                "confirm": {
+                    "type": "boolean",
+                    "description": "false = preview diff only; true = apply with .bak after user approval",
+                },
+                "change_summary": {
+                    "type": "string",
+                    "description": "Required for .py when confirm=true",
+                },
+            },
+            "required": ["path", "old_text", "new_text", "confirm"],
         },
     },
 }
@@ -2717,16 +2741,97 @@ async def _read_file(args: dict) -> str:
 
 async def _write_file(args: dict) -> str:
     """Preview (confirm=false) or backup+.bak write (confirm=true)."""
+    if args.get("_parse_error"):
+        return (
+            f"Error: tool arguments JSON was truncated or invalid ({args.get('_parse_error')}). "
+            "Do NOT rewrite the whole file — use ha_replace_in_file with a small unique "
+            "old_text/new_text pair instead."
+        )
+    raw_path = args.get("path")
+    if not (isinstance(raw_path, str) and raw_path.strip()):
+        keys = sorted(str(k) for k in (args or {}).keys())
+        return (
+            f"Error: path is missing (argument keys received: {keys or 'none'}). "
+            "Full-file ha_write_file JSON often gets truncated on large .py files — "
+            "use ha_replace_in_file(old_text, new_text) for surgical edits."
+        )
     try:
-        path = _safe_config_path(args.get("path") or "", allow_py=_cfg_allow_custom_py())
+        path = _safe_config_path(raw_path, allow_py=_cfg_allow_custom_py())
     except ValueError as exc:
         return f"Error: {exc}"
     content = args.get("content")
     if not isinstance(content, str):
         return "Error: content must be a string"
     if len(content) > 400_000:
-        return "Error: content too large (max 400KB)"
+        return "Error: content too large (max 400KB) — use ha_replace_in_file for large files"
+    if path.suffix.lower() == _PY_SUFFIX and len(content) > 48_000:
+        return (
+            "Error: refusing full rewrite of a large .py file via ha_write_file "
+            f"({len(content)} chars). Use ha_replace_in_file with a unique old_text/new_text "
+            "snippet instead (avoids truncated tool arguments)."
+        )
 
+    return await _commit_file_content(
+        path,
+        content,
+        confirm=args.get("confirm") is True,
+        change_summary=(args.get("change_summary") or ""),
+    )
+
+
+async def _replace_in_file(args: dict) -> str:
+    """Replace one unique snippet; same confirm/.bak flow as write."""
+    if args.get("_parse_error"):
+        return (
+            f"Error: tool arguments JSON was truncated or invalid ({args.get('_parse_error')}). "
+            "Shrink old_text/new_text and retry."
+        )
+    raw_path = args.get("path")
+    if not (isinstance(raw_path, str) and raw_path.strip()):
+        keys = sorted(str(k) for k in (args or {}).keys())
+        return f"Error: path is missing (argument keys received: {keys or 'none'})."
+    old_text = args.get("old_text")
+    new_text = args.get("new_text")
+    if not isinstance(old_text, str) or not isinstance(new_text, str):
+        return "Error: old_text and new_text must be strings"
+    if not old_text:
+        return "Error: old_text must not be empty"
+    if old_text == new_text:
+        return "Error: old_text and new_text are identical — nothing to change"
+    try:
+        path = _safe_config_path(raw_path, allow_py=_cfg_allow_custom_py())
+    except ValueError as exc:
+        return f"Error: {exc}"
+    if not path.is_file():
+        return f"Error: not found: {path.relative_to(_ha_config_dir()).as_posix()}"
+    current = path.read_text(encoding="utf-8", errors="replace")
+    count = current.count(old_text)
+    if count == 0:
+        return (
+            "Error: old_text not found in file — copy the exact snippet from ha_read_file "
+            "(including whitespace)."
+        )
+    if count > 1:
+        return (
+            f"Error: old_text matches {count} times — include more surrounding lines "
+            "so the match is unique."
+        )
+    updated = current.replace(old_text, new_text, 1)
+    return await _commit_file_content(
+        path,
+        updated,
+        confirm=args.get("confirm") is True,
+        change_summary=(args.get("change_summary") or ""),
+    )
+
+
+async def _commit_file_content(
+    path: Path,
+    content: str,
+    *,
+    confirm: bool,
+    change_summary: str,
+) -> str:
     root = _ha_config_dir().resolve()
     rel = path.relative_to(root).as_posix()
     is_py = path.suffix.lower() == _PY_SUFFIX
@@ -2734,25 +2839,24 @@ async def _write_file(args: dict) -> str:
     if path.is_file():
         old = path.read_text(encoding="utf-8", errors="replace")
 
-    confirmed = args.get("confirm") is True
-    if not confirmed:
+    if not confirm:
         diff = _file_diff_preview(rel, old, content)
         bak_note = f"{rel}.bak" if path.is_file() else "(new file — no backup needed)"
-        summary = (args.get("change_summary") or "").strip()
+        summary = (change_summary or "").strip()
         summary_line = f"change_summary: {summary}\n" if summary else ""
         return (
             "PREVIEW only — nothing was written.\n"
             f"Path: {rel}\n"
             f"{summary_line}"
             "Show the diff below to the user and ask if they want to apply it.\n"
-            "If they agree, call ha_write_file again with the SAME content, "
-            "confirm=true, and a clear change_summary.\n"
+            "If they agree, call again with the SAME edit, confirm=true, "
+            "and a clear change_summary.\n"
             f"On apply, previous content is saved to: {bak_note}\n\n"
             f"{diff}"
         )
 
     if is_py:
-        summary = (args.get("change_summary") or "").strip()
+        summary = (change_summary or "").strip()
         if not summary:
             return (
                 "Refused: change_summary is required when writing .py under "
@@ -2777,7 +2881,7 @@ async def _write_file(args: dict) -> str:
             "so the .py change loads. Keep the .bak until you verify it works."
         )
     bak_msg = f" Backup: {bak_rel}." if bak_rel else ""
-    summary = (args.get("change_summary") or "").strip()
+    summary = (change_summary or "").strip()
     summary_msg = f" Summary: {summary}." if summary else ""
     return f"OK: wrote {rel} ({len(content)} chars).{bak_msg}{summary_msg} {hint}"
 
@@ -2848,6 +2952,7 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_list_files": _list_files,
     "ha_read_file": _read_file,
     "ha_write_file": _write_file,
+    "ha_replace_in_file": _replace_in_file,
 }
 _HANDLERS.update(sat.HANDLERS)
 _HANDLERS.update(hlt.HANDLERS)
