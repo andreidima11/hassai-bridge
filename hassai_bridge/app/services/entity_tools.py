@@ -46,6 +46,7 @@ Dashboards (WebSocket, storage mode):
 
 Diagnose: ha_list_problems + ha_get_logs.
 Config files: ha_read_file / ha_write_file → ha_check_config → ha_reload if needed.
+Custom integration .py: only if Settings → HA tools → Custom component Python (custom_code) is ON. Then ha_read_file → ha_write_file confirm=false (show the diff to the user and ask) → after they agree ha_write_file confirm=true with change_summary (writes .bak first). Never edit .py outside custom_components.
 Mutating tools need confirm=true when the user already asked you to make the change."""
 
 COMPACT_HA_AGENT_PROMPT = """Home Assistant copilot. Tools: {tools}.

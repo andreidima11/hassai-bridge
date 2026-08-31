@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.9
+
+### Features
+- **Custom component Python** — optional HA tools toggle `custom_code` (default off). When on, `ha_read_file` / `ha_write_file` can edit `custom_components/**/*.py`: preview unified diff with `confirm=false`, ask the user, then `confirm=true` + `change_summary` writes a `.bak` backup first
+
 ## 1.2.8
 
 ### Features

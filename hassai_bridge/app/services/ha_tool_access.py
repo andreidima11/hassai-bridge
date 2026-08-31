@@ -14,7 +14,8 @@ CATEGORY_KEYS: dict[str, str] = {
     "calendar": "Calendars, events, todo lists, shopping list",
     "helpers": "Create, update, delete input_*, timer, counter, schedule helpers",
     "dashboards": "Lovelace dashboards, views, cards",
-    "config_files": "List, read, write text YAML in /config",
+    "config_files": "List, read, write YAML/JSON/txt in /config",
+    "custom_code": "Edit custom_components/*.py (preview diff, .bak backup; off by default)",
     "diagnostics": "Logs, problems, config check, reload, recorder purge",
     "backups": "Supervisor backup list, create, restore",
     "addons": "Add-on start, stop, restart, list",
@@ -27,6 +28,8 @@ CATEGORY_KEYS: dict[str, str] = {
 }
 
 DEFAULT_HA_TOOLS: dict[str, bool] = {k: True for k in CATEGORY_KEYS}
+# Dangerous by default — enable explicitly in Settings → HA tools.
+DEFAULT_HA_TOOLS["custom_code"] = False
 
 # Tool name → category (existing + new supervisor tools).
 _TOOL_CATEGORIES: dict[str, str] = {
@@ -212,6 +215,11 @@ def enabled_categories(cfg: dict | None) -> set[str]:
 def tool_enabled(name: str, cfg: dict | None) -> bool:
     cat = tool_category(name)
     return cat in enabled_categories(cfg)
+
+
+def custom_code_enabled(cfg: dict | None) -> bool:
+    """True when Settings → HA tools → custom_code is on (edit custom_components/*.py)."""
+    return bool(merged_ha_tools_config(cfg).get("custom_code"))
 
 
 def filter_tool_names(names: list[str], cfg: dict | None) -> list[str]:

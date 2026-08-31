@@ -2,6 +2,7 @@
 
 from services.ha_tool_access import (
     CATEGORY_KEYS,
+    custom_code_enabled,
     enabled_categories,
     filter_tool_names,
     merged_ha_tools_config,
@@ -10,9 +11,18 @@ from services.ha_tool_access import (
 )
 
 
-def test_default_all_categories_enabled():
+def test_default_categories_custom_code_off():
     cfg = {}
-    assert enabled_categories(cfg) == set(CATEGORY_KEYS.keys())
+    enabled = enabled_categories(cfg)
+    assert "custom_code" in CATEGORY_KEYS
+    assert "custom_code" not in enabled
+    assert enabled == set(CATEGORY_KEYS.keys()) - {"custom_code"}
+
+
+def test_custom_code_opt_in():
+    assert custom_code_enabled({}) is False
+    assert custom_code_enabled({"ha_tools": {"custom_code": True}}) is True
+    assert custom_code_enabled({"ha_tools": {"custom_code": False}}) is False
 
 
 def test_disabled_category_filters_tools():
@@ -42,3 +52,4 @@ def test_merged_config_defaults_true():
     merged = merged_ha_tools_config({"ha_tools": {"upload": False}})
     assert merged["upload"] is False
     assert merged["entities"] is True
+    assert merged["custom_code"] is False

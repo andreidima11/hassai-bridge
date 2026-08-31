@@ -755,7 +755,7 @@ async function loadHaToolCategories() {
   } catch {
     _haToolCategoryKeys = [
       'entities', 'control', 'registry', 'automations', 'integrations',
-      'calendar', 'helpers', 'dashboards', 'config_files', 'diagnostics',
+      'calendar', 'helpers', 'dashboards', 'config_files', 'custom_code', 'diagnostics',
       'backups', 'addons', 'updates', 'restart', 'network', 'upload', 'zigbee', 'hacs',
     ];
   }
@@ -768,9 +768,11 @@ function renderHaToolAccess(cfg) {
   const flags = cfg.ha_tools || {};
   const keys = _haToolCategoryKeys.length ? _haToolCategoryKeys : Object.keys(flags);
   if (!keys.length) return;
+  // Most categories default on; custom_code defaults off (dangerous).
+  const defaultOff = new Set(['custom_code']);
   list.innerHTML = keys.map((key) => {
     const label = t(`settings.haTools.${key}`) || key;
-    const on = flags[key] !== false;
+    const on = defaultOff.has(key) ? flags[key] === true : flags[key] !== false;
     return `<div class="toggle-row" style="margin-bottom:10px">
       <span>${label}</span>
       <label class="toggle"><input type="checkbox" data-ha-tool="${key}" ${on ? 'checked' : ''}><span class="slider"></span></label>
@@ -2296,7 +2298,7 @@ async function loadSecUseForMeta() {
       },
       ha: Object.fromEntries((_haToolCategoryKeys.length ? _haToolCategoryKeys : [
         'entities', 'control', 'registry', 'automations', 'integrations',
-        'dashboards', 'config_files', 'diagnostics', 'backups', 'addons',
+        'dashboards', 'config_files', 'custom_code', 'diagnostics', 'backups', 'addons',
         'updates', 'restart', 'network', 'upload', 'zigbee',
       ]).map((k) => [k, k])),
       defaults: {

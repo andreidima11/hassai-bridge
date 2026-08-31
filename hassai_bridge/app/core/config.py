@@ -189,6 +189,7 @@ DEFAULT_CONFIG = {
         "helpers": True,
         "dashboards": True,
         "config_files": True,
+        "custom_code": False,
         "diagnostics": True,
         "backups": True,
         "addons": True,

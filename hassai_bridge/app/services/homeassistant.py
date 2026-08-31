@@ -8,6 +8,7 @@ Uses SUPERVISOR_TOKEN:
 
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import os
@@ -39,6 +40,9 @@ _LOG_TIMEOUT = 60.0
 _MAX_JSON = 14_000
 _HA_CONFIG = Path("/config")
 _ALLOWED_FILE_SUFFIXES = {".yaml", ".yml", ".json", ".txt", ".log", ".conf", ".cfg"}
+# Python only under custom_components/ (repair custom integrations — never elsewhere).
+_PY_SUFFIX = ".py"
+_CUSTOM_COMPONENTS_PREFIX = "custom_components/"
 
 _DEFAULT_DOMAINS = et._LEGACY_DEFAULT_DOMAINS
 
@@ -197,7 +201,31 @@ async def _supervisor(method: str, path: str, **kwargs) -> Any:
     return await _http(method, f"{_SUPERVISOR}{path}", **kwargs)
 
 
-def _safe_config_path(rel: str) -> Path:
+def _is_custom_component_py(rel: str) -> bool:
+    """True for custom_components/**/*.py (posix relative to /config)."""
+    norm = (rel or "").strip().lstrip("/").replace("\\", "/")
+    return norm.startswith(_CUSTOM_COMPONENTS_PREFIX) and norm.lower().endswith(_PY_SUFFIX)
+
+
+def _suffix_allowed(rel: str, target: Path, *, allow_py: bool) -> bool:
+    name = target.name
+    suf = target.suffix.lower()
+    if name in (
+        "configuration.yaml",
+        "automations.yaml",
+        "scripts.yaml",
+        "scenes.yaml",
+        "secrets.yaml",
+    ):
+        return True
+    if suf in _ALLOWED_FILE_SUFFIXES:
+        return True
+    if allow_py and suf == _PY_SUFFIX and _is_custom_component_py(rel):
+        return True
+    return False
+
+
+def _safe_config_path(rel: str, *, allow_py: bool = False) -> Path:
     raw = (rel or "").strip().lstrip("/")
     if not raw or raw.endswith("/"):
         raise ValueError("path is required (file, not directory)")
@@ -205,18 +233,53 @@ def _safe_config_path(rel: str) -> Path:
     root = _HA_CONFIG.resolve()
     if root not in target.parents and target != root:
         raise ValueError("path escapes /config")
-    if target.suffix.lower() not in _ALLOWED_FILE_SUFFIXES and target.name not in (
-        "configuration.yaml",
-        "automations.yaml",
-        "scripts.yaml",
-        "scenes.yaml",
-        "secrets.yaml",
-    ):
+    rel_posix = target.relative_to(root).as_posix()
+    if not _suffix_allowed(rel_posix, target, allow_py=allow_py):
+        if target.suffix.lower() == _PY_SUFFIX:
+            if not _is_custom_component_py(rel_posix):
+                raise ValueError(
+                    "refusing .py outside custom_components/ "
+                    "(only custom_components/**/*.py may be edited)"
+                )
+            raise ValueError(
+                "custom_components .py editing is disabled — turn on "
+                "Settings → HA tools → Custom component Python (custom_code)"
+            )
         if "." not in target.name:
             raise ValueError("refusing path without a known text suffix")
-        if target.suffix.lower() not in _ALLOWED_FILE_SUFFIXES:
-            raise ValueError(f"refusing file type {target.suffix}")
+        raise ValueError(f"refusing file type {target.suffix}")
     return target
+
+
+def _cfg_allow_custom_py() -> bool:
+    try:
+        from config import load_config
+        return hta.custom_code_enabled(load_config())
+    except Exception:
+        return False
+
+
+def _file_diff_preview(rel: str, old: str, new: str, *, max_lines: int = 120) -> str:
+    """Unified diff for ha_write_file preview (truncated)."""
+    old_lines = (old or "").splitlines(keepends=True)
+    new_lines = (new or "").splitlines(keepends=True)
+    if not old_lines and not new_lines:
+        return "(empty file)"
+    if old == new:
+        return "(no changes — content identical)"
+    lines = list(difflib.unified_diff(
+        old_lines,
+        new_lines,
+        fromfile=f"a/{rel}",
+        tofile=f"b/{rel}",
+        n=3,
+    ))
+    if not lines:
+        return "(no changes — content identical)"
+    if len(lines) > max_lines:
+        head = "".join(lines[:max_lines])
+        return head + f"\n… diff truncated ({len(lines)} lines total)"
+    return "".join(lines)
 
 
 # ── Tools ──────────────────────────────────────────
@@ -1177,7 +1240,12 @@ _TOOL_SPECS: dict[str, dict] = {
         },
     },
     "ha_read_file": {
-        "description": "Read a text file from /config (YAML/JSON). Example: configuration.yaml, automations.yaml, ui-lovelace.yaml.",
+        "description": (
+            "Read a text file from /config (YAML/JSON/txt). "
+            "With Settings → HA tools → custom_code enabled, also reads "
+            "custom_components/**/*.py. Example: configuration.yaml, "
+            "custom_components/midea_ac/climate.py."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -1188,15 +1256,34 @@ _TOOL_SPECS: dict[str, dict] = {
     },
     "ha_write_file": {
         "description": (
-            "Write a text file under /config. Creates parent dirs. "
-            "Always call ha_check_config after YAML edits. confirm=true required."
+            "Write a text file under /config. Allowed always: YAML/JSON/txt/conf. "
+            "Python (.py) only under custom_components/ and only when "
+            "Settings → HA tools → Custom component Python (custom_code) is ON. "
+            "Workflow for .py: (1) ha_read_file, (2) ha_write_file confirm=false to get a "
+            "unified diff — show that diff to the user and ask permission, "
+            "(3) only after they agree, call again with the same content, confirm=true, "
+            "and change_summary. On confirm=true a .bak backup is written first. "
+            "After YAML: ha_check_config. After .py: reload the integration or restart HA."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {"type": "string"},
                 "content": {"type": "string"},
-                "confirm": {"type": "boolean"},
+                "confirm": {
+                    "type": "boolean",
+                    "description": (
+                        "false = preview diff only (nothing written). "
+                        "true = backup .bak then write (only after user approval)."
+                    ),
+                },
+                "change_summary": {
+                    "type": "string",
+                    "description": (
+                        "Short plain-language description of the edit "
+                        "(required for .py when confirm=true)."
+                    ),
+                },
             },
             "required": ["path", "content", "confirm"],
         },
@@ -2461,6 +2548,7 @@ async def _list_files(args: dict) -> str:
         return f"Error: not a directory: {sub or '/'}"
 
     rows: list[str] = []
+    allow_py = _cfg_allow_custom_py()
     for p in sorted(base.rglob("*")):
         if not p.is_file():
             continue
@@ -2468,7 +2556,8 @@ async def _list_files(args: dict) -> str:
         if p.suffix.lower() not in _ALLOWED_FILE_SUFFIXES and p.name not in {
             "configuration.yaml", "automations.yaml", "scripts.yaml", "scenes.yaml",
         }:
-            continue
+            if not (allow_py and p.suffix.lower() == _PY_SUFFIX and _is_custom_component_py(rel)):
+                continue
         if search and search not in rel.lower():
             continue
         try:
@@ -2485,7 +2574,10 @@ async def _list_files(args: dict) -> str:
 
 
 async def _read_file(args: dict) -> str:
-    path = _safe_config_path(args.get("path") or "")
+    try:
+        path = _safe_config_path(args.get("path") or "", allow_py=_cfg_allow_custom_py())
+    except ValueError as exc:
+        return f"Error: {exc}"
     if not path.is_file():
         return f"Error: not found: {path.relative_to(_HA_CONFIG)}"
     text = path.read_text(encoding="utf-8", errors="replace")
@@ -2495,21 +2587,70 @@ async def _read_file(args: dict) -> str:
 
 
 async def _write_file(args: dict) -> str:
-    if msg := _require_confirm(args):
-        return msg
-    path = _safe_config_path(args.get("path") or "")
+    """Preview (confirm=false) or backup+.bak write (confirm=true)."""
+    try:
+        path = _safe_config_path(args.get("path") or "", allow_py=_cfg_allow_custom_py())
+    except ValueError as exc:
+        return f"Error: {exc}"
     content = args.get("content")
     if not isinstance(content, str):
         return "Error: content must be a string"
     if len(content) > 400_000:
         return "Error: content too large (max 400KB)"
+
+    root = _HA_CONFIG.resolve()
+    rel = path.relative_to(root).as_posix()
+    is_py = path.suffix.lower() == _PY_SUFFIX
+    old = ""
+    if path.is_file():
+        old = path.read_text(encoding="utf-8", errors="replace")
+
+    confirmed = args.get("confirm") is True
+    if not confirmed:
+        diff = _file_diff_preview(rel, old, content)
+        bak_note = f"{rel}.bak" if path.is_file() else "(new file — no backup needed)"
+        summary = (args.get("change_summary") or "").strip()
+        summary_line = f"change_summary: {summary}\n" if summary else ""
+        return (
+            "PREVIEW only — nothing was written.\n"
+            f"Path: {rel}\n"
+            f"{summary_line}"
+            "Show the diff below to the user and ask if they want to apply it.\n"
+            "If they agree, call ha_write_file again with the SAME content, "
+            "confirm=true, and a clear change_summary.\n"
+            f"On apply, previous content is saved to: {bak_note}\n\n"
+            f"{diff}"
+        )
+
+    if is_py:
+        summary = (args.get("change_summary") or "").strip()
+        if not summary:
+            return (
+                "Refused: change_summary is required when writing .py under "
+                "custom_components/ with confirm=true. "
+                "Describe the fix in one sentence, then retry."
+            )
+
     path.parent.mkdir(parents=True, exist_ok=True)
+    bak_rel = ""
+    if path.is_file():
+        bak = Path(str(path) + ".bak")
+        bak.write_text(old, encoding="utf-8")
+        bak_rel = bak.relative_to(root).as_posix()
     path.write_text(content, encoding="utf-8")
-    rel = path.relative_to(_HA_CONFIG).as_posix()
+
     hint = "Run ha_check_config for YAML."
     if rel == "ui-lovelace.yaml" or rel.startswith("dashboards/"):
         hint += " Then ha_reload what=lovelace confirm=true."
-    return f"OK: wrote {rel} ({len(content)} chars). {hint}"
+    if is_py:
+        hint = (
+            "Reload the integration (ha_reload_config_entry) or restart Home Assistant "
+            "so the .py change loads. Keep the .bak until you verify it works."
+        )
+    bak_msg = f" Backup: {bak_rel}." if bak_rel else ""
+    summary = (args.get("change_summary") or "").strip()
+    summary_msg = f" Summary: {summary}." if summary else ""
+    return f"OK: wrote {rel} ({len(content)} chars).{bak_msg}{summary_msg} {hint}"
 
 
 _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
