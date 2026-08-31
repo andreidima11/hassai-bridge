@@ -1230,12 +1230,19 @@ _TOOL_SPECS: dict[str, dict] = {
         },
     },
     "ha_list_files": {
-        "description": "List text config files under /config (HA configuration directory).",
+        "description": (
+            "List text config files under /config. "
+            "For custom integrations use subdir=custom_components and optional search=domain "
+            "(e.g. search=midea). With custom_code ON, .py files under custom_components are included."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "subdir": {"type": "string", "description": "Relative folder, e.g. custom_components"},
-                "search": {"type": "string"},
+                "subdir": {
+                    "type": "string",
+                    "description": "Relative folder, e.g. custom_components or custom_components/midea_ac",
+                },
+                "search": {"type": "string", "description": "Filter paths containing this string"},
             },
         },
     },
@@ -2541,45 +2548,123 @@ async def _list_files(args: dict) -> str:
         return "Error: /config is not mounted (add-on needs homeassistant_config:rw)"
     sub = (args.get("subdir") or "").strip().lstrip("/")
     search = (args.get("search") or "").strip().lower()
+    allow_py = _cfg_allow_custom_py()
     base = (_HA_CONFIG / sub).resolve() if sub else _HA_CONFIG.resolve()
     if _HA_CONFIG.resolve() not in base.parents and base != _HA_CONFIG.resolve():
         return "Error: subdir escapes /config"
     if not base.is_dir():
-        return f"Error: not a directory: {sub or '/'}"
+        # Helpful hint when looking for integrations
+        cc = _HA_CONFIG / "custom_components"
+        hint = ""
+        if cc.is_dir():
+            dirs = sorted(p.name for p in cc.iterdir() if p.is_dir())[:40]
+            hint = f"\ncustom_components packages: {', '.join(dirs) or '(empty)'}"
+            if not allow_py:
+                hint += "\n(custom_code is OFF — .py files are hidden; enable Settings → HA tools → Custom component Python)"
+        return f"Error: not a directory: {sub or '/'}{hint}"
 
-    rows: list[str] = []
-    allow_py = _cfg_allow_custom_py()
-    for p in sorted(base.rglob("*")):
-        if not p.is_file():
-            continue
-        rel = p.relative_to(_HA_CONFIG).as_posix()
-        if p.suffix.lower() not in _ALLOWED_FILE_SUFFIXES and p.name not in {
+    def _include(path: Path, rel: str) -> bool:
+        if path.suffix.lower() in _ALLOWED_FILE_SUFFIXES or path.name in {
             "configuration.yaml", "automations.yaml", "scripts.yaml", "scenes.yaml",
         }:
-            if not (allow_py and p.suffix.lower() == _PY_SUFFIX and _is_custom_component_py(rel)):
-                continue
-        if search and search not in rel.lower():
+            return True
+        if allow_py and path.suffix.lower() == _PY_SUFFIX and _is_custom_component_py(rel):
+            return True
+        return False
+
+    # Prefer scoped walks: without subdir + allow_py, surface custom_components first.
+    roots: list[Path] = [base]
+    if not sub and allow_py:
+        cc = (_HA_CONFIG / "custom_components").resolve()
+        if cc.is_dir() and cc != base:
+            roots = [cc, base]
+
+    limit = 400 if (sub or search or allow_py) else 150
+    rows: list[str] = []
+    seen: set[str] = set()
+    truncated = False
+    for root in roots:
+        if not root.is_dir():
             continue
-        try:
-            size = p.stat().st_size
-        except OSError:
-            size = 0
-        rows.append(f"{rel}\t{size}")
-        if len(rows) >= 120:
-            rows.append("… truncated")
+        for p in sorted(root.rglob("*")):
+            if not p.is_file():
+                continue
+            try:
+                rel = p.relative_to(_HA_CONFIG).as_posix()
+            except ValueError:
+                continue
+            if rel in seen:
+                continue
+            if not _include(p, rel):
+                continue
+            if search and search not in rel.lower():
+                continue
+            seen.add(rel)
+            try:
+                size = p.stat().st_size
+            except OSError:
+                size = 0
+            rows.append(f"{rel}\t{size}")
+            if len(rows) >= limit:
+                truncated = True
+                break
+        if truncated:
             break
+
     if not rows:
-        return "No matching files."
-    return "path\tsize\n" + "\n".join(rows)
+        cc = _HA_CONFIG / "custom_components"
+        extra = ""
+        if allow_py and cc.is_dir():
+            dirs = sorted(p.name for p in cc.iterdir() if p.is_dir())[:40]
+            extra = f"\ncustom_components packages on disk: {', '.join(dirs) or '(empty)'}"
+        elif not allow_py:
+            extra = (
+                "\nNote: custom_code is OFF — .py under custom_components are not listed. "
+                "Enable Settings → HA tools → Custom component Python."
+            )
+        tip = (
+            "\nTip: pass subdir=custom_components (and search=domain) when looking for integrations."
+        )
+        return f"No matching files.{extra}{tip}"
+
+    out = "path\tsize\n" + "\n".join(rows)
+    if truncated:
+        out += f"\n… truncated at {limit} files — narrow with subdir= and/or search="
+    if allow_py and not sub:
+        out += "\n(custom_code ON — .py under custom_components included)"
+    return out
 
 
 async def _read_file(args: dict) -> str:
+    allow_py = _cfg_allow_custom_py()
     try:
-        path = _safe_config_path(args.get("path") or "", allow_py=_cfg_allow_custom_py())
+        path = _safe_config_path(args.get("path") or "", allow_py=allow_py)
     except ValueError as exc:
         return f"Error: {exc}"
     if not path.is_file():
-        return f"Error: not found: {path.relative_to(_HA_CONFIG)}"
+        rel = path.relative_to(_HA_CONFIG).as_posix()
+        hint = ""
+        if rel.startswith(_CUSTOM_COMPONENTS_PREFIX) or "custom_components" in rel:
+            cc = _HA_CONFIG / "custom_components"
+            if not cc.is_dir():
+                hint = (
+                    "\n/config/custom_components does not exist from this add-on "
+                    "(check homeassistant_config:rw map, or no custom integrations installed)."
+                )
+            else:
+                dirs = sorted(p.name for p in cc.iterdir() if p.is_dir())[:50]
+                hint = f"\nPackages under custom_components/: {', '.join(dirs) or '(none)'}"
+                # Suggest close name matches
+                want = Path(rel).parts[1] if len(Path(rel).parts) > 1 else ""
+                if want:
+                    close = [d for d in dirs if want.lower() in d.lower() or d.lower() in want.lower()]
+                    if close:
+                        hint += f"\nSimilar names: {', '.join(close)}"
+            if not allow_py and rel.lower().endswith(".py"):
+                hint += (
+                    "\ncustom_code is OFF — enable Settings → HA tools → Custom component Python."
+                )
+        return f"Error: not found: {rel}{hint}"
     text = path.read_text(encoding="utf-8", errors="replace")
     if len(text) > 80_000:
         return text[:80_000] + f"\n… truncated ({len(text)} chars)"

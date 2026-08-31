@@ -84,3 +84,24 @@ def test_write_py_disabled(config_root, monkeypatch):
         "confirm": False,
     }))
     assert "custom_code" in out or "Error" in out
+
+
+def test_list_files_surfaces_custom_py_first(config_root, monkeypatch):
+    monkeypatch.setattr(ha, "_cfg_allow_custom_py", lambda: True)
+    # Many yaml files that would previously fill the 120-cap before custom_components
+    for i in range(80):
+        (config_root / f"zzz_pack_{i}.yaml").write_text("x: 1\n", encoding="utf-8")
+    py = config_root / "custom_components" / "midea_ac" / "climate.py"
+    py.parent.mkdir(parents=True)
+    py.write_text("FAN=1\n", encoding="utf-8")
+
+    out = asyncio.run(ha._list_files({"search": "midea"}))
+    assert "custom_components/midea_ac/climate.py" in out
+
+
+def test_read_missing_lists_packages(config_root, monkeypatch):
+    monkeypatch.setattr(ha, "_cfg_allow_custom_py", lambda: True)
+    (config_root / "custom_components" / "other_ac").mkdir(parents=True)
+    out = asyncio.run(ha._read_file({"path": "custom_components/midea_ac/climate.py"}))
+    assert "not found" in out
+    assert "other_ac" in out

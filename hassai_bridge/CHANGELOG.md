@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.10
+
+### Fix
+- **custom_components listing** — `ha_list_files` prioritizes `custom_components` when custom_code is on, raises the file cap, and `ha_read_file` not-found errors list installed packages so the model can pick the real path (e.g. midea vs midea_ac)
+
 ## 1.2.9
 
 ### Features
