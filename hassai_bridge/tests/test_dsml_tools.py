@@ -64,6 +64,14 @@ def test_recover_skips_when_tool_calls_already_present():
     assert "DSML" in msg["content"]
 
 
+def test_tool_call_ids_are_unique_across_extractions():
+    a = dsml.extract_tool_calls(_SAMPLE)[1]
+    b = dsml.extract_tool_calls(_SAMPLE)[1]
+    assert a and b
+    assert a[0]["id"] != b[0]["id"]
+    assert a[0]["id"].startswith("dsml_")
+
+
 def test_looks_like_dsml():
     assert dsml.looks_like_dsml(_SAMPLE) is True
     assert dsml.looks_like_dsml("normal answer") is False

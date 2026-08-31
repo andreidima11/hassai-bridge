@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.7
+
+### Fix
+- **Duplicate DSML tool_call_id** — recovered search_web calls now get unique ids (`dsml_<uuid>`), fixing DeepSeek HTTP 400 on multi-round searches
+
 ## 1.2.6
 
 ### Fix

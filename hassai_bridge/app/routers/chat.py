@@ -3660,7 +3660,7 @@ async def chat_completions(request: Request):
                         for i, tc in enumerate(recovered):
                             fn = tc.get("function") or {}
                             tc_accum[i] = {
-                                "id": tc.get("id") or f"dsml_{i}",
+                                "id": tc.get("id") or dsml.new_tool_call_id(),
                                 "name": fn.get("name") or "",
                                 "arguments": fn.get("arguments") or "{}",
                             }

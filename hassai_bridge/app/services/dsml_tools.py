@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 
 # Fullwidth vertical bar used in DeepSeek special tokens.
 _FW = "\uff5c"
@@ -44,6 +45,11 @@ _TOOL_CALLS_BLOCK = re.compile(
 )
 _ANY_DSML_TAG = re.compile(rf"</?{_FW}+DSML{_FW}+[^>]*>", re.IGNORECASE)
 _ATTR_RE = re.compile(r"""(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)')""")
+
+
+def new_tool_call_id() -> str:
+    """Unique id — DeepSeek rejects duplicate tool_call_id in one transcript."""
+    return f"dsml_{uuid.uuid4().hex[:12]}"
 
 
 def looks_like_dsml(text: str | None) -> bool:
@@ -92,7 +98,7 @@ def extract_tool_calls(text: str | None) -> tuple[str, list[dict]]:
                 continue
             args[pname] = _parse_param_value(pa, pm.group("body") or "")
         calls.append({
-            "id": f"dsml_{len(calls)}",
+            "id": new_tool_call_id(),
             "type": "function",
             "function": {
                 "name": name,
