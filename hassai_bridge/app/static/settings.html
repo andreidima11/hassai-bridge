@@ -166,8 +166,11 @@
             <div class="info-stat"><div class="info-stat-num" id="statsDynamicSaved">—</div><div class="info-stat-lbl" data-i18n="stats.dynamicSavedTokens">Tool schema saved</div></div>
             <div class="info-stat"><div class="info-stat-num" id="statsDynamicTurns">—</div><div class="info-stat-lbl" data-i18n="stats.dynamicTurns">Dynamic turns</div></div>
             <div class="info-stat"><div class="info-stat-num" id="statsDynamicPercent">—</div><div class="info-stat-lbl" data-i18n="stats.dynamicSavedPercent">Saved vs full tools</div></div>
+            <div class="info-stat"><div class="info-stat-num" id="statsRouterCalls">—</div><div class="info-stat-lbl" data-i18n="stats.routerCalls">Router calls</div></div>
+            <div class="info-stat"><div class="info-stat-num" id="statsRouterTokens">—</div><div class="info-stat-lbl" data-i18n="stats.routerTokens">Router tokens</div></div>
           </div>
           <p class="card-muted hint" id="statsDynamicHint" style="margin-top:8px"></p>
+          <p class="card-muted hint" id="statsRouterHint" style="margin-top:4px" data-i18n="stats.routerHint">Pack-router JSON calls (dedicated secondary or active chat model).</p>
           <h3 style="margin-top:16px;font-size:.95rem" data-i18n="settings.toolkitAudit">Dynamic toolkits audit</h3>
           <p class="card-muted" data-i18n="settings.toolkitAuditDesc">Recent pack route / activate events (server-side).</p>
           <button type="button" class="btn btn-sm" onclick="loadToolkitAudit()" data-i18n="settings.toolkitAuditRefresh">Refresh</button>
@@ -630,6 +633,13 @@
             <p class="card-muted hint" data-i18n="settings.imageGenProviderDesc">Optional. Select a secondary provider for the generate_image tool when the primary model cannot create images (e.g. DeepSeek primary + Grok secondary for generation).</p>
             <select id="provImageGen">
               <option value="" data-i18n="settings.noImageGen">— None —</option>
+            </select>
+          </div>
+          <div class="modal-section">
+            <h3 data-i18n="settings.toolkitRouterProvider">Pack router LLM</h3>
+            <p class="card-muted hint" data-i18n="settings.toolkitRouterProviderDesc">Optional. Cheap/fast secondary used only for Dynamic pack routing (short JSON). Empty = use the active chat model for that turn.</p>
+            <select id="provToolkitRouter">
+              <option value="" data-i18n="settings.noToolkitRouter">— None —</option>
             </select>
           </div>
           <div class="modal-section">

@@ -560,6 +560,7 @@ async def add_provider(data: dict):
         "secondary_provider": str(data.get("secondary_provider") or "").strip(),
         "vision_provider": str(data.get("vision_provider") or "").strip(),
         "image_generation_provider": str(data.get("image_generation_provider") or "").strip(),
+        "toolkit_router_provider": str(data.get("toolkit_router_provider") or "").strip(),
         "thinking_mode": str(data.get("thinking_mode") or "auto").strip() or "auto",
     }
     _apply_openrouter_options(provider, data)
@@ -577,7 +578,7 @@ async def update_provider(provider_id: str, data: dict):
     cfg = load_config()
     for p in cfg.get("providers", []):
         if p["id"] == provider_id:
-            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "image_generation_provider", "thinking_mode", "role_models"):
+            for key in ("name", "type", "base_url", "api_key", "model", "timeout", "max_tokens", "temperature", "system_prompt", "secondary_provider", "vision_provider", "image_generation_provider", "toolkit_router_provider", "thinking_mode", "role_models"):
                 if key in data:
                     val = data[key]
                     if key == "system_prompt" and isinstance(val, str):
@@ -748,6 +749,8 @@ async def delete_secondary_provider(provider_id: str):
             p["vision_provider"] = ""
         if p.get("image_generation_provider") == provider_id:
             p["image_generation_provider"] = ""
+        if p.get("toolkit_router_provider") == provider_id:
+            p["toolkit_router_provider"] = ""
     save_config(cfg)
     return {"status": "ok"}
 

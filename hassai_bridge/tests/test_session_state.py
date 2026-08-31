@@ -99,3 +99,36 @@ def test_toolkit_savings_stats(memory_db):
     assert out["events"] == 2
     assert out["saved_tokens"] == 1000 - 250 + 800 - 180
     assert out["saved_percent"] > 0
+
+
+def test_pack_router_usage_in_stats(memory_db):
+    from core import database as db
+
+    db.add_usage_stat(
+        user_id="u1",
+        provider_id="router1",
+        provider_name="Router",
+        provider_type="local",
+        model="fast",
+        tokens_prompt=40,
+        tokens_completion=12,
+        tokens_total=52,
+        route_reason="toolkit_router",
+    )
+    db.add_usage_stat(
+        user_id="u1",
+        provider_id="main",
+        provider_name="Main",
+        provider_type="openai",
+        model="gpt",
+        tokens_prompt=100,
+        tokens_completion=50,
+        tokens_total=150,
+        route_reason="session",
+    )
+    stats = db.get_usage_stats(30)
+    router = (stats.get("dynamic_toolkits") or {}).get("router") or {}
+    assert router["calls"] == 1
+    assert router["tokens"] == 52
+    assert router["prompt"] == 40
+    assert router["completion"] == 12

@@ -2602,13 +2602,38 @@ async def chat_completions(request: Request):
             skills_available=skills_in_tools,
         )
         before_tok = tk.estimate_tools_tokens(all_tools)
+        router_p, router_m = providers.resolve_toolkit_router(
+            active,
+            fallback_provider=active,
+            fallback_model=route.get("model") or active.get("model"),
+        )
         route_decision = await pr.route_packs(
             last_user_msg,
             eligible_preview,
-            provider=active,
-            model=route.get("model") or active.get("model"),
+            provider=router_p,
+            model=router_m,
         )
         primed = set(route_decision.get("packs") or ())
+        try:
+            usage = route_decision.get("usage") if isinstance(route_decision.get("usage"), dict) else {}
+            prompt_u = int(usage.get("prompt") or 0)
+            completion_u = int(usage.get("completion") or 0)
+            total_u = int(usage.get("total") or (prompt_u + completion_u))
+            if total_u > 0 and router_p:
+                add_usage_stat(
+                    user_id=user_id,
+                    provider_id=str(router_p.get("id") or ""),
+                    provider_name=str(router_p.get("name") or ""),
+                    provider_type=str(router_p.get("type") or ""),
+                    model=str(router_m or router_p.get("model") or ""),
+                    tokens_prompt=prompt_u,
+                    tokens_completion=completion_u,
+                    tokens_total=total_u,
+                    stream=False,
+                    route_reason="toolkit_router",
+                )
+        except Exception:
+            pass
         try:
             db.add_toolkit_audit(
                 user_id=user_id,
@@ -2617,7 +2642,8 @@ async def chat_completions(request: Request):
                 packs=primed,
                 detail=(
                     f"confidence={route_decision.get('confidence')} "
-                    f"reason={route_decision.get('reason')}"
+                    f"reason={route_decision.get('reason')} "
+                    f"router={((router_p or {}).get('name') or ((router_p or {}).get('id')) or '-')}"
                 ),
                 tools_tokens_before=before_tok,
             )

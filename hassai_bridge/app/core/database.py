@@ -910,6 +910,16 @@ def get_usage_stats(days=30):
             (cutoff,),
         ).fetchall()
 
+        router_row = conn.execute(
+            """SELECT COUNT(*) as calls,
+                      COALESCE(SUM(tokens_total),0) as tokens,
+                      COALESCE(SUM(tokens_prompt),0) as prompt,
+                      COALESCE(SUM(tokens_completion),0) as completion
+               FROM usage_stats
+               WHERE created_at >= ? AND route_reason = 'toolkit_router'""",
+            (cutoff,),
+        ).fetchone()
+
     tk_before = int(tk_row["tools_before"] or 0)
     tk_saved = int(tk_row["saved"] or 0)
     return {
@@ -944,6 +954,12 @@ def get_usage_stats(days=30):
             "tools_tokens_after": int(tk_row["tools_after"] or 0),
             "saved_percent": round(100.0 * tk_saved / tk_before, 1) if tk_before > 0 else 0.0,
             "daily": [dict(r) for r in tk_daily],
+            "router": {
+                "calls": int(router_row["calls"] or 0),
+                "tokens": int(router_row["tokens"] or 0),
+                "prompt": int(router_row["prompt"] or 0),
+                "completion": int(router_row["completion"] or 0),
+            },
         },
     }
 

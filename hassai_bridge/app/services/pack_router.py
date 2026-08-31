@@ -15,6 +15,7 @@ log = logging.getLogger("hassai.pack_router")
 CONFIDENCE_FLOOR = 0.4
 MAX_TOKENS = 120
 _JSON_RE = re.compile(r"\{[\s\S]*\}")
+_EMPTY_USAGE = {"prompt": 0, "completion": 0, "total": 0}
 
 
 def is_trivial_message(user_text: str) -> bool:
@@ -97,6 +98,38 @@ def _message_text(result: dict) -> str:
     return ""
 
 
+def _usage_from_result(result: dict | None) -> dict:
+    usage = (result or {}).get("usage") if isinstance(result, dict) else None
+    if not isinstance(usage, dict):
+        return dict(_EMPTY_USAGE)
+    try:
+        prompt = int(usage.get("prompt_tokens") or 0)
+    except (TypeError, ValueError):
+        prompt = 0
+    try:
+        completion = int(usage.get("completion_tokens") or 0)
+    except (TypeError, ValueError):
+        completion = 0
+    try:
+        total = int(usage.get("total_tokens") or (prompt + completion))
+    except (TypeError, ValueError):
+        total = prompt + completion
+    return {
+        "prompt": max(0, prompt),
+        "completion": max(0, completion),
+        "total": max(0, total),
+    }
+
+
+def _empty_decision(*, reason: str, confidence: float = 0.0) -> dict:
+    return {
+        "packs": set(),
+        "confidence": confidence,
+        "reason": reason,
+        "usage": dict(_EMPTY_USAGE),
+    }
+
+
 async def route_packs(
     user_text: str,
     eligible: dict[str, str],
@@ -104,11 +137,11 @@ async def route_packs(
     provider: dict | None,
     model: str | None = None,
 ) -> dict:
-    """Return {packs, confidence, reason}. Never raises to the chat path."""
+    """Return {packs, confidence, reason, usage}. Never raises to the chat path."""
     if not eligible:
-        return {"packs": set(), "confidence": 1.0, "reason": "no_eligible"}
+        return _empty_decision(reason="no_eligible", confidence=1.0)
     if is_trivial_message(user_text):
-        return {"packs": set(), "confidence": 1.0, "reason": "trivial"}
+        return _empty_decision(reason="trivial", confidence=1.0)
 
     from services import providers
 
@@ -136,13 +169,15 @@ async def route_packs(
         )
         raw = _message_text(result if isinstance(result, dict) else {})
         parsed = parse_router_response(raw, eligible)
+        parsed["usage"] = _usage_from_result(result if isinstance(result, dict) else {})
         log.info(
-            "Pack router → packs=%s confidence=%.2f reason=%s",
+            "Pack router → packs=%s confidence=%.2f reason=%s usage=%s",
             sorted(parsed.get("packs") or ()),
             float(parsed.get("confidence") or 0),
             parsed.get("reason"),
+            parsed["usage"],
         )
         return parsed
     except Exception as e:
         log.warning("Pack router failed: %s", e)
-        return {"packs": set(), "confidence": 0.0, "reason": f"error:{type(e).__name__}"}
+        return _empty_decision(reason=f"error:{type(e).__name__}")

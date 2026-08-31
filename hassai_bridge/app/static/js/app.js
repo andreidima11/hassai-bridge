@@ -648,6 +648,9 @@ async function loadUsageStats() {
     setText('statsDynamicSaved', _formatNumber(dyn.saved_tokens || 0));
     setText('statsDynamicTurns', _formatNumber(dyn.events || 0));
     setText('statsDynamicPercent', dyn.saved_percent != null ? `${dyn.saved_percent}%` : '—');
+    const router = dyn.router || {};
+    setText('statsRouterCalls', _formatNumber(router.calls || 0));
+    setText('statsRouterTokens', _formatNumber(router.tokens || 0));
     const dynHint = document.getElementById('statsDynamicHint');
     if (dynHint) {
       if (!dynamicOn) {
@@ -1685,6 +1688,8 @@ function renderProvidersList() {
     const visLabel = visProv ? `<span class="provider-secondary-badge">${t('settings.visionShort')}: ${escapeHtml(visProv.name)}</span>` : '';
     const imgProv = p.image_generation_provider ? _allSecondaryProviders.find(x => x.id === p.image_generation_provider) : null;
     const imgLabel = imgProv ? `<span class="provider-secondary-badge">${t('settings.imageGenShort')}: ${escapeHtml(imgProv.name)}</span>` : '';
+    const routerProv = p.toolkit_router_provider ? _allSecondaryProviders.find(x => x.id === p.toolkit_router_provider) : null;
+    const routerLabel = routerProv ? `<span class="provider-secondary-badge">${t('settings.toolkitRouterShort')}: ${escapeHtml(routerProv.name)}</span>` : '';
     const idAttr = escapeAttr(p.id);
     return `
       <div class="provider-item${activeClass}">
@@ -1695,6 +1700,7 @@ function renderProvidersList() {
             ${secLabel}
             ${visLabel}
             ${imgLabel}
+            ${routerLabel}
           </div>
           <div class="provider-detail">${escapeHtml(p.base_url)} — model: ${escapeHtml(p.model || 'default')}</div>
         </div>
@@ -1749,6 +1755,15 @@ function _populateImageGenSelect() {
   }
 }
 
+function _populateToolkitRouterSelect() {
+  const sel = document.getElementById('provToolkitRouter');
+  if (!sel) return;
+  sel.innerHTML = `<option value="">${t('settings.noToolkitRouter')}</option>`;
+  for (const p of _allSecondaryProviders) {
+    sel.innerHTML += `<option value="${escapeAttr(p.id)}">${escapeHtml(p.name)} (${PROVIDER_TYPE_LABELS[p.type] || p.type})</option>`;
+  }
+}
+
 function _fillProviderForm(p) {
   setText('providerFormTitle', p
     ? t('settings.editProvider')
@@ -1775,6 +1790,8 @@ function _fillProviderForm(p) {
   setVal('provVision', p?.vision_provider || '');
   _populateImageGenSelect();
   setVal('provImageGen', p?.image_generation_provider || '');
+  _populateToolkitRouterSelect();
+  setVal('provToolkitRouter', p?.toolkit_router_provider || '');
   _resetModelPicker(document.getElementById('provModel'), 'provModelPicker');
   _resetModelPicker(document.getElementById('provModelFast'), 'provModelFastPicker');
   _resetModelPicker(document.getElementById('provModelDeep'), 'provModelDeepPicker');
@@ -1916,6 +1933,7 @@ async function saveProvider() {
     thinking_mode: document.getElementById('provThinkingMode')?.value || 'auto',
     vision_provider: document.getElementById('provVision').value || '',
     image_generation_provider: document.getElementById('provImageGen').value || '',
+    toolkit_router_provider: document.getElementById('provToolkitRouter')?.value || '',
   };
   if (data.type === 'openrouter') {
     data.openrouter = _collectOpenRouterFields('prov');

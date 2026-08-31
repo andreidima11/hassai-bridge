@@ -199,6 +199,39 @@ def get_image_generation_provider(primary: dict | None = None) -> dict | None:
     return get_secondary_provider_by_id(gen_id)
 
 
+def get_toolkit_router_provider(primary: dict | None = None) -> dict | None:
+    """Secondary used only for Dynamic pack-router JSON (optional)."""
+    if primary is None:
+        primary = get_active_provider()
+    rid = str((primary or {}).get("toolkit_router_provider") or "").strip()
+    if not rid:
+        return None
+    return get_secondary_provider_by_id(rid)
+
+
+def resolve_toolkit_router(
+    primary: dict | None = None,
+    *,
+    fallback_provider: dict | None = None,
+    fallback_model: str | None = None,
+) -> tuple[dict | None, str | None]:
+    """Pick provider+model for Dynamic pack routing.
+
+    Dedicated secondary wins when set; otherwise fall back to the turn's chat LLM.
+    Prefers the secondary's ``role_models.fast`` when present.
+    """
+    if primary is None:
+        primary = get_active_provider()
+    dedicated = get_toolkit_router_provider(primary)
+    if dedicated:
+        roles = dedicated.get("role_models") if isinstance(dedicated.get("role_models"), dict) else {}
+        fast = str((roles or {}).get("fast") or "").strip()
+        model = fast or str(dedicated.get("model") or "").strip() or None
+        return dedicated, model
+    fb = fallback_provider if fallback_provider is not None else primary
+    return fb, fallback_model
+
+
 def find_global_image_generation_secondary() -> dict | None:
     """First configured secondary provider that supports image generation."""
     from services import provider_capabilities as pc
