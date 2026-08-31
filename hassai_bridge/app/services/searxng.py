@@ -18,6 +18,22 @@ from config import load_config
 
 log = logging.getLogger("hassai.searxng")
 
+
+def max_searches_per_prompt(cfg: dict | None = None) -> int:
+    """Cap ``search_web`` calls per user message (protects SearXNG from agent loops)."""
+    if cfg is None:
+        try:
+            cfg = load_config()
+        except Exception:
+            cfg = {}
+    sx = cfg.get("searxng") if isinstance(cfg.get("searxng"), dict) else {}
+    try:
+        n = int(sx.get("max_searches_per_prompt", 3))
+    except (TypeError, ValueError):
+        n = 3
+    return max(1, min(n, 10))
+
+
 # ── Persistent connection pool for SearXNG ──
 _sx_client: httpx.AsyncClient | None = None
 

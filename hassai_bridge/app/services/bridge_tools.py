@@ -52,6 +52,7 @@ _ALLOWED: dict[str, tuple] = {
     "memory.auto_consolidation.interval_hours": ("int", 1, 168),
     "searxng.enabled": ("bool",),
     "searxng.max_results": ("int", 1, 20),
+    "searxng.max_searches_per_prompt": ("int", 1, 10),
     "frigate.enabled": ("bool",),
     "frigate.timeout": ("int", 3, 60),
     "performance.history_limit": ("int", 2, 50),

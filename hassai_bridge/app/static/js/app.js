@@ -873,6 +873,7 @@ async function loadSettings() {
     setVal('knowledgeCutoff', cfg.knowledge_cutoff || '');
     setVal('sxUrl', sx.base_url || '');
     setVal('sxMaxResults', sx.max_results ?? 5);
+    setVal('sxMaxSearchesPerPrompt', sx.max_searches_per_prompt ?? 3);
     setVal('sxMaxChars', sx.max_page_chars ?? 4000);
     setVal('sxCacheTtl', sx.cache_ttl || 300);
 
@@ -1108,6 +1109,7 @@ async function saveSettings() {
         enabled: document.getElementById('sxEnabled').checked,
         base_url: document.getElementById('sxUrl').value,
         max_results: parseInt(document.getElementById('sxMaxResults').value),
+        max_searches_per_prompt: parseInt(document.getElementById('sxMaxSearchesPerPrompt')?.value) || 3,
         max_page_chars: parseInt(document.getElementById('sxMaxChars').value),
         cache_ttl: parseInt(document.getElementById('sxCacheTtl').value),
       },

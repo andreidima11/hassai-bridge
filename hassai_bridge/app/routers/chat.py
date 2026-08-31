@@ -906,6 +906,8 @@ async def _invoke_internal_tool(
     session_id: str | None = None,
     generated_attachments: list | None = None,
     toolkit_state: dict | None = None,
+    search_budget: dict | None = None,
+    cfg: dict | None = None,
 ) -> tuple[str, bool]:
     """Run one bridge-handled tool. Returns (result_text, search_used)."""
     from services import toolkits as tk
@@ -985,16 +987,36 @@ async def _invoke_internal_tool(
         query = (args.get("query") or "").strip()[:200]
         if not query:
             return "Error: empty search query.", False
-        log.info("AI requested search: %s", query)
+        budget = search_budget if isinstance(search_budget, dict) else None
+        max_n = int((budget or {}).get("max") or _max_searches_per_prompt(cfg))
+        used = int((budget or {}).get("used") or 0)
+        if used >= max_n:
+            log.info("Search budget exhausted (%s/%s) — refusing query: %s", used, max_n, query)
+            return (
+                f"Search limit reached ({max_n} per user message). "
+                "Do not call search_web again. Answer now using the results you already have "
+                "(and your knowledge for anything else).",
+                False,
+            )
+        if budget is not None:
+            budget["used"] = used + 1
+        log.info("AI requested search (%s/%s): %s", used + 1, max_n, query)
         try:
             search_ctx = await search_and_fetch(query)
         except Exception as e:
             log.error("Search failed: %s", e)
             search_ctx = ""
+        remaining = max(0, max_n - (used + 1))
+        suffix = (
+            f"\n[{remaining} search_web call(s) left this turn.]"
+            if remaining > 0
+            else "\n[No more search_web calls allowed this turn — answer with what you have.]"
+        )
         return (
             f"[Web search results for '{query}' — use this to answer accurately. "
             "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
-            + (search_ctx or "No results found."),
+            + (search_ctx or "No results found.")
+            + suffix,
             True,
         )
 
@@ -1084,6 +1106,7 @@ async def _append_internal_tool_results(
     generated_attachments: list | None = None,
     cfg: dict | None = None,
     toolkit_state: dict | None = None,
+    search_budget: dict | None = None,
 ) -> bool:
     """Append tool-role messages for internal calls. Returns search_used."""
     if cfg is None:
@@ -1126,6 +1149,8 @@ async def _append_internal_tool_results(
                 session_id=session_id,
                 generated_attachments=generated_attachments,
                 toolkit_state=toolkit_state,
+                search_budget=search_budget,
+                cfg=cfg,
             )
             search_used = search_used or used_search
             await _fire_activity(on_event, {
@@ -2287,6 +2312,24 @@ _SEARCH_WEB_TOOL = {
     },
 }
 
+
+def _max_searches_per_prompt(cfg: dict | None) -> int:
+    return searxng.max_searches_per_prompt(cfg)
+
+
+def _search_web_tool(cfg: dict | None) -> dict:
+    """search_web tool schema with the per-prompt search budget in the description."""
+    import copy
+
+    tool = copy.deepcopy(_SEARCH_WEB_TOOL)
+    lim = _max_searches_per_prompt(cfg)
+    tool["function"]["description"] = (
+        tool["function"]["description"]
+        + f" At most {lim} search_web call(s) per user message — prefer one good query."
+    )
+    return tool
+
+
 # For stripping old <<SEARCH:...>> markers from conversation history (legacy cleanup)
 _SEARCH_MARKER_STRIP = re.compile(r"<<SEARCH:[^>\n]*(?:>>)?")
 
@@ -2331,9 +2374,11 @@ def _build_search_instruction(cfg: dict) -> str:
     """Compact search context hint."""
     cutoff = cfg.get("knowledge_cutoff", "2024-01")
     today = date.today().strftime("%Y-%m-%d")
+    lim = _max_searches_per_prompt(cfg)
     return (
         f"Date: {today}. Knowledge cutoff: {cutoff}. "
         "Use search_web for anything after your cutoff. "
+        f"At most {lim} search_web call(s) per reply — one good query beats many. "
         "Never say you can't search."
     )
 
@@ -2481,7 +2526,7 @@ async def chat_completions(request: Request):
     # Build effective tools list: client tools + search_web + skills + HA
     all_tools = list(tools or []) if tools else []
     if search_enabled:
-        all_tools.append(_SEARCH_WEB_TOOL)
+        all_tools.append(_search_web_tool(cfg))
     all_tools.extend(_build_skill_tools())
     if bta.group_enabled("media", cfg):
         all_tools.extend(_MEDIA_TOOLS)
@@ -3000,6 +3045,7 @@ async def chat_completions(request: Request):
         # stops calling them (or we hit the round cap).
         fingerprints: list[str] = []
         generated_attachments: list[dict] = []
+        search_budget = {"used": 0, "max": _max_searches_per_prompt(cfg)}
         max_rounds = _agent_max_rounds(cfg)
         round_limit = max_rounds
         _round = 0
@@ -3043,6 +3089,7 @@ async def chat_completions(request: Request):
                     generated_attachments=generated_attachments,
                     cfg=cfg,
                     toolkit_state=toolkit_state,
+                    search_budget=search_budget,
                 ):
                     _search_used = True
                 effective_tools = _sync_effective_tools(toolkit_state, effective_tools)
@@ -3317,6 +3364,7 @@ async def chat_completions(request: Request):
         fingerprints: list[str] = []
         generated_attachments: list[dict] = []
         search_used = False
+        search_budget = {"used": 0, "max": _max_searches_per_prompt(cfg)}
         secondary_used = _image_provider_used
         rounds_left = _agent_max_rounds(cfg)
         sse_buf: list[str] = []
@@ -3671,6 +3719,7 @@ async def chat_completions(request: Request):
                     generated_attachments=generated_attachments,
                     cfg=cfg,
                     toolkit_state=toolkit_state,
+                    search_budget=search_budget,
                 ):
                     search_used = True
                 effective_tools = _sync_effective_tools(toolkit_state, effective_tools)
