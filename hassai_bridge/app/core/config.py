@@ -72,6 +72,7 @@ DEFAULT_CONFIG = {
         "base_url": "http://localhost:8080",
         "max_results": 5,
         "max_searches_per_prompt": 3,
+        "max_fetches_per_prompt": 3,
         "max_page_chars": 4000,
         "search_timeout": 15,
         "fetch_page_content": True,

@@ -146,6 +146,8 @@ def pack_for_tool(name: str) -> str | None:
         return None
     if name == "search_web":
         return None
+    if name == "fetch_url":
+        return None
     if name in _FRIGATE_NAMES:
         return PACK_FRIGATE
     if name in _BRIDGE_WRITE_NAMES:
@@ -210,6 +212,8 @@ def is_core_tool(name: str) -> bool:
     if name in _BRIDGE_READ_NAMES:
         return True
     if name == "search_web":
+        return True
+    if name == "fetch_url":
         return True
     return False
 

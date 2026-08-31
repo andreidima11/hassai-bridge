@@ -38,7 +38,7 @@ from services.memory_engine import (
     build_memory_context,
     extract_memories_from_conversation,
 )
-from services.web_scraper import search_and_fetch
+from services.web_scraper import search_and_fetch, fetch_page_text, extract_relevant_paragraphs
 from services import homeassistant as ha_api
 from services import lovelace_tools as lt
 from services import entity_tools as et
@@ -64,7 +64,7 @@ _FRIGATE_TOOL_NAMES = {"frigate_list_cameras", "frigate_events", "frigate_snapsh
 
 
 def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
-    if fn_name in ("search_web", "run_skill", "generate_image", "activate_toolkits"):
+    if fn_name in ("search_web", "fetch_url", "run_skill", "generate_image", "activate_toolkits"):
         return True
     if fn_name in _MEDIA_TOOL_NAMES or fn_name in _FRIGATE_TOOL_NAMES:
         return True
@@ -368,6 +368,8 @@ def _tool_detail(name: str, args: dict) -> str:
         return ""
     if name == "search_web":
         return _clip_detail(args.get("query"))
+    if name == "fetch_url":
+        return _clip_detail(args.get("url") or args.get("focus") or "")
     if name == "generate_image":
         return _clip_detail(args.get("prompt"))
     if name == "run_skill":
@@ -911,6 +913,7 @@ async def _invoke_internal_tool(
     generated_attachments: list | None = None,
     toolkit_state: dict | None = None,
     search_budget: dict | None = None,
+    fetch_budget: dict | None = None,
     cfg: dict | None = None,
 ) -> tuple[str, bool]:
     """Run one bridge-handled tool. Returns (result_text, search_used)."""
@@ -1024,6 +1027,62 @@ async def _invoke_internal_tool(
             True,
         )
 
+    if fn_name == "fetch_url" and search_enabled:
+        from urllib.parse import urlparse
+
+        raw_url = (args.get("url") or "").strip()
+        focus = (args.get("focus") or "").strip()[:200]
+        if not raw_url:
+            return "Error: empty url.", False
+        parsed = urlparse(raw_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return "Error: url must be an http(s) URL.", False
+        budget = fetch_budget if isinstance(fetch_budget, dict) else None
+        max_n = int((budget or {}).get("max") or _max_fetches_per_prompt(cfg))
+        used = int((budget or {}).get("used") or 0)
+        if used >= max_n:
+            log.info("Fetch budget exhausted (%s/%s) — refusing url: %s", used, max_n, raw_url[:80])
+            return (
+                f"Fetch limit reached ({max_n} per user message). "
+                "Do not call fetch_url again. Answer using pages you already fetched "
+                "(or search_web if you still need discovery).",
+                False,
+            )
+        if budget is not None:
+            budget["used"] = used + 1
+        log.info("AI requested fetch_url (%s/%s): %s", used + 1, max_n, raw_url[:120])
+        try:
+            page_text = await fetch_page_text(raw_url)
+        except Exception as e:
+            log.error("fetch_url failed: %s", e)
+            page_text = ""
+        if not page_text:
+            return (
+                f"[Could not fetch '{raw_url}' — blocked (private/internal), timeout, "
+                "non-HTML, or empty page. Try another URL or search_web.]",
+                True,
+            )
+        if page_text.startswith("[Non-text content:"):
+            return (
+                f"[Page is not readable text HTML: {page_text}]",
+                True,
+            )
+        if focus:
+            page_text = extract_relevant_paragraphs(page_text, focus)
+        remaining = max(0, max_n - (used + 1))
+        suffix = (
+            f"\n[{remaining} fetch_url call(s) left this turn.]"
+            if remaining > 0
+            else "\n[No more fetch_url calls allowed this turn — answer with what you have.]"
+        )
+        return (
+            f"[Fetched page '{raw_url}' — summarize in your own words; "
+            "do not paste the whole page.]\n"
+            + page_text
+            + suffix,
+            True,
+        )
+
     if fn_name == "generate_image":
         gen_provider = image_gen_provider or provider
         if not gen_provider or not pc.supports_image_generation(gen_provider):
@@ -1111,6 +1170,7 @@ async def _append_internal_tool_results(
     cfg: dict | None = None,
     toolkit_state: dict | None = None,
     search_budget: dict | None = None,
+    fetch_budget: dict | None = None,
 ) -> bool:
     """Append tool-role messages for internal calls. Returns search_used."""
     if cfg is None:
@@ -1154,6 +1214,7 @@ async def _append_internal_tool_results(
                 generated_attachments=generated_attachments,
                 toolkit_state=toolkit_state,
                 search_budget=search_budget,
+                fetch_budget=fetch_budget,
                 cfg=cfg,
             )
             search_used = search_used or used_search
@@ -1170,6 +1231,7 @@ async def _append_internal_tool_results(
             "content": content,
         })
     return search_used
+
 
 # ── Start time for /uptime command ──
 _cmd_start_time = time.time()
@@ -2316,9 +2378,40 @@ _SEARCH_WEB_TOOL = {
     },
 }
 
+_FETCH_URL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "fetch_url",
+        "description": (
+            "Open a specific http(s) URL and read its main text (articles, docs, blog posts). "
+            "Use when the user pastes or names a link. "
+            "Do NOT use for open-ended questions — use search_web instead. "
+            "Cannot render JavaScript-only apps or download PDFs/binaries."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "Full http(s) URL to fetch.",
+                },
+                "focus": {
+                    "type": "string",
+                    "description": "Optional keywords to keep the most relevant paragraphs.",
+                },
+            },
+            "required": ["url"],
+        },
+    },
+}
+
 
 def _max_searches_per_prompt(cfg: dict | None) -> int:
     return searxng.max_searches_per_prompt(cfg)
+
+
+def _max_fetches_per_prompt(cfg: dict | None) -> int:
+    return searxng.max_fetches_per_prompt(cfg)
 
 
 def _search_web_tool(cfg: dict | None) -> dict:
@@ -2330,6 +2423,19 @@ def _search_web_tool(cfg: dict | None) -> dict:
     tool["function"]["description"] = (
         tool["function"]["description"]
         + f" At most {lim} search_web call(s) per user message — prefer one good query."
+    )
+    return tool
+
+
+def _fetch_url_tool(cfg: dict | None) -> dict:
+    """fetch_url tool schema with the per-prompt fetch budget in the description."""
+    import copy
+
+    tool = copy.deepcopy(_FETCH_URL_TOOL)
+    lim = _max_fetches_per_prompt(cfg)
+    tool["function"]["description"] = (
+        tool["function"]["description"]
+        + f" At most {lim} fetch_url call(s) per user message."
     )
     return tool
 
@@ -2379,11 +2485,14 @@ def _build_search_instruction(cfg: dict) -> str:
     cutoff = cfg.get("knowledge_cutoff", "2024-01")
     today = date.today().strftime("%Y-%m-%d")
     lim = _max_searches_per_prompt(cfg)
+    flim = _max_fetches_per_prompt(cfg)
     return (
         f"Date: {today}. Knowledge cutoff: {cutoff}. "
-        "Use search_web for anything after your cutoff. "
+        "Use search_web for anything after your cutoff when you have no URL. "
         f"At most {lim} search_web call(s) per reply — one good query beats many. "
-        "Never say you can't search."
+        f"If the user gives an http(s) link, use fetch_url (at most {flim} per reply) "
+        "instead of searching for that page. "
+        "Never say you can't search or open links."
     )
 
 
@@ -2531,6 +2640,7 @@ async def chat_completions(request: Request):
     all_tools = list(tools or []) if tools else []
     if search_enabled:
         all_tools.append(_search_web_tool(cfg))
+        all_tools.append(_fetch_url_tool(cfg))
     all_tools.extend(_build_skill_tools())
     if bta.group_enabled("media", cfg):
         all_tools.extend(_MEDIA_TOOLS)
@@ -3076,6 +3186,7 @@ async def chat_completions(request: Request):
         fingerprints: list[str] = []
         generated_attachments: list[dict] = []
         search_budget = {"used": 0, "max": _max_searches_per_prompt(cfg)}
+        fetch_budget = {"used": 0, "max": _max_fetches_per_prompt(cfg)}
         max_rounds = _agent_max_rounds(cfg)
         round_limit = max_rounds
         _round = 0
@@ -3125,6 +3236,7 @@ async def chat_completions(request: Request):
                     cfg=cfg,
                     toolkit_state=toolkit_state,
                     search_budget=search_budget,
+                    fetch_budget=fetch_budget,
                 ):
                     _search_used = True
                 effective_tools = _sync_effective_tools(toolkit_state, effective_tools)
@@ -3401,6 +3513,7 @@ async def chat_completions(request: Request):
         generated_attachments: list[dict] = []
         search_used = False
         search_budget = {"used": 0, "max": _max_searches_per_prompt(cfg)}
+        fetch_budget = {"used": 0, "max": _max_fetches_per_prompt(cfg)}
         secondary_used = _image_provider_used
         rounds_left = _agent_max_rounds(cfg)
         sse_buf: list[str] = []
@@ -3799,6 +3912,7 @@ async def chat_completions(request: Request):
                     cfg=cfg,
                     toolkit_state=toolkit_state,
                     search_budget=search_budget,
+                    fetch_budget=fetch_budget,
                 ):
                     search_used = True
                 effective_tools = _sync_effective_tools(toolkit_state, effective_tools)

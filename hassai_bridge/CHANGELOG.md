@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.8
+
+### Features
+- **fetch_url** — open a user-provided http(s) link and read page text (SSRF-safe, HTML only); Settings → Search caps fetches per reply (default 3); same web-access toggle as SearXNG
+
 ## 1.2.7
 
 ### Fix

@@ -8,7 +8,7 @@ from services import ha_tool_access as hta
 
 # Non-HA buckets shown in Settings → Secondary provider → Use for.
 EXTRA_CATEGORY_KEYS: dict[str, str] = {
-    "web_search": "Web search (SearXNG)",
+    "web_search": "Web (search + fetch URL)",
     "frigate": "Cameras (Frigate events and snapshots)",
     "skills": "Skills (run_skill)",
     "media": "Media files in the add-on",
@@ -72,7 +72,7 @@ def tool_use_for_category(name: str) -> str | None:
     n = (name or "").strip()
     if not n:
         return None
-    if n == "search_web":
+    if n == "search_web" or n == "fetch_url":
         return "web_search"
     if n in _FRIGATE_TOOLS or n.startswith("frigate_"):
         return "frigate"

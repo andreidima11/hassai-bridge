@@ -53,6 +53,7 @@ _ALLOWED: dict[str, tuple] = {
     "searxng.enabled": ("bool",),
     "searxng.max_results": ("int", 1, 20),
     "searxng.max_searches_per_prompt": ("int", 1, 10),
+    "searxng.max_fetches_per_prompt": ("int", 1, 10),
     "frigate.enabled": ("bool",),
     "frigate.timeout": ("int", 3, 60),
     "performance.history_limit": ("int", 2, 50),

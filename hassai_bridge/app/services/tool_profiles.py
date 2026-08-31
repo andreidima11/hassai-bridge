@@ -183,6 +183,10 @@ def _intent_filter_tools(
             if search_enabled:
                 out.append(tool)
             continue
+        if name == "fetch_url":
+            if search_enabled:
+                out.append(tool)
+            continue
         if name in _FRIGATE_TOOLS:
             if allow_frigate:
                 out.append(tool)
@@ -212,6 +216,8 @@ def _tool_keep_score(name: str, *, user_text: str, route_klass: str) -> int:
         return 1000 if _FRIGATE_RE.search(user_text or "") else 200
     if name == "search_web":
         return 900
+    if name == "fetch_url":
+        return 890
     if name.startswith("memory_") or name.startswith("skill_") or name.startswith("hassai_"):
         return 850
     if name == "generate_image":

@@ -34,6 +34,21 @@ def max_searches_per_prompt(cfg: dict | None = None) -> int:
     return max(1, min(n, 10))
 
 
+def max_fetches_per_prompt(cfg: dict | None = None) -> int:
+    """Cap ``fetch_url`` calls per user message (direct page fetches)."""
+    if cfg is None:
+        try:
+            cfg = load_config()
+        except Exception:
+            cfg = {}
+    sx = cfg.get("searxng") if isinstance(cfg.get("searxng"), dict) else {}
+    try:
+        n = int(sx.get("max_fetches_per_prompt", 3))
+    except (TypeError, ValueError):
+        n = 3
+    return max(1, min(n, 10))
+
+
 # ── Persistent connection pool for SearXNG ──
 _sx_client: httpx.AsyncClient | None = None
 
