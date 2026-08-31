@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.2
+
+### Features
+- **Dynamic toolkit savings in Statistics** — Settings → Statistics → Model shows estimated tool-schema tokens saved (turn count, total saved, % vs full tools) when Dynamic is active; `activate_toolkits` expansions log before/after tokens too
+- **Default global system prompt** — concise confirmations on home commands, no unsolicited smart-home suggestions, memory-aware (fresh installs; existing `config.json` unchanged)
+
 ## 1.2.1
 
 ### Fix

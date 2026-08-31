@@ -363,14 +363,6 @@ def expand_after_activate(
                 packs=denied,
                 detail="activate_toolkits",
             )
-        if allowed:
-            db.add_toolkit_audit(
-                user_id=user_id,
-                session_id=session_id,
-                event="activate",
-                packs=allowed,
-                detail="activate_toolkits",
-            )
     except Exception:
         pass
 

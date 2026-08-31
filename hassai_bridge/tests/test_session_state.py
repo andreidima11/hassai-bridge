@@ -74,3 +74,28 @@ def test_toolkit_audit_write_read(memory_db):
     assert rows
     assert rows[0]["event"] == "route"
     assert rows[0]["packs"] == ["entities"]
+
+
+def test_toolkit_savings_stats(memory_db):
+    from core import database as db
+
+    db.add_toolkit_audit(
+        user_id="u1",
+        session_id="s1",
+        event="route_applied",
+        packs=["entities"],
+        tools_tokens_before=1000,
+        tools_tokens_after=250,
+    )
+    db.add_toolkit_audit(
+        user_id="u1",
+        session_id="s2",
+        event="route_applied",
+        packs=[],
+        tools_tokens_before=800,
+        tools_tokens_after=180,
+    )
+    out = db.get_toolkit_savings_stats(30)
+    assert out["events"] == 2
+    assert out["saved_tokens"] == 1000 - 250 + 800 - 180
+    assert out["saved_percent"] > 0

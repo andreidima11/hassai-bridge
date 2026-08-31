@@ -881,7 +881,39 @@ def get_usage_stats(days=30):
             (cutoff,),
         ).fetchone()
 
+        tk_row = conn.execute(
+            """SELECT COUNT(*) as events,
+                      COALESCE(SUM(CASE
+                        WHEN tools_tokens_before > tools_tokens_after
+                        THEN tools_tokens_before - tools_tokens_after ELSE 0 END), 0) as saved,
+                      COALESCE(SUM(tools_tokens_before), 0) as tools_before,
+                      COALESCE(SUM(tools_tokens_after), 0) as tools_after
+               FROM toolkit_audit
+               WHERE ts >= ?
+                 AND event IN ('route_applied', 'activate')
+                 AND tools_tokens_after > 0""",
+            (cutoff,),
+        ).fetchone()
+
+        tk_daily = conn.execute(
+            """SELECT DATE(ts, 'unixepoch') as day,
+                      COALESCE(SUM(CASE
+                        WHEN tools_tokens_before > tools_tokens_after
+                        THEN tools_tokens_before - tools_tokens_after ELSE 0 END), 0) as saved,
+                      COUNT(*) as events
+               FROM toolkit_audit
+               WHERE ts >= ?
+                 AND event IN ('route_applied', 'activate')
+                 AND tools_tokens_after > 0
+               GROUP BY day
+               ORDER BY day ASC""",
+            (cutoff,),
+        ).fetchall()
+
+    tk_before = int(tk_row["tools_before"] or 0)
+    tk_saved = int(tk_row["saved"] or 0)
     return {
+
         "period_days": days,
         "total_requests": total,
         "tokens": {
@@ -905,6 +937,31 @@ def get_usage_stats(days=30):
             "hit_tokens": cache_row["hit"],
             "miss_tokens": cache_row["miss"],
         },
+        "dynamic_toolkits": {
+            "events": int(tk_row["events"] or 0),
+            "saved_tokens": tk_saved,
+            "tools_tokens_before": tk_before,
+            "tools_tokens_after": int(tk_row["tools_after"] or 0),
+            "saved_percent": round(100.0 * tk_saved / tk_before, 1) if tk_before > 0 else 0.0,
+            "daily": [dict(r) for r in tk_daily],
+        },
+    }
+
+
+def get_toolkit_savings_stats(days: int = 30) -> dict:
+    """Aggregate tool-schema token savings from Dynamic toolkit audit events."""
+    try:
+        d = max(1, min(int(days), 365))
+    except (TypeError, ValueError):
+        d = 30
+    stats = get_usage_stats(d)
+    return stats.get("dynamic_toolkits") or {
+        "events": 0,
+        "saved_tokens": 0,
+        "tools_tokens_before": 0,
+        "tools_tokens_after": 0,
+        "saved_percent": 0.0,
+        "daily": [],
     }
 
 

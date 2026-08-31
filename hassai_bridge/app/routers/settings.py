@@ -1020,11 +1020,16 @@ async def system_info():
 @router.get("/stats")
 async def get_stats(days: int = 30):
     """Get usage statistics for the dashboard."""
+    from services import tool_profiles as tp
+
     if days < 1:
         days = 1
     elif days > 365:
         days = 365
-    return get_usage_stats(days)
+    stats = get_usage_stats(days)
+    cfg = load_config()
+    stats["tool_profile"] = tp.tool_profile_mode(cfg)
+    return stats
 
 
 # ══════════════════════════════════════════════════

@@ -913,6 +913,7 @@ async def _invoke_internal_tool(
     if toolkit_state and toolkit_state.get("enabled"):
         if fn_name == tk.ACTIVATE_TOOL:
             packs = args.get("packs") if isinstance(args.get("packs"), list) else []
+            toolkit_state["_pre_activate_tools"] = list(toolkit_state.get("effective") or [])
             new_tools, active, payload = tk.expand_after_activate(
                 toolkit_state.get("all_tools") or [],
                 cfg=toolkit_state.get("cfg"),
@@ -936,6 +937,22 @@ async def _invoke_internal_tool(
                 image_gen_available=bool(toolkit_state.get("image_gen_available", True)),
                 skills_available=bool(toolkit_state.get("skills_available", True)),
             )
+            try:
+                from core import database as db
+
+                before_tok = tk.estimate_tools_tokens(toolkit_state.get("_pre_activate_tools") or [])
+                after_tok = tk.estimate_tools_tokens(new_tools)
+                db.add_toolkit_audit(
+                    user_id=str(toolkit_state.get("user_id") or user_id or ""),
+                    session_id=session_id or "",
+                    event="activate",
+                    packs=sorted(active),
+                    detail="activate_toolkits",
+                    tools_tokens_before=before_tok,
+                    tools_tokens_after=after_tok,
+                )
+            except Exception:
+                pass
             log.info(
                 "Dynamic toolkits activated packs=%s tools=%s (~%s tool-tokens)",
                 sorted(active), len(new_tools), tk.estimate_tools_tokens(new_tools),

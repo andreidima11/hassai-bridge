@@ -643,6 +643,25 @@ async function loadUsageStats() {
     setText('statsCacheHit', _formatNumber(kv.hit_tokens || 0));
     setText('statsCacheMiss', _formatNumber(kv.miss_tokens || 0));
 
+    const dyn = stats.dynamic_toolkits || {};
+    const dynamicOn = stats.tool_profile === 'dynamic';
+    setText('statsDynamicSaved', _formatNumber(dyn.saved_tokens || 0));
+    setText('statsDynamicTurns', _formatNumber(dyn.events || 0));
+    setText('statsDynamicPercent', dyn.saved_percent != null ? `${dyn.saved_percent}%` : '—');
+    const dynHint = document.getElementById('statsDynamicHint');
+    if (dynHint) {
+      if (!dynamicOn) {
+        dynHint.textContent = t('stats.dynamicInactive') || 'Dynamic is off — enable it under Settings → General → Performance.';
+      } else if (!(dyn.events || 0)) {
+        dynHint.textContent = t('stats.dynamicNoData') || 'No Dynamic turns in this period yet.';
+      } else {
+        dynHint.textContent = t('stats.dynamicHint', {
+          before: _formatNumber(dyn.tools_tokens_before || 0),
+          after: _formatNumber(dyn.tools_tokens_after || 0),
+        }) || '';
+      }
+    }
+
     const modelsWithCache = (stats.by_model || []).filter(
       (m) => (m.cache_hit_tokens || 0) > 0 || (m.cache_miss_tokens || 0) > 0,
     );
