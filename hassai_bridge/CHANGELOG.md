@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.5
+
+### Features
+- **Pack router LLM** — on each primary provider, optionally pick a secondary for Dynamic pack routing (short JSON); empty = active chat model
+- **Router tokens in Statistics** — Statistics → Model → Dynamic shows Pack router calls and tokens (`route_reason=toolkit_router`)
+
 ## 1.2.4
 
 ### Fix
