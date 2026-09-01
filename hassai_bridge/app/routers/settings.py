@@ -335,6 +335,28 @@ async def greetings_status():
     return gp.status_payload()
 
 
+@router.get("/greetings/prompt-default")
+async def greetings_prompt_default():
+    from services.greeting_pool import default_prompt_template
+    return {"prompt": default_prompt_template()}
+
+
+@router.get("/greetings/items")
+async def greetings_items():
+    from services import greeting_pool as gp
+    return {"items": gp.pool_items_payload(80)}
+
+
+@router.put("/greetings/items")
+async def greetings_save_items(data: dict):
+    from services import greeting_pool as gp
+    items = data.get("items")
+    saved, err = gp.save_edited_items(items if isinstance(items, list) else [])
+    if err:
+        return {"status": "error", "error": err, "items": saved}
+    return {"status": "ok", "items": saved, "meta": gp.status_payload()}
+
+
 @router.post("/greetings/regenerate")
 async def greetings_regenerate():
     """Force-refresh the LLM greeting pool with the configured provider/model."""

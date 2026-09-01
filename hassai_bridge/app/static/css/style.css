@@ -417,6 +417,59 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .log-muted{color:var(--muted)}
 .input-sm{padding:6px 10px;font-size:.82rem;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--text)}
 
+/* ── Custom selects (settings) ── */
+.hassai-select-mount{position:relative;width:100%}
+.hassai-select{position:relative;width:100%}
+.hassai-select__trigger{
+  width:100%;display:flex;align-items:center;gap:10px;padding:10px 14px;
+  background:var(--bg);border:1px solid var(--border);border-radius:12px;
+  color:var(--text);font-size:.88rem;text-align:left;cursor:pointer;
+  transition:border-color .15s,background .15s;outline:none
+}
+.hassai-select__trigger:hover{border-color:rgba(255,255,255,.22);background:rgba(255,255,255,.03)}
+.hassai-select__trigger:focus-visible{border-color:rgba(255,255,255,.28)}
+.hassai-select__trigger[disabled]{opacity:.55;cursor:not-allowed}
+.hassai-select__label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hassai-select__chev{flex-shrink:0;color:var(--muted);font-size:.72rem;transition:transform .2s ease}
+.hassai-select.open .hassai-select__chev{transform:rotate(180deg)}
+.hassai-select__menu{
+  position:absolute;left:0;right:0;z-index:80;margin-top:6px;max-height:220px;overflow-y:auto;
+  background:var(--card);border:1px solid var(--border);border-radius:14px;padding:6px;
+  box-shadow:0 16px 48px rgba(0,0,0,.45);display:none
+}
+.hassai-select.open .hassai-select__menu{display:block}
+.hassai-select.open-up .hassai-select__menu{top:auto;bottom:calc(100% + 6px);margin-top:0}
+.hassai-select__option{
+  width:100%;display:block;text-align:left;padding:9px 12px;border:none;border-radius:10px;
+  background:transparent;color:var(--muted);font-size:.86rem;cursor:pointer;transition:background .12s,color .12s
+}
+.hassai-select__option:hover{background:rgba(255,255,255,.06);color:var(--text)}
+.hassai-select__option.active{background:rgba(255,255,255,.1);color:var(--text)}
+.greetings-model-row{display:flex;gap:8px;align-items:stretch;margin-top:0}
+.greetings-model-row .greetings-model-select{flex:1;min-width:0}
+.greetings-model-row .btn{align-self:stretch;white-space:nowrap}
+.greetings-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+
+/* ── Greetings modal ── */
+.greetings-modal{max-width:860px}
+.greetings-modal-list{display:flex;flex-direction:column;gap:12px}
+.greeting-edit-card{
+  border:1px solid var(--border);border-radius:14px;padding:14px 16px;background:rgba(255,255,255,.02)
+}
+.greeting-edit-card__head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.greeting-edit-card__num{font-size:.78rem;color:var(--muted);font-weight:600}
+.greeting-edit-card__grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.greeting-edit-card label{margin-top:0;font-size:.76rem}
+.greeting-edit-card input,.greeting-edit-card textarea{
+  padding:8px 10px;font-size:.82rem;border-radius:10px;margin-top:4px
+}
+.greeting-edit-card textarea{min-height:56px}
+@media(max-width:640px){
+  .greeting-edit-card__grid{grid-template-columns:1fr}
+  .greetings-actions{width:100%;justify-content:stretch}
+  .greetings-actions .btn{flex:1}
+}
+
 /* ── Settings Sub-tabs ── */
 .settings-tabs{
   display:flex;

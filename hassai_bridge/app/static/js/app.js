@@ -853,6 +853,10 @@ async function loadSettings() {
     setChecked('settingsDynamicGreetings', cfg.dynamic_greetings !== false);
     fillGreetingsProviderSelect(cfg.providers || [], (cfg.greetings || {}).provider_id || '');
     applyGreetingsSettings(cfg.greetings || {});
+    if (!(cfg.greetings?.prompt_template || '').trim()) {
+      const ta = document.getElementById('greetingsPrompt');
+      if (ta) ta.value = await ensureGreetingsDefaultPrompt();
+    }
     onDynamicGreetingsToggle();
     refreshGreetingsStatus();
 
@@ -868,6 +872,10 @@ async function loadSettings() {
     // Re-fill greetings provider list after providers are known
     fillGreetingsProviderSelect(_allProviders, (cfg.greetings || {}).provider_id || '');
     applyGreetingsSettings(cfg.greetings || {});
+    if (!(cfg.greetings?.prompt_template || '').trim()) {
+      const ta = document.getElementById('greetingsPrompt');
+      if (ta) ta.value = await ensureGreetingsDefaultPrompt();
+    }
     onDynamicGreetingsToggle();
     refreshGreetingsStatus();
 
@@ -969,45 +977,223 @@ function onDynamicGreetingsToggle() {
   if (box) box.style.display = on ? '' : 'none';
 }
 
+let _greetingsProviderSelect = null;
+let _greetingsModelSelect = null;
+let _greetingsDefaultPrompt = '';
+
+function mountHassaiSelect(mountEl, { value = '', options = [], placeholder = '—', onChange, ariaLabel = '' }) {
+  if (!mountEl) return null;
+  mountEl.innerHTML = '';
+  const root = document.createElement('div');
+  root.className = 'hassai-select';
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'hassai-select__trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  if (ariaLabel) trigger.setAttribute('aria-label', ariaLabel);
+  const labelEl = document.createElement('span');
+  labelEl.className = 'hassai-select__label';
+  const chev = document.createElement('span');
+  chev.className = 'hassai-select__chev';
+  chev.textContent = '▾';
+  chev.setAttribute('aria-hidden', 'true');
+  trigger.append(labelEl, chev);
+  const menu = document.createElement('div');
+  menu.className = 'hassai-select__menu';
+  menu.setAttribute('role', 'listbox');
+  root.append(trigger, menu);
+  mountEl.appendChild(root);
+
+  const state = { value, options, open: false };
+
+  function labelFor(val) {
+    const hit = state.options.find((o) => o.value === val);
+    if (hit?.label) return hit.label;
+    if (val) return val;
+    return placeholder;
+  }
+
+  function renderMenu() {
+    menu.innerHTML = '';
+    for (const row of state.options) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hassai-select__option' + (row.value === state.value ? ' active' : '');
+      btn.setAttribute('role', 'option');
+      btn.textContent = row.label;
+      btn.onclick = () => {
+        state.value = row.value;
+        labelEl.textContent = labelFor(state.value);
+        close();
+        onChange?.(state.value);
+      };
+      menu.appendChild(btn);
+    }
+  }
+
+  function open() {
+    document.querySelectorAll('.hassai-select.open').forEach((el) => {
+      if (el !== root) el.classList.remove('open', 'open-up');
+    });
+    const rect = trigger.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    root.classList.toggle('open-up', spaceBelow < 180 && rect.top > spaceBelow);
+    root.classList.add('open');
+    trigger.setAttribute('aria-expanded', 'true');
+    state.open = true;
+  }
+
+  function close() {
+    root.classList.remove('open', 'open-up');
+    trigger.setAttribute('aria-expanded', 'false');
+    state.open = false;
+  }
+
+  trigger.onclick = () => (state.open ? close() : open());
+  document.addEventListener('mousedown', (ev) => {
+    if (!root.contains(ev.target)) close();
+  });
+  window.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') close();
+  });
+
+  labelEl.textContent = labelFor(state.value);
+  renderMenu();
+
+  return {
+    getValue: () => state.value,
+    setValue(val) {
+      state.value = val ?? '';
+      labelEl.textContent = labelFor(state.value);
+      renderMenu();
+    },
+    setOptions(opts) {
+      state.options = Array.isArray(opts) ? opts : [];
+      if (!state.options.some((o) => o.value === state.value)) {
+        state.value = state.options[0]?.value ?? '';
+      }
+      labelEl.textContent = labelFor(state.value);
+      renderMenu();
+    },
+    close,
+  };
+}
+
+function initGreetingsPickers() {
+  const provMount = document.getElementById('greetingsProviderMount');
+  const modelMount = document.getElementById('greetingsModelMount');
+  const activeLabel = t('settings.greetingsProviderActive') || 'Active chat provider (default)';
+  const modelPlaceholder = t('settings.greetingsModelPlaceholder') || 'Default / fast model';
+  _greetingsProviderSelect = mountHassaiSelect(provMount, {
+    value: '',
+    placeholder: activeLabel,
+    options: [{ value: '', label: activeLabel }],
+    ariaLabel: t('settings.greetingsProvider') || 'Provider',
+    onChange: (val) => {
+      const hidden = document.getElementById('greetingsProvider');
+      if (hidden) hidden.value = val;
+      onGreetingsProviderChange();
+    },
+  });
+  _greetingsModelSelect = mountHassaiSelect(modelMount, {
+    value: '',
+    placeholder: modelPlaceholder,
+    options: [{ value: '', label: modelPlaceholder }],
+    ariaLabel: t('settings.greetingsModel') || 'Model',
+    onChange: (val) => {
+      const hidden = document.getElementById('greetingsModel');
+      if (hidden) hidden.value = val;
+    },
+  });
+}
+
 function collectGreetingsSettings() {
+  const providerId = _greetingsProviderSelect?.getValue()
+    ?? document.getElementById('greetingsProvider')?.value
+    ?? '';
+  const model = _greetingsModelSelect?.getValue()
+    ?? document.getElementById('greetingsModel')?.value
+    ?? '';
   return {
     refresh_days: parseInt(document.getElementById('greetingsRefreshDays')?.value, 10) || 7,
     pool_size: parseInt(document.getElementById('greetingsPoolSize')?.value, 10) || 40,
-    provider_id: (document.getElementById('greetingsProvider')?.value || '').trim(),
-    model: (document.getElementById('greetingsModel')?.value || '').trim(),
+    provider_id: String(providerId || '').trim(),
+    model: String(model || '').trim(),
+    prompt_template: (document.getElementById('greetingsPrompt')?.value || '').trim(),
   };
+}
+
+async function ensureGreetingsDefaultPrompt() {
+  if (_greetingsDefaultPrompt) return _greetingsDefaultPrompt;
+  try {
+    const data = await api('GET', '/api/settings/greetings/prompt-default');
+    _greetingsDefaultPrompt = data.prompt || '';
+  } catch {
+    _greetingsDefaultPrompt = '';
+  }
+  return _greetingsDefaultPrompt;
+}
+
+async function resetGreetingsPrompt() {
+  const ta = document.getElementById('greetingsPrompt');
+  if (!ta) return;
+  ta.value = await ensureGreetingsDefaultPrompt();
+  toast(t('settings.greetingsPromptResetDone') || 'Prompt reset');
 }
 
 function applyGreetingsSettings(g) {
   const block = g && typeof g === 'object' ? g : {};
   setVal('greetingsRefreshDays', block.refresh_days ?? 7);
   setVal('greetingsPoolSize', block.pool_size ?? 40);
-  setVal('greetingsModel', block.model || '');
-  const sel = document.getElementById('greetingsProvider');
-  if (sel) {
-    const want = block.provider_id || '';
-    sel.value = [...sel.options].some((o) => o.value === want) ? want : '';
+  const wantProv = block.provider_id || '';
+  const wantModel = block.model || '';
+  const hiddenProv = document.getElementById('greetingsProvider');
+  const hiddenModel = document.getElementById('greetingsModel');
+  if (hiddenProv) hiddenProv.value = wantProv;
+  if (hiddenModel) hiddenModel.value = wantModel;
+  if (_greetingsProviderSelect) _greetingsProviderSelect.setValue(wantProv);
+  if (_greetingsModelSelect) _greetingsModelSelect.setValue(wantModel);
+  const ta = document.getElementById('greetingsPrompt');
+  if (ta && typeof block.prompt_template === 'string') {
+    ta.value = block.prompt_template;
   }
 }
 
 function fillGreetingsProviderSelect(providers, selectedId) {
-  const sel = document.getElementById('greetingsProvider');
-  if (!sel) return;
   const activeLabel = t('settings.greetingsProviderActive') || 'Active chat provider (default)';
-  const want = selectedId || sel.value || '';
-  sel.innerHTML = '';
-  const opt0 = document.createElement('option');
-  opt0.value = '';
-  opt0.textContent = activeLabel;
-  sel.appendChild(opt0);
+  const want = selectedId || document.getElementById('greetingsProvider')?.value || '';
+  const options = [{ value: '', label: activeLabel }];
   for (const p of providers || []) {
     if (!p?.id) continue;
-    const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = `${p.name || p.id}${p.model ? ` — ${p.model}` : ''}`;
-    sel.appendChild(opt);
+    options.push({
+      value: p.id,
+      label: `${p.name || p.id}${p.model ? ` — ${p.model}` : ''}`,
+    });
   }
-  sel.value = [...sel.options].some((o) => o.value === want) ? want : '';
+  if (!_greetingsProviderSelect) initGreetingsPickers();
+  _greetingsProviderSelect?.setOptions(options);
+  _greetingsProviderSelect?.setValue(options.some((o) => o.value === want) ? want : '');
+  const hidden = document.getElementById('greetingsProvider');
+  if (hidden) hidden.value = _greetingsProviderSelect?.getValue() ?? '';
+}
+
+function setGreetingsModelOptions(models, currentValue) {
+  const modelPlaceholder = t('settings.greetingsModelPlaceholder') || 'Default / fast model';
+  const options = [{ value: '', label: modelPlaceholder }];
+  for (const m of models || []) {
+    const id = typeof m === 'string' ? m : (m?.id || m?.name || '');
+    if (!id) continue;
+    const name = typeof m === 'object' && m?.name && m.name !== id ? ` — ${m.name}` : '';
+    options.push({ value: id, label: `${id}${name}` });
+  }
+  if (!_greetingsModelSelect) initGreetingsPickers();
+  _greetingsModelSelect.setOptions(options);
+  const want = currentValue ?? document.getElementById('greetingsModel')?.value ?? '';
+  const picked = options.some((o) => o.value === want) ? want : '';
+  _greetingsModelSelect.setValue(picked);
+  const hidden = document.getElementById('greetingsModel');
+  if (hidden) hidden.value = picked;
 }
 
 function _formatGreetingsStatus(st) {
@@ -1045,12 +1231,11 @@ async function refreshGreetingsStatus() {
 }
 
 async function onGreetingsProviderChange() {
-  const list = document.getElementById('greetingsModelList');
-  if (list) list.innerHTML = '';
+  setGreetingsModelOptions([], '');
 }
 
 async function loadGreetingsModels() {
-  const pid = (document.getElementById('greetingsProvider')?.value || '').trim()
+  const pid = (_greetingsProviderSelect?.getValue() || document.getElementById('greetingsProvider')?.value || '').trim()
     || _activeProviderId
     || (_allProviders[0] && _allProviders[0].id)
     || '';
@@ -1061,18 +1246,135 @@ async function loadGreetingsModels() {
   try {
     const data = await api('GET', `/api/settings/providers/${encodeURIComponent(pid)}/models`);
     const models = data.models || data || [];
-    const list = document.getElementById('greetingsModelList');
-    if (!list) return;
-    list.innerHTML = '';
     const arr = Array.isArray(models) ? models : [];
-    for (const m of arr) {
-      const id = typeof m === 'string' ? m : (m?.id || m?.name || '');
-      if (!id) continue;
-      const opt = document.createElement('option');
-      opt.value = id;
-      list.appendChild(opt);
-    }
+    setGreetingsModelOptions(arr, document.getElementById('greetingsModel')?.value || '');
     toast(t('settings.greetingsModelsLoaded', { count: arr.length }) || `Loaded ${arr.length} models`);
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+  }
+}
+
+function _greetingModalEmptyItem() {
+  return {
+    tags: ['general'],
+    title: { en: '', ro: '' },
+    hint: { en: '', ro: '' },
+  };
+}
+
+function _renderGreetingModalRow(item, index) {
+  const tags = Array.isArray(item?.tags) ? item.tags.join(', ') : 'general';
+  const card = document.createElement('div');
+  card.className = 'greeting-edit-card';
+  card.innerHTML = `
+    <div class="greeting-edit-card__head">
+      <span class="greeting-edit-card__num">#${index + 1}</span>
+      <button type="button" class="btn btn-danger btn-sm greeting-remove-btn">${escapeHtml(t('settings.greetingsRemove') || 'Remove')}</button>
+    </div>
+    <label>${escapeHtml(t('settings.greetingsTags') || 'Tags (comma)')}</label>
+    <input type="text" class="greeting-tags" value="${escapeHtml(tags)}">
+    <div class="greeting-edit-card__grid">
+      <div>
+        <label>${escapeHtml(t('settings.greetingsTitleEn') || 'Title (EN)')}</label>
+        <input type="text" class="greeting-title-en" value="${escapeHtml(item?.title?.en || '')}">
+      </div>
+      <div>
+        <label>${escapeHtml(t('settings.greetingsTitleRo') || 'Title (RO)')}</label>
+        <input type="text" class="greeting-title-ro" value="${escapeHtml(item?.title?.ro || '')}">
+      </div>
+      <div>
+        <label>${escapeHtml(t('settings.greetingsHintEn') || 'Hint (EN)')}</label>
+        <textarea class="greeting-hint-en" rows="2">${escapeHtml(item?.hint?.en || '')}</textarea>
+      </div>
+      <div>
+        <label>${escapeHtml(t('settings.greetingsHintRo') || 'Hint (RO)')}</label>
+        <textarea class="greeting-hint-ro" rows="2">${escapeHtml(item?.hint?.ro || '')}</textarea>
+      </div>
+    </div>`;
+  card.querySelector('.greeting-remove-btn')?.addEventListener('click', () => {
+    card.remove();
+    _renumberGreetingModalRows();
+  });
+  return card;
+}
+
+function _renumberGreetingModalRows() {
+  const list = document.getElementById('greetingsModalList');
+  const countEl = document.getElementById('greetingsModalCount');
+  if (!list) return;
+  [...list.querySelectorAll('.greeting-edit-card')].forEach((card, i) => {
+    const num = card.querySelector('.greeting-edit-card__num');
+    if (num) num.textContent = `#${i + 1}`;
+  });
+  if (countEl) {
+    const n = list.querySelectorAll('.greeting-edit-card').length;
+    countEl.textContent = t('settings.greetingsModalCount', { count: n }) || `${n} messages`;
+  }
+}
+
+function _collectGreetingModalItems() {
+  const list = document.getElementById('greetingsModalList');
+  if (!list) return [];
+  return [...list.querySelectorAll('.greeting-edit-card')].map((card) => ({
+    tags: (card.querySelector('.greeting-tags')?.value || 'general')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+    title: {
+      en: card.querySelector('.greeting-title-en')?.value || '',
+      ro: card.querySelector('.greeting-title-ro')?.value || '',
+    },
+    hint: {
+      en: card.querySelector('.greeting-hint-en')?.value || '',
+      ro: card.querySelector('.greeting-hint-ro')?.value || '',
+    },
+  }));
+}
+
+function addGreetingModalRow(item) {
+  const list = document.getElementById('greetingsModalList');
+  if (!list) return;
+  const row = _renderGreetingModalRow(item || _greetingModalEmptyItem(), list.children.length);
+  list.appendChild(row);
+  _renumberGreetingModalRows();
+}
+
+async function openGreetingsModal() {
+  const overlay = document.getElementById('greetingsModal');
+  const list = document.getElementById('greetingsModalList');
+  if (!overlay || !list) return;
+  list.innerHTML = '';
+  try {
+    const data = await api('GET', '/api/settings/greetings/items');
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (!items.length) addGreetingModalRow(_greetingModalEmptyItem());
+    else items.forEach((it) => addGreetingModalRow(it));
+  } catch (e) {
+    toast(t('toast.error', { msg: e.message }), true);
+    addGreetingModalRow(_greetingModalEmptyItem());
+  }
+  overlay.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeGreetingsModal() {
+  const overlay = document.getElementById('greetingsModal');
+  if (!overlay) return;
+  overlay.classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+async function saveGreetingsModal() {
+  const items = _collectGreetingModalItems();
+  try {
+    const data = await api('PUT', '/api/settings/greetings/items', { items });
+    if (data.status === 'error') {
+      toast(t('toast.error', { msg: data.error || 'save failed' }), true);
+      return;
+    }
+    toast(t('settings.greetingsSaved') || 'Messages saved');
+    closeGreetingsModal();
+    refreshGreetingsStatus();
   } catch (e) {
     toast(t('toast.error', { msg: e.message }), true);
   }

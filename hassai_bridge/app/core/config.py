@@ -140,6 +140,7 @@ DEFAULT_CONFIG = {
         "pool_size": 40,
         "provider_id": "",
         "model": "",
+        "prompt_template": "",
         "last_generated_at": 0,
         "last_season_key": "",
         "status": "idle",

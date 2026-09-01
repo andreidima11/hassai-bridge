@@ -62,6 +62,7 @@ def normalize_greetings_cfg(raw: Any) -> dict:
         "pool_size": size,
         "provider_id": str(src.get("provider_id") or "").strip()[:120],
         "model": str(src.get("model") or "").strip()[:200],
+        "prompt_template": str(src.get("prompt_template") or "").strip()[:12000],
         "last_generated_at": last,
         "last_season_key": str(src.get("last_season_key") or ""),
         "status": str(src.get("status") or "idle"),
@@ -334,6 +335,7 @@ def status_payload(cfg: dict | None = None) -> dict:
         "pool_size": block["pool_size"],
         "provider_id": block["provider_id"],
         "model": block["model"],
+        "prompt_template": block.get("prompt_template") or "",
         "resolved_provider_id": provider.get("id") or "",
         "resolved_provider_name": provider.get("name") or "",
         "resolved_model": model or provider.get("model") or "",
@@ -398,14 +400,13 @@ def _parse_llm_items(text: str) -> list[dict]:
     return out
 
 
-def _build_prompt(lang: str, pool_size: int) -> str:
-    brief = season_brief(lang)
-    tags = ", ".join(sorted(ALLOWED_TAGS))
-    return f"""You write short welcome greetings for an empty Home Assistant chat UI (HASSAI).
+def default_prompt_template() -> str:
+    """Editable template for LLM greeting generation. Placeholders: {season_brief}, {pool_size}, {tags}."""
+    return """You write short welcome greetings for an empty Home Assistant chat UI (HASSAI).
 No tools, no markdown, no explanations — ONLY a JSON array.
 
 Context:
-{brief}
+{season_brief}
 
 Write {pool_size} greetings as JSON objects with this shape:
 {{"tags":["general","morning"],"title":{{"en":"...","ro":"..."}},"hint":{{"en":"...","ro":"..."}}}}
@@ -421,6 +422,45 @@ Rules:
 - Sound human, varied; no duplicates; no mentioning you are an AI
 
 Return ONLY the JSON array."""
+
+
+def _build_prompt(lang: str, pool_size: int, template: str | None = None) -> str:
+    brief = season_brief(lang)
+    tags = ", ".join(sorted(ALLOWED_TAGS))
+    tpl = (template or "").strip() or default_prompt_template()
+    return (
+        tpl.replace("{season_brief}", brief)
+        .replace("{pool_size}", str(pool_size))
+        .replace("{tags}", tags)
+    )
+
+
+def pool_items_payload(limit: int = 80) -> list[dict]:
+    """Full pool items for settings editor."""
+    return public_items(limit)
+
+
+def save_edited_items(raw_items: list) -> tuple[list[dict], str | None]:
+    """Validate and persist manually edited greeting pool items."""
+    if not isinstance(raw_items, list):
+        return [], "items must be a JSON array"
+    cleaned: list[dict] = []
+    for row in raw_items:
+        item = _clean_item(row)
+        if item:
+            cleaned.append(item)
+    if not cleaned:
+        return [], "Need at least one valid greeting"
+    cfg = load_config()
+    lang = str(cfg.get("language") or "en")
+    block = _cfg_block(cfg)
+    sk = block.get("last_season_key") or season_key(lang)
+    save_pool(cleaned, season_key=sk)
+    block["last_generated_at"] = time.time()
+    block["status"] = "ok"
+    block["error"] = ""
+    _save_cfg_block(block)
+    return cleaned, None
 
 
 async def regenerate(*, force: bool = False) -> dict:
@@ -448,9 +488,10 @@ async def regenerate(*, force: bool = False) -> dict:
 
         provider = resolve_greeting_provider(cfg)
         model = resolve_greeting_model(provider, block)
+        template = block.get("prompt_template") or ""
         messages = [
             {"role": "system", "content": "You are a concise bilingual greeting writer. Output JSON only."},
-            {"role": "user", "content": _build_prompt(lang, size)},
+            {"role": "user", "content": _build_prompt(lang, size, template)},
         ]
         result = await pv.chat_completion(
             messages,

@@ -1,9 +1,12 @@
 """Unit tests for seasonal greeting pool helpers (no LLM)."""
 
 from services.greeting_pool import (
+    _build_prompt,
     _clean_item,
     _parse_llm_items,
+    default_prompt_template,
     normalize_greetings_cfg,
+    save_edited_items,
     season_key,
     upcoming_holidays,
 )
@@ -51,3 +54,40 @@ def test_parse_llm_json_array():
 def test_clean_item_rejects_empty():
     assert _clean_item({}) is None
     assert _clean_item({"tags": ["general"], "title": {"en": "Hi"}, "hint": {"en": "There"}})["tags"] == ["general"]
+
+
+def test_default_prompt_has_placeholders():
+    tpl = default_prompt_template()
+    assert "{season_brief}" in tpl
+    assert "{pool_size}" in tpl
+    assert "{tags}" in tpl
+
+
+def test_build_prompt_substitutes_placeholders():
+    out = _build_prompt("en", 12, "Size={pool_size}\n{season_brief}\nTags={tags}")
+    assert "Size=12" in out
+    assert "Tags=" in out
+    assert "Today:" in out
+
+
+def test_normalize_prompt_template():
+    n = normalize_greetings_cfg({"prompt_template": "  hello  "})
+    assert n["prompt_template"] == "hello"
+
+
+def test_save_edited_items(tmp_path, monkeypatch):
+    from services import greeting_pool as gp
+
+    pool_file = tmp_path / "greeting_pool.json"
+    monkeypatch.setattr(gp, "POOL_FILE", pool_file)
+    monkeypatch.setattr(gp, "DATA_DIR", tmp_path)
+
+    items = [{
+        "tags": ["general"],
+        "title": {"en": "Hi", "ro": "Salut"},
+        "hint": {"en": "Ask me.", "ro": "Întreabă."},
+    }]
+    saved, err = save_edited_items(items)
+    assert err is None
+    assert len(saved) == 1
+    assert pool_file.is_file()

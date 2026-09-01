@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.13
+
+### Features
+- **Dynamic greetings settings** — custom provider/model pickers (no OS-native selects), editable generation prompt (`{season_brief}`, `{pool_size}`, `{tags}`), and a modal to view/edit/save the greeting pool
+- **Isolated greeting generation** — “Generate now” sends only the greeting prompt to the LLM (no chat history, no tools)
+
 ## 1.2.12
 
 ### Features
