@@ -1205,18 +1205,17 @@ function _formatGreetingsStatus(st) {
     : '—';
   const prov = st.resolved_provider_name || st.resolved_provider_id || '—';
   const model = st.resolved_model || '—';
-  let line = t('settings.greetingsStatusLine', {
-    status,
-    count,
-    when,
-    provider: prov,
-    model,
-  });
-  if (!line || line === 'settings.greetingsStatusLine') {
-    line = `${status} · ${count} msgs · ${when} · ${prov} / ${model}`;
-  }
-  if (st.error) line += ` — ${st.error}`;
-  return line;
+  const statusLbl = t('settings.greetingsStatusValue') || 'Status';
+  const countLbl = t('settings.greetingsCountValue') || 'Messages';
+  const whenLbl = t('settings.greetingsWhenValue') || 'Last generated';
+  const provLbl = t('settings.greetingsProviderValue') || 'Provider';
+  const lines = [
+    `${statusLbl}: ${status} · ${countLbl}: ${count}`,
+    `${whenLbl}: ${when}`,
+    `${provLbl}: ${prov} / ${model}`,
+  ];
+  if (st.error) lines.push(`${t('settings.greetingsErrorValue') || 'Error'}: ${st.error}`);
+  return lines.join('\n');
 }
 
 async function refreshGreetingsStatus() {

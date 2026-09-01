@@ -448,7 +448,17 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .greetings-model-row{display:flex;gap:8px;align-items:stretch;margin-top:0}
 .greetings-model-row .greetings-model-select{flex:1;min-width:0}
 .greetings-model-row .btn{align-self:stretch;white-space:nowrap}
-.greetings-actions{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end}
+.greetings-status-block{
+  margin-top:16px;padding-top:14px;border-top:1px solid var(--border)
+}
+.greetings-status-label{
+  font-size:.82rem;font-weight:500;color:var(--muted);margin-bottom:6px
+}
+.greetings-status-text{
+  margin:0 0 12px;line-height:1.55;white-space:pre-line;
+  word-break:break-word;overflow-wrap:break-word
+}
+.greetings-actions{display:flex;flex-wrap:wrap;gap:8px}
 
 /* ── Greetings modal ── */
 .greetings-modal{max-width:860px}
@@ -466,8 +476,7 @@ textarea{resize:vertical;min-height:80px;font-family:inherit}
 .greeting-edit-card textarea{min-height:56px}
 @media(max-width:640px){
   .greeting-edit-card__grid{grid-template-columns:1fr}
-  .greetings-actions{width:100%;justify-content:stretch}
-  .greetings-actions .btn{flex:1}
+  .greetings-actions .btn{flex:1;min-width:calc(50% - 4px)}
 }
 
 /* ── Settings Sub-tabs ── */

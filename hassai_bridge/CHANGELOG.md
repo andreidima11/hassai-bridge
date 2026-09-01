@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.14
+
+### Fix
+- **Greetings pool status layout** — status text no longer overlaps “View messages”; multi-line status display instead of awkward word-by-word wrapping
+
 ## 1.2.13
 
 ### Features

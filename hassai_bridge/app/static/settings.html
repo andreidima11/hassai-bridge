@@ -377,11 +377,9 @@
           <div class="btn-row" style="margin-top:8px">
             <button type="button" class="btn btn-secondary btn-sm" onclick="resetGreetingsPrompt()" data-i18n="settings.greetingsPromptReset">Reset to default</button>
           </div>
-          <div class="toggle-row" style="margin-top:14px;align-items:flex-start">
-            <div style="flex:1;min-width:0">
-              <div data-i18n="settings.greetingsStatus">Pool status</div>
-              <p class="card-muted" id="greetingsStatusText" style="margin:4px 0 0">—</p>
-            </div>
+          <div class="greetings-status-block">
+            <div class="greetings-status-label" data-i18n="settings.greetingsStatus">Pool status</div>
+            <p class="card-muted greetings-status-text" id="greetingsStatusText">—</p>
             <div class="greetings-actions">
               <button type="button" class="btn btn-secondary btn-sm" onclick="openGreetingsModal()" data-i18n="settings.greetingsViewMessages">View messages</button>
               <button type="button" class="btn btn-primary btn-sm" id="greetingsGenerateBtn" onclick="generateGreetingsNow()" data-i18n="settings.greetingsGenerateNow">Generate now</button>
