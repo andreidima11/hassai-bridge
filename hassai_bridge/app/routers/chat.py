@@ -38,7 +38,7 @@ from services.memory_engine import (
     build_memory_context,
     extract_memories_from_conversation,
 )
-from services.web_scraper import search_and_fetch, fetch_page_text, extract_relevant_paragraphs
+from services.web_scraper import search_and_fetch, fetch_page_text, extract_relevant_paragraphs, is_fetch_error
 from services import homeassistant as ha_api
 from services import lovelace_tools as lt
 from services import entity_tools as et
@@ -1060,10 +1060,23 @@ async def _invoke_internal_tool(
         except Exception as e:
             log.error("fetch_url failed: %s", e)
             page_text = ""
+        if is_fetch_error(page_text):
+            remaining = max(0, max_n - (used + 1))
+            suffix = (
+                f"\n[{remaining} fetch_url call(s) left this turn.]"
+                if remaining > 0
+                else "\n[No more fetch_url calls allowed this turn — try another source from search_web.]"
+            )
+            return (
+                f"{page_text} Many sites (news, Cloudflare, paywalls) block automated fetches. "
+                "Pick a different URL from search results or answer from snippets."
+                + suffix,
+                True,
+            )
         if not page_text:
             return (
-                f"[Could not fetch '{raw_url}' — blocked (private/internal), timeout, "
-                "non-HTML, or empty page. Try another URL or search_web.]",
+                f"[Could not fetch '{raw_url}' — empty response. "
+                "Try another URL or search_web.]",
                 True,
             )
         if page_text.startswith("[Non-text content:"):

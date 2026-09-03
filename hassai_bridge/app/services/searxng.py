@@ -107,8 +107,13 @@ def _cache_set(query: str, results: list[dict]) -> None:
 
 # ── SSRF protection ──
 
-def is_internal_url(url: str) -> bool:
-    """Block requests to internal/private network addresses."""
+def is_internal_url(url: str, *, dns_fail_closed: bool = False) -> bool:
+    """Block requests to internal/private network addresses.
+
+    When DNS lookup fails, default is fail-open (``dns_fail_closed=False``) so
+    SearXNG result lists are not wiped just because the add-on's resolver hiccups.
+    Fetch paths still re-check after redirects.
+    """
     try:
         import ipaddress
         import socket
@@ -119,18 +124,46 @@ def is_internal_url(url: str) -> bool:
             return True
         if parsed.username or "@" in (parsed.netloc or ""):
             return True
-        if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "metadata.google.internal"):
+        host_l = hostname.lower().rstrip(".")
+        if host_l in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "metadata.google.internal"):
             return True
-        if hostname.endswith(".local") or hostname.endswith(".internal"):
+        if host_l.endswith(".local") or host_l.endswith(".internal"):
             return True
-        if hostname in ("169.254.169.254", "100.100.100.200"):
+        if host_l in ("169.254.169.254", "100.100.100.200"):
             return True
+        # Literal IP in the URL
         try:
-            resolved = socket.gethostbyname(hostname)
-            ip = ipaddress.ip_address(resolved)
-            return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-        except (OSError, ValueError):
-            return True
+            ip = ipaddress.ip_address(hostname)
+            return bool(
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+            )
+        except ValueError:
+            pass
+        try:
+            infos = socket.getaddrinfo(hostname, None)
+        except OSError:
+            log.debug("SSRF DNS lookup failed for %s (fail_closed=%s)", hostname, dns_fail_closed)
+            return bool(dns_fail_closed)
+        for info in infos:
+            try:
+                ip = ipaddress.ip_address(info[4][0])
+            except (ValueError, IndexError, TypeError):
+                continue
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_unspecified
+            ):
+                return True
+        return False
     except Exception:
         return True
 
@@ -366,6 +399,14 @@ async def search(query: str, categories: str = "general") -> list[dict]:
         client = _get_sx_client(timeout)
         resp = await client.get(f"{base_url}/search", params=params)
         resp.raise_for_status()
+        ct = (resp.headers.get("content-type") or "").lower()
+        if "json" not in ct and not (resp.text or "").lstrip().startswith(("{", "[")):
+            log.error(
+                "SearXNG returned non-JSON (content-type=%s). "
+                "Enable format=json in SearXNG settings.",
+                ct or "?",
+            )
+            return []
         data = resp.json()
     except httpx.TimeoutException:
         log.warning(f"SearXNG timeout for: '{query[:50]}'")
@@ -375,9 +416,11 @@ async def search(query: str, categories: str = "general") -> list[dict]:
         return []
 
     raw_results = []
+    blocked = 0
     for item in data.get("results", [])[:max_results * 2]:  # get extra for filtering
         url = (item.get("url") or "").strip()
-        if is_internal_url(url):
+        if is_internal_url(url, dns_fail_closed=False):
+            blocked += 1
             log.warning(f"SSRF blocked: {url[:80]}")
             continue
         raw_results.append({
@@ -387,6 +430,13 @@ async def search(query: str, categories: str = "general") -> list[dict]:
         })
 
     if not raw_results:
+        total = len(data.get("results") or [])
+        log.warning(
+            "SearXNG returned %s raw hit(s) for '%s' but none usable (ssrf_blocked=%s)",
+            total,
+            query[:50],
+            blocked,
+        )
         return []
 
     # Quality filtering

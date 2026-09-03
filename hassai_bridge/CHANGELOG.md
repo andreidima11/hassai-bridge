@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.15
+
+### Fix
+- **Search results include URLs** — `search_web` now returns each hit’s URL so the model can follow up with `fetch_url` (previously only title/snippet, so “every site finds nothing”)
+- **Clearer fetch/search failures** — HTTP 403 / Cloudflare / empty engines / unreachable SearXNG reported to the model instead of a silent blank
+- **SSRF DNS hiccup** — DNS lookup failure no longer treats all public search hits as internal and drops them
+
 ## 1.2.14
 
 ### Fix

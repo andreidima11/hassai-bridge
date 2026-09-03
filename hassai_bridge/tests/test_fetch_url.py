@@ -105,6 +105,24 @@ def test_invoke_fetch_url_empty_page(monkeypatch):
     assert "Could not fetch" in text
 
 
+def test_invoke_fetch_url_surfaces_block_reason(monkeypatch):
+    async def fake_fetch(url: str) -> str:
+        return "[Fetch error: HTTP 403 (Cloudflare/WAF) — site refused the request; try another URL]"
+
+    monkeypatch.setattr(chat_mod, "fetch_page_text", fake_fetch)
+    text, used = asyncio.run(chat_mod._invoke_internal_tool(
+        "fetch_url",
+        {"url": "https://blocked.example"},
+        search_enabled=True,
+        fetch_budget={"used": 0, "max": 3},
+        cfg={},
+    ))
+    assert used is True
+    assert "Fetch error" in text
+    assert "403" in text
+    assert "another URL" in text.lower() or "different URL" in text
+
+
 def test_search_instruction_mentions_fetch():
     hint = chat_mod._build_search_instruction({
         "knowledge_cutoff": "2024-01",
