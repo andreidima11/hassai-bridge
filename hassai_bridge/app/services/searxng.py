@@ -28,9 +28,9 @@ def max_searches_per_prompt(cfg: dict | None = None) -> int:
             cfg = {}
     sx = cfg.get("searxng") if isinstance(cfg.get("searxng"), dict) else {}
     try:
-        n = int(sx.get("max_searches_per_prompt", 3))
+        n = int(sx.get("max_searches_per_prompt", 2))
     except (TypeError, ValueError):
-        n = 3
+        n = 2
     return max(1, min(n, 10))
 
 
@@ -43,9 +43,9 @@ def max_fetches_per_prompt(cfg: dict | None = None) -> int:
             cfg = {}
     sx = cfg.get("searxng") if isinstance(cfg.get("searxng"), dict) else {}
     try:
-        n = int(sx.get("max_fetches_per_prompt", 3))
+        n = int(sx.get("max_fetches_per_prompt", 2))
     except (TypeError, ValueError):
-        n = 3
+        n = 2
     return max(1, min(n, 10))
 
 
@@ -372,7 +372,8 @@ def calculate_search_satisfaction(results: list[dict]) -> float:
 
 async def search(query: str, categories: str = "general") -> list[dict]:
     """Search using SearXNG with caching, dedup, ranking, and quality filtering."""
-    cfg = load_config()["searxng"]
+    full_cfg = load_config()
+    cfg = full_cfg["searxng"]
     if not cfg.get("enabled"):
         return []
 
@@ -385,6 +386,10 @@ async def search(query: str, categories: str = "general") -> list[dict]:
     if cached is not None:
         return cached
 
+    from services import web_pace as pace
+
+    await pace.pace_search(full_cfg)
+
     base_url = cfg["base_url"].rstrip("/")
     max_results = cfg.get("max_results", 5)
     timeout = cfg.get("search_timeout", 15)
@@ -394,6 +399,13 @@ async def search(query: str, categories: str = "general") -> list[dict]:
         "format": "json",
         "categories": categories,
     }
+    # Prefer instance / user UI language so engines like Bing use the right market (ro-RO etc.).
+    lang = str((full_cfg or {}).get("language") or "").strip()
+    if lang and lang.lower() not in {"auto", "all"}:
+        # Bing expects region tags like ro-RO; plain "ro" also works in SearXNG.
+        params["language"] = "ro-RO" if lang.lower() in {"ro", "ro-ro"} else (
+            "en-US" if lang.lower() in {"en", "en-us"} else lang
+        )
 
     try:
         client = _get_sx_client(timeout)

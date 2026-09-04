@@ -2506,10 +2506,11 @@ def _build_search_instruction(cfg: dict) -> str:
     return (
         f"Date: {today}. Knowledge cutoff: {cutoff}. "
         "Use search_web for anything after your cutoff when you have no URL. "
-        f"At most {lim} search_web call(s) per reply — one good query beats many. "
-        f"If the user gives an http(s) link, use fetch_url (at most {flim} per reply) "
-        "instead of searching for that page. "
-        "Never say you can't search or open links."
+        f"At most {lim} search_web call(s) per reply — prefer ONE good query, then answer from snippets. "
+        "Do not spam searches. "
+        f"If you need a full page, call fetch_url on ONE URL from the results (at most {flim} per reply). "
+        "If the user gives an http(s) link, use fetch_url instead of searching. "
+        "Never fan-out many fetches. Never say you can't search or open links."
     )
 
 

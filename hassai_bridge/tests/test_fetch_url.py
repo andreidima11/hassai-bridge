@@ -11,11 +11,11 @@ from services import searxng, secondary_routing as sr, toolkits as tk
 
 
 def test_max_fetches_default_and_clamp():
-    assert searxng.max_fetches_per_prompt({}) == 3
+    assert searxng.max_fetches_per_prompt({}) == 2
     assert searxng.max_fetches_per_prompt({"searxng": {"max_fetches_per_prompt": 5}}) == 5
     assert searxng.max_fetches_per_prompt({"searxng": {"max_fetches_per_prompt": 0}}) == 1
     assert searxng.max_fetches_per_prompt({"searxng": {"max_fetches_per_prompt": 99}}) == 10
-    assert searxng.max_fetches_per_prompt({"searxng": {"max_fetches_per_prompt": "x"}}) == 3
+    assert searxng.max_fetches_per_prompt({"searxng": {"max_fetches_per_prompt": "x"}}) == 2
 
 
 def test_fetch_url_secondary_and_core():
@@ -126,7 +126,8 @@ def test_invoke_fetch_url_surfaces_block_reason(monkeypatch):
 def test_search_instruction_mentions_fetch():
     hint = chat_mod._build_search_instruction({
         "knowledge_cutoff": "2024-01",
-        "searxng": {"max_searches_per_prompt": 3, "max_fetches_per_prompt": 2},
+        "searxng": {"max_searches_per_prompt": 2, "max_fetches_per_prompt": 2},
     })
     assert "fetch_url" in hint
     assert "2" in hint
+    assert "ONE" in hint or "one" in hint.lower()

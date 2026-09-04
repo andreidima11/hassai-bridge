@@ -885,10 +885,14 @@ async function loadSettings() {
     setVal('knowledgeCutoff', cfg.knowledge_cutoff || '');
     setVal('sxUrl', sx.base_url || '');
     setVal('sxMaxResults', sx.max_results ?? 5);
-    setVal('sxMaxSearchesPerPrompt', sx.max_searches_per_prompt ?? 3);
-    setVal('sxMaxFetchesPerPrompt', sx.max_fetches_per_prompt ?? 3);
+    setVal('sxMaxSearchesPerPrompt', sx.max_searches_per_prompt ?? 2);
+    setVal('sxMaxFetchesPerPrompt', sx.max_fetches_per_prompt ?? 2);
     setVal('sxMaxChars', sx.max_page_chars ?? 4000);
-    setVal('sxCacheTtl', sx.cache_ttl || 300);
+    setChecked('sxFetchPageContent', sx.fetch_page_content === true);
+    setVal('sxMaxPagesToFetch', sx.max_pages_to_fetch ?? 0);
+    setVal('sxMinSearchInterval', sx.min_search_interval_ms ?? 1500);
+    setVal('sxMinFetchInterval', sx.min_fetch_interval_ms ?? 2000);
+    setVal('sxCacheTtl', sx.cache_ttl ?? 300);
 
     // Frigate
     const fr = cfg.frigate || {};
@@ -1414,9 +1418,13 @@ async function saveSettings() {
         enabled: document.getElementById('sxEnabled').checked,
         base_url: document.getElementById('sxUrl').value,
         max_results: parseInt(document.getElementById('sxMaxResults').value),
-        max_searches_per_prompt: parseInt(document.getElementById('sxMaxSearchesPerPrompt')?.value) || 3,
-        max_fetches_per_prompt: parseInt(document.getElementById('sxMaxFetchesPerPrompt')?.value) || 3,
+        max_searches_per_prompt: parseInt(document.getElementById('sxMaxSearchesPerPrompt')?.value) || 2,
+        max_fetches_per_prompt: parseInt(document.getElementById('sxMaxFetchesPerPrompt')?.value) || 2,
         max_page_chars: parseInt(document.getElementById('sxMaxChars').value),
+        fetch_page_content: document.getElementById('sxFetchPageContent')?.checked === true,
+        max_pages_to_fetch: Math.min(1, Math.max(0, parseInt(document.getElementById('sxMaxPagesToFetch')?.value, 10) || 0)),
+        min_search_interval_ms: parseInt(document.getElementById('sxMinSearchInterval')?.value, 10) || 0,
+        min_fetch_interval_ms: parseInt(document.getElementById('sxMinFetchInterval')?.value, 10) || 0,
         cache_ttl: parseInt(document.getElementById('sxCacheTtl').value),
       },
       frigate: {

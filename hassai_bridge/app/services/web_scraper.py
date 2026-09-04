@@ -4,8 +4,6 @@ relevant paragraph extraction, and sources formatting.
 Inspired by hass_memory/brain/web_search.py.
 """
 
-import asyncio
-import html
 import logging
 import re
 from html.parser import HTMLParser
@@ -13,7 +11,7 @@ from typing import Optional
 
 import httpx
 from config import load_config
-from services.searxng import is_internal_url, get_domain_authority, calculate_search_satisfaction
+from services.searxng import is_internal_url, calculate_search_satisfaction
 
 log = logging.getLogger("hassai.scraper")
 
@@ -168,56 +166,48 @@ def extract_relevant_paragraphs(page_text: str, query: str, max_chars: int = 250
     return extracted
 
 
-async def fetch_page_text(url: str) -> str:
+async def fetch_page_text(url: str, *, referer: str | None = None) -> str:
     """Fetch a web page and extract text. On failure return ``[Fetch error: …]`` (not empty)."""
+    from services import web_pace as pace
+
     if is_internal_url(url, dns_fail_closed=True):
         log.warning(f"SSRF blocked: {url[:80]}")
         return _fetch_error("blocked private/internal URL")
 
-    cfg = load_config()["searxng"]
+    full_cfg = load_config()
+    cfg = full_cfg.get("searxng") if isinstance(full_cfg.get("searxng"), dict) else {}
     max_chars = cfg.get("max_page_chars", 4000)
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-        ),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9,ro;q=0.8",
-        # Do not force "br" — without brotli installed, some servers return
-        # undecodable bodies and every page looks empty.
-        "Cache-Control": "no-cache",
-        "Upgrade-Insecure-Requests": "1",
-    }
+    headers = pace.browser_headers(referer=referer, cfg=full_cfg)
+    await pace.pace_fetch(full_cfg)
 
+    html_raw = ""
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True, max_redirects=5) as client:
-            resp = await client.get(url, headers=headers)
-            # Check redirects for SSRF
-            chain = list(getattr(resp, "history", []) or []) + [resp]
-            if any(is_internal_url(str(r.url), dns_fail_closed=True) for r in chain):
-                log.warning(f"SSRF blocked redirect chain: {url[:80]}")
-                return _fetch_error("blocked private/internal redirect")
-            content_type = resp.headers.get("content-type", "")
-            if resp.status_code >= 400:
-                reason = f"HTTP {resp.status_code}"
-                # Soft body hint for common WAF pages
-                body_snip = (resp.text or "")[:2000].lower()
-                if "cloudflare" in body_snip or "cf-ray" in {k.lower() for k in resp.headers}:
-                    reason += " (Cloudflare/WAF)"
-                elif "captcha" in body_snip:
-                    reason += " (captcha)"
-                elif "access denied" in body_snip or "forbidden" in body_snip:
-                    reason += " (access denied)"
-                log.warning("Fetch %s for %s", reason, url[:80])
-                return _fetch_error(f"{reason} — site refused the request; try another URL")
-            if "text/html" not in content_type and "text/plain" not in content_type:
-                return _fetch_error(f"non-text content ({content_type or 'unknown'})")
-            html_raw = resp.text
-            block_reason = _looks_like_block_page(html_raw, dict(resp.headers))
-            if block_reason:
-                log.warning("Fetch blocked page for %s: %s", url[:80], block_reason)
-                return _fetch_error(f"{block_reason} — try another URL")
+        client = pace.get_page_client()
+        resp = await client.get(url, headers=headers)
+        chain = list(getattr(resp, "history", []) or []) + [resp]
+        if any(is_internal_url(str(r.url), dns_fail_closed=True) for r in chain):
+            log.warning(f"SSRF blocked redirect chain: {url[:80]}")
+            return _fetch_error("blocked private/internal redirect")
+        content_type = resp.headers.get("content-type", "")
+        if resp.status_code >= 400:
+            reason = f"HTTP {resp.status_code}"
+            body_snip = (resp.text or "")[:2000].lower()
+            if "cloudflare" in body_snip or "cf-ray" in {k.lower() for k in resp.headers}:
+                reason += " (Cloudflare/WAF)"
+            elif "captcha" in body_snip:
+                reason += " (captcha)"
+            elif "access denied" in body_snip or "forbidden" in body_snip:
+                reason += " (access denied)"
+            log.warning("Fetch %s for %s", reason, url[:80])
+            return _fetch_error(f"{reason} — site refused the request; try another URL")
+        if "text/html" not in content_type and "text/plain" not in content_type:
+            return _fetch_error(f"non-text content ({content_type or 'unknown'})")
+        html_raw = resp.text
+        block_reason = _looks_like_block_page(html_raw, dict(resp.headers))
+        if block_reason:
+            log.warning("Fetch blocked page for %s: %s", url[:80], block_reason)
+            return _fetch_error(f"{block_reason} — try another URL")
     except httpx.TimeoutException:
         log.warning(f"Timeout fetching: {url[:60]}")
         return _fetch_error("timeout after 15s")
@@ -228,7 +218,6 @@ async def fetch_page_text(url: str) -> str:
     if not html_raw or len(html_raw) > 2_000_000:
         return _fetch_error("empty or oversized page")
 
-    # Try trafilatura first, then basic extractor
     text = _extract_main_content(html_raw)
     if not text:
         extractor = _TextExtractor()
@@ -236,7 +225,6 @@ async def fetch_page_text(url: str) -> str:
         text = extractor.get_text()
 
     if not text or len(text.strip()) < 40:
-        # Challenge pages sometimes extract to nearly-empty strings.
         block_reason = _looks_like_block_page(html_raw, {})
         if block_reason:
             return _fetch_error(f"{block_reason} — little/no extractable text")
@@ -248,10 +236,11 @@ async def fetch_page_text(url: str) -> str:
 
 
 async def search_and_fetch(query: str) -> str:
-    """Search with SearXNG, optionally fetch pages, with relevance extraction and sources."""
+    """Search with SearXNG; optionally fetch at most one page sequentially (no parallel fan-out)."""
     from services.searxng import health_check, search
 
-    cfg = load_config().get("searxng") if isinstance(load_config().get("searxng"), dict) else {}
+    full_cfg = load_config()
+    cfg = full_cfg.get("searxng") if isinstance(full_cfg.get("searxng"), dict) else {}
     if not cfg.get("enabled"):
         return (
             "[Web search is disabled. Enable Settings → Search (SearXNG) and set the base URL.]"
@@ -277,7 +266,6 @@ async def search_and_fetch(query: str) -> str:
 
     parts = []
 
-    # Add result snippets WITH urls (required for fetch_url follow-ups)
     for i, r in enumerate(results, 1):
         title = (r.get("title") or "")[:100]
         snippet = (r.get("snippet") or "").strip()[:400]
@@ -299,81 +287,55 @@ async def search_and_fetch(query: str) -> str:
             line += f"\n   ({', '.join(badges)})"
         parts.append(line)
 
-    # Decide whether to fetch pages based on satisfaction
-    satisfaction = calculate_search_satisfaction(results)
-    should_fetch = cfg.get("fetch_page_content", True) and satisfaction < 0.75
-    max_pages = min(cfg.get("max_pages_to_fetch", 2), 3)
+    # Auto page fetch off by default. If on, at most 1 page, sequential only.
+    auto_fetch = cfg.get("fetch_page_content") is True
+    try:
+        max_pages = int(cfg.get("max_pages_to_fetch", 0) or 0)
+    except (TypeError, ValueError):
+        max_pages = 0
+    max_pages = max(0, min(max_pages, 1))
 
-    # Also check total snippet length
+    satisfaction = calculate_search_satisfaction(results)
     total_snippet_chars = sum(len(r.get("snippet") or "") for r in results)
-    if total_snippet_chars >= 600:
-        should_fetch = False
-        log.debug(f"Snippets sufficient ({total_snippet_chars} chars), skipping page fetch")
+    should_fetch = (
+        auto_fetch
+        and max_pages >= 1
+        and satisfaction < 0.75
+        and total_snippet_chars < 600
+    )
 
     if should_fetch:
-        urls_to_fetch = []
-        url_titles = {}
-        for r in results[:max_pages]:
-            url = (r.get("url") or "").strip()
-            if url and url.startswith("http"):
-                urls_to_fetch.append(url)
-                url_titles[url] = (r.get("title") or "Page")[:80]
-
-        parallel = load_config().get("performance", {}).get("parallel_page_fetch", True)
-        if parallel and len(urls_to_fetch) > 1:
-            # Fetch pages in parallel
-            page_texts = await asyncio.gather(
-                *[fetch_page_text(u) for u in urls_to_fetch],
-                return_exceptions=True,
-            )
-            fetched = 0
-            skipped = []
-            for url, page_text in zip(urls_to_fetch, page_texts):
-                if isinstance(page_text, Exception):
-                    log.debug(f"Could not fetch {url[:50]}: {page_text}")
-                    skipped.append(f"{url_titles[url]} ({url}): {page_text}")
-                    continue
+        url = ""
+        title = "Page"
+        for r in results[:1]:
+            cand = (r.get("url") or "").strip()
+            if cand.startswith("http"):
+                url = cand
+                title = (r.get("title") or "Page")[:80]
+                break
+        if url:
+            try:
+                page_text = await fetch_page_text(url)
                 if is_fetch_error(page_text):
-                    skipped.append(f"{url_titles[url]} ({url}): {page_text}")
-                    continue
-                if page_text:
+                    parts.append(
+                        f"\n--- Page fetch notes ---\n"
+                        f"  · {title} ({url}): {page_text}\n"
+                        "Use snippets/URLs above, or call fetch_url on a different URL."
+                    )
+                elif page_text:
                     relevant = extract_relevant_paragraphs(page_text, query)
-                    parts.append(f"\n--- Content: {url_titles[url]} ---\nURL: {url}\n{relevant}")
-                    fetched += 1
-            if skipped:
-                notes = "\n".join(f"  · {s}" for s in skipped[:5])
+                    parts.append(f"\n--- Content: {title} ---\nURL: {url}\n{relevant}")
+                    log.info("Auto-fetched 1 page for query: '%s'", query[:40])
+            except Exception as e:
+                log.debug("Could not fetch %s: %s", url[:50], e)
                 parts.append(
-                    f"\n--- Page fetch notes ---\n"
-                    f"Some results refused automated access (common with news/paywalls/Cloudflare):\n{notes}\n"
-                    "Use the snippets and URLs above, or call fetch_url on a different URL."
+                    f"\n--- Page fetch notes ---\n  · {title} ({url}): {e}\n"
+                    "Use snippets/URLs above."
                 )
-        else:
-            # Sequential fetch
-            fetched = 0
-            skipped = []
-            for url in urls_to_fetch:
-                try:
-                    page_text = await fetch_page_text(url)
-                    if is_fetch_error(page_text):
-                        skipped.append(f"{url_titles[url]} ({url}): {page_text}")
-                        continue
-                    if page_text:
-                        relevant = extract_relevant_paragraphs(page_text, query)
-                        parts.append(
-                            f"\n--- Content: {url_titles[url]} ---\nURL: {url}\n{relevant}"
-                        )
-                        fetched += 1
-                except Exception as e:
-                    log.debug(f"Could not fetch {url[:50]}: {e}")
-                    skipped.append(f"{url_titles[url]} ({url}): {e}")
-            if skipped:
-                notes = "\n".join(f"  · {s}" for s in skipped[:5])
-                parts.append(
-                    f"\n--- Page fetch notes ---\n"
-                    f"Some results refused automated access (common with news/paywalls/Cloudflare):\n{notes}\n"
-                    "Use the snippets and URLs above, or call fetch_url on a different URL."
-                )
-        if fetched:
-            log.info(f"Fetched {fetched} pages for query: '{query[:40]}'")
+    elif not auto_fetch:
+        parts.append(
+            "\n(Tip: snippets only — call fetch_url on one URL if you need the full page. "
+            "Do not fetch many pages.)"
+        )
 
     return "\n\n".join(parts)
