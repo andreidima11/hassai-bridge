@@ -56,7 +56,7 @@ _ALLOWED: dict[str, tuple] = {
     "searxng.max_fetches_per_prompt": ("int", 1, 10),
     "searxng.min_fetch_interval_ms": ("int", 0, 30000),
     "searxng.min_search_interval_ms": ("int", 0, 30000),
-    "searxng.max_pages_to_fetch": ("int", 0, 1),
+    "searxng.max_pages_to_fetch": ("int", 0, 2),
     "frigate.enabled": ("bool",),
     "frigate.timeout": ("int", 3, 60),
     "performance.history_limit": ("int", 2, 50),

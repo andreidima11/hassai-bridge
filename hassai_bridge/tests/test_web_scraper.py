@@ -86,8 +86,10 @@ def test_search_and_fetch_includes_urls(monkeypatch):
     monkeypatch.setattr(sx, "search", fake_search)
 
     out = asyncio.run(ws.search_and_fetch("hello world"))
+    assert "## Search hits" in out
     assert "URL: https://example.com/a" in out
     assert "Example" in out
+    assert "snippets only" in out
 
 
 def test_search_disabled_message(monkeypatch):

@@ -1024,8 +1024,10 @@ async def _invoke_internal_tool(
             else "\n[No more search_web calls allowed this turn — answer with what you have.]"
         )
         return (
-            f"[Web search results for '{query}' — use this to answer accurately. "
-            "Summarize clearly in your own words, do not paste raw text or cite sources.]\n"
+            f"[Web browse for '{query}' — Search hits plus any Opened pages. "
+            "Answer from Opened pages when present; otherwise use snippets. "
+            "Summarize in your own words; do not paste raw text or cite sources. "
+            "If pages are missing/blocked, call fetch_url on ONE other URL from the hits.]\n"
             + (search_ctx or "No results found.")
             + suffix,
             True,
@@ -2378,9 +2380,10 @@ _SEARCH_WEB_TOOL = {
     "function": {
         "name": "search_web",
         "description": (
-            "Search the web for current/time-sensitive info (news, weather, prices, events, scores). "
+            "Search the web then auto-open top result pages (browse: search → open → extract). "
+            "Use for current/time-sensitive info (news, weather, prices, events, scores). "
             "Do NOT search for facts already in your training data. "
-            "Use short keyword queries (3-7 words)."
+            "Use short keyword queries (3-7 words). Prefer Opened pages over snippets."
         ),
         "parameters": {
             "type": "object",
@@ -2505,10 +2508,11 @@ def _build_search_instruction(cfg: dict) -> str:
     flim = _max_fetches_per_prompt(cfg)
     return (
         f"Date: {today}. Knowledge cutoff: {cutoff}. "
-        "Use search_web for anything after your cutoff when you have no URL. "
-        f"At most {lim} search_web call(s) per reply — prefer ONE good query, then answer from snippets. "
-        "Do not spam searches. "
-        f"If you need a full page, call fetch_url on ONE URL from the results (at most {flim} per reply). "
+        "Use search_web for anything after your cutoff when you have no URL — "
+        "it searches then opens top pages (Opened pages). Answer from that content. "
+        f"At most {lim} search_web call(s) per reply — prefer ONE good query. Do not spam searches. "
+        f"If Opened pages are empty/blocked or too thin, call fetch_url on ONE other hit URL "
+        f"(at most {flim} fetch_url call(s) per reply). "
         "If the user gives an http(s) link, use fetch_url instead of searching. "
         "Never fan-out many fetches. Never say you can't search or open links."
     )

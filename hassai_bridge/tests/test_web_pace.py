@@ -84,12 +84,13 @@ def test_search_and_fetch_no_auto_fetch(monkeypatch):
     monkeypatch.setattr(ws, "fetch_page_text", fake_fetch)
 
     out = asyncio.run(ws.search_and_fetch("hello world"))
+    assert "## Search hits" in out
     assert "URL: https://example.com/a" in out
     assert "snippets only" in out
     assert called["n"] == 0
 
 
-def test_search_and_fetch_one_page_max(monkeypatch):
+def test_search_and_fetch_two_pages_max(monkeypatch):
     async def fake_search(query: str):
         return [
             {
@@ -102,6 +103,13 @@ def test_search_and_fetch_one_page_max(monkeypatch):
             {
                 "title": "Two",
                 "url": "https://example.com/2",
+                "snippet": "short",
+                "confidence": 0.4,
+                "authority": 0.4,
+            },
+            {
+                "title": "Three",
+                "url": "https://example.com/3",
                 "snippet": "short",
                 "confidence": 0.4,
                 "authority": 0.4,
@@ -119,7 +127,7 @@ def test_search_and_fetch_one_page_max(monkeypatch):
         "searxng": {
             "enabled": True,
             "fetch_page_content": True,
-            "max_pages_to_fetch": 5,  # should clamp to 1
+            "max_pages_to_fetch": 9,  # should clamp to 2
             "base_url": "http://searx.local",
             "max_page_chars": 4000,
         },
@@ -127,15 +135,63 @@ def test_search_and_fetch_one_page_max(monkeypatch):
     import services.searxng as sx
     monkeypatch.setattr(sx, "search", fake_search)
     monkeypatch.setattr(ws, "fetch_page_text", fake_fetch)
-    monkeypatch.setattr(ws, "calculate_search_satisfaction", lambda results: 0.1)
 
     out = asyncio.run(ws.search_and_fetch("topic"))
-    assert len(fetched) == 1
+    assert len(fetched) == 2
     assert fetched[0] == "https://example.com/1"
+    assert fetched[1] == "https://example.com/2"
+    assert "## Opened pages" in out
     assert "Content: One" in out
+    assert "Content: Two" in out
+    assert "Content: Three" not in out
+
+
+def test_search_and_fetch_fallback_on_error(monkeypatch):
+    async def fake_search(query: str):
+        return [
+            {
+                "title": "Blocked",
+                "url": "https://example.com/blocked",
+                "snippet": "nope",
+                "confidence": 0.9,
+                "authority": 0.9,
+            },
+            {
+                "title": "Good",
+                "url": "https://example.com/good",
+                "snippet": "yes",
+                "confidence": 0.5,
+                "authority": 0.5,
+            },
+        ]
+
+    async def fake_fetch(url: str, *, referer=None):
+        if "blocked" in url:
+            return ws._fetch_error("HTTP 403 (Cloudflare/WAF)")
+        return "Useful article body about the topic here with enough characters." * 2
+
+    monkeypatch.setattr(ws, "load_config", lambda: {
+        "language": "en",
+        "searxng": {
+            "enabled": True,
+            "fetch_page_content": True,
+            "max_pages_to_fetch": 1,
+            "base_url": "http://searx.local",
+            "max_page_chars": 4000,
+        },
+    })
+    import services.searxng as sx
+    monkeypatch.setattr(sx, "search", fake_search)
+    monkeypatch.setattr(ws, "fetch_page_text", fake_fetch)
+
+    out = asyncio.run(ws.search_and_fetch("topic"))
+    assert "## Opened pages" in out
+    assert "Content: Good" in out
+    assert "Page open notes" in out
+    assert "blocked" in out.lower() or "403" in out
 
 
 def test_max_searches_default_is_two():
     from services import searxng
     assert searxng.max_searches_per_prompt({}) == 2
-    assert searxng.max_fetches_per_prompt({}) == 2
+    assert searxng.max_fetches_per_prompt({}) == 3

@@ -11,7 +11,7 @@ from typing import Optional
 
 import httpx
 from config import load_config
-from services.searxng import is_internal_url, calculate_search_satisfaction
+from services.searxng import is_internal_url
 
 log = logging.getLogger("hassai.scraper")
 
@@ -235,8 +235,28 @@ async def fetch_page_text(url: str, *, referer: str | None = None) -> str:
     return text
 
 
+def _browse_candidates(results: list) -> list[dict]:
+    """Rank http(s) hits for auto-open (confidence + authority, stable on ties)."""
+    scored: list[tuple[float, int, dict]] = []
+    for i, r in enumerate(results or []):
+        url = (r.get("url") or "").strip()
+        if not url.startswith("http"):
+            continue
+        try:
+            conf = float(r.get("confidence", 0.5) or 0.5)
+        except (TypeError, ValueError):
+            conf = 0.5
+        try:
+            auth = float(r.get("authority", 0.5) or 0.5)
+        except (TypeError, ValueError):
+            auth = 0.5
+        scored.append((conf + auth, -i, r))
+    scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
+    return [r for _, __, r in scored]
+
+
 async def search_and_fetch(query: str) -> str:
-    """Search with SearXNG; optionally fetch at most one page sequentially (no parallel fan-out)."""
+    """Search → open top pages sequentially → extract relevant text (no parallel fan-out)."""
     from services.searxng import health_check, search
 
     full_cfg = load_config()
@@ -264,8 +284,7 @@ async def search_and_fetch(query: str) -> str:
             "and allow the JSON format. Snippets/URLs were empty after filtering.]"
         )
 
-    parts = []
-
+    hit_lines = ["## Search hits"]
     for i, r in enumerate(results, 1):
         title = (r.get("title") or "")[:100]
         snippet = (r.get("snippet") or "").strip()[:400]
@@ -285,57 +304,57 @@ async def search_and_fetch(query: str) -> str:
             badges.append("trusted-source")
         if badges:
             line += f"\n   ({', '.join(badges)})"
-        parts.append(line)
+        hit_lines.append(line)
 
-    # Auto page fetch off by default. If on, at most 1 page, sequential only.
-    auto_fetch = cfg.get("fetch_page_content") is True
+    auto_fetch = cfg.get("fetch_page_content") is not False
     try:
-        max_pages = int(cfg.get("max_pages_to_fetch", 0) or 0)
+        max_pages = int(cfg.get("max_pages_to_fetch", 2) or 0)
     except (TypeError, ValueError):
-        max_pages = 0
-    max_pages = max(0, min(max_pages, 1))
+        max_pages = 2
+    max_pages = max(0, min(max_pages, 2))
 
-    satisfaction = calculate_search_satisfaction(results)
-    total_snippet_chars = sum(len(r.get("snippet") or "") for r in results)
-    should_fetch = (
-        auto_fetch
-        and max_pages >= 1
-        and satisfaction < 0.75
-        and total_snippet_chars < 600
-    )
+    parts = ["\n\n".join(hit_lines)]
 
-    if should_fetch:
-        url = ""
-        title = "Page"
-        for r in results[:1]:
-            cand = (r.get("url") or "").strip()
-            if cand.startswith("http"):
-                url = cand
-                title = (r.get("title") or "Page")[:80]
-                break
-        if url:
-            try:
-                page_text = await fetch_page_text(url)
-                if is_fetch_error(page_text):
-                    parts.append(
-                        f"\n--- Page fetch notes ---\n"
-                        f"  · {title} ({url}): {page_text}\n"
-                        "Use snippets/URLs above, or call fetch_url on a different URL."
-                    )
-                elif page_text:
-                    relevant = extract_relevant_paragraphs(page_text, query)
-                    parts.append(f"\n--- Content: {title} ---\nURL: {url}\n{relevant}")
-                    log.info("Auto-fetched 1 page for query: '%s'", query[:40])
-            except Exception as e:
-                log.debug("Could not fetch %s: %s", url[:50], e)
-                parts.append(
-                    f"\n--- Page fetch notes ---\n  · {title} ({url}): {e}\n"
-                    "Use snippets/URLs above."
-                )
-    elif not auto_fetch:
+    if not auto_fetch or max_pages < 1:
         parts.append(
-            "\n(Tip: snippets only — call fetch_url on one URL if you need the full page. "
+            "(Tip: snippets only — call fetch_url on one URL if you need the full page. "
             "Do not fetch many pages.)"
+        )
+        return "\n\n".join(parts)
+
+    opened: list[str] = []
+    notes: list[str] = []
+    for r in _browse_candidates(results):
+        if len(opened) >= max_pages:
+            break
+        url = (r.get("url") or "").strip()
+        title = (r.get("title") or "Page")[:80]
+        try:
+            page_text = await fetch_page_text(url)
+            if is_fetch_error(page_text):
+                notes.append(f"  · {title} ({url}): {page_text}")
+                continue
+            if not page_text:
+                notes.append(f"  · {title} ({url}): empty page")
+                continue
+            relevant = extract_relevant_paragraphs(page_text, query)
+            opened.append(f"--- Content: {title} ---\nURL: {url}\n{relevant}")
+        except Exception as e:
+            log.debug("Could not fetch %s: %s", url[:50], e)
+            notes.append(f"  · {title} ({url}): {e}")
+
+    if opened:
+        parts.append("## Opened pages\n" + "\n\n".join(opened))
+        log.info("Auto-opened %s page(s) for query: '%s'", len(opened), query[:40])
+    if notes:
+        parts.append(
+            "## Page open notes\n"
+            + "\n".join(notes)
+            + "\nUse Opened pages / snippets above, or call fetch_url on a different URL."
+        )
+    elif not opened:
+        parts.append(
+            "(No pages could be opened automatically — call fetch_url on one URL from Search hits.)"
         )
 
     return "\n\n".join(parts)

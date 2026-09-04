@@ -1,5 +1,15 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.3.0
+
+### Features
+- **Professional web browse** — `search_web` now runs search → open top pages → extract (up to 2 sequential pages with pacing). Results include **Opened pages** so the model answers from real page text, not thin snippets
+- **Fallback on blocked pages** — if the first hit is 403/Cloudflare/empty, the next ranked URL is opened automatically
+- Defaults: auto-open on, `max_pages_to_fetch: 2`, `max_fetches_per_prompt: 3`
+
+### Fix
+- Agent no longer told to “answer from snippets only” after search (that made “search finds nothing” while pasted URLs still worked)
+
 ## 1.2.16
 
 ### Features

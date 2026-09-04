@@ -43,9 +43,9 @@ def max_fetches_per_prompt(cfg: dict | None = None) -> int:
             cfg = {}
     sx = cfg.get("searxng") if isinstance(cfg.get("searxng"), dict) else {}
     try:
-        n = int(sx.get("max_fetches_per_prompt", 2))
+        n = int(sx.get("max_fetches_per_prompt", 3))
     except (TypeError, ValueError):
-        n = 2
+        n = 3
     return max(1, min(n, 10))
 
 
