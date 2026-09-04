@@ -129,7 +129,17 @@ def test_search_instruction_mentions_fetch():
         "searxng": {"max_searches_per_prompt": 2, "max_fetches_per_prompt": 3},
     })
     assert "fetch_url" in hint
-    assert "Opened pages" in hint
+    assert "Instant answers" in hint
     assert "3" in hint
     assert "ONE" in hint or "one" in hint.lower()
-    assert "snippets" not in hint.lower() or "Opened pages" in hint
+
+
+def test_merge_sources_dedupes_by_site():
+    merged = chat_mod._merge_sources(
+        [{"url": "https://www.bbc.com/a", "title": "A", "site": "bbc.com"}],
+        [{"url": "https://bbc.com/b", "title": "B", "site": "bbc.com"}],
+        [{"url": "https://reuters.com/c", "title": "C", "site": "reuters.com"}],
+    )
+    assert len(merged) == 2
+    assert merged[0]["site"] == "bbc.com"
+    assert merged[1]["site"] == "reuters.com"

@@ -32,7 +32,7 @@ import {
 } from "./lib/images.js";
 import { pickGreeting } from "./lib/greetings.js";
 import * as voiceApi from "./lib/voice.js";
-import { applyActivity, emptyThinking } from "./lib/thinking.js";
+import { applyActivity, emptyThinking, mergeMessageSources } from "./lib/thinking.js";
 import {
   defaultThinkingMode,
   hasThinkingCapability,
@@ -216,6 +216,11 @@ export default function App() {
           for (const ev of m.activity) next = applyActivity(next, ev, t("thinking"));
           const label = finishThinkingLabel(lang, next);
           next = { ...next, active: false, collapsed: true, visible: !!label, label: label || next.label };
+          const fromMeta = Array.isArray(m.sources) ? m.sources : [];
+          const fromActivity = (m.activity || [])
+            .filter((ev) => ev?.name === "sources" && Array.isArray(ev.sources))
+            .flatMap((ev) => ev.sources);
+          const sources = mergeMessageSources(fromMeta, fromActivity);
           msgs.push({
             id: newId(),
             role: m.role,
@@ -226,6 +231,7 @@ export default function App() {
             ...(Array.isArray(m.attachments) && m.attachments.length
               ? { attachments: mapStoredAttachments(m.attachments) }
               : {}),
+            ...(sources.length ? { sources } : {}),
           });
         } else {
           const content = m.content === "(image)" ? "" : m.content || "";
@@ -238,6 +244,9 @@ export default function App() {
           };
           if (Array.isArray(m.attachments) && m.attachments.length) {
             row.attachments = mapStoredAttachments(m.attachments);
+          }
+          if (m.role === "assistant" && Array.isArray(m.sources) && m.sources.length) {
+            row.sources = mergeMessageSources([], m.sources);
           }
           msgs.push(row);
         }
@@ -349,6 +358,13 @@ export default function App() {
         }
         if (ev?.name === "assistant" && typeof ev.detail === "string") {
           patchAssistant((m) => ({ ...m, content: ev.detail }));
+          return;
+        }
+        if (ev?.name === "sources" && Array.isArray(ev.sources)) {
+          patchAssistant((m) => ({
+            ...m,
+            sources: mergeMessageSources(m.sources, ev.sources),
+          }));
           return;
         }
         patchAssistant((m) => ({

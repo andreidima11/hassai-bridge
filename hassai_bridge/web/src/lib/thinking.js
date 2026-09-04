@@ -48,6 +48,28 @@ export function applyActivity(thinking, ev, fallbackLabel) {
  *  thinking or the model's own narration. */
 export function toolSteps(steps) {
   return (steps || []).filter(
-    (step) => step.name !== "think" && step.name !== "say" && step.name !== "route",
+    (step) =>
+      step.name !== "think" &&
+      step.name !== "say" &&
+      step.name !== "route" &&
+      step.name !== "sources",
   );
+}
+
+export function mergeMessageSources(existing, incoming) {
+  const out = [];
+  const seen = new Set();
+  for (const item of [...(existing || []), ...(incoming || [])]) {
+    if (!item || typeof item !== "object") continue;
+    const url = String(item.url || "").trim();
+    const site = String(item.site || "").trim().toLowerCase().replace(/^www\./, "");
+    if (!url || !site || seen.has(site)) continue;
+    seen.add(site);
+    out.push({
+      url,
+      title: String(item.title || site).slice(0, 120),
+      site,
+    });
+  }
+  return out;
 }

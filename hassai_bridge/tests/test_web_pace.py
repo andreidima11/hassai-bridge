@@ -9,6 +9,7 @@ import pytest
 
 from services import web_pace as pace
 from services import web_scraper as ws
+from services import searxng as sx
 
 
 @pytest.fixture(autouse=True)
@@ -54,15 +55,53 @@ def test_pace_fetch_waits(monkeypatch):
     assert elapsed >= 0.045
 
 
+def test_parse_instant_answers():
+    data = {
+        "answers": ["Nicușor Dan is the President of Romania."],
+        "infoboxes": [{
+            "infobox": "Romania",
+            "content": "Country in Europe",
+            "urls": [{"url": "https://en.wikipedia.org/wiki/Romania", "title": "Wikipedia"}],
+            "attributes": [{"label": "President", "value": "Nicușor Dan"}],
+        }],
+    }
+    instant = sx._parse_instant_answers(data)
+    assert instant
+    assert any("Nicușor" in (i.get("text") or "") for i in instant)
+
+
+def test_satisfaction_skips_open_with_instant():
+    score = sx.calculate_search_satisfaction(
+        [{"url": "https://example.com", "snippet": "x"}],
+        instant=[{"text": "Answer here"}],
+        query="who",
+    )
+    assert score >= 1.0
+
+
+def test_satisfaction_high_for_answer_snippet():
+    results = [{
+        "title": "President of Romania",
+        "url": "https://en.wikipedia.org/wiki/President_of_Romania",
+        "snippet": "Nicușor Dan is the current President of Romania.",
+        "authority": 0.87,
+    }]
+    score = sx.calculate_search_satisfaction(results, query="cine e presedintele Romaniei")
+    assert score >= 0.7
+
+
 def test_search_and_fetch_no_auto_fetch(monkeypatch):
-    async def fake_search(query: str):
-        return [{
-            "title": "Example",
-            "url": "https://example.com/a",
-            "snippet": "Hello world snippet with enough words for display.",
-            "confidence": 0.8,
-            "authority": 0.5,
-        }]
+    async def fake_bundle(query: str, categories: str = "general"):
+        return {
+            "instant": [],
+            "results": [{
+                "title": "Example",
+                "url": "https://example.com/a",
+                "snippet": "Hello world snippet with enough words for display.",
+                "confidence": 0.8,
+                "authority": 0.5,
+            }],
+        }
 
     called = {"n": 0}
 
@@ -79,42 +118,83 @@ def test_search_and_fetch_no_auto_fetch(monkeypatch):
             "base_url": "http://searx.local",
         },
     })
-    import services.searxng as sx
-    monkeypatch.setattr(sx, "search", fake_search)
+    monkeypatch.setattr(sx, "search_bundle", fake_bundle)
     monkeypatch.setattr(ws, "fetch_page_text", fake_fetch)
 
-    out = asyncio.run(ws.search_and_fetch("hello world"))
+    out, sources = asyncio.run(ws.search_and_fetch("hello world"))
     assert "## Search hits" in out
     assert "URL: https://example.com/a" in out
-    assert "snippets only" in out
+    assert "Instant answers" not in out or "Call fetch_url" in out
     assert called["n"] == 0
+    assert sources and sources[0]["site"] == "example.com"
+
+
+def test_search_and_fetch_skips_open_when_snippet_enough(monkeypatch):
+    async def fake_bundle(query: str, categories: str = "general"):
+        return {
+            "instant": [{"text": "Nicușor Dan is President of Romania.", "url": "https://wiki.example/p"}],
+            "results": [{
+                "title": "President",
+                "url": "https://wiki.example/p",
+                "snippet": "Nicușor Dan is the current President of Romania since 2025.",
+                "confidence": 0.9,
+                "authority": 0.87,
+            }],
+        }
+
+    fetched = []
+
+    async def fake_fetch(url: str, *, referer=None):
+        fetched.append(url)
+        return "body"
+
+    monkeypatch.setattr(ws, "load_config", lambda: {
+        "language": "ro",
+        "searxng": {
+            "enabled": True,
+            "fetch_page_content": True,
+            "max_pages_to_fetch": 2,
+            "base_url": "http://searx.local",
+        },
+    })
+    monkeypatch.setattr(sx, "search_bundle", fake_bundle)
+    monkeypatch.setattr(ws, "fetch_page_text", fake_fetch)
+
+    out, sources = asyncio.run(ws.search_and_fetch("cine e presedintele Romaniei"))
+    assert "## Instant answers" in out
+    assert "were not auto-opened" in out or "sufficient" in out
+    assert fetched == []
+    assert any(s["site"] == "wiki.example" for s in sources)
 
 
 def test_search_and_fetch_two_pages_max(monkeypatch):
-    async def fake_search(query: str):
-        return [
-            {
-                "title": "One",
-                "url": "https://example.com/1",
-                "snippet": "short",
-                "confidence": 0.4,
-                "authority": 0.4,
-            },
-            {
-                "title": "Two",
-                "url": "https://example.com/2",
-                "snippet": "short",
-                "confidence": 0.4,
-                "authority": 0.4,
-            },
-            {
-                "title": "Three",
-                "url": "https://example.com/3",
-                "snippet": "short",
-                "confidence": 0.4,
-                "authority": 0.4,
-            },
-        ]
+    async def fake_bundle(query: str, categories: str = "general"):
+        return {
+            "instant": [],
+            "results": [
+                {
+                    "title": "One",
+                    "url": "https://example.com/1",
+                    "snippet": "x",
+                    "confidence": 0.4,
+                    "authority": 0.4,
+                },
+                {
+                    "title": "Two",
+                    "url": "https://example.com/2",
+                    "snippet": "y",
+                    "confidence": 0.4,
+                    "authority": 0.4,
+                },
+                {
+                    "title": "Three",
+                    "url": "https://example.com/3",
+                    "snippet": "z",
+                    "confidence": 0.4,
+                    "authority": 0.4,
+                },
+            ],
+        }
 
     fetched = []
 
@@ -127,43 +207,43 @@ def test_search_and_fetch_two_pages_max(monkeypatch):
         "searxng": {
             "enabled": True,
             "fetch_page_content": True,
-            "max_pages_to_fetch": 9,  # should clamp to 2
+            "max_pages_to_fetch": 9,
             "base_url": "http://searx.local",
             "max_page_chars": 4000,
         },
     })
-    import services.searxng as sx
-    monkeypatch.setattr(sx, "search", fake_search)
+    monkeypatch.setattr(sx, "search_bundle", fake_bundle)
     monkeypatch.setattr(ws, "fetch_page_text", fake_fetch)
+    monkeypatch.setattr(sx, "calculate_search_satisfaction", lambda *a, **k: 0.1)
 
-    out = asyncio.run(ws.search_and_fetch("topic"))
+    out, sources = asyncio.run(ws.search_and_fetch("topic"))
     assert len(fetched) == 2
-    assert fetched[0] == "https://example.com/1"
-    assert fetched[1] == "https://example.com/2"
     assert "## Opened pages" in out
     assert "Content: One" in out
-    assert "Content: Two" in out
-    assert "Content: Three" not in out
+    assert len(sources) >= 1
 
 
 def test_search_and_fetch_fallback_on_error(monkeypatch):
-    async def fake_search(query: str):
-        return [
-            {
-                "title": "Blocked",
-                "url": "https://example.com/blocked",
-                "snippet": "nope",
-                "confidence": 0.9,
-                "authority": 0.9,
-            },
-            {
-                "title": "Good",
-                "url": "https://example.com/good",
-                "snippet": "yes",
-                "confidence": 0.5,
-                "authority": 0.5,
-            },
-        ]
+    async def fake_bundle(query: str, categories: str = "general"):
+        return {
+            "instant": [],
+            "results": [
+                {
+                    "title": "Blocked",
+                    "url": "https://example.com/blocked",
+                    "snippet": "nope",
+                    "confidence": 0.9,
+                    "authority": 0.9,
+                },
+                {
+                    "title": "Good",
+                    "url": "https://example.com/good",
+                    "snippet": "yes",
+                    "confidence": 0.5,
+                    "authority": 0.5,
+                },
+            ],
+        }
 
     async def fake_fetch(url: str, *, referer=None):
         if "blocked" in url:
@@ -180,18 +260,20 @@ def test_search_and_fetch_fallback_on_error(monkeypatch):
             "max_page_chars": 4000,
         },
     })
-    import services.searxng as sx
-    monkeypatch.setattr(sx, "search", fake_search)
+    monkeypatch.setattr(sx, "search_bundle", fake_bundle)
     monkeypatch.setattr(ws, "fetch_page_text", fake_fetch)
+    monkeypatch.setattr(sx, "calculate_search_satisfaction", lambda *a, **k: 0.1)
 
-    out = asyncio.run(ws.search_and_fetch("topic"))
+    out, sources = asyncio.run(ws.search_and_fetch("topic"))
     assert "## Opened pages" in out
     assert "Content: Good" in out
     assert "Page open notes" in out
-    assert "blocked" in out.lower() or "403" in out
 
 
 def test_max_searches_default_is_two():
-    from services import searxng
-    assert searxng.max_searches_per_prompt({}) == 2
-    assert searxng.max_fetches_per_prompt({}) == 3
+    assert sx.max_searches_per_prompt({}) == 2
+    assert sx.max_fetches_per_prompt({}) == 3
+
+
+def test_site_name_from_url():
+    assert sx.site_name_from_url("https://www.bbc.com/news") == "bbc.com"

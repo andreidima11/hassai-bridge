@@ -64,14 +64,17 @@ def test_fetch_page_text_surfaces_http_403(monkeypatch):
 
 
 def test_search_and_fetch_includes_urls(monkeypatch):
-    async def fake_search(query: str):
-        return [{
-            "title": "Example",
-            "url": "https://example.com/a",
-            "snippet": "Hello world snippet with enough words for display.",
-            "confidence": 0.8,
-            "authority": 0.5,
-        }]
+    async def fake_bundle(query: str, categories: str = "general"):
+        return {
+            "instant": [],
+            "results": [{
+                "title": "Example",
+                "url": "https://example.com/a",
+                "snippet": "Hello world snippet with enough words for display.",
+                "confidence": 0.8,
+                "authority": 0.5,
+            }],
+        }
 
     monkeypatch.setattr(ws, "load_config", lambda: {
         "searxng": {
@@ -83,16 +86,17 @@ def test_search_and_fetch_includes_urls(monkeypatch):
     })
 
     import services.searxng as sx
-    monkeypatch.setattr(sx, "search", fake_search)
+    monkeypatch.setattr(sx, "search_bundle", fake_bundle)
 
-    out = asyncio.run(ws.search_and_fetch("hello world"))
+    out, sources = asyncio.run(ws.search_and_fetch("hello world"))
     assert "## Search hits" in out
     assert "URL: https://example.com/a" in out
     assert "Example" in out
-    assert "snippets only" in out
+    assert sources and sources[0]["url"] == "https://example.com/a"
 
 
 def test_search_disabled_message(monkeypatch):
     monkeypatch.setattr(ws, "load_config", lambda: {"searxng": {"enabled": False}})
-    out = asyncio.run(ws.search_and_fetch("x"))
+    out, sources = asyncio.run(ws.search_and_fetch("x"))
     assert "disabled" in out.lower()
+    assert sources == []

@@ -721,6 +721,9 @@ def get_session_messages(user_id, session_id, limit=100):
         provider = str(meta.get("provider") or "").strip()
         if provider:
             item["provider"] = provider
+        sources = meta.get("sources")
+        if isinstance(sources, list) and sources:
+            item["sources"] = sources
         out.append(item)
     return out
 

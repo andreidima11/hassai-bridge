@@ -1,5 +1,16 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.4.0
+
+### Features
+- **Snippet-first web search** — prefer SearXNG Instant answers + hit snippets; auto-open pages only when snippets look thin
+- **Instant answers / infoboxes** — surfaced at the top of `search_web` results so factual queries (e.g. who is the president) ground correctly
+- **Softer ranking** — keep engine order stronger, allow short answer snippets, fold RO diacritics, up to 2 hits per domain
+- **Source chips under replies** — up to 2 sites with favicon; “more” opens a modal with all sources from the turn
+
+### Fix
+- Agent prompt no longer prefers Opened pages over already-good snippets (“search found nothing” while the description already had the answer)
+
 ## 1.3.0
 
 ### Features

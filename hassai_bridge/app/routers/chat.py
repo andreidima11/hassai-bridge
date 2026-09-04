@@ -708,7 +708,7 @@ def _compact_activity(events: list | None) -> list[dict]:
         if eid not in latest:
             order.append(eid)
         row = dict(latest.get(eid) or {"id": eid})
-        for key in ("id", "name", "detail", "status", "ms"):
+        for key in ("id", "name", "detail", "status", "ms", "sources"):
             val = ev.get(key)
             if val not in (None, ""):
                 row[key] = val
@@ -720,6 +720,43 @@ def _compact_activity(events: list | None) -> list[dict]:
             row["status"] = "done"
         out.append(row)
     return out
+
+
+def _merge_sources(*groups: list | None, limit: int = 8) -> list[dict]:
+    """Dedupe source chips by site hostname."""
+    from services.searxng import site_name_from_url
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for group in groups:
+        for item in group or []:
+            if not isinstance(item, dict):
+                continue
+            url = str(item.get("url") or "").strip()
+            if not url.startswith("http"):
+                continue
+            site = str(item.get("site") or site_name_from_url(url)).strip().lower()
+            if site.startswith("www."):
+                site = site[4:]
+            if not site or site in seen:
+                continue
+            seen.add(site)
+            out.append({
+                "url": url,
+                "title": str(item.get("title") or site)[:120],
+                "site": site,
+            })
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def _sources_from_activity(events: list | None) -> list[dict]:
+    groups = []
+    for ev in events or []:
+        if isinstance(ev, dict) and ev.get("name") == "sources" and isinstance(ev.get("sources"), list):
+            groups.append(ev.get("sources"))
+    return _merge_sources(*groups) if groups else []
 
 
 _TOOL_ARG_CHARS = 400
@@ -768,6 +805,7 @@ def _activity_meta(
     provider_name: str | None = None,
     route: dict | None = None,
     photo_context: str | None = None,
+    sources: list | None = None,
 ) -> dict | None:
     merged = list(events or [])
     if trace_id and trace_id in _traces:
@@ -804,6 +842,9 @@ def _activity_meta(
     ctx = str(photo_context or "").strip()
     if ctx:
         meta["photo_context"] = ctx[:8000]
+    merged_sources = _merge_sources(sources, _sources_from_activity(compact))
+    if merged_sources:
+        meta["sources"] = merged_sources
     return meta or None
 
 
@@ -919,6 +960,7 @@ async def _invoke_internal_tool(
     search_budget: dict | None = None,
     fetch_budget: dict | None = None,
     cfg: dict | None = None,
+    collected_sources: list | None = None,
 ) -> tuple[str, bool]:
     """Run one bridge-handled tool. Returns (result_text, search_used)."""
     from services import toolkits as tk
@@ -1012,11 +1054,15 @@ async def _invoke_internal_tool(
         if budget is not None:
             budget["used"] = used + 1
         log.info("AI requested search (%s/%s): %s", used + 1, max_n, query)
+        sources: list[dict] = []
         try:
-            search_ctx = await search_and_fetch(query)
+            search_ctx, sources = await search_and_fetch(query)
         except Exception as e:
             log.error("Search failed: %s", e)
             search_ctx = ""
+            sources = []
+        if collected_sources is not None and sources:
+            collected_sources[:] = _merge_sources(collected_sources, sources)
         remaining = max(0, max_n - (used + 1))
         suffix = (
             f"\n[{remaining} search_web call(s) left this turn.]"
@@ -1024,10 +1070,12 @@ async def _invoke_internal_tool(
             else "\n[No more search_web calls allowed this turn — answer with what you have.]"
         )
         return (
-            f"[Web browse for '{query}' — Search hits plus any Opened pages. "
-            "Answer from Opened pages when present; otherwise use snippets. "
-            "Summarize in your own words; do not paste raw text or cite sources. "
-            "If pages are missing/blocked, call fetch_url on ONE other URL from the hits.]\n"
+            f"[Web search for '{query}' — Instant answers (if any), then Search hits, "
+            "then Opened pages only when snippets were thin. "
+            "Prefer Instant answers → snippets → Opened pages. "
+            "State facts from the tool text; do not invent beyond it. "
+            "You may name the site; the UI shows source chips. "
+            "If still insufficient, call fetch_url on ONE other URL from the hits.]\n"
             + (search_ctx or "No results found.")
             + suffix,
             True,
@@ -1035,6 +1083,8 @@ async def _invoke_internal_tool(
 
     if fn_name == "fetch_url" and search_enabled:
         from urllib.parse import urlparse
+
+        from services.searxng import site_name_from_url
 
         raw_url = (args.get("url") or "").strip()
         focus = (args.get("focus") or "").strip()[:200]
@@ -1088,6 +1138,12 @@ async def _invoke_internal_tool(
             )
         if focus:
             page_text = extract_relevant_paragraphs(page_text, focus)
+        if collected_sources is not None:
+            site = site_name_from_url(raw_url)
+            collected_sources[:] = _merge_sources(
+                collected_sources,
+                [{"url": raw_url, "title": site, "site": site}],
+            )
         remaining = max(0, max_n - (used + 1))
         suffix = (
             f"\n[{remaining} fetch_url call(s) left this turn.]"
@@ -1095,8 +1151,8 @@ async def _invoke_internal_tool(
             else "\n[No more fetch_url calls allowed this turn — answer with what you have.]"
         )
         return (
-            f"[Fetched page '{raw_url}' — summarize in your own words; "
-            "do not paste the whole page.]\n"
+            f"[Fetched page '{raw_url}' — state facts from this text; "
+            "do not invent beyond it; do not paste the whole page.]\n"
             + page_text
             + suffix,
             True,
@@ -1190,11 +1246,13 @@ async def _append_internal_tool_results(
     toolkit_state: dict | None = None,
     search_budget: dict | None = None,
     fetch_budget: dict | None = None,
+    collected_sources: list | None = None,
 ) -> bool:
     """Append tool-role messages for internal calls. Returns search_used."""
     if cfg is None:
         cfg = load_config()
     search_used = False
+    sources_bucket = collected_sources if isinstance(collected_sources, list) else []
     for tc in tool_calls:
         await _check_trace(trace_id)
         fn = tc.get("function") or {}
@@ -1235,6 +1293,7 @@ async def _append_internal_tool_results(
                 search_budget=search_budget,
                 fetch_budget=fetch_budget,
                 cfg=cfg,
+                collected_sources=sources_bucket,
             )
             search_used = search_used or used_search
             await _fire_activity(on_event, {
@@ -1248,6 +1307,15 @@ async def _append_internal_tool_results(
             "tool_call_id": tc_id,
             "name": fn_name,
             "content": content,
+        })
+
+    if sources_bucket:
+        await _fire_activity(on_event, {
+            "id": "sources",
+            "name": "sources",
+            "status": "done",
+            "detail": f"{len(sources_bucket)} source(s)",
+            "sources": list(sources_bucket),
         })
     return search_used
 
@@ -2380,10 +2448,9 @@ _SEARCH_WEB_TOOL = {
     "function": {
         "name": "search_web",
         "description": (
-            "Search the web then auto-open top result pages (browse: search → open → extract). "
-            "Use for current/time-sensitive info (news, weather, prices, events, scores). "
-            "Do NOT search for facts already in your training data. "
-            "Use short keyword queries (3-7 words). Prefer Opened pages over snippets."
+            "Search the web for current info. Returns Instant answers (when available), "
+            "Search hits with snippets, and Opened pages only when snippets are thin. "
+            "Prefer Instant answers → snippets → pages. Use short keyword queries (3-7 words)."
         ),
         "parameters": {
             "type": "object",
@@ -2508,11 +2575,11 @@ def _build_search_instruction(cfg: dict) -> str:
     flim = _max_fetches_per_prompt(cfg)
     return (
         f"Date: {today}. Knowledge cutoff: {cutoff}. "
-        "Use search_web for anything after your cutoff when you have no URL — "
-        "it searches then opens top pages (Opened pages). Answer from that content. "
+        "Use search_web for anything after your cutoff when you have no URL. "
+        "Priority: Instant answers → Search hit snippets → Opened pages. "
+        "State facts from the tool text; do not invent beyond it. "
         f"At most {lim} search_web call(s) per reply — prefer ONE good query. Do not spam searches. "
-        f"If Opened pages are empty/blocked or too thin, call fetch_url on ONE other hit URL "
-        f"(at most {flim} fetch_url call(s) per reply). "
+        f"If still thin/blocked, call fetch_url on ONE hit URL (at most {flim} per reply). "
         "If the user gives an http(s) link, use fetch_url instead of searching. "
         "Never fan-out many fetches. Never say you can't search or open links."
     )
@@ -3207,6 +3274,7 @@ async def chat_completions(request: Request):
         # stops calling them (or we hit the round cap).
         fingerprints: list[str] = []
         generated_attachments: list[dict] = []
+        collected_sources: list[dict] = []
         search_budget = {"used": 0, "max": _max_searches_per_prompt(cfg)}
         fetch_budget = {"used": 0, "max": _max_fetches_per_prompt(cfg)}
         max_rounds = _agent_max_rounds(cfg)
@@ -3259,6 +3327,7 @@ async def chat_completions(request: Request):
                     toolkit_state=toolkit_state,
                     search_budget=search_budget,
                     fetch_budget=fetch_budget,
+                    collected_sources=collected_sources,
                 ):
                     _search_used = True
                 effective_tools = _sync_effective_tools(toolkit_state, effective_tools)
@@ -3472,6 +3541,7 @@ async def chat_completions(request: Request):
                     provider_name=chat_provider.get("name", ""),
                     route=route,
                     photo_context=photo_context or None,
+                    sources=collected_sources,
                 ),
             )
             if assistant_content:
@@ -3533,6 +3603,7 @@ async def chat_completions(request: Request):
         full_response = ""
         fingerprints: list[str] = []
         generated_attachments: list[dict] = []
+        collected_sources: list[dict] = []
         search_used = False
         search_budget = {"used": 0, "max": _max_searches_per_prompt(cfg)}
         fetch_budget = {"used": 0, "max": _max_fetches_per_prompt(cfg)}
@@ -3935,6 +4006,7 @@ async def chat_completions(request: Request):
                     toolkit_state=toolkit_state,
                     search_budget=search_budget,
                     fetch_budget=fetch_budget,
+                    collected_sources=collected_sources,
                 ):
                     search_used = True
                 effective_tools = _sync_effective_tools(toolkit_state, effective_tools)
@@ -4027,6 +4099,7 @@ async def chat_completions(request: Request):
                         provider_name=chat_provider.get("name", ""),
                         route=route,
                         photo_context=photo_context or None,
+                        sources=collected_sources,
                     ),
                 )
                 if clean_response:

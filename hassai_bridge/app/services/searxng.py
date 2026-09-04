@@ -208,10 +208,38 @@ def _normalize_query(query: str) -> str:
     return q if q else query.strip()
 
 
+# ── Text helpers ──
+
+_DIACRITIC_MAP = str.maketrans({
+    "ă": "a", "â": "a", "î": "i", "ș": "s", "ş": "s", "ț": "t", "ţ": "t",
+    "Ă": "a", "Â": "a", "Î": "i", "Ș": "s", "Ş": "s", "Ț": "t", "Ţ": "t",
+})
+
+
+def _fold_text(value: str) -> str:
+    """Lowercase + fold common RO diacritics for matching."""
+    return (value or "").translate(_DIACRITIC_MAP).lower()
+
+
+def _looks_like_answer_snippet(snippet: str) -> bool:
+    """Short factual blurbs (e.g. who-is answers) should not be dropped."""
+    text = (snippet or "").strip()
+    if len(text) < 18 or len(text) > 280:
+        return False
+    lower = text.lower()
+    noise = ("cookie", "subscribe", "sign up", "privacy policy", "click here")
+    if sum(1 for p in noise if p in lower) >= 1 and len(text) < 80:
+        return False
+    words = [w for w in re.split(r"\W+", text) if len(w) > 1]
+    return len(words) >= 3
+
+
 # ── Snippet quality check ──
 
 def _is_snippet_quality_good(snippet: str) -> bool:
     """Filter out low-quality snippets (cookie notices, subscribe CTAs, etc.)."""
+    if _looks_like_answer_snippet(snippet):
+        return True
     if not snippet or len(snippet.strip()) < 50:
         return False
     snippet_lower = snippet.lower()
@@ -228,28 +256,28 @@ def _is_snippet_quality_good(snippet: str) -> bool:
 
 # ── Result deduplication ──
 
-def _deduplicate_results(results: list[dict]) -> list[dict]:
-    """Remove duplicate results by domain and snippet hash."""
-    seen_domains: set[str] = set()
+def _deduplicate_results(results: list[dict], *, max_per_domain: int = 2) -> list[dict]:
+    """Remove near-duplicate results; allow a few hits per domain (wiki/gov)."""
+    domain_counts: dict[str, int] = {}
     seen_snippets: set[str] = set()
     deduplicated = []
     for result in results:
         url = (result.get("url") or "").strip()
         try:
-            domain = urlparse(url).netloc
+            domain = (urlparse(url).netloc or "").lower()
         except Exception:
             domain = ""
         snippet = (result.get("snippet") or "").strip()[:100]
         snippet_hash = hashlib.md5(snippet.encode()).hexdigest()[:8] if snippet else ""
 
-        if domain and domain in seen_domains:
+        if domain and domain_counts.get(domain, 0) >= max_per_domain:
             continue
         if snippet_hash and snippet_hash in seen_snippets:
             continue
 
         deduplicated.append(result)
         if domain:
-            seen_domains.add(domain)
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
         if snippet_hash:
             seen_snippets.add(snippet_hash)
 
@@ -262,33 +290,36 @@ def _deduplicate_results(results: list[dict]) -> list[dict]:
 
 def _score_relevance(result: dict, query: str) -> float:
     """Score a result's relevance to the query (0.0 - 1.0)."""
-    query_words = set(query.lower().split())
-    title = (result.get("title") or "").lower()
-    snippet = (result.get("snippet") or "").lower()
+    query_words = {w for w in _fold_text(query).split() if len(w) > 2}
+    title = _fold_text(result.get("title") or "")
+    snippet = _fold_text(result.get("snippet") or "")
     url = (result.get("url") or "").lower()
     score = 0.0
 
     # Title match
-    title_matches = sum(1 for w in query_words if w in title and len(w) > 2)
+    title_matches = sum(1 for w in query_words if w in title)
     score += min(0.4, (title_matches / max(len(query_words), 1)) * 0.4)
 
     # Snippet match
-    snippet_matches = sum(1 for w in query_words if w in snippet and len(w) > 2)
+    snippet_matches = sum(1 for w in query_words if w in snippet)
     score += min(0.3, (snippet_matches / max(len(query_words), 1)) * 0.3)
 
-    # Domain authority
-    score += get_domain_authority(url) * 0.2
+    # Soft domain authority (don't overpower engine order)
+    score += get_domain_authority(url) * 0.12
 
-    # Snippet length bonus
-    if len(snippet) > 100:
-        score += 0.1
+    # Snippet length / answer-like bonus
+    raw_snip = (result.get("snippet") or "").strip()
+    if _looks_like_answer_snippet(raw_snip):
+        score += 0.12
+    elif len(snippet) > 100:
+        score += 0.08
     elif len(snippet) > 50:
-        score += 0.05
+        score += 0.04
 
     return min(score, 1.0)
 
 
-def _filter_by_relevance(results: list[dict], query: str, threshold: float = 0.2) -> list[dict]:
+def _filter_by_relevance(results: list[dict], query: str, threshold: float = 0.15) -> list[dict]:
     """Filter out irrelevant results."""
     scored = [(r, _score_relevance(r, query)) for r in results]
     filtered = [r for r, s in scored if s >= threshold]
@@ -302,17 +333,17 @@ def _filter_by_relevance(results: list[dict], query: str, threshold: float = 0.2
 # ── Result ranking ──
 
 def _rank_results(results: list[dict], query: str) -> list[dict]:
-    """Rank results by combined relevance + authority score."""
+    """Soft re-rank: keep engine order strong; nudge by relevance/authority."""
     scored = []
     for i, r in enumerate(results):
         relevance = _score_relevance(r, query)
         authority = get_domain_authority(r.get("url", ""))
-        # Combined score: 70% relevance, 20% authority, 10% position
-        position_score = max(0, (10 - i) / 10)
-        combined = 0.7 * relevance + 0.2 * authority + 0.1 * position_score
-        scored.append((combined, r))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [r for _, r in scored]
+        # Prefer original engine position so hit #1 with a good snippet stays near top.
+        position_score = max(0, (len(results) - i) / max(len(results), 1))
+        combined = 0.45 * relevance + 0.15 * authority + 0.40 * position_score
+        scored.append((combined, -i, r))
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [r for _, __, r in scored]
 
 
 # ── Confidence scoring ──
@@ -342,49 +373,175 @@ def calculate_confidence(result: dict, query: str, rank: int = 0) -> float:
 
 # ── Search satisfaction (decide if page fetch is needed) ──
 
-def calculate_search_satisfaction(results: list[dict]) -> float:
-    """Check if search snippets are sufficient (0.0 - 1.0). High = no need to fetch pages."""
+def calculate_search_satisfaction(
+    results: list[dict],
+    *,
+    instant: list[dict] | None = None,
+    query: str = "",
+) -> float:
+    """Check if search snippets/instant answers are sufficient (0.0 - 1.0). High = skip page fetch."""
+    if instant:
+        return 1.0
     if not results:
         return 0.0
     score = 0.0
 
+    top = results[0]
+    top_snip = (top.get("snippet") or "").strip()
+    if _looks_like_answer_snippet(top_snip):
+        score += 0.55
+    elif len(top_snip) >= 80:
+        score += 0.35
+
+    if query:
+        q_words = {w for w in _fold_text(query).split() if len(w) > 2}
+        folded = _fold_text(top_snip)
+        if q_words and sum(1 for w in q_words if w in folded) >= max(1, len(q_words) // 2):
+            score += 0.25
+
     high_authority = sum(1 for r in results if get_domain_authority(r.get("url", "")) >= 0.85)
     if high_authority >= 1:
-        score += 0.5
-    elif len(results) >= 3:
-        score += 0.3
-
-    avg_snippet_len = sum(len(r.get("snippet") or "") for r in results) / len(results)
-    if avg_snippet_len > 150:
-        score += 0.3
-    elif avg_snippet_len > 80:
         score += 0.15
 
-    if len(results) >= 4:
-        score += 0.2
-    elif len(results) >= 2:
-        score += 0.1
+    avg_snippet_len = sum(len(r.get("snippet") or "") for r in results) / len(results)
+    if avg_snippet_len > 120:
+        score += 0.15
+    elif avg_snippet_len > 60:
+        score += 0.08
 
     return min(score, 1.0)
 
 
+def _parse_instant_answers(data: dict) -> list[dict]:
+    """Extract SearXNG answers + infoboxes into a compact list."""
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def _add(text: str, url: str = "", title: str = "") -> None:
+        clean = " ".join(str(text or "").split()).strip()
+        if len(clean) < 8:
+            return
+        key = clean[:160].lower()
+        if key in seen:
+            return
+        seen.add(key)
+        row: dict = {"text": clean[:500]}
+        if url and str(url).startswith("http"):
+            row["url"] = str(url).strip()
+        if title:
+            row["title"] = str(title).strip()[:120]
+        out.append(row)
+
+    for ans in data.get("answers") or []:
+        if isinstance(ans, str):
+            _add(ans)
+        elif isinstance(ans, dict):
+            _add(
+                ans.get("answer") or ans.get("content") or ans.get("text") or "",
+                url=ans.get("url") or "",
+                title=ans.get("title") or "",
+            )
+
+    for box in data.get("infoboxes") or []:
+        if not isinstance(box, dict):
+            continue
+        title = (box.get("infobox") or box.get("title") or "").strip()
+        content = (box.get("content") or box.get("answer") or "").strip()
+        url = ""
+        urls = box.get("urls") or []
+        if isinstance(urls, list) and urls:
+            first = urls[0]
+            if isinstance(first, dict):
+                url = first.get("url") or ""
+            elif isinstance(first, str):
+                url = first
+        url = url or box.get("url") or ""
+        if content:
+            _add(f"{title}: {content}" if title and title.lower() not in content.lower() else content, url=url, title=title)
+        for attr in box.get("attributes") or []:
+            if not isinstance(attr, dict):
+                continue
+            label = (attr.get("label") or "").strip()
+            value = (attr.get("value") or "").strip()
+            if label and value:
+                _add(f"{label}: {value}", url=url, title=title or label)
+
+    return out[:5]
+
+
+def site_name_from_url(url: str) -> str:
+    """Hostname without leading www. for source chips."""
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        host = ""
+    if host.startswith("www."):
+        host = host[4:]
+    return host or "source"
+
+
+def sources_from_hits(
+    results: list[dict] | None = None,
+    *,
+    instant: list[dict] | None = None,
+    opened_urls: list[str] | None = None,
+    limit: int = 8,
+) -> list[dict]:
+    """Build deduped source list for UI: {url, title, site}."""
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def _push(url: str, title: str = "") -> None:
+        url = (url or "").strip()
+        if not url.startswith("http"):
+            return
+        site = site_name_from_url(url)
+        if not site or site in seen:
+            return
+        seen.add(site)
+        out.append({
+            "url": url,
+            "title": (title or site)[:120],
+            "site": site,
+        })
+
+    for item in instant or []:
+        _push(item.get("url") or "", item.get("title") or "")
+        if len(out) >= limit:
+            return out
+    for url in opened_urls or []:
+        _push(url)
+        if len(out) >= limit:
+            return out
+    for r in results or []:
+        _push(r.get("url") or "", r.get("title") or "")
+        if len(out) >= limit:
+            break
+    return out
+
+
 # ── Main search function ──
 
-async def search(query: str, categories: str = "general") -> list[dict]:
-    """Search using SearXNG with caching, dedup, ranking, and quality filtering."""
+async def search_bundle(query: str, categories: str = "general") -> dict:
+    """Search SearXNG; return ``{results, instant}`` with caching."""
     full_cfg = load_config()
     cfg = full_cfg["searxng"]
     if not cfg.get("enabled"):
-        return []
+        return {"results": [], "instant": []}
 
     query = _normalize_query(query)
     if not query:
-        return []
+        return {"results": [], "instant": []}
 
-    # Check cache first
     cached = _cache_get(query)
     if cached is not None:
-        return cached
+        if isinstance(cached, dict):
+            return {
+                "results": list(cached.get("results") or []),
+                "instant": list(cached.get("instant") or []),
+            }
+        # Legacy cache entries were bare result lists
+        return {"results": list(cached), "instant": []}
 
     from services import web_pace as pace
 
@@ -399,10 +556,8 @@ async def search(query: str, categories: str = "general") -> list[dict]:
         "format": "json",
         "categories": categories,
     }
-    # Prefer instance / user UI language so engines like Bing use the right market (ro-RO etc.).
     lang = str((full_cfg or {}).get("language") or "").strip()
     if lang and lang.lower() not in {"auto", "all"}:
-        # Bing expects region tags like ro-RO; plain "ro" also works in SearXNG.
         params["language"] = "ro-RO" if lang.lower() in {"ro", "ro-ro"} else (
             "en-US" if lang.lower() in {"en", "en-us"} else lang
         )
@@ -418,18 +573,20 @@ async def search(query: str, categories: str = "general") -> list[dict]:
                 "Enable format=json in SearXNG settings.",
                 ct or "?",
             )
-            return []
+            return {"results": [], "instant": []}
         data = resp.json()
     except httpx.TimeoutException:
         log.warning(f"SearXNG timeout for: '{query[:50]}'")
-        return []
+        return {"results": [], "instant": []}
     except Exception as e:
         log.error(f"SearXNG error: {e}")
-        return []
+        return {"results": [], "instant": []}
+
+    instant = _parse_instant_answers(data if isinstance(data, dict) else {})
 
     raw_results = []
     blocked = 0
-    for item in data.get("results", [])[:max_results * 2]:  # get extra for filtering
+    for item in data.get("results", [])[:max_results * 2]:
         url = (item.get("url") or "").strip()
         if is_internal_url(url, dns_fail_closed=False):
             blocked += 1
@@ -441,7 +598,7 @@ async def search(query: str, categories: str = "general") -> list[dict]:
             "snippet": item.get("content", ""),
         })
 
-    if not raw_results:
+    if not raw_results and not instant:
         total = len(data.get("results") or [])
         log.warning(
             "SearXNG returned %s raw hit(s) for '%s' but none usable (ssrf_blocked=%s)",
@@ -449,32 +606,37 @@ async def search(query: str, categories: str = "general") -> list[dict]:
             query[:50],
             blocked,
         )
-        return []
+        return {"results": [], "instant": []}
 
-    # Quality filtering
+    # Quality filtering — always keep engine hit #1 if present
     quality_results = [r for r in raw_results if _is_snippet_quality_good(r.get("snippet", ""))]
+    if raw_results and raw_results[0] not in quality_results:
+        quality_results = [raw_results[0]] + quality_results
     if not quality_results:
-        quality_results = raw_results  # fallback to originals
+        quality_results = raw_results
 
-    # Deduplication
-    deduped = _deduplicate_results(quality_results)
+    deduped = _deduplicate_results(quality_results, max_per_domain=2)
+    relevant = _filter_by_relevance(deduped, query) if deduped else []
+    ranked = _rank_results(relevant, query)[:max_results] if relevant else []
 
-    # Relevance filtering
-    relevant = _filter_by_relevance(deduped, query)
-
-    # Rank and trim
-    ranked = _rank_results(relevant, query)[:max_results]
-
-    # Add metadata
     for i, r in enumerate(ranked):
         r["confidence"] = round(calculate_confidence(r, query, i), 2)
         r["authority"] = round(get_domain_authority(r.get("url", "")), 2)
 
-    log.info(f"Search '{query[:50]}': {len(ranked)} results (from {len(raw_results)} raw)")
+    log.info(
+        "Search '%s': %s results, %s instant (from %s raw)",
+        query[:50], len(ranked), len(instant), len(raw_results),
+    )
 
-    # Cache results
-    _cache_set(query, ranked)
-    return ranked
+    bundle = {"results": ranked, "instant": instant}
+    _cache_set(query, bundle)
+    return bundle
+
+
+async def search(query: str, categories: str = "general") -> list[dict]:
+    """Search using SearXNG; return ranked hit list (compat wrapper)."""
+    bundle = await search_bundle(query, categories=categories)
+    return list(bundle.get("results") or [])
 
 
 async def health_check() -> bool:

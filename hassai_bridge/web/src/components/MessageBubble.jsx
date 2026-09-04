@@ -3,6 +3,7 @@ import { ChatImage } from "./ChatImage.jsx";
 import { MessageActions } from "./MessageActions.jsx";
 import { DocumentIcon, SparklesIcon, SpeakerIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
+import { SourceChips } from "./SourceChips.jsx";
 import { Thinking } from "./Thinking.jsx";
 import { isDocumentAttachment, isVideoAttachment, isImageAttachment } from "../lib/images.js";
 import { tr } from "../lib/i18n.js";
@@ -242,6 +243,7 @@ export function MessageBubble({
               <span className="stream-cursor stream-cursor--alone" aria-hidden="true" />
             </div>
           ) : null}
+          {!streaming ? <SourceChips lang={lang} sources={message.sources} /> : null}
           {message.audioUrl ? <ReplyAudio lang={lang} url={message.audioUrl} /> : null}
           {actions}
         </div>

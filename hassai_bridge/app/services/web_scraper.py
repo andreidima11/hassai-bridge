@@ -116,8 +116,14 @@ def _extract_main_content(html_raw: str) -> Optional[str]:
     return None
 
 
+_DIACRITIC_MAP = str.maketrans({
+    "ă": "a", "â": "a", "î": "i", "ș": "s", "ş": "s", "ț": "t", "ţ": "t",
+    "Ă": "a", "Â": "a", "Î": "i", "Ș": "s", "Ş": "s", "Ț": "t", "Ţ": "t",
+})
+
+
 def extract_relevant_paragraphs(page_text: str, query: str, max_chars: int = 2500) -> str:
-    """Extract only paragraphs relevant to the query (saves tokens)."""
+    """Extract paragraphs relevant to the query; always keep short lead facts."""
     if not page_text or not query:
         return (page_text or "")[:max_chars]
 
@@ -129,36 +135,68 @@ def extract_relevant_paragraphs(page_text: str, query: str, max_chars: int = 250
         "the", "and", "for", "are", "but", "not", "you", "all", "can",
         "was", "one", "our", "out", "this", "that", "with", "from",
         "have", "been", "will", "what", "when", "how", "who", "which",
+        "cine", "este", "sunt", "despre", "care", "unde", "cand", "când",
+        "pentru", "din", "sau", "mai", "decat", "decât", "prea",
     }
-    query_words = {w.lower() for w in query.split() if len(w) > 2 and w.lower() not in stop_words}
+    folded_query = (query or "").translate(_DIACRITIC_MAP).lower()
+    query_words = {
+        w for w in folded_query.split()
+        if len(w) > 2 and w not in stop_words
+    }
     if not query_words:
         return page_text[:max_chars]
+
+    # Always keep the first 1–2 lead paragraphs (often the factual answer).
+    lead: list[str] = []
+    for paragraph in paragraphs[:4]:
+        clean = paragraph.strip()
+        if len(clean) >= 20:
+            lead.append(clean)
+        if len(lead) >= 2:
+            break
 
     scored = []
     for paragraph in paragraphs:
         clean = paragraph.strip()
-        if len(clean) < 40:
+        if len(clean) < 20:
             continue
-        lower = clean.lower()
+        lower = clean.translate(_DIACRITIC_MAP).lower()
         matches = sum(1 for word in query_words if word in lower)
-        length_bonus = min(len(clean) / 500, 0.5)
+        length_bonus = min(len(clean) / 800, 0.25)
         score = matches + length_bonus
         if matches > 0:
             scored.append((score, clean))
 
-    if not scored:
-        return page_text[:max_chars]
-
     scored.sort(key=lambda x: x[0], reverse=True)
-    result = []
+    result: list[str] = []
     chars = 0
-    for score, paragraph in scored:
+    seen: set[str] = set()
+
+    def _append(paragraph: str) -> bool:
+        nonlocal chars
+        key = paragraph[:80]
+        if key in seen:
+            return True
         if chars + len(paragraph) + 2 > max_chars:
             if not result:
                 result.append(paragraph[:max_chars])
-            break
+                seen.add(key)
+                return False
+            return False
         result.append(paragraph)
+        seen.add(key)
         chars += len(paragraph) + 2
+        return True
+
+    for paragraph in lead:
+        if not _append(paragraph):
+            break
+    for _, paragraph in scored:
+        if not _append(paragraph):
+            break
+
+    if not result:
+        return page_text[:max_chars]
 
     extracted = "\n\n".join(result)
     if len(extracted) < len(page_text) * 0.7:
@@ -255,19 +293,27 @@ def _browse_candidates(results: list) -> list[dict]:
     return [r for _, __, r in scored]
 
 
-async def search_and_fetch(query: str) -> str:
-    """Search → open top pages sequentially → extract relevant text (no parallel fan-out)."""
-    from services.searxng import health_check, search
+async def search_and_fetch(query: str) -> tuple[str, list[dict]]:
+    """Search → (optional) open pages → extract. Returns (tool_text, sources)."""
+    from services.searxng import (
+        calculate_search_satisfaction,
+        health_check,
+        search_bundle,
+        sources_from_hits,
+    )
 
     full_cfg = load_config()
     cfg = full_cfg.get("searxng") if isinstance(full_cfg.get("searxng"), dict) else {}
     if not cfg.get("enabled"):
         return (
-            "[Web search is disabled. Enable Settings → Search (SearXNG) and set the base URL.]"
+            "[Web search is disabled. Enable Settings → Search (SearXNG) and set the base URL.]",
+            [],
         )
 
-    results = await search(query)
-    if not results:
+    bundle = await search_bundle(query)
+    results = list(bundle.get("results") or [])
+    instant = list(bundle.get("instant") or [])
+    if not results and not instant:
         base = (cfg.get("base_url") or "").rstrip("/") or "(unset)"
         try:
             ok = await health_check()
@@ -276,13 +322,30 @@ async def search_and_fetch(query: str) -> str:
         if not ok:
             return (
                 f"[SearXNG unreachable at {base}. Check the URL, that the add-on/container "
-                "is running, and that JSON format is enabled (format=json).]"
+                "is running, and that JSON format is enabled (format=json).]",
+                [],
             )
         return (
             f"[No usable search results from SearXNG ({base}). "
             "The service is reachable but engines returned nothing — enable engines in SearXNG "
-            "and allow the JSON format. Snippets/URLs were empty after filtering.]"
+            "and allow the JSON format. Snippets/URLs were empty after filtering.]",
+            [],
         )
+
+    parts: list[str] = []
+
+    if instant:
+        lines = ["## Instant answers"]
+        for item in instant:
+            text = (item.get("text") or "").strip()
+            if not text:
+                continue
+            line = f"- {text}"
+            url = (item.get("url") or "").strip()
+            if url:
+                line += f"\n  URL: {url}"
+            lines.append(line)
+        parts.append("\n".join(lines))
 
     hit_lines = ["## Search hits"]
     for i, r in enumerate(results, 1):
@@ -305,6 +368,8 @@ async def search_and_fetch(query: str) -> str:
         if badges:
             line += f"\n   ({', '.join(badges)})"
         hit_lines.append(line)
+    if results:
+        parts.append("\n\n".join(hit_lines))
 
     auto_fetch = cfg.get("fetch_page_content") is not False
     try:
@@ -313,14 +378,29 @@ async def search_and_fetch(query: str) -> str:
         max_pages = 2
     max_pages = max(0, min(max_pages, 2))
 
-    parts = ["\n\n".join(hit_lines)]
+    satisfaction = calculate_search_satisfaction(results, instant=instant, query=query)
+    skip_open = bool(instant) or satisfaction >= 0.7
 
+    opened_urls: list[str] = []
     if not auto_fetch or max_pages < 1:
         parts.append(
-            "(Tip: snippets only — call fetch_url on one URL if you need the full page. "
-            "Do not fetch many pages.)"
+            "(Tip: use Instant answers / Search hits first. Call fetch_url on one URL "
+            "only if you still need more detail.)"
         )
-        return "\n\n".join(parts)
+        sources = sources_from_hits(results, instant=instant)
+        return "\n\n".join(parts), sources
+
+    if skip_open:
+        parts.append(
+            "(Snippets/instant answers look sufficient — pages were not auto-opened. "
+            "Call fetch_url on one URL only if you still need more detail.)"
+        )
+        sources = sources_from_hits(results, instant=instant)
+        log.info(
+            "Snippet-first skip auto-open for '%s' (satisfaction=%.2f, instant=%s)",
+            query[:40], satisfaction, len(instant),
+        )
+        return "\n\n".join(parts), sources
 
     opened: list[str] = []
     notes: list[str] = []
@@ -339,6 +419,7 @@ async def search_and_fetch(query: str) -> str:
                 continue
             relevant = extract_relevant_paragraphs(page_text, query)
             opened.append(f"--- Content: {title} ---\nURL: {url}\n{relevant}")
+            opened_urls.append(url)
         except Exception as e:
             log.debug("Could not fetch %s: %s", url[:50], e)
             notes.append(f"  · {title} ({url}): {e}")
@@ -350,11 +431,13 @@ async def search_and_fetch(query: str) -> str:
         parts.append(
             "## Page open notes\n"
             + "\n".join(notes)
-            + "\nUse Opened pages / snippets above, or call fetch_url on a different URL."
+            + "\nPrefer Instant answers / Search hits, or call fetch_url on a different URL."
         )
     elif not opened:
         parts.append(
-            "(No pages could be opened automatically — call fetch_url on one URL from Search hits.)"
+            "(No pages could be opened automatically — use Instant answers / Search hits, "
+            "or call fetch_url on one URL.)"
         )
 
-    return "\n\n".join(parts)
+    sources = sources_from_hits(results, instant=instant, opened_urls=opened_urls)
+    return "\n\n".join(parts), sources
