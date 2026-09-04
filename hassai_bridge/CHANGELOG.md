@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.2.16
+
+### Features
+- **Human-like web pacing** — min interval + jitter between SearXNG searches and page fetches; shared keep-alive HTTP client; browser-like headers (`Accept-Language` from UI language, `Sec-Fetch-*`, optional Referer)
+
+### Fix
+- **Search no longer fans out parallel page GETs** — auto-fetch after search defaults off; when on, at most one sequential page. Lower default budgets (2 searches / 2 fetches per reply). Agent prompt: one query, snippets first, one `fetch_url` if needed
+
 ## 1.2.15
 
 ### Fix
