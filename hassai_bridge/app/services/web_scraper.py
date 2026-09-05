@@ -274,12 +274,20 @@ async def fetch_page_text(url: str, *, referer: str | None = None) -> str:
 
 
 def _browse_candidates(results: list) -> list[dict]:
-    """Rank http(s) hits for auto-open (confidence + authority, stable on ties)."""
+    """Pick pages to open: skip junk, prefer high answer_signal / wiki / news."""
+    from services.searxng import answer_signal, is_junk_result
+
     scored: list[tuple[float, int, dict]] = []
     for i, r in enumerate(results or []):
         url = (r.get("url") or "").strip()
         if not url.startswith("http"):
             continue
+        if is_junk_result(r):
+            continue
+        try:
+            signal = float(r.get("answer_signal", answer_signal(r, "")) or 0)
+        except (TypeError, ValueError):
+            signal = 0.0
         try:
             conf = float(r.get("confidence", 0.5) or 0.5)
         except (TypeError, ValueError):
@@ -288,7 +296,7 @@ def _browse_candidates(results: list) -> list[dict]:
             auth = float(r.get("authority", 0.5) or 0.5)
         except (TypeError, ValueError):
             auth = 0.5
-        scored.append((conf + auth, -i, r))
+        scored.append((signal * 2 + conf + auth, -i, r))
     scored.sort(key=lambda t: (t[0], t[1]), reverse=True)
     return [r for _, __, r in scored]
 
@@ -298,6 +306,8 @@ async def search_and_fetch(query: str) -> tuple[str, list[dict]]:
     from services.searxng import (
         calculate_search_satisfaction,
         health_check,
+        is_junk_result,
+        rewrite_search_query,
         search_bundle,
         sources_from_hits,
     )
@@ -313,6 +323,7 @@ async def search_and_fetch(query: str) -> tuple[str, list[dict]]:
     bundle = await search_bundle(query)
     results = list(bundle.get("results") or [])
     instant = list(bundle.get("instant") or [])
+    used_q = bundle.get("search_query") or rewrite_search_query(query)
     if not results and not instant:
         base = (cfg.get("base_url") or "").rstrip("/") or "(unset)"
         try:
@@ -333,6 +344,8 @@ async def search_and_fetch(query: str) -> tuple[str, list[dict]]:
         )
 
     parts: list[str] = []
+    if used_q and used_q.strip().lower() != (query or "").strip().lower():
+        parts.append(f"(Search query used: {used_q})")
 
     if instant:
         lines = ["## Instant answers"]
@@ -347,8 +360,24 @@ async def search_and_fetch(query: str) -> tuple[str, list[dict]]:
             lines.append(line)
         parts.append("\n".join(lines))
 
+    # Lead with the best non-junk hit so the model cannot miss it.
+    best = next((r for r in results if not is_junk_result(r)), results[0] if results else None)
+    if best:
+        b_title = (best.get("title") or "")[:100]
+        b_snip = (best.get("snippet") or "").strip()[:400]
+        b_url = (best.get("url") or "").strip()
+        lead = ["## Best result (use this first)"]
+        lead.append(b_title)
+        if b_url:
+            lead.append(f"URL: {b_url}")
+        if b_snip:
+            lead.append(b_snip)
+        parts.append("\n".join(lead))
+
     hit_lines = ["## Search hits"]
     for i, r in enumerate(results, 1):
+        if is_junk_result(r):
+            continue
         title = (r.get("title") or "")[:100]
         snippet = (r.get("snippet") or "").strip()[:400]
         url = (r.get("url") or "").strip()
@@ -368,7 +397,7 @@ async def search_and_fetch(query: str) -> tuple[str, list[dict]]:
         if badges:
             line += f"\n   ({', '.join(badges)})"
         hit_lines.append(line)
-    if results:
+    if len(hit_lines) > 1:
         parts.append("\n\n".join(hit_lines))
 
     auto_fetch = cfg.get("fetch_page_content") is not False
@@ -382,20 +411,21 @@ async def search_and_fetch(query: str) -> tuple[str, list[dict]]:
     skip_open = bool(instant) or satisfaction >= 0.7
 
     opened_urls: list[str] = []
+    clean_results = [r for r in results if not is_junk_result(r)]
     if not auto_fetch or max_pages < 1:
         parts.append(
-            "(Tip: use Instant answers / Search hits first. Call fetch_url on one URL "
+            "(Tip: use Best result / Instant answers / Search hits first. Call fetch_url on one URL "
             "only if you still need more detail.)"
         )
-        sources = sources_from_hits(results, instant=instant)
+        sources = sources_from_hits(clean_results, instant=instant)
         return "\n\n".join(parts), sources
 
     if skip_open:
         parts.append(
-            "(Snippets/instant answers look sufficient — pages were not auto-opened. "
+            "(Snippets look sufficient — pages were not auto-opened. "
             "Call fetch_url on one URL only if you still need more detail.)"
         )
-        sources = sources_from_hits(results, instant=instant)
+        sources = sources_from_hits(clean_results, instant=instant)
         log.info(
             "Snippet-first skip auto-open for '%s' (satisfaction=%.2f, instant=%s)",
             query[:40], satisfaction, len(instant),
@@ -431,13 +461,13 @@ async def search_and_fetch(query: str) -> tuple[str, list[dict]]:
         parts.append(
             "## Page open notes\n"
             + "\n".join(notes)
-            + "\nPrefer Instant answers / Search hits, or call fetch_url on a different URL."
+            + "\nPrefer Best result / Search hits, or call fetch_url on a different URL."
         )
     elif not opened:
         parts.append(
-            "(No pages could be opened automatically — use Instant answers / Search hits, "
+            "(No pages could be opened automatically — use Best result / Search hits, "
             "or call fetch_url on one URL.)"
         )
 
-    sources = sources_from_hits(results, instant=instant, opened_urls=opened_urls)
+    sources = sources_from_hits(clean_results, instant=instant, opened_urls=opened_urls)
     return "\n\n".join(parts), sources

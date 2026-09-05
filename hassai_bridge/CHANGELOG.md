@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.4.1
+
+### Fix
+- **Who-is search rewrite** — `cine e X` / `who is X` is searched as the entity (`presedintele Romaniei`), so Wikipedia/presidency.ro rank correctly instead of comedy YouTube / Seznam junk
+- **Junk demotion** — YouTube sketches, casino, citizenship quizzes, year-roundups demoted; answer-like snippets (e.g. “Președintele Nicușor Dan…”) promoted
+- **Best result block** — tool payload leads with the best non-junk hit so the model cannot miss the correct snippet
+
 ## 1.4.0
 
 ### Features

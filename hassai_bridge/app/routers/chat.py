@@ -1070,9 +1070,9 @@ async def _invoke_internal_tool(
             else "\n[No more search_web calls allowed this turn — answer with what you have.]"
         )
         return (
-            f"[Web search for '{query}' — Instant answers (if any), then Search hits, "
-            "then Opened pages only when snippets were thin. "
-            "Prefer Instant answers → snippets → Opened pages. "
+            f"[Web search for '{query}' — Instant answers (if any), then Best result, "
+            "then Search hits, then Opened pages only when snippets were thin. "
+            "Prefer Best result / Instant answers first. "
             "State facts from the tool text; do not invent beyond it. "
             "You may name the site; the UI shows source chips. "
             "If still insufficient, call fetch_url on ONE other URL from the hits.]\n"
@@ -2576,7 +2576,7 @@ def _build_search_instruction(cfg: dict) -> str:
     return (
         f"Date: {today}. Knowledge cutoff: {cutoff}. "
         "Use search_web for anything after your cutoff when you have no URL. "
-        "Priority: Instant answers → Search hit snippets → Opened pages. "
+        "Priority: Instant answers → Best result → Search hit snippets → Opened pages. "
         "State facts from the tool text; do not invent beyond it. "
         f"At most {lim} search_web call(s) per reply — prefer ONE good query. Do not spam searches. "
         f"If still thin/blocked, call fetch_url on ONE hit URL (at most {flim} per reply). "

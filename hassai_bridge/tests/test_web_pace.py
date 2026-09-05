@@ -55,6 +55,33 @@ def test_pace_fetch_waits(monkeypatch):
     assert elapsed >= 0.045
 
 
+def test_rewrite_who_query():
+    from services import searxng as sx
+    assert sx.rewrite_search_query("cine e presedintele Romaniei") == "presedintele Romaniei"
+    assert sx.rewrite_search_query("Who is the president of Romania?") == "the president of Romania"
+    assert sx.is_who_query("cine este prim-ministrul")
+
+
+def test_junk_youtube_demoted():
+    from services import searxng as sx
+    junk = {
+        "title": "CINE ESTE Preşedintele României? (ep.1) - YouTube",
+        "url": "https://www.youtube.com/watch?v=NYsaAMXboFM",
+        "snippet": "16. 9. 2014248 tis. zhlédnutí comedy sketch",
+    }
+    good = {
+        "title": "Președintele României",
+        "url": "https://www.presidency.ro/",
+        "snippet": "Președintele României, Nicușor Dan, a susținut joi o declarație.",
+    }
+    assert sx.is_junk_result(junk)
+    assert not sx.is_junk_result(good)
+    ranked = sx._rank_results([junk, good], "cine e presedintele Romaniei")
+    assert ranked[0]["url"].startswith("https://www.presidency.ro")
+    sat = sx.calculate_search_satisfaction(ranked, query="cine e presedintele Romaniei")
+    assert sat >= 0.7
+
+
 def test_parse_instant_answers():
     data = {
         "answers": ["Nicușor Dan is the President of Romania."],

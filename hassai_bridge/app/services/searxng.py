@@ -171,12 +171,13 @@ def is_internal_url(url: str, *, dns_fail_closed: bool = False) -> bool:
 # ── Domain authority ranking ──
 
 _DOMAIN_AUTHORITY = {
-    ".gov": 0.95, "gov.ro": 0.95, ".edu": 0.90, ".ac.uk": 0.85,
+    ".gov": 0.95, "gov.ro": 0.95, "presidency.ro": 0.96, ".edu": 0.90, ".ac.uk": 0.85,
     "bbc.com": 0.92, "bbc.co.uk": 0.92, "reuters.com": 0.92, "apnews.com": 0.90,
     "theguardian.com": 0.88, "nytimes.com": 0.88, "washingtonpost.com": 0.88,
     "economist.com": 0.85, "wikipedia.org": 0.87, "arxiv.org": 0.85,
-    "stackoverflow.com": 0.82, "github.com": 0.80,
+    "stackoverflow.com": 0.82, "github.com": 0.55,
     "bloomberg.com": 0.83, "cnbc.com": 0.82, "forbes.com": 0.80,
+    "digi24.ro": 0.82, "hotnews.ro": 0.78, "agerpres.ro": 0.85,
 }
 
 
@@ -215,23 +216,135 @@ _DIACRITIC_MAP = str.maketrans({
     "Ă": "a", "Â": "a", "Î": "i", "Ș": "s", "Ş": "s", "Ț": "t", "Ţ": "t",
 })
 
+_WHO_PREFIX = re.compile(
+    r"^\s*(cine\s+(e|este)|care\s+(e|este)|ce\s+(e|este)|cine-i|"
+    r"who\s+(is|was|are)|what\s+(is|are)|who's|who\s+the)\s+",
+    re.IGNORECASE,
+)
+
+_JUNK_HOST_MARKERS = (
+    "youtube.com", "youtu.be", "tiktok.com", "casino", "bet365", "gambling",
+    "pornhub", "xvideos", "limbaromana.ru", "stahuj.cz", "pinterest.com",
+    "facebook.com/reel", "instagram.com/reel",
+)
+
+_JUNK_TITLE_MARKERS = (
+    "ep.1", "ep. 1", "quiz", "trivia", "cafenea", "talk:", "discuție",
+    "citizenship", "cetatenie", "cetățenie", "prisyage", "присяге",
+)
+
 
 def _fold_text(value: str) -> str:
     """Lowercase + fold common RO diacritics for matching."""
     return (value or "").translate(_DIACRITIC_MAP).lower()
 
 
+def is_who_query(query: str) -> bool:
+    q = (query or "").strip()
+    if not q:
+        return False
+    if _WHO_PREFIX.match(q):
+        return True
+    folded = _fold_text(q)
+    return folded.startswith(("cine e ", "cine este ", "who is ", "who was "))
+
+
+def rewrite_search_query(query: str) -> str:
+    """Turn conversational who/what questions into entity searches.
+
+    ``cine e presedintele Romaniei`` → ``presedintele Romaniei`` so Wikipedia/news
+    engines can rank real office pages instead of comedy YouTube hits.
+    """
+    q = _normalize_query(query)
+    if not q:
+        return q
+    rewritten = _WHO_PREFIX.sub("", q).strip(" ?!.")
+    rewritten = re.sub(r"\s+", " ", rewritten).strip()
+    return rewritten if rewritten else q
+
+
+def is_junk_result(result: dict) -> bool:
+    """Cheap demotion for comedy/casino/quiz/historical-noise hits."""
+    url = (result.get("url") or "").lower()
+    title = _fold_text(result.get("title") or "")
+    snippet = _fold_text(result.get("snippet") or "")
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except Exception:
+        host = ""
+    if any(m in host or m in url for m in _JUNK_HOST_MARKERS):
+        return True
+    if any(m in title for m in _JUNK_TITLE_MARKERS):
+        return True
+    # Year roundups like "2022 in Romania" are rarely the who-is answer.
+    if re.search(r"\b(19|20)\d{2}\s+in\s+", title):
+        return True
+    if "youtube" in host and ("zhlédnutí" in snippet or "views" in snippet):
+        return True
+    return False
+
+
 def _looks_like_answer_snippet(snippet: str) -> bool:
     """Short factual blurbs (e.g. who-is answers) should not be dropped."""
     text = (snippet or "").strip()
-    if len(text) < 18 or len(text) > 280:
+    if len(text) < 12 or len(text) > 400:
         return False
     lower = text.lower()
-    noise = ("cookie", "subscribe", "sign up", "privacy policy", "click here")
-    if sum(1 for p in noise if p in lower) >= 1 and len(text) < 80:
+    noise = ("cookie", "subscribe", "sign up", "privacy policy", "click here", "zhlédnutí")
+    if any(p in lower for p in noise) and len(text) < 100:
         return False
     words = [w for w in re.split(r"\W+", text) if len(w) > 1]
     return len(words) >= 3
+
+
+def _snippet_has_person_name(snippet: str) -> bool:
+    """Heuristic: two consecutive Capitalized tokens (e.g. Nicușor Dan)."""
+    tokens = re.findall(r"[A-ZĂÂÎȘȚ][a-zăâîșțA-ZĂÂÎȘȚ\-']+", snippet or "")
+    if len(tokens) >= 2:
+        return True
+    # Single long proper-looking name is weak but better than nothing.
+    return any(len(t) >= 5 for t in tokens)
+
+
+def answer_signal(result: dict, query: str) -> float:
+    """How well this hit's snippet answers the query (can be negative for junk)."""
+    if is_junk_result(result):
+        return -1.0
+    title = _fold_text(result.get("title") or "")
+    snippet = (result.get("snippet") or "").strip()
+    folded_snip = _fold_text(snippet)
+    url = (result.get("url") or "").lower()
+    score = 0.0
+
+    q_words = {w for w in _fold_text(query).split() if len(w) > 2}
+    if q_words:
+        score += 0.15 * min(1.0, sum(1 for w in q_words if w in title) / len(q_words))
+        score += 0.25 * min(1.0, sum(1 for w in q_words if w in folded_snip) / len(q_words))
+
+    if "wikipedia.org" in url:
+        score += 0.35
+        # Office pages ("Președintele României") are strong for who-is.
+        if is_who_query(query) or "presedinte" in _fold_text(query) or "president" in _fold_text(query):
+            score += 0.15
+    if any(x in url for x in (".gov", "gov.ro", "presidency.ro", "digi24.ro", "bbc.", "reuters.", "apnews.")):
+        score += 0.2
+    if "github.com" in url:
+        score -= 0.25
+
+    if _looks_like_answer_snippet(snippet):
+        score += 0.15
+    if _snippet_has_person_name(snippet) and (
+        "presedinte" in folded_snip or "president" in folded_snip or "șef" in folded_snip or "sef" in folded_snip
+    ):
+        score += 0.45  # "Președintele Nicușor Dan …"
+    elif _snippet_has_person_name(snippet) and is_who_query(query):
+        score += 0.2
+
+    # Thin definition snippets from wiki still beat comedy videos.
+    if "wikipedia.org" in url and len(snippet) >= 10:
+        score += 0.1
+
+    return max(-1.0, min(score, 1.5))
 
 
 # ── Snippet quality check ──
@@ -333,40 +446,43 @@ def _filter_by_relevance(results: list[dict], query: str, threshold: float = 0.1
 # ── Result ranking ──
 
 def _rank_results(results: list[dict], query: str) -> list[dict]:
-    """Soft re-rank: keep engine order strong; nudge by relevance/authority."""
+    """Rank by answer quality first; engine position is only a soft tie-break."""
     scored = []
+    n = max(len(results), 1)
     for i, r in enumerate(results):
+        signal = answer_signal(r, query)
         relevance = _score_relevance(r, query)
         authority = get_domain_authority(r.get("url", ""))
-        # Prefer original engine position so hit #1 with a good snippet stays near top.
-        position_score = max(0, (len(results) - i) / max(len(results), 1))
-        combined = 0.45 * relevance + 0.15 * authority + 0.40 * position_score
-        scored.append((combined, -i, r))
-    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    return [r for _, __, r in scored]
+        position_score = max(0, (n - i) / n)
+        if is_junk_result(r):
+            combined = signal  # strongly negative / near zero
+        else:
+            combined = (
+                0.55 * signal
+                + 0.20 * relevance
+                + 0.15 * authority
+                + 0.10 * position_score
+            )
+        scored.append((combined, signal, -i, r))
+    scored.sort(key=lambda x: (x[0], x[1], x[2]), reverse=True)
+    return [r for _, __, ___, r in scored]
 
 
 # ── Confidence scoring ──
 
 def calculate_confidence(result: dict, query: str, rank: int = 0) -> float:
     """Calculate confidence score for a single result."""
-    confidence = 0.5
+    confidence = 0.4 + min(0.4, max(0.0, answer_signal(result, query)) * 0.4)
     if rank == 0:
-        confidence += 0.3
+        confidence += 0.15
     elif rank == 1:
-        confidence += 0.2
-    elif rank <= 2:
-        confidence += 0.1
+        confidence += 0.08
 
     url = (result.get("url") or "").lower()
-    if any(d in url for d in ["wikipedia.org", ".gov", ".edu", "bbc", "reuters"]):
-        confidence += 0.2
-
-    snippet = (result.get("snippet") or "").strip()
-    if len(snippet) > 150:
+    if any(d in url for d in ["wikipedia.org", ".gov", ".edu", "bbc", "reuters", "digi24"]):
         confidence += 0.15
-    elif len(snippet) > 50:
-        confidence += 0.05
+    if is_junk_result(result):
+        confidence = min(confidence, 0.25)
 
     return min(confidence, 1.0)
 
@@ -384,30 +500,35 @@ def calculate_search_satisfaction(
         return 1.0
     if not results:
         return 0.0
+
+    # Prefer the best answer-like hit, not whatever Seznam put first.
+    ranked = sorted(results, key=lambda r: answer_signal(r, query), reverse=True)
+    top = ranked[0]
+    if is_junk_result(top):
+        return 0.05
+
+    signal = answer_signal(top, query)
+    top_snip = (top.get("snippet") or "").strip()
     score = 0.0
 
-    top = results[0]
-    top_snip = (top.get("snippet") or "").strip()
-    if _looks_like_answer_snippet(top_snip):
+    if signal >= 0.7:
         score += 0.55
-    elif len(top_snip) >= 80:
+    elif signal >= 0.4:
         score += 0.35
-
-    if query:
-        q_words = {w for w in _fold_text(query).split() if len(w) > 2}
-        folded = _fold_text(top_snip)
-        if q_words and sum(1 for w in q_words if w in folded) >= max(1, len(q_words) // 2):
-            score += 0.25
-
-    high_authority = sum(1 for r in results if get_domain_authority(r.get("url", "")) >= 0.85)
-    if high_authority >= 1:
+    elif signal >= 0.2:
         score += 0.15
 
-    avg_snippet_len = sum(len(r.get("snippet") or "") for r in results) / len(results)
-    if avg_snippet_len > 120:
-        score += 0.15
-    elif avg_snippet_len > 60:
-        score += 0.08
+    # Who-is needs a person name in the snippet, else open Wikipedia/news.
+    if is_who_query(query) or "presedinte" in _fold_text(query) or "president" in _fold_text(query):
+        if _snippet_has_person_name(top_snip) and (
+            "presedinte" in _fold_text(top_snip) or "president" in _fold_text(top_snip)
+        ):
+            score += 0.35
+        else:
+            score *= 0.4  # office page without incumbent name → open it
+
+    if "wikipedia.org" in (top.get("url") or "").lower() and len(top_snip) >= 20:
+        score += 0.1
 
     return min(score, 1.0)
 
@@ -529,18 +650,20 @@ async def search_bundle(query: str, categories: str = "general") -> dict:
     if not cfg.get("enabled"):
         return {"results": [], "instant": []}
 
-    query = _normalize_query(query)
-    if not query:
+    original = _normalize_query(query)
+    if not original:
         return {"results": [], "instant": []}
 
-    cached = _cache_get(query)
+    search_q = rewrite_search_query(original)
+    cache_key = f"{original}||{search_q}"
+
+    cached = _cache_get(cache_key)
     if cached is not None:
         if isinstance(cached, dict):
             return {
                 "results": list(cached.get("results") or []),
                 "instant": list(cached.get("instant") or []),
             }
-        # Legacy cache entries were bare result lists
         return {"results": list(cached), "instant": []}
 
     from services import web_pace as pace
@@ -552,7 +675,7 @@ async def search_bundle(query: str, categories: str = "general") -> dict:
     timeout = cfg.get("search_timeout", 15)
 
     params = {
-        "q": query,
+        "q": search_q,
         "format": "json",
         "categories": categories,
     }
@@ -576,7 +699,7 @@ async def search_bundle(query: str, categories: str = "general") -> dict:
             return {"results": [], "instant": []}
         data = resp.json()
     except httpx.TimeoutException:
-        log.warning(f"SearXNG timeout for: '{query[:50]}'")
+        log.warning(f"SearXNG timeout for: '{search_q[:50]}'")
         return {"results": [], "instant": []}
     except Exception as e:
         log.error(f"SearXNG error: {e}")
@@ -584,9 +707,11 @@ async def search_bundle(query: str, categories: str = "general") -> dict:
 
     instant = _parse_instant_answers(data if isinstance(data, dict) else {})
 
+    # Pull a wider pool so a good Digi24/wiki hit buried by Seznam can still surface.
+    pool = max(max_results * 3, 12)
     raw_results = []
     blocked = 0
-    for item in data.get("results", [])[:max_results * 2]:
+    for item in data.get("results", [])[:pool]:
         url = (item.get("url") or "").strip()
         if is_internal_url(url, dns_fail_closed=False):
             blocked += 1
@@ -596,6 +721,7 @@ async def search_bundle(query: str, categories: str = "general") -> dict:
             "title": item.get("title", ""),
             "url": url,
             "snippet": item.get("content", ""),
+            "engine_score": item.get("score"),
         })
 
     if not raw_results and not instant:
@@ -603,33 +729,40 @@ async def search_bundle(query: str, categories: str = "general") -> dict:
         log.warning(
             "SearXNG returned %s raw hit(s) for '%s' but none usable (ssrf_blocked=%s)",
             total,
-            query[:50],
+            search_q[:50],
             blocked,
         )
         return {"results": [], "instant": []}
 
-    # Quality filtering — always keep engine hit #1 if present
-    quality_results = [r for r in raw_results if _is_snippet_quality_good(r.get("snippet", ""))]
-    if raw_results and raw_results[0] not in quality_results:
-        quality_results = [raw_results[0]] + quality_results
+    # Drop junk early; keep non-junk even if snippet is short (wiki definitions).
+    quality_results = []
+    for r in raw_results:
+        if is_junk_result(r):
+            continue
+        snip = r.get("snippet") or ""
+        if _is_snippet_quality_good(snip) or _looks_like_answer_snippet(snip) or "wikipedia.org" in (r.get("url") or "").lower():
+            quality_results.append(r)
     if not quality_results:
-        quality_results = raw_results
+        # Last resort: keep non-junk raw even with weak snippets
+        quality_results = [r for r in raw_results if not is_junk_result(r)] or raw_results
 
     deduped = _deduplicate_results(quality_results, max_per_domain=2)
-    relevant = _filter_by_relevance(deduped, query) if deduped else []
-    ranked = _rank_results(relevant, query)[:max_results] if relevant else []
+    # Score against both original conversational query and rewritten entity query.
+    relevant = _filter_by_relevance(deduped, original) if deduped else []
+    ranked = _rank_results(relevant, original)[:max_results] if relevant else []
 
     for i, r in enumerate(ranked):
-        r["confidence"] = round(calculate_confidence(r, query, i), 2)
+        r["confidence"] = round(calculate_confidence(r, original, i), 2)
         r["authority"] = round(get_domain_authority(r.get("url", "")), 2)
+        r["answer_signal"] = round(answer_signal(r, original), 2)
 
     log.info(
-        "Search '%s': %s results, %s instant (from %s raw)",
-        query[:50], len(ranked), len(instant), len(raw_results),
+        "Search '%s' (q='%s'): %s results, %s instant (from %s raw)",
+        original[:40], search_q[:40], len(ranked), len(instant), len(raw_results),
     )
 
-    bundle = {"results": ranked, "instant": instant}
-    _cache_set(query, bundle)
+    bundle = {"results": ranked, "instant": instant, "search_query": search_q}
+    _cache_set(cache_key, bundle)
     return bundle
 
 
