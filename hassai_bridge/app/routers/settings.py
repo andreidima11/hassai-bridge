@@ -303,6 +303,14 @@ async def update_settings(data: SettingsUpdate):
         merged = dict(prev)
         if "enabled" in incoming:
             merged["enabled"] = bool(incoming.get("enabled"))
+        if "mode" in incoming:
+            from services.recs_llm import normalize_recs_cfg
+            merged["mode"] = normalize_recs_cfg({"mode": incoming.get("mode")})["mode"]
+            merged["enabled"] = merged["mode"] != "none"
+        if "provider_id" in incoming:
+            merged["provider_id"] = str(incoming.get("provider_id") or "").strip()[:120]
+        if "model" in incoming:
+            merged["model"] = str(incoming.get("model") or "").strip()[:200]
         cfg["recommendations"] = merged
     if data.greetings is not None:
         from services.greeting_pool import normalize_greetings_cfg

@@ -851,10 +851,12 @@ async function loadSettings() {
     setVal('settingsLang', savedLang);
     setVal('langSelect', savedLang);
     setChecked('settingsDynamicGreetings', cfg.dynamic_greetings !== false);
-    setChecked(
-      'settingsRecommendationChips',
-      !(cfg.recommendations && cfg.recommendations.enabled === false),
-    );
+    const rec = cfg.recommendations || {};
+    const recMode = rec.mode || (rec.enabled === false ? 'none' : 'medium');
+    setVal('settingsRecsMode', recMode);
+    fillRecsProviderSelect(_allProviders.length ? _allProviders : (cfg.providers || []), rec.provider_id || '');
+    setVal('settingsRecsModel', rec.model || '');
+    onRecsModeChange();
     fillGreetingsProviderSelect(cfg.providers || [], (cfg.greetings || {}).provider_id || '');
     applyGreetingsSettings(cfg.greetings || {});
     if (!(cfg.greetings?.prompt_template || '').trim()) {
@@ -875,6 +877,7 @@ async function loadSettings() {
     await loadRouting();
     // Re-fill greetings provider list after providers are known
     fillGreetingsProviderSelect(_allProviders, (cfg.greetings || {}).provider_id || '');
+    fillRecsProviderSelect(_allProviders, (cfg.recommendations || {}).provider_id || '');
     applyGreetingsSettings(cfg.greetings || {});
     if (!(cfg.greetings?.prompt_template || '').trim()) {
       const ta = document.getElementById('greetingsPrompt');
@@ -983,6 +986,39 @@ function onDynamicGreetingsToggle() {
   const on = document.getElementById('settingsDynamicGreetings')?.checked !== false;
   const box = document.getElementById('greetingsPoolSettings');
   if (box) box.style.display = on ? '' : 'none';
+}
+
+function onRecsModeChange() {
+  const mode = document.getElementById('settingsRecsMode')?.value || 'medium';
+  const box = document.getElementById('recsLlmSettings');
+  if (box) box.style.display = mode === 'none' ? 'none' : '';
+}
+
+function fillRecsProviderSelect(providers, selectedId) {
+  const sel = document.getElementById('settingsRecsProvider');
+  if (!sel) return;
+  const keep = selectedId || sel.value || '';
+  const activeLabel = t('settings.recsProviderActive') || 'Active chat provider (default)';
+  sel.innerHTML = `<option value="">${activeLabel}</option>`;
+  (providers || []).forEach((p) => {
+    const id = p.id || p.provider_id || '';
+    if (!id) return;
+    const opt = document.createElement('option');
+    opt.value = id;
+    opt.textContent = p.name || p.provider_name || id;
+    sel.appendChild(opt);
+  });
+  sel.value = keep;
+}
+
+function collectRecsSettings() {
+  const mode = document.getElementById('settingsRecsMode')?.value || 'medium';
+  return {
+    mode,
+    enabled: mode !== 'none',
+    provider_id: document.getElementById('settingsRecsProvider')?.value || '',
+    model: (document.getElementById('settingsRecsModel')?.value || '').trim(),
+  };
 }
 
 let _greetingsProviderSelect = null;
@@ -1463,9 +1499,7 @@ async function saveSettings() {
       knowledge_cutoff: document.getElementById('knowledgeCutoff').value,
       language: document.getElementById('settingsLang').value,
       dynamic_greetings: document.getElementById('settingsDynamicGreetings')?.checked !== false,
-      recommendations: {
-        enabled: document.getElementById('settingsRecommendationChips')?.checked !== false,
-      },
+      recommendations: collectRecsSettings(),
       greetings: collectGreetingsSettings(),
       ha_tools: collectHaTools(),
       bridge_tools: collectBridgeTools(),

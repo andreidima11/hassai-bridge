@@ -29,6 +29,13 @@ _GROUPISH_NAME_RE = re.compile(
     re.I,
 )
 _GATEISH_RE = re.compile(r"(poart|gate|garage|garaj|portal|barrier)", re.I)
+_LIGHTISH_RE = re.compile(r"(lumin|light|bec|bulb|led|lamp|ilumin)", re.I)
+_ACTIONABLE_PREFIXES = ("light.", "switch.", "cover.", "scene.", "climate.")
+_HELPER_PREFIXES = (
+    "input_boolean.", "input_number.", "input_text.", "input_select.",
+    "input_datetime.", "binary_sensor.", "sensor.", "number.", "button.",
+    "event.", "person.", "zone.",
+)
 _CONTACT_CLASSES = frozenset({"door", "garage_door", "opening", "window", "gate"})
 
 
@@ -39,9 +46,12 @@ def enabled(cfg: dict | None = None) -> bool:
         except Exception:
             cfg = {}
     rec = cfg.get("recommendations") if isinstance(cfg.get("recommendations"), dict) else {}
-    if isinstance(rec, dict) and rec:
-        return rec.get("enabled") is not False
-    return True
+    if not isinstance(rec, dict):
+        return True
+    if rec.get("enabled") is False:
+        return False
+    mode = str(rec.get("mode") or "medium").strip().lower()
+    return mode not in {"none", "off", "disabled"}
 
 
 def _period_for_hour(hour: int) -> str:
@@ -148,9 +158,26 @@ def looks_like_bulb_name(name: str, entity_id: str = "") -> bool:
     return bool(_BULB_NAME_RE.search(f"{name} {entity_id}"))
 
 
+def is_actionable_entity(entity_id: str) -> bool:
+    eid = str(entity_id or "").lower()
+    if not eid or eid.startswith(_HELPER_PREFIXES):
+        return False
+    return eid.startswith(_ACTIONABLE_PREFIXES)
+
+
 def is_gateish(name: str = "", entity_id: str = "") -> bool:
-    """Gate / barrier / garage actuators should never use light verbs."""
-    return bool(_GATEISH_RE.search(f"{name} {entity_id}"))
+    """Real gates/covers only — not lights or helpers named after a gate."""
+    eid = str(entity_id or "").lower()
+    name = str(name or "")
+    if not eid or eid.startswith(_HELPER_PREFIXES) or eid.startswith("light."):
+        return False
+    blob = f"{name} {eid}"
+    if not _GATEISH_RE.search(blob):
+        return False
+    # "Lumina poartă" is a light helper/name, not the gate actuator.
+    if _LIGHTISH_RE.search(blob) and not eid.startswith("cover."):
+        return False
+    return eid.startswith(("cover.", "switch."))
 
 
 def _period_buckets() -> dict[str, dict[str, int]]:
@@ -218,7 +245,7 @@ def pair_contacts(
             if dc in _CONTACT_CLASSES or _GATEISH_RE.search(name) or _GATEISH_RE.search(eid):
                 contacts.append((eid, device_id, area_id, name))
         elif eid.startswith("cover.") or (
-            eid.startswith("switch.") and (_GATEISH_RE.search(name) or _GATEISH_RE.search(eid))
+            eid.startswith("switch.") and is_gateish(name, eid)
         ):
             actuators.append((eid, device_id, area_id, name))
 
@@ -331,7 +358,7 @@ def score_logbook(
         if not isinstance(entry, dict) or not _is_manual(entry):
             continue
         eid = str(entry.get("entity_id") or "").strip()
-        if not eid:
+        if not eid or not is_actionable_entity(eid):
             continue
         kind = _event_kind(entry)
         if not kind:
@@ -407,6 +434,8 @@ def score_logbook(
     # Also promote gateish switches from states that never toggled "on" in window
     # but appear frequently as off/close or exist with contact.
     for eid, info in meta.items():
+        if not is_actionable_entity(eid):
+            continue
         if info.get("kind") != "gate_switch" and not is_gateish(info.get("name") or "", eid):
             continue
         if eid in cover_open or eid in cover_close:
@@ -464,7 +493,7 @@ def score_logbook(
         "lights": lights,
         "covers": covers,
         "scenes": scenes,
-        "meta_version": 3,
+        "meta_version": 4,
     }
 
 
@@ -532,7 +561,7 @@ def needs_refresh(cfg: dict | None = None) -> bool:
     updated = float(data.get("updated_at") or 0)
     if not updated:
         return True
-    if int(data.get("meta_version") or 0) < 3:
+    if int(data.get("meta_version") or 0) < 4:
         return True
     return (time.time() - updated) >= _REFRESH_INTERVAL_S
 
@@ -550,6 +579,8 @@ def _normalize_cover_rows(habits: dict) -> list[dict]:
             continue
         is_cover = eid.startswith("cover.") or row.get("kind") in {"cover", "gate_switch"}
         if not is_cover and not is_gateish(name, eid):
+            continue
+        if not is_actionable_entity(eid):
             continue
         if eid in seen:
             continue

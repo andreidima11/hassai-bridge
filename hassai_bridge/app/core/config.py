@@ -139,6 +139,9 @@ DEFAULT_CONFIG = {
     "dynamic_greetings": True,
     "recommendations": {
         "enabled": True,
+        "mode": "medium",
+        "provider_id": "",
+        "model": "",
     },
     "greetings": {
         "refresh_days": 7,

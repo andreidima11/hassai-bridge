@@ -44,6 +44,7 @@ _ALLOWED: dict[str, tuple] = {
     "knowledge_cutoff": ("str", 20),
     "dynamic_greetings": ("bool",),
     "recommendations.enabled": ("bool",),
+    "recommendations.mode": ("enum", ("none", "medium", "high")),
     "memory.enabled": ("bool",),
     "memory.auto_extract": ("bool",),
     "memory.max_memories_per_user": ("int", 50, 5000),

@@ -358,9 +358,23 @@
         <div class="toggle-row" style="margin-top:14px">
           <div>
             <div data-i18n="settings.recommendationChips">Recommendation chips</div>
-            <p class="card-muted" style="margin:4px 0 0" data-i18n="settings.recommendationChipsDesc">Suggestion bubbles on new chats and under replies. Learns frequent manual light toggles from Home Assistant.</p>
+            <p class="card-muted" style="margin:4px 0 0" data-i18n="settings.recommendationChipsDesc">Suggestion bubbles on new chats and under replies. High uses the AI more often; Medium is cheaper (cached pool); None turns them off.</p>
           </div>
-          <label class="toggle"><input type="checkbox" id="settingsRecommendationChips" checked><span class="slider"></span></label>
+        </div>
+        <label data-i18n="settings.recommendationMode">Quality</label>
+        <select id="settingsRecsMode" onchange="onRecsModeChange()">
+          <option value="high" data-i18n="settings.recommendationModeHigh">High</option>
+          <option value="medium" selected data-i18n="settings.recommendationModeMedium">Medium</option>
+          <option value="none" data-i18n="settings.recommendationModeNone">None</option>
+        </select>
+        <div id="recsLlmSettings" style="margin-top:12px">
+          <label data-i18n="settings.recsProvider">Recommendations provider</label>
+          <select id="settingsRecsProvider">
+            <option value="" data-i18n="settings.recsProviderActive">Active chat provider (default)</option>
+          </select>
+          <label data-i18n="settings.recsModel">Model</label>
+          <input type="text" id="settingsRecsModel" data-i18n-placeholder="settings.recsModelPlaceholder" placeholder="Blank = fast / default">
+          <p class="card-muted hint" style="margin-top:6px" data-i18n="settings.recsModelHint">Optional auxiliary model so chips do not use the main chat model.</p>
         </div>
         <div id="greetingsPoolSettings" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <p class="card-muted" style="margin:0 0 12px" data-i18n="settings.greetingsPoolDesc">Builds a seasonal message pool with the selected provider (Christmas in December, Easter near spring, etc.). Curated built-in greetings remain as fallback.</p>

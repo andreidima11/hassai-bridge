@@ -1,5 +1,22 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.3
+
+### Features
+- **Recommendation quality** — Settings → High / Medium / None. High uses the AI often; Medium caches an empty-chat pool (~4h / weather-period) and LLM follow-ups only on home turns; None disables chips and the habit watcher
+- **Auxiliary model** — optional provider + model for chips (same idea as greetings), so they need not consume the main chat model
+- **LLM empty-chat pool** — JSON chips from a compact home catalog; helpers like `input_boolean` are never recommended
+
+### Fix
+- **Lumina poartă** is not treated as a gate; only real cover/switch actuators get Deschide/Închide
+- Light groups show again instead of being crowded out by misclassified helpers
+
+## 1.5.2
+
+### Fix
+- **Gate verbs** — `poartă` / gate switches always use Deschide/Închide (even without a paired contact); rescued from old `lights` habits so they never show as Aprinde
+- **Chat follow-ups** — non-smarthome conversations show no HA chips (no more Status casă during philosophy chat); yes/no chips when the assistant asks a clear confirmatory question
+
 ## 1.5.1
 
 ### Features

@@ -5,6 +5,14 @@ from unittest.mock import AsyncMock, patch
 
 from services import habit_watcher as hw
 from services import recommendations as recs
+from services import recs_llm as rl
+
+
+def _run_followups(**kwargs):
+    with patch.object(recs.rl, "recs_mode", return_value="medium"), patch.object(
+        recs.rl, "generate_followups", new=AsyncMock(return_value=[])
+    ):
+        return asyncio.run(recs.build_followups(**kwargs))
 
 
 def test_score_logbook_counts_manual_on():
@@ -194,37 +202,67 @@ def test_normalize_covers_rescues_gate_from_old_lights():
     assert not any(r["entity_id"] == "switch.poarta_auto" for r in lights)
 
 
+def test_lumina_poarta_is_not_a_gate():
+    assert not hw.is_gateish("Lumina poarta", "input_boolean.lumina_poarta")
+    assert not hw.is_actionable_entity("input_boolean.lumina_poarta")
+    assert hw.is_gateish("Poarta auto", "switch.poarta_auto")
+
+
+def test_score_ignores_input_boolean_lumina_poarta():
+    states = [
+        {
+            "entity_id": "input_boolean.lumina_poarta",
+            "state": "off",
+            "attributes": {"friendly_name": "Lumina poarta"},
+        },
+        {
+            "entity_id": "switch.poarta_auto",
+            "state": "off",
+            "attributes": {"friendly_name": "Poarta auto"},
+        },
+    ]
+    entries = [
+        {
+            "entity_id": "switch.poarta_auto",
+            "state": "on",
+            "when": "2026-03-01T18:00:00+00:00",
+            "context_user_id": "u",
+        },
+    ]
+    data = hw.score_logbook(entries, states=states)
+    ids = [r["entity_id"] for r in data["covers"]]
+    assert "input_boolean.lumina_poarta" not in ids
+    assert "switch.poarta_auto" in ids
+
+
+def test_recs_mode():
+    assert rl.recs_mode({"recommendations": {"mode": "high"}}) == "high"
+    assert rl.recs_mode({"recommendations": {"mode": "none"}}) == "none"
+    assert rl.recs_mode({"recommendations": {"enabled": False}}) == "none"
+    assert rl.recs_mode({"recommendations": {}}) == "medium"
+
+
 def test_followups_philosophy_empty():
-    with patch.object(recs, "enabled", return_value=True), patch(
-        "services.recommendations.load_config", return_value={"recommendations": {"enabled": True}}
-    ):
-        chips = recs.build_followups(
-            lang="ro",
-            user_text="Ce părere ai despre nemurirea sufletului?",
-            assistant_text="E o temă veche în filosofie și religie...",
-        )
+    chips = _run_followups(
+        lang="ro",
+        user_text="Ce părere ai despre nemurirea sufletului?",
+        assistant_text="E o temă veche în filosofie și religie...",
+    )
     assert chips == []
 
 
 def test_followups_yes_no_on_chat_question():
-    with patch.object(recs, "enabled", return_value=True), patch(
-        "services.recommendations.load_config", return_value={"recommendations": {"enabled": True}}
-    ):
-        chips = recs.build_followups(
-            lang="ro",
-            user_text="Hai să discutăm despre artă",
-            assistant_text="Interesant. Vrei să începem cu pictura modernă?",
-        )
+    chips = _run_followups(
+        lang="ro",
+        user_text="Hai să discutăm despre artă",
+        assistant_text="Interesant. Vrei să începem cu pictura modernă?",
+    )
     labels = [c["label"] for c in chips]
     assert labels == ["Da", "Nu"]
 
 
 def test_build_followups_smalltalk_no_hallway():
-    with patch.object(recs, "enabled", return_value=True), patch(
-        "services.recommendations.load_config", return_value={"recommendations": {"enabled": True}}
-    ):
-        chips = recs.build_followups(lang="ro", user_text="Ce faci?", assistant_text="Bine, tu?")
-    # No HA spam on smalltalk unless it's a clear yes/no prompt.
+    chips = _run_followups(lang="ro", user_text="Ce faci?", assistant_text="Bine, tu?")
     assert chips == [] or {c["label"] for c in chips} <= {"Da", "Nu"}
 
 
@@ -264,15 +302,17 @@ def test_build_followups_light_same_area_not_hallway():
         "arguments": '{"entity_id":"light.living","service":"turn_on"}',
     }]
     with patch.object(recs, "enabled", return_value=True), patch(
-        "services.recommendations.load_config", return_value={"recommendations": {"enabled": True}}
-    ), patch.object(hw, "current_period", return_value="evening"):
-        chips = recs.build_followups(
+        "services.recommendations.load_config", return_value={"recommendations": {"mode": "medium"}}
+    ), patch.object(hw, "current_period", return_value="evening"), patch.object(
+        recs.rl, "recs_mode", return_value="medium"
+    ), patch.object(recs.rl, "generate_followups", new=AsyncMock(return_value=[])):
+        chips = asyncio.run(recs.build_followups(
             lang="ro",
             user_text="Aprinde living",
             assistant_text="Am aprins Living.",
             tool_calls=tools,
             habits=habits,
-        )
+        ))
     labels = " ".join(c["label"].lower() for c in chips)
     assert "hol" not in labels
     assert "seara" in labels or "stinge" in labels or "living" in labels
@@ -280,7 +320,7 @@ def test_build_followups_light_same_area_not_hallway():
 
 def test_build_followups_disabled():
     with patch.object(recs, "enabled", return_value=False):
-        assert recs.build_followups(lang="en", assistant_text="hi", tools_used=[]) == []
+        assert asyncio.run(recs.build_followups(lang="en", assistant_text="hi", tools_used=[])) == []
 
 
 def test_house_status_label_ro():
@@ -317,7 +357,9 @@ def test_build_empty_recs_gate_open_close():
             return_value={"recommendations": {"enabled": True}, "frigate": {"enabled": False}},
         ), patch.object(recs, "_states_map", new=AsyncMock(return_value=states)), patch.object(
             recs, "_has_energy_stats", new=AsyncMock(return_value=False)
-        ), patch.object(hw, "current_period", return_value="evening"):
+        ), patch.object(hw, "current_period", return_value="evening"), patch.object(
+            recs.rl, "recs_mode", return_value="medium"
+        ), patch.object(recs.rl, "ensure_empty_pool", new=AsyncMock(return_value=[])):
             return await recs.build_empty_recs(lang="ro", habits=habits, atmosphere={}, limit=5)
 
     chips = asyncio.run(_run())
@@ -351,7 +393,9 @@ def test_build_empty_recs_skips_already_on():
             return_value={"recommendations": {"enabled": True}, "frigate": {"enabled": False}},
         ), patch.object(recs, "_states_map", new=AsyncMock(return_value=states)), patch.object(
             recs, "_has_energy_stats", new=AsyncMock(return_value=False)
-        ), patch.object(hw, "current_period", return_value="evening"):
+        ), patch.object(hw, "current_period", return_value="evening"), patch.object(
+            recs.rl, "recs_mode", return_value="medium"
+        ), patch.object(recs.rl, "ensure_empty_pool", new=AsyncMock(return_value=[])):
             return await recs.build_empty_recs(lang="ro", habits=habits, limit=5)
 
     chips = asyncio.run(_run())

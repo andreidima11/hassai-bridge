@@ -11,6 +11,7 @@ from datetime import date
 
 from core.config import load_config
 from services import habit_watcher as hw
+from services import recs_llm as rl
 
 log = logging.getLogger("hassai.recommendations")
 
@@ -109,7 +110,7 @@ _ENTITY_ID_RE = re.compile(r"\b(?:light|switch|cover|scene|binary_sensor|climate
 
 
 def enabled(cfg: dict | None = None) -> bool:
-    return hw.enabled(cfg)
+    return rl.recs_mode(cfg) != "none"
 
 
 def _t(lang: str, key: str, **kwargs) -> str:
@@ -236,6 +237,19 @@ async def build_empty_recs(
     period = hw.current_period()
     atmosphere = atmosphere if isinstance(atmosphere, dict) else {}
     weather = str(atmosphere.get("weather") or "").lower()
+    mode = rl.recs_mode(cfg)
+    if mode in {"medium", "high"}:
+        wait = mode == "high"
+        llm_items = await rl.ensure_empty_pool(
+            lang=lang,
+            atmosphere=atmosphere,
+            habits=habits,
+            states=states,
+            wait=wait,
+        )
+        if llm_items:
+            return llm_items[:limit]
+
     out: list[dict] = []
     seen: set[str] = set()
 
@@ -251,7 +265,12 @@ async def build_empty_recs(
     # 1) Cover / gate actions with correct open/close verb
     for row in hw.top_covers_for_period(habits, period=period, limit=2):
         eid = str(row.get("entity_id") or "")
-        name = _short_name(row.get("name") or eid)
+        name = str(row.get("name") or eid)
+        if not hw.is_actionable_entity(eid):
+            continue
+        if not eid.startswith("cover.") and not hw.is_gateish(name, eid):
+            continue
+        name = _short_name(name)
         contact = row.get("contact_entity_id")
         is_open = _is_open_like(states, eid, contact)
         if is_open:
@@ -276,6 +295,8 @@ async def build_empty_recs(
             break
         eid = str(row.get("entity_id") or "")
         name = _short_name(row.get("name") or eid)
+        if not hw.is_actionable_entity(eid):
+            continue
         if hw.looks_like_bulb_name(name, eid) or hw.is_gateish(name, eid):
             continue
         st = states.get(eid) or {}
@@ -460,7 +481,7 @@ def tools_from_trace(tool_calls: list | None) -> list[str]:
     return names
 
 
-def build_followups(
+async def build_followups(
     *,
     lang: str = "en",
     assistant_text: str = "",
@@ -484,6 +505,57 @@ def build_followups(
         assistant_text=assistant_text,
         tool_calls=tools,
     )
+    mode = rl.recs_mode(cfg)
+    if _looks_yes_no_question(assistant_text):
+        return _yes_no_chips(lang)[:limit]
+
+    ha_intent = intent in {"lights", "cover", "energy", "cameras", "status", "weather"}
+    use_llm = False
+    if mode == "high":
+        use_llm = True
+    elif mode == "medium" and ha_intent:
+        use_llm = True
+    if use_llm:
+        states = {}
+        try:
+            states = await _states_map()
+        except Exception:
+            states = {}
+        catalog = rl.catalog_lines(habits, states)
+        llm_items = await rl.generate_followups(
+            lang=lang,
+            user_text=user_text,
+            assistant_text=assistant_text,
+            intent=intent,
+            catalog=catalog,
+            limit=limit,
+        )
+        if llm_items:
+            return llm_items[:limit]
+        if mode == "high" and not ha_intent:
+            return []
+
+    return _heuristic_followups(
+        lang=lang,
+        assistant_text=assistant_text,
+        user_text=user_text,
+        intent=intent,
+        tools=tools,
+        habits=habits,
+        limit=limit,
+    )
+
+
+def _heuristic_followups(
+    *,
+    lang: str,
+    assistant_text: str,
+    user_text: str,
+    intent: str,
+    tools: list | None,
+    habits: dict,
+    limit: int,
+) -> list[dict]:
     entities = entities_from_trace(tools)
     out: list[dict] = []
 
@@ -492,15 +564,10 @@ def build_followups(
             return
         out.append(chip)
 
-    # Non-home conversation: Da/Nu if the assistant asked a yes/no question, else nothing.
     if intent in {"chat", "smalltalk"}:
-        if _looks_yes_no_question(assistant_text):
-            return _yes_no_chips(lang)[:limit]
         return []
 
     if intent == "weather":
-        if _looks_yes_no_question(assistant_text):
-            return _yes_no_chips(lang)[:limit]
         return []
 
     if intent == "energy":
@@ -510,10 +577,11 @@ def build_followups(
     if intent == "cover":
         for row in hw.top_covers_for_period(habits, limit=3):
             eid = str(row.get("entity_id") or "")
+            if not hw.is_actionable_entity(eid):
+                continue
             name = _short_name(row.get("name") or eid)
             if entities and eid not in entities and not any(is_related(eid, e) for e in entities):
                 continue
-            # Suggest close after open-ish talk, else open.
             text_l = f"{user_text} {assistant_text}".lower()
             want_close = any(w in text_l for w in ("deschis", "opened", "open", "aprins"))
             key = "close" if want_close else "open"
@@ -568,21 +636,11 @@ def build_followups(
                     _t(lang, "turn_off_prompt", name=name),
                     "action",
                 ))
-        if _looks_yes_no_question(assistant_text):
-            for chip in _yes_no_chips(lang):
-                add(chip)
         return out[:limit]
 
     if intent in {"cameras", "status"}:
-        if _looks_yes_no_question(assistant_text):
-            return _yes_no_chips(lang)[:limit]
-        # Only house status when the turn was actually about the home.
         add(_chip("fu-house", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
         return out[:limit]
-
-    # Fallback: never inject Status casă into unrelated chats.
-    if _looks_yes_no_question(assistant_text):
-        return _yes_no_chips(lang)[:limit]
     return []
 
 

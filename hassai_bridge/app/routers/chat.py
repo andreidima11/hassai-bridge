@@ -884,7 +884,7 @@ def _last_user_text(messages: list | None) -> str:
     return ""
 
 
-def _build_followups_for_turn(
+async def _build_followups_for_turn(
     *,
     assistant_text: str,
     tool_calls: list | None,
@@ -899,7 +899,7 @@ def _build_followups_for_turn(
         cfg = load_config()
         if not recs.enabled(cfg):
             return []
-        return recs.build_followups(
+        return await recs.build_followups(
             lang=lang or cfg.get("language") or "en",
             assistant_text=assistant_text or "",
             user_text=user_text if user_text is not None else _last_user_text(messages),
@@ -3585,7 +3585,7 @@ async def chat_completions(request: Request):
             model_label = reply_model or chat_provider.get("model", "")
             if model_label and upstream:
                 model_label = f"{model_label} · {upstream}"
-            followups = _build_followups_for_turn(
+            followups = await _build_followups_for_turn(
                 assistant_text=assistant_content,
                 tool_calls=turn_tools,
                 messages=messages,
@@ -4162,7 +4162,7 @@ async def chat_completions(request: Request):
                 model_label = reply_model or chat_provider.get("model", "")
                 if model_label and stream_upstream:
                     model_label = f"{model_label} · {stream_upstream}"
-                followups = _build_followups_for_turn(
+                followups = await _build_followups_for_turn(
                     assistant_text=clean_response,
                     tool_calls=turn_tools,
                     messages=messages,

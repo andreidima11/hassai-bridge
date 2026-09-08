@@ -71,8 +71,9 @@ async def me(request: Request):
     from services import voice as vc
 
     dynamic = cfg.get("dynamic_greetings") is not False
-    rec_cfg = cfg.get("recommendations") if isinstance(cfg.get("recommendations"), dict) else {}
-    recommendations_enabled = rec_cfg.get("enabled") is not False
+    from services.recs_llm import recs_mode
+    rec_mode = recs_mode(cfg)
+    recommendations_enabled = rec_mode != "none"
     greeting_pool = []
     if dynamic:
         try:
@@ -89,6 +90,7 @@ async def me(request: Request):
         "language": cfg.get("language") or "en",
         "dynamic_greetings": dynamic,
         "recommendations_enabled": recommendations_enabled,
+        "recommendations_mode": rec_mode,
         "greeting_pool": greeting_pool,
         "build": BUILD_ID,
         "voice": vc.public_status(cfg),
@@ -102,14 +104,16 @@ async def recommendations(request: Request, context: str = "empty"):
     """Empty-chat recommendation chips (habits + atmosphere templates)."""
     from core.config import load_config
     from services import recommendations as recs
+    from services.recs_llm import recs_mode
 
     cfg = load_config()
-    if not recs.enabled(cfg):
-        return {"enabled": False, "items": []}
+    mode = recs_mode(cfg)
+    if mode == "none":
+        return {"enabled": False, "mode": "none", "items": []}
     lang = cfg.get("language") or "en"
     ctx = str(context or "empty").strip().lower()
     if ctx != "empty":
-        return {"enabled": True, "items": []}
+        return {"enabled": True, "mode": mode, "items": []}
     atmosphere = {}
     try:
         from services import atmosphere as atm
@@ -117,7 +121,7 @@ async def recommendations(request: Request, context: str = "empty"):
     except Exception:
         atmosphere = {}
     items = await recs.build_empty_recs(lang=lang, atmosphere=atmosphere)
-    return {"enabled": True, "items": items}
+    return {"enabled": True, "mode": mode, "items": items}
 
 
 @router.get("/api/conversations")
