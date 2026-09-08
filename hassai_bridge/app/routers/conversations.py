@@ -120,8 +120,56 @@ async def recommendations(request: Request, context: str = "empty"):
         atmosphere = await atm.snapshot()
     except Exception:
         atmosphere = {}
-    items = await recs.build_empty_recs(lang=lang, atmosphere=atmosphere, limit=3)
-    return {"enabled": True, "mode": mode, "items": items}
+    user_id = _current_username(request)
+    items = await recs.build_empty_recs(
+        lang=lang, atmosphere=atmosphere, limit=3, user_id=user_id
+    )
+    from services import chat_habits as ch
+
+    return {
+        "enabled": True,
+        "mode": mode,
+        "items": items,
+        "learn_from_chat": ch.learn_from_chat_enabled(cfg),
+    }
+
+
+@router.post("/api/recommendations/feedback")
+async def recommendations_feedback(request: Request):
+    """Record chip clicks for conversation habit learning."""
+    from services import chat_habits as ch
+    from services.recs_llm import recs_mode
+    from core.config import load_config
+
+    cfg = load_config()
+    if recs_mode(cfg) == "none" or not ch.learn_from_chat_enabled(cfg):
+        return {"ok": False, "ignored": True}
+    user_id = _current_username(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    chip = {
+        "id": str(body.get("id") or "")[:64],
+        "label": str(body.get("label") or "")[:80],
+        "prompt": str(body.get("prompt") or "")[:240],
+        "kind": str(body.get("kind") or "ask"),
+    }
+    context = str(body.get("context") or "empty").strip().lower()
+    after_intent = str(body.get("after_intent") or "")[:40]
+    ch.record_from_chip(user_id, chip, context=context, after_intent=after_intent)
+    return {"ok": True}
+
+
+@router.post("/api/recommendations/clear-habits")
+async def recommendations_clear_habits(request: Request):
+    from services import chat_habits as ch
+
+    user_id = _current_username(request)
+    n = ch.clear_for_user(user_id)
+    return {"ok": True, "deleted": n}
 
 
 @router.get("/api/conversations")

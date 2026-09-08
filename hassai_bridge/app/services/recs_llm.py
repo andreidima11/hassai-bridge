@@ -58,6 +58,7 @@ def normalize_recs_cfg(raw) -> dict:
     return {
         "enabled": mode != "none",
         "mode": mode,
+        "learn_from_chat": src.get("learn_from_chat") is not False,
         "provider_id": str(src.get("provider_id") or "").strip()[:120],
         "model": str(src.get("model") or "").strip()[:200],
         "last_generated_at": float(src.get("last_generated_at") or 0) or 0.0,

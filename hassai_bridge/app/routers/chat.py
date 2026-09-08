@@ -891,20 +891,35 @@ async def _build_followups_for_turn(
     lang: str | None = None,
     user_text: str | None = None,
     messages: list | None = None,
+    user_id: str | None = None,
 ) -> list[dict]:
     try:
         from services import recommendations as recs
+        from services import chat_habits as ch
         from core.config import load_config
 
         cfg = load_config()
         if not recs.enabled(cfg):
             return []
+        uid = user_id or ""
+        text = user_text if user_text is not None else _last_user_text(messages)
+        intent = recs.classify_turn_intent(
+            user_text=text or "",
+            assistant_text=assistant_text or "",
+            tool_calls=tool_calls,
+        )
+        if uid and text and ch.learn_from_chat_enabled(cfg):
+            try:
+                ch.record_user_text(uid, text, after_intent=intent if intent != "chat" else "")
+            except Exception:
+                pass
         return await recs.build_followups(
             lang=lang or cfg.get("language") or "en",
             assistant_text=assistant_text or "",
-            user_text=user_text if user_text is not None else _last_user_text(messages),
+            user_text=text or "",
             tool_calls=tool_calls,
             tools_used=recs.tools_from_trace(tool_calls),
+            user_id=uid,
         )
     except Exception:
         return []
@@ -3589,6 +3604,7 @@ async def chat_completions(request: Request):
                 assistant_text=assistant_content,
                 tool_calls=turn_tools,
                 messages=messages,
+                user_id=user_id,
             )
             if followups and trace_id:
                 _trace_push(trace_id, {
@@ -4166,6 +4182,7 @@ async def chat_completions(request: Request):
                     assistant_text=clean_response,
                     tool_calls=turn_tools,
                     messages=messages,
+                    user_id=user_id,
                 )
                 if followups and trace_id:
                     _trace_push(trace_id, {

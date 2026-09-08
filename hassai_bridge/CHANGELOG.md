@@ -1,5 +1,20 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.8
+
+### Features
+- **Chat habits** — learns which topics you ask about (and when) from chip clicks, user turns, and contextual Da; ranks empty-chat asks and reorders status follow-ups (e.g. Irigații before Baterii). Local SQLite only; Settings → Learn from chat + clear patterns
+- **Gate hour gate** — empty-chat Poartă chips only in morning (6–10) / afternoon (15–19), or when logbook hour affinity is strong; no more gate chips at random evening hours
+
+### Fix
+- Pedestrian / auto gates no longer appear at night without real hour history
+
+## 1.5.7
+
+### Fix
+- **Follow-up Da/Nu keeps context** — clicking Da no longer sends a bare “Da” (which made the model forget the prior turn); the prompt restates what you’re agreeing to
+- **Status offers** — after “Vrei să verific ceva mai detaliat?”, chips prefer topics from the reply (Irigații, Baterii slabe, Senzori inundație…) instead of only Da/Nu
+
 ## 1.5.6
 
 ### Fix

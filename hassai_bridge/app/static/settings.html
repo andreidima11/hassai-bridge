@@ -375,6 +375,16 @@
           <label data-i18n="settings.recsModel">Model</label>
           <input type="text" id="settingsRecsModel" data-i18n-placeholder="settings.recsModelPlaceholder" placeholder="Blank = fast / default">
           <p class="card-muted hint" style="margin-top:6px" data-i18n="settings.recsModelHint">Optional auxiliary model so chips do not use the main chat model.</p>
+          <div class="toggle-row" style="margin-top:14px">
+            <div>
+              <div data-i18n="settings.learnFromChat">Learn from chat</div>
+              <p class="card-muted" style="margin:4px 0 0" data-i18n="settings.learnFromChatDesc">Remember which topics you ask about (and when) to improve suggestion chips. Local only.</p>
+            </div>
+            <label class="toggle"><input type="checkbox" id="settingsLearnFromChat" checked><span class="slider"></span></label>
+          </div>
+          <div class="btn-row" style="margin-top:10px">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="clearChatHabits()" data-i18n="settings.clearChatHabits">Clear learned chat patterns</button>
+          </div>
         </div>
         <div id="greetingsPoolSettings" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <p class="card-muted" style="margin:0 0 12px" data-i18n="settings.greetingsPoolDesc">Builds a seasonal message pool with the selected provider (Christmas in December, Easter near spring, etc.). Curated built-in greetings remain as fallback.</p>

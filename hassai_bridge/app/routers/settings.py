@@ -311,6 +311,8 @@ async def update_settings(data: SettingsUpdate):
             merged["provider_id"] = str(incoming.get("provider_id") or "").strip()[:120]
         if "model" in incoming:
             merged["model"] = str(incoming.get("model") or "").strip()[:200]
+        if "learn_from_chat" in incoming:
+            merged["learn_from_chat"] = bool(incoming.get("learn_from_chat"))
         cfg["recommendations"] = merged
     if data.greetings is not None:
         from services.greeting_pool import normalize_greetings_cfg

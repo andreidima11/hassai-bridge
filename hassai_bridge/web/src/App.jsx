@@ -868,9 +868,21 @@ export default function App() {
     (chip) => {
       const prompt = String(chip?.prompt || chip?.label || "").trim();
       if (!prompt || busy) return;
+      const context = messages.length ? "followup" : "empty";
+      apiJson("/api/recommendations/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: chip?.id || "",
+          label: chip?.label || "",
+          prompt,
+          kind: chip?.kind || "ask",
+          context,
+        }),
+      }).catch(() => {});
       sendRef.current?.(null, { text: prompt });
     },
-    [busy],
+    [busy, messages.length],
   );
 
   const handsFreeUtterance = useCallback((text) => {

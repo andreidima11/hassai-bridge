@@ -12,6 +12,7 @@ from datetime import date
 from core.config import load_config
 from services import habit_watcher as hw
 from services import recs_llm as rl
+from services import chat_habits as ch
 
 log = logging.getLogger("hassai.recommendations")
 
@@ -465,9 +466,11 @@ def scored_empty_candidates(
     hour: int,
     has_energy: bool,
     weather: str = "",
+    user_id: str = "",
 ) -> list[tuple[int, dict]]:
     """Ranked (score, chip) for empty chat — higher score = more useful now."""
     scored: list[tuple[int, dict]] = []
+    seen_ask_ids: set[str] = set()
 
     # 1) Climate from live indoor temperature
     scored.extend(climate_candidates(states, lang=lang))
@@ -486,6 +489,8 @@ def scored_empty_candidates(
         )))
 
     # 3) Hour-learned lights that are currently off → turn on
+    chat_topics = {t: s for t, s in ch.top_topics_for_hour(user_id, hour=hour, limit=8)} if user_id else {}
+    pref_boosts = ch.preference_topic_boosts(user_id) if user_id else {}
     for row in hw.top_lights_for_period(habits, period=period, hour=hour, limit=6):
         eid = str(row.get("entity_id") or "")
         name = _short_name(row.get("name") or eid)
@@ -497,12 +502,15 @@ def scored_empty_candidates(
         if str(st.get("state") or "").lower() == "on":
             continue
         affinity = hw.hour_affinity(row.get("hours"), hour)
-        # Need some hour signal, or a strong period count as soft fallback.
         periods = row.get("periods") if isinstance(row.get("periods"), dict) else {}
         period_n = int(periods.get(period) or 0)
         if affinity < 3 and period_n < 2:
             continue
         score = 70 + min(20, affinity * 2) + min(8, period_n)
+        if chat_topics.get("lights"):
+            score += min(12, int(chat_topics["lights"]))
+        if pref_boosts.get("lights"):
+            score += min(8, int(pref_boosts["lights"]))
         scored.append((score, _chip(
             f"on-{eid}",
             _t(lang, "turn_on", name=name),
@@ -510,8 +518,8 @@ def scored_empty_candidates(
             "action",
         )))
 
-    # 4) Gates — prefer morning / afternoon windows; always state-aware
-    gate_window = 6 <= hour <= 10 or 15 <= hour <= 19
+    # 4) Gates — morning/afternoon window OR strong hour habit only
+    gate_window = hw.gate_suggest_window(hour)
     for row in hw.top_covers_for_period(habits, period=period, hour=hour, limit=3):
         eid = str(row.get("entity_id") or "")
         name = str(row.get("name") or eid)
@@ -519,17 +527,20 @@ def scored_empty_candidates(
             continue
         if not eid.startswith("cover.") and not hw.is_gateish(name, eid):
             continue
+        affinity = hw.hour_affinity(row.get("hours"), hour)
+        if not gate_window and affinity < hw.GATE_HOUR_AFFINITY_MIN:
+            continue
         name = _short_name(name)
         contact = row.get("contact_entity_id")
         is_open = hw.is_open_like(states, eid, contact)
         verb = "close" if is_open else "open"
-        affinity = hw.hour_affinity(row.get("hours"), hour)
         score = 55 + min(15, affinity * 2)
         if gate_window:
             score += 20
-        # Open gate that's been left open is more urgent than "open it".
         if is_open:
             score += 8
+        if chat_topics.get("gates"):
+            score += min(10, int(chat_topics["gates"]))
         scored.append((score, _chip(
             f"{verb}-{eid}",
             _t(lang, verb, name=name),
@@ -537,22 +548,47 @@ def scored_empty_candidates(
             "action",
         )))
 
-    # 5) Asks — house status + solar (daytime) + weather when notable
-    scored.append((40, _chip(
-        "house-status",
-        _t(lang, "house_status"),
-        _t(lang, "house_prompt"),
-        "ask",
-    )))
-    if has_energy and 8 <= hour <= 20:
-        scored.append((45, _chip(
-            "energy-today",
-            _t(lang, "energy_today"),
-            _t(lang, "energy_prompt"),
+    # 5) Asks from chat habits at this hour (+ preference bridge)
+    for topic, tscore in list(chat_topics.items())[:5]:
+        labels = ch.topic_labels(topic, lang)
+        if not labels:
+            continue
+        label, prompt = labels
+        cid = f"chat-{topic}"
+        if cid in seen_ask_ids:
+            continue
+        seen_ask_ids.add(cid)
+        boost = float(tscore) + float(pref_boosts.get(topic) or 0)
+        # Daytime solar gets a bump; house_status is always a mild ask.
+        base = 52 if topic in {"solar", "energy", "irrigation", "batteries"} else 48
+        if topic == "solar" and not (8 <= hour <= 20):
+            base = 30
+        scored.append((base + min(18, int(boost)), _chip(cid, label, prompt, "ask")))
+
+    for topic, pboost in pref_boosts.items():
+        if topic in chat_topics:
+            continue
+        labels = ch.topic_labels(topic, lang)
+        if not labels:
+            continue
+        label, prompt = labels
+        cid = f"pref-{topic}"
+        if cid in seen_ask_ids:
+            continue
+        seen_ask_ids.add(cid)
+        scored.append((46 + min(10, int(pboost)), _chip(cid, label, prompt, "ask")))
+
+    # 6) Fallback asks — house status + solar (daytime) + weather when notable
+    if "house-status" not in seen_ask_ids and "chat-house_status" not in seen_ask_ids:
+        scored.append((40, _chip(
+            "house-status",
+            _t(lang, "house_status"),
+            _t(lang, "house_prompt"),
             "ask",
         )))
-    elif has_energy:
-        scored.append((25, _chip(
+    if has_energy and "chat-solar" not in seen_ask_ids and "energy-today" not in seen_ask_ids:
+        energy_score = 45 if 8 <= hour <= 20 else 25
+        scored.append((energy_score, _chip(
             "energy-today",
             _t(lang, "energy_today"),
             _t(lang, "energy_prompt"),
@@ -599,12 +635,18 @@ async def build_empty_recs(
     atmosphere: dict | None = None,
     habits: dict | None = None,
     limit: int = _EMPTY_LIMIT,
+    user_id: str = "",
 ) -> list[dict]:
     """Empty/new chat: max 3 useful chips from live state + hour-learned habits."""
     cfg = load_config()
     if not enabled(cfg):
         return []
     lang = "ro" if str(lang).lower().startswith("ro") else "en"
+    if user_id and ch.learn_from_chat_enabled(cfg):
+        try:
+            ch.backfill_from_conversations(user_id)
+        except Exception:
+            pass
     if habits is None:
         if hw.needs_refresh(cfg):
             habits = await hw.refresh_habits()
@@ -642,6 +684,7 @@ async def build_empty_recs(
         hour=hour,
         has_energy=has_energy,
         weather=weather,
+        user_id=user_id,
     ):
         add(chip)
         if len(out) >= limit:
@@ -728,32 +771,6 @@ def _affirmation_clause(lang: str, question: str) -> str:
     return body or ("continuă" if lang == "ro" else "continue")
 
 
-def topic_followups_from_reply(assistant_text: str, *, lang: str, limit: int = 3) -> list[dict]:
-    """Build topic chips from subjects mentioned in the assistant reply."""
-    text = assistant_text or ""
-    if len(text) < 40:
-        return []
-    # Don't scan only the closing question — topics are usually above it.
-    body = text
-    q = _last_question(text)
-    if q and q in body:
-        body = body[: body.rfind(q)]
-    out: list[dict] = []
-    seen: set[str] = set()
-    for pattern, meta in _TOPIC_CHIPS:
-        if not pattern.search(body):
-            continue
-        cid = meta["id"]
-        if cid in seen:
-            continue
-        label, prompt = meta.get(lang) or meta["en"]
-        seen.add(cid)
-        out.append(_chip(cid, label, prompt, "ask"))
-        if len(out) >= limit:
-            break
-    return out
-
-
 def _yes_no_chips(lang: str, assistant_text: str = "") -> list[dict]:
     """Da/Nu with prompts that keep the prior question — bare 'Da' loses context."""
     question = _last_question(assistant_text)
@@ -770,18 +787,79 @@ def _yes_no_chips(lang: str, assistant_text: str = "") -> list[dict]:
     ]
 
 
+def topic_followups_from_reply(
+    assistant_text: str,
+    *,
+    lang: str,
+    limit: int = 3,
+    user_id: str = "",
+    after_intent: str = "status",
+) -> list[dict]:
+    """Build topic chips from subjects mentioned in the assistant reply."""
+    text = assistant_text or ""
+    if len(text) < 40:
+        return []
+    body = text
+    q = _last_question(text)
+    if q and q in body:
+        body = body[: body.rfind(q)]
+    out: list[dict] = []
+    seen: set[str] = set()
+    for pattern, meta in _TOPIC_CHIPS:
+        if not pattern.search(body):
+            continue
+        cid = meta["id"]
+        if cid in seen:
+            continue
+        label, prompt = meta.get(lang) or meta["en"]
+        seen.add(cid)
+        out.append(_chip(cid, label, prompt, "ask"))
+        if len(out) >= max(limit, 6):
+            break
+    if user_id and out:
+        hour = hw.current_hour()
+        learned = {
+            t: s
+            for t, s in ch.topics_after(user_id, after_intent or "status", hour=hour, limit=8)
+        }
+        # Map chip id → topic for ranking
+        id_to_topic = {
+            "fu-topic-flood": "flood",
+            "fu-topic-battery": "batteries",
+            "fu-topic-irrigation": "irrigation",
+            "fu-topic-solar": "solar",
+            "fu-topic-gates": "gates",
+            "fu-topic-lights": "lights",
+            "fu-topic-climate": "climate",
+            "fu-topic-cameras": "cameras",
+        }
+
+        def rank_key(chip: dict) -> float:
+            topic = id_to_topic.get(str(chip.get("id") or ""), "")
+            return float(learned.get(topic) or 0)
+
+        out.sort(key=rank_key, reverse=True)
+    return out[:limit]
+
+
 def followups_for_yes_no_turn(
     *,
     lang: str,
     assistant_text: str,
     limit: int = 3,
+    user_id: str = "",
 ) -> list[dict]:
     """Prefer concrete topic chips when the assistant offered more detail."""
     question = _last_question(assistant_text)
     offer = bool(question and _OFFER_DETAIL_RE.search(question))
-    topics = topic_followups_from_reply(assistant_text, lang=lang, limit=limit)
+    topics = topic_followups_from_reply(
+        assistant_text,
+        lang=lang,
+        limit=limit,
+        user_id=user_id,
+        after_intent="status",
+    )
     if offer and topics:
-        # Lead with a contextual Yes that actually continues the offer, then topics.
         yes_chip = _yes_no_chips(lang, assistant_text)[0]
         merged = [yes_chip]
         for chip in topics:
@@ -917,6 +995,7 @@ async def build_followups(
     tool_calls: list | None = None,
     habits: dict | None = None,
     limit: int = 3,
+    user_id: str = "",
 ) -> list[dict]:
     """ChatGPT-like: only relevant chips; prefer empty over HA spam on chat topics."""
     cfg = load_config()
@@ -935,7 +1014,10 @@ async def build_followups(
     mode = rl.recs_mode(cfg)
     if _looks_yes_no_question(assistant_text):
         return followups_for_yes_no_turn(
-            lang=lang, assistant_text=assistant_text, limit=limit
+            lang=lang,
+            assistant_text=assistant_text,
+            limit=limit,
+            user_id=user_id,
         )
 
     ha_intent = intent in {"lights", "cover", "energy", "cameras", "status", "weather"}
@@ -972,6 +1054,7 @@ async def build_followups(
         tools=tools,
         habits=habits,
         limit=limit,
+        user_id=user_id,
     )
 
 
@@ -984,6 +1067,7 @@ def _heuristic_followups(
     tools: list | None,
     habits: dict,
     limit: int,
+    user_id: str = "",
 ) -> list[dict]:
     entities = entities_from_trace(tools)
     out: list[dict] = []
@@ -1068,7 +1152,13 @@ def _heuristic_followups(
         return out[:limit]
 
     if intent in {"cameras", "status"}:
-        topics = topic_followups_from_reply(assistant_text, lang=lang, limit=limit)
+        topics = topic_followups_from_reply(
+            assistant_text,
+            lang=lang,
+            limit=limit,
+            user_id=user_id,
+            after_intent=intent,
+        )
         for chip in topics:
             add(chip)
         if not out:

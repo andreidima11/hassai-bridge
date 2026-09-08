@@ -856,6 +856,7 @@ async function loadSettings() {
     setVal('settingsRecsMode', recMode);
     fillRecsProviderSelect(_allProviders.length ? _allProviders : (cfg.providers || []), rec.provider_id || '');
     setVal('settingsRecsModel', rec.model || '');
+    setChecked('settingsLearnFromChat', rec.learn_from_chat !== false);
     onRecsModeChange();
     fillGreetingsProviderSelect(cfg.providers || [], (cfg.greetings || {}).provider_id || '');
     applyGreetingsSettings(cfg.greetings || {});
@@ -1018,7 +1019,18 @@ function collectRecsSettings() {
     enabled: mode !== 'none',
     provider_id: document.getElementById('settingsRecsProvider')?.value || '',
     model: (document.getElementById('settingsRecsModel')?.value || '').trim(),
+    learn_from_chat: document.getElementById('settingsLearnFromChat')?.checked !== false,
   };
+}
+
+async function clearChatHabits() {
+  if (!confirm(t('settings.clearChatHabitsConfirm') || 'Clear learned chat patterns?')) return;
+  try {
+    await api('POST', '/api/recommendations/clear-habits');
+    toast(t('settings.clearChatHabitsDone') || 'Learned chat patterns cleared.');
+  } catch (e) {
+    toast(e.message || String(e), true);
+  }
 }
 
 let _greetingsProviderSelect = null;

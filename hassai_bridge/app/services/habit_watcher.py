@@ -732,6 +732,15 @@ def top_lights_for_period(
     return out
 
 
+def gate_suggest_window(hour: int | None = None) -> bool:
+    """Morning commute / afternoon return — when gates are usually useful."""
+    hour = current_hour() if hour is None else int(hour) % 24
+    return 6 <= hour <= 10 or 15 <= hour <= 19
+
+
+GATE_HOUR_AFFINITY_MIN = 6  # center*5 + neighbors → real use around this hour
+
+
 def top_covers_for_period(
     habits: dict | None = None,
     *,
@@ -750,12 +759,14 @@ def top_covers_for_period(
         total = int(row.get("open_count") or 0) + int(row.get("close_count") or 0)
         affinity = hour_affinity(hours, hour)
         score = affinity * 4 + int(periods.get(period) or 0) * 2 + total
-        # Name-matched gates still surface even with thin logbook counts.
+        # Name-matched gates still surface in the list for pairing/metadata,
+        # but empty-chat will not emit them outside window without affinity.
         if score <= 0 and is_gateish(str(row.get("name") or ""), str(row.get("entity_id") or "")):
             score = 1
-        # Morning (6–10) / afternoon (15–19) boost for gates people actually use then.
-        if 6 <= hour <= 10 or 15 <= hour <= 19:
+        if gate_suggest_window(hour):
             score += 4
+        elif affinity >= GATE_HOUR_AFFINITY_MIN:
+            score += 2
         scored.append((score, row))
     scored.sort(key=lambda x: x[0], reverse=True)
     return [r for s, r in scored if s > 0][:limit]

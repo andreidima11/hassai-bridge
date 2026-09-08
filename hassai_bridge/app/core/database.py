@@ -256,10 +256,36 @@ def init_db():
                     except sqlite3.OperationalError:
                         pass
             # v7: session_state + toolkit_audit created via CREATE IF NOT EXISTS below
+            # v8: chat_habits (+ meta) created via CREATE IF NOT EXISTS below
             conn.execute(
                 "UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1",
                 (DB_SCHEMA_VERSION, time.time()),
             )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_habits (
+                user_id TEXT NOT NULL,
+                topic TEXT NOT NULL,
+                hour INTEGER NOT NULL,
+                after_intent TEXT NOT NULL DEFAULT '',
+                source TEXT NOT NULL DEFAULT 'user_ask',
+                count REAL NOT NULL DEFAULT 0,
+                last_at REAL NOT NULL,
+                PRIMARY KEY (user_id, topic, hour, after_intent, source)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_habits_user_hour ON chat_habits(user_id, hour)"
+        )
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_habits_meta (
+                user_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (user_id, key)
+            )
+        """)
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS session_state (

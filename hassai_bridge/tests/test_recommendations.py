@@ -603,6 +603,7 @@ def test_pedestrian_gate_switch_on_means_close():
         states,
         lang="ro",
         period="evening",
+        hour=18,
     )
     labels = " ".join(c["label"] for c in chips)
     assert "Închide Poarta pietonala" in labels
@@ -867,3 +868,170 @@ def test_build_empty_recs_max_three():
     chips = asyncio.run(_run())
     assert len(chips) == 3
     assert all(not rl.is_device_status_chip(c) for c in chips)
+
+
+def test_gate_suggest_window():
+    assert hw.gate_suggest_window(8) is True
+    assert hw.gate_suggest_window(18) is True
+    assert hw.gate_suggest_window(21) is False
+    assert hw.gate_suggest_window(12) is False
+
+
+def test_empty_gate_hidden_at_hour_21_without_affinity():
+    habits = {
+        "lights": [],
+        "covers": [{
+            "entity_id": "switch.poarta_auto",
+            "name": "Poarta auto",
+            "open_count": 5,
+            "close_count": 5,
+            "periods": {"evening": 5, "morning": 1, "day": 0, "night": 2},
+            "hours": {"8": 4, "18": 3},
+        }],
+        "scenes": [],
+    }
+    states = {
+        "switch.poarta_auto": {"state": "off"},
+        "binary_sensor.poarta_contact": {"state": "off"},
+    }
+    scored = recs.scored_empty_candidates(
+        habits, states, lang="ro", period="evening", hour=21, has_energy=False
+    )
+    labels = [c["label"] for _, c in scored]
+    assert not any("Poarta" in l for l in labels)
+
+
+def test_empty_gate_shown_at_hour_8_window():
+    habits = {
+        "lights": [],
+        "covers": [{
+            "entity_id": "switch.poarta_auto",
+            "name": "Poarta auto",
+            "open_count": 2,
+            "close_count": 2,
+            "periods": {"morning": 2},
+        }],
+        "scenes": [],
+    }
+    states = {"switch.poarta_auto": {"state": "off"}}
+    scored = recs.scored_empty_candidates(
+        habits, states, lang="ro", period="morning", hour=8, has_energy=False
+    )
+    labels = [c["label"] for _, c in scored]
+    assert any("Deschide Poarta auto" in l or "Închide Poarta auto" in l for l in labels)
+
+
+def test_empty_gate_shown_at_hour_21_with_strong_hour_affinity():
+    habits = {
+        "lights": [],
+        "covers": [{
+            "entity_id": "switch.poarta_auto",
+            "name": "Poarta auto",
+            "open_count": 8,
+            "close_count": 8,
+            "periods": {"evening": 4, "night": 4},
+            "hours": {"21": 5, "20": 2},
+        }],
+        "scenes": [],
+    }
+    states = {"switch.poarta_auto": {"state": "on"}}
+    # affinity: 5*5 + 2*3 = 31 >= GATE_HOUR_AFFINITY_MIN
+    assert hw.hour_affinity(habits["covers"][0]["hours"], 21) >= hw.GATE_HOUR_AFFINITY_MIN
+    scored = recs.scored_empty_candidates(
+        habits, states, lang="ro", period="evening", hour=21, has_energy=False
+    )
+    labels = [c["label"] for _, c in scored]
+    assert any("Închide Poarta auto" in l for l in labels)
+
+
+def test_chat_habits_record_and_rank_empty(tmp_path, monkeypatch):
+    from core import database as core_db
+    from services import chat_habits as ch
+
+    db_path = tmp_path / "hassai.db"
+    monkeypatch.setattr(core_db, "DB_PATH", db_path)
+    core_db.init_db()
+    monkeypatch.setattr(
+        ch,
+        "learn_from_chat_enabled",
+        lambda cfg=None: True,
+    )
+    ch.record("alice", topic="irrigation", hour=9, after_intent="status", source="chip_click")
+    ch.record("alice", topic="irrigation", hour=9, after_intent="status", source="chip_click")
+    ch.record("alice", topic="batteries", hour=9, after_intent="status", source="user_ask")
+    top = ch.top_topics_for_hour("alice", hour=9, limit=3)
+    assert top and top[0][0] == "irrigation"
+    after = ch.topics_after("alice", "status", hour=9, limit=3)
+    assert after[0][0] == "irrigation"
+
+    habits = {"lights": [], "covers": [], "scenes": []}
+    states = {}
+    with patch.object(ch, "preference_topic_boosts", return_value={}):
+        scored = recs.scored_empty_candidates(
+            habits,
+            states,
+            lang="ro",
+            period="morning",
+            hour=9,
+            has_energy=False,
+            user_id="alice",
+        )
+    labels = [c["label"] for _, c in scored]
+    assert any("Iriga" in l for l in labels)
+
+
+def test_chat_habits_feedback_chip_and_clear(tmp_path, monkeypatch):
+    from core import database as core_db
+    from services import chat_habits as ch
+
+    db_path = tmp_path / "hassai.db"
+    monkeypatch.setattr(core_db, "DB_PATH", db_path)
+    core_db.init_db()
+    monkeypatch.setattr(ch, "learn_from_chat_enabled", lambda cfg=None: True)
+    ch.record_from_chip(
+        "bob",
+        {"id": "fu-topic-solar", "label": "Solar", "prompt": "Producție solară"},
+        context="followup",
+        after_intent="status",
+        hour=12,
+    )
+    assert ch.top_topics_for_hour("bob", hour=12)
+    n = ch.clear_for_user("bob")
+    assert n >= 1
+    assert ch.top_topics_for_hour("bob", hour=12) == []
+
+
+def test_topic_followups_reorder_by_chat_habits(tmp_path, monkeypatch):
+    from core import database as core_db
+    from services import chat_habits as ch
+
+    db_path = tmp_path / "hassai.db"
+    monkeypatch.setattr(core_db, "DB_PATH", db_path)
+    core_db.init_db()
+    monkeypatch.setattr(ch, "learn_from_chat_enabled", lambda cfg=None: True)
+    ch.record(
+        "carol",
+        topic="irrigation",
+        hour=10,
+        after_intent="status",
+        source="chip_click",
+        weight=9,
+    )
+    ch.record(
+        "carol",
+        topic="batteries",
+        hour=10,
+        after_intent="status",
+        source="user_ask",
+        weight=1,
+    )
+    text = (
+        "Statusul casei e ok. Irigațiile au rulat azi. Baterii slabe pe doi senzori. "
+        "Senzori inundație ok. Vrei să verific ceva mai detaliat?"
+    )
+    with patch.object(hw, "current_hour", return_value=10):
+        chips = recs.topic_followups_from_reply(
+            text, lang="ro", limit=3, user_id="carol", after_intent="status"
+        )
+    labels = [c["label"] for c in chips]
+    assert labels and "Irigații" in labels[0]
