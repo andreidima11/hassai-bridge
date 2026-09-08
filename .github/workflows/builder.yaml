@@ -26,7 +26,8 @@ jobs:
         run: |
           file_ver="$(tr -d '[:space:]' < hassai_bridge/app/VERSION | sed 's/^v//')"
           if [[ "${{ github.event_name }}" == "release" ]]; then
-            tag_ver="${{ github.event.release.tag_name }}"
+            # Tags may be "1.5.0" or "v1.5.0"; VERSION is always without leading v.
+            tag_ver="$(echo '${{ github.event.release.tag_name }}' | sed 's/^v//')"
             if [[ "$file_ver" != "$tag_ver" ]]; then
               echo "::error::VERSION file ($file_ver) does not match release tag ($tag_ver). Bump hassai_bridge/app/VERSION and run scripts/sync_version.sh before creating the release."
               exit 1
