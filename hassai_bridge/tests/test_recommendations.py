@@ -157,14 +157,75 @@ def test_classify_smalltalk_intent():
     assert recs.classify_turn_intent(user_text="hello") == "smalltalk"
 
 
+def test_score_gateish_switch_without_contact_is_cover_not_light():
+    states = [
+        {
+            "entity_id": "switch.poarta_auto",
+            "state": "off",
+            "attributes": {"friendly_name": "Poarta auto"},
+        },
+    ]
+    entries = [
+        {
+            "entity_id": "switch.poarta_auto",
+            "state": "on",
+            "when": "2026-03-01T18:00:00+00:00",
+            "context_user_id": "u",
+        },
+    ]
+    data = hw.score_logbook(entries, states=states)
+    assert not any(r["entity_id"] == "switch.poarta_auto" for r in data["lights"])
+    assert any(r["entity_id"] == "switch.poarta_auto" for r in data["covers"])
+
+
+def test_normalize_covers_rescues_gate_from_old_lights():
+    habits = {
+        "lights": [{
+            "entity_id": "switch.poarta_auto",
+            "name": "Poarta auto",
+            "count": 5,
+            "periods": {"evening": 5, "morning": 0, "day": 0, "night": 0},
+        }],
+        "covers": [],
+    }
+    covers = hw.top_covers_for_period(habits, period="evening", limit=3)
+    assert covers and covers[0]["entity_id"] == "switch.poarta_auto"
+    lights = hw.top_lights_for_period(habits, period="evening", limit=5)
+    assert not any(r["entity_id"] == "switch.poarta_auto" for r in lights)
+
+
+def test_followups_philosophy_empty():
+    with patch.object(recs, "enabled", return_value=True), patch(
+        "services.recommendations.load_config", return_value={"recommendations": {"enabled": True}}
+    ):
+        chips = recs.build_followups(
+            lang="ro",
+            user_text="Ce părere ai despre nemurirea sufletului?",
+            assistant_text="E o temă veche în filosofie și religie...",
+        )
+    assert chips == []
+
+
+def test_followups_yes_no_on_chat_question():
+    with patch.object(recs, "enabled", return_value=True), patch(
+        "services.recommendations.load_config", return_value={"recommendations": {"enabled": True}}
+    ):
+        chips = recs.build_followups(
+            lang="ro",
+            user_text="Hai să discutăm despre artă",
+            assistant_text="Interesant. Vrei să începem cu pictura modernă?",
+        )
+    labels = [c["label"] for c in chips]
+    assert labels == ["Da", "Nu"]
+
+
 def test_build_followups_smalltalk_no_hallway():
     with patch.object(recs, "enabled", return_value=True), patch(
         "services.recommendations.load_config", return_value={"recommendations": {"enabled": True}}
     ):
         chips = recs.build_followups(lang="ro", user_text="Ce faci?", assistant_text="Bine, tu?")
-    labels = " ".join(c["label"].lower() for c in chips)
-    assert "vremea" in labels or "status" in labels
-    assert "hol" not in labels
+    # No HA spam on smalltalk unless it's a clear yes/no prompt.
+    assert chips == [] or {c["label"] for c in chips} <= {"Da", "Nu"}
 
 
 def test_build_followups_light_same_area_not_hallway():

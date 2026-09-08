@@ -148,6 +148,11 @@ def looks_like_bulb_name(name: str, entity_id: str = "") -> bool:
     return bool(_BULB_NAME_RE.search(f"{name} {entity_id}"))
 
 
+def is_gateish(name: str = "", entity_id: str = "") -> bool:
+    """Gate / barrier / garage actuators should never use light verbs."""
+    return bool(_GATEISH_RE.search(f"{name} {entity_id}"))
+
+
 def _period_buckets() -> dict[str, dict[str, int]]:
     return {
         "morning": defaultdict(int),
@@ -240,7 +245,7 @@ def pair_contacts(
             if score > best_score:
                 best_score = score
                 best = c_eid
-        if best and best_score >= 40:
+        if best and best_score >= 20:
             pairs[act_eid] = best
             used_contacts.add(best)
     return pairs
@@ -284,7 +289,10 @@ def enrich_meta(
             row["kind"] = classify_light_kind(
                 eid, attrs=attrs, platform=platform, name=name
             )
-            if domain == "switch" and contacts.get(eid):
+            # Name/entity hints alone are enough — contact pairing is optional.
+            if domain == "switch" and (
+                contacts.get(eid) or is_gateish(name, eid)
+            ):
                 row["kind"] = "gate_switch"
         elif domain == "cover":
             row["kind"] = "cover"
@@ -333,9 +341,14 @@ def score_logbook(
             names[eid] = _friendly_name(states_by_id, eid, str(entry.get("name") or ""))
 
         if eid.startswith("light.") or eid.startswith("switch."):
-            # Gate switches counted as covers below when paired/contact-named.
             info = meta.get(eid) or {}
-            if info.get("kind") == "gate_switch" or info.get("contact_entity_id"):
+            display = names.get(eid) or info.get("name") or eid
+            # Gates / barriers never count as lights — even without a paired contact.
+            if (
+                info.get("kind") == "gate_switch"
+                or info.get("contact_entity_id")
+                or is_gateish(display, eid)
+            ):
                 if kind in {"on", "open"}:
                     cover_open[eid] += 1
                     cover_periods[period][eid] += 1
@@ -364,9 +377,20 @@ def score_logbook(
     lights = []
     for eid, count in sorted(light_on.items(), key=lambda kv: kv[1], reverse=True)[:20]:
         info = meta.get(eid) or {}
+        name = names.get(eid) or info.get("name") or eid
+        if is_gateish(name, eid) or info.get("kind") == "gate_switch":
+            # Belts and suspenders: never emit gates into lights[].
+            cover_open.setdefault(eid, 0)
+            cover_open[eid] = max(int(cover_open.get(eid) or 0), count)
+            for p in ("morning", "day", "evening", "night"):
+                cover_periods[p][eid] = max(
+                    int(cover_periods[p].get(eid) or 0),
+                    int(light_periods[p].get(eid) or 0),
+                )
+            continue
         lights.append({
             "entity_id": eid,
-            "name": names.get(eid) or info.get("name") or eid,
+            "name": name,
             "count": count,
             "periods": {
                 p: int(light_periods[p].get(eid) or 0)
@@ -379,6 +403,17 @@ def score_logbook(
             "member_ids": info.get("member_ids") or [],
             "platform": info.get("platform") or "",
         })
+
+    # Also promote gateish switches from states that never toggled "on" in window
+    # but appear frequently as off/close or exist with contact.
+    for eid, info in meta.items():
+        if info.get("kind") != "gate_switch" and not is_gateish(info.get("name") or "", eid):
+            continue
+        if eid in cover_open or eid in cover_close:
+            continue
+        cover_open[eid] = 1
+        if eid not in names:
+            names[eid] = info.get("name") or eid
 
     covers = []
     cover_ids = set(cover_open) | set(cover_close)
@@ -429,7 +464,7 @@ def score_logbook(
         "lights": lights,
         "covers": covers,
         "scenes": scenes,
-        "meta_version": 2,
+        "meta_version": 3,
     }
 
 
@@ -497,9 +532,41 @@ def needs_refresh(cfg: dict | None = None) -> bool:
     updated = float(data.get("updated_at") or 0)
     if not updated:
         return True
-    if int(data.get("meta_version") or 0) < 2:
+    if int(data.get("meta_version") or 0) < 3:
         return True
     return (time.time() - updated) >= _REFRESH_INTERVAL_S
+
+
+def _normalize_cover_rows(habits: dict) -> list[dict]:
+    """Covers from habits plus any gateish rows wrongly stored under lights."""
+    out: list[dict] = []
+    seen: set[str] = set()
+    for row in list(habits.get("covers") or []) + list(habits.get("lights") or []):
+        if not isinstance(row, dict):
+            continue
+        eid = str(row.get("entity_id") or "")
+        name = str(row.get("name") or "")
+        if not eid:
+            continue
+        is_cover = eid.startswith("cover.") or row.get("kind") in {"cover", "gate_switch"}
+        if not is_cover and not is_gateish(name, eid):
+            continue
+        if eid in seen:
+            continue
+        seen.add(eid)
+        periods = row.get("periods") if isinstance(row.get("periods"), dict) else {}
+        out.append({
+            "entity_id": eid,
+            "name": name or eid,
+            "open_count": int(row.get("open_count") or row.get("count") or 0),
+            "close_count": int(row.get("close_count") or 0),
+            "periods": periods,
+            "kind": row.get("kind") or "gate_switch",
+            "area_id": row.get("area_id"),
+            "area_name": row.get("area_name") or "",
+            "contact_entity_id": row.get("contact_entity_id"),
+        })
+    return out
 
 
 def top_lights_for_period(
@@ -513,9 +580,13 @@ def top_lights_for_period(
     lights = list(habits.get("lights") or [])
     scored = []
     for row in lights:
+        eid = str(row.get("entity_id") or "")
+        name = str(row.get("name") or "")
+        if is_gateish(name, eid) or row.get("kind") in {"gate_switch", "cover"}:
+            continue
         # Prefer groups over leaf bulbs.
         kind = str(row.get("kind") or "")
-        if kind == "bulb" and looks_like_bulb_name(str(row.get("name") or ""), str(row.get("entity_id") or "")):
+        if kind == "bulb" and looks_like_bulb_name(name, eid):
             # Demote explicit bulbs hard unless no group alternative later.
             bulb_penalty = 8
         elif kind in {"group", "light"} and (row.get("member_ids") or kind == "group"):
@@ -560,12 +631,15 @@ def top_covers_for_period(
 ) -> list[dict]:
     habits = habits or load_habits()
     period = period or current_period()
-    covers = list(habits.get("covers") or [])
+    covers = _normalize_cover_rows(habits)
     scored = []
     for row in covers:
         periods = row.get("periods") if isinstance(row.get("periods"), dict) else {}
         total = int(row.get("open_count") or 0) + int(row.get("close_count") or 0)
         score = int(periods.get(period) or 0) * 3 + total
+        # Name-matched gates still surface even with thin logbook counts.
+        if score <= 0 and is_gateish(str(row.get("name") or ""), str(row.get("entity_id") or "")):
+            score = 1
         scored.append((score, row))
     scored.sort(key=lambda x: x[0], reverse=True)
     return [r for s, r in scored if s > 0][:limit]

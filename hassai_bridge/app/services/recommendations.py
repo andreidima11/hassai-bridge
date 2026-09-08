@@ -42,6 +42,10 @@ _I18N = {
         "weather_prompt": "What's the weather like right now at home?",
         "also_same_area": "Also turn on {name}",
         "also_same_area_prompt": "Also turn on {name}",
+        "yes": "Yes",
+        "yes_prompt": "Yes",
+        "no": "No",
+        "no_prompt": "No",
     },
     "ro": {
         "turn_on": "Aprinde {name}",
@@ -70,6 +74,10 @@ _I18N = {
         "weather_prompt": "Cum e vremea acum acasă?",
         "also_same_area": "Aprinde și {name}",
         "also_same_area_prompt": "Aprinde și {name}",
+        "yes": "Da",
+        "yes_prompt": "Da",
+        "no": "Nu",
+        "no_prompt": "Nu",
     },
 }
 
@@ -77,6 +85,25 @@ _SMALLTALK_RE = re.compile(
     r"^\s*(ce\s+faci|ce\s+mai\s+faci|salut|bun[aă]|hello|hi\b|hey\b|how\s+are\s+you|"
     r"ce\s+zici|ce\s+mai\s+zici|mulțumesc|multumesc|thanks|ok\b|bine\b)\s*[?.!]?\s*$",
     re.I,
+)
+_HA_TOPIC_RE = re.compile(
+    r"\b(?:"
+    r"lumin|bec|aprinde|stinge|switch|poart|gate|garaj|garage|cover|scen[aă]|climat|"
+    r"temperatur|vreme|weather|camer[aă]|frigate|energie|energy|kwh|consum|solar|"
+    r"status\s+cas|casa\b|home\s+assistant|\bha\b|senzor|alarm|uș[aă]|usa\b|door|"
+    r"thermostat|smart\s*home|automatiz"
+    r")\b",
+    re.I,
+)
+_YESNO_RE = re.compile(
+    r"(?:"
+    r"\b(?:da\s+sau\s+nu|yes\s+or\s+no|agree|de\s+acord|confirmi|confirm|"
+    r"vrei|vreți|vreti|poți|poti|putem|crezi|credeți|credeti|"
+    r"should\s+(?:i|we)|do\s+you\s+(?:want|think|agree)|would\s+you|"
+    r"are\s+you\s+(?:sure|ok|ready)|can\s+(?:i|we|you))\b"
+    r".{0,120}\?\s*$"
+    r")",
+    re.I | re.S,
 )
 _ENTITY_ID_RE = re.compile(r"\b(?:light|switch|cover|scene|binary_sensor|climate|media_player)\.[a-z0-9_]+", re.I)
 
@@ -249,7 +276,7 @@ async def build_empty_recs(
             break
         eid = str(row.get("entity_id") or "")
         name = _short_name(row.get("name") or eid)
-        if hw.looks_like_bulb_name(name, eid):
+        if hw.looks_like_bulb_name(name, eid) or hw.is_gateish(name, eid):
             continue
         st = states.get(eid) or {}
         state = str(st.get("state") or "").lower()
@@ -303,12 +330,31 @@ async def build_empty_recs(
     return (actions[:2] + asks)[:limit]
 
 
+def _looks_yes_no_question(text: str) -> bool:
+    raw = (text or "").strip()
+    if not raw or "?" not in raw:
+        return False
+    # Focus on the last ~2 sentences / last paragraph.
+    chunk = raw.split("\n")[-1].strip()
+    parts = re.split(r"(?<=[.!?])\s+", chunk)
+    last = " ".join(parts[-2:]).strip() if parts else chunk
+    return bool(_YESNO_RE.search(last))
+
+
+def _yes_no_chips(lang: str) -> list[dict]:
+    return [
+        _chip("fu-yes", _t(lang, "yes"), _t(lang, "yes_prompt"), "ask"),
+        _chip("fu-no", _t(lang, "no"), _t(lang, "no_prompt"), "ask"),
+    ]
+
+
 def classify_turn_intent(
     *,
     user_text: str = "",
     assistant_text: str = "",
     tool_calls: list | None = None,
 ) -> str:
+    """Return HA-ish intents, smalltalk, or chat (non-home topics → few/no chips)."""
     user = (user_text or "").strip()
     if user and _SMALLTALK_RE.match(user):
         return "smalltalk"
@@ -321,28 +367,50 @@ def classify_turn_intent(
         if isinstance(t, dict)
     ).lower()
     text = f"{user} {assistant_text or ''}".lower()
+    ha_tools = any(
+        n.startswith("ha_") or n.startswith("frigate") or "search_web" in n
+        for n in names
+    )
+    # Web search alone is not home automation.
+    only_web = bool(names) and all(
+        ("search" in n or "fetch" in n or n in {"search_web", "fetch_url"})
+        for n in names
+    )
 
     if any("statistic" in n or "energy" in n for n in names) or any(
         w in text for w in ("kwh", "energie", "energy", "solar", "consum", "produc")
     ):
         return "energy"
-    if "cover" in blob or any(w in text for w in ("poart", "gate", "garaj", "garage", "cover", "deschid", "închid", "inchid")):
+    if "cover" in blob or any(
+        w in text for w in ("poart", "gate", "garaj", "garage", "cover", "deschid", "închid", "inchid")
+    ):
         return "cover"
     if any(w in blob for w in ("light.", "switch.", "scene.")) or any(
-        w in text for w in ("lumin", "light", "aprins", "stins", "bec", "scene")
+        w in text for w in ("lumin", "light", "aprins", "stins", "bec ", "scene")
     ):
         return "lights"
-    if any("frigate" in n or "camera" in n for n in names) or "camera" in text:
-        return "cameras"
-    if any("weather" in n for n in names) or any(w in text for w in ("vreme", "weather", "temperatur")):
-        return "weather"
-    if any(n.startswith("ha_") for n in names):
-        return "status"
-    if not tools and len(user) < 40 and not any(
-        w in user.lower() for w in ("aprinde", "stinge", "deschide", "închide", "inchide", "status", "lumin")
+    if any("frigate" in n or "camera" in n for n in names) or (
+        "camera" in text and _HA_TOPIC_RE.search(text)
     ):
+        return "cameras"
+    if any("weather" in n for n in names) or any(
+        w in text for w in ("vremea", "weather", "temperatur")
+    ):
+        return "weather"
+    if ha_tools and not only_web and any(n.startswith("ha_") for n in names):
+        return "status"
+
+    # Explicit home topic in the user message.
+    if _HA_TOPIC_RE.search(user):
+        return "status"
+
+    # Long / philosophical / general chat with no HA tools → chat (not generic HA filler).
+    if only_web or (not names and not _HA_TOPIC_RE.search(text)):
+        return "chat"
+
+    if not tools and len(user) < 40 and not _HA_TOPIC_RE.search(user):
         return "smalltalk"
-    return "generic"
+    return "chat"
 
 
 def entities_from_trace(tool_calls: list | None) -> list[str]:
@@ -402,6 +470,7 @@ def build_followups(
     habits: dict | None = None,
     limit: int = 3,
 ) -> list[dict]:
+    """ChatGPT-like: only relevant chips; prefer empty over HA spam on chat topics."""
     cfg = load_config()
     if not enabled(cfg):
         return []
@@ -423,40 +492,41 @@ def build_followups(
             return
         out.append(chip)
 
-    if intent == "smalltalk":
-        add(_chip("fu-weather", _t(lang, "weather"), _t(lang, "weather_prompt"), "ask"))
-        add(_chip("fu-house", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
-        return out[:limit]
+    # Non-home conversation: Da/Nu if the assistant asked a yes/no question, else nothing.
+    if intent in {"chat", "smalltalk"}:
+        if _looks_yes_no_question(assistant_text):
+            return _yes_no_chips(lang)[:limit]
+        return []
 
     if intent == "weather":
-        add(_chip("fu-house", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
-        return out[:limit]
+        if _looks_yes_no_question(assistant_text):
+            return _yes_no_chips(lang)[:limit]
+        return []
 
     if intent == "energy":
         add(_chip("fu-usage", _t(lang, "usage_now"), _t(lang, "usage_prompt"), "ask"))
-        add(_chip("fu-house", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
         return out[:limit]
 
     if intent == "cover":
-        for row in (habits.get("covers") or [])[:3]:
+        for row in hw.top_covers_for_period(habits, limit=3):
             eid = str(row.get("entity_id") or "")
             name = _short_name(row.get("name") or eid)
-            # Suggest the opposite action of whatever was likely done.
-            if any(e == eid or e in entities for e in entities) or not entities:
-                # Prefer close if we just talked about opening, else open/close both as asks via name
-                add(_chip(
-                    f"fu-close-{eid}",
-                    _t(lang, "close", name=name),
-                    _t(lang, "close_prompt", name=name),
-                    "action",
-                ))
-                break
-        if len(assistant_text or "") < 280:
-            add(_chip("fu-detail", _t(lang, "detail"), _t(lang, "detail_prompt"), "ask"))
+            if entities and eid not in entities and not any(is_related(eid, e) for e in entities):
+                continue
+            # Suggest close after open-ish talk, else open.
+            text_l = f"{user_text} {assistant_text}".lower()
+            want_close = any(w in text_l for w in ("deschis", "opened", "open", "aprins"))
+            key = "close" if want_close else "open"
+            add(_chip(
+                f"fu-{key}-{eid}",
+                _t(lang, key, name=name),
+                _t(lang, f"{key}_prompt", name=name),
+                "action",
+            ))
+            break
         return out[:limit]
 
     if intent == "lights":
-        # Same-area companion from habits, never a hardcoded hallway.
         area_ids = set()
         for eid in entities:
             for row in habits.get("lights") or []:
@@ -469,8 +539,9 @@ def build_followups(
                 continue
             if hw.looks_like_bulb_name(str(row.get("name") or ""), eid):
                 continue
+            if hw.is_gateish(str(row.get("name") or ""), eid):
+                continue
             if area_ids and row.get("area_id") not in area_ids:
-                # Allow one high-frequency companion outside area only if co-named ambient
                 continue
             companions.append(row)
         if companions:
@@ -483,33 +554,43 @@ def build_followups(
                 "action",
             ))
         if entities:
-            # Offer turn off for the acted entity name from habits/friendly
             eid = entities[0]
-            name = eid
-            for row in habits.get("lights") or []:
-                if row.get("entity_id") == eid:
-                    name = row.get("name") or eid
-                    break
-            name = _short_name(name)
-            if eid.startswith("light.") or eid.startswith("switch."):
+            if not hw.is_gateish("", eid) and (eid.startswith("light.") or eid.startswith("switch.")):
+                name = eid
+                for row in habits.get("lights") or []:
+                    if row.get("entity_id") == eid:
+                        name = row.get("name") or eid
+                        break
+                name = _short_name(name)
                 add(_chip(
                     f"fu-off-{eid}",
                     _t(lang, "turn_off", name=name),
                     _t(lang, "turn_off_prompt", name=name),
                     "action",
                 ))
-        if len(assistant_text or "") < 220:
-            add(_chip("fu-detail", _t(lang, "detail"), _t(lang, "detail_prompt"), "ask"))
+        if _looks_yes_no_question(assistant_text):
+            for chip in _yes_no_chips(lang):
+                add(chip)
         return out[:limit]
 
     if intent in {"cameras", "status"}:
+        if _looks_yes_no_question(assistant_text):
+            return _yes_no_chips(lang)[:limit]
+        # Only house status when the turn was actually about the home.
         add(_chip("fu-house", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
-        if len(assistant_text or "") < 220:
-            add(_chip("fu-detail", _t(lang, "detail"), _t(lang, "detail_prompt"), "ask"))
         return out[:limit]
 
-    # generic: only soft asks, no invented hallway actions
-    if len(assistant_text or "") < 180:
-        add(_chip("fu-detail", _t(lang, "detail"), _t(lang, "detail_prompt"), "ask"))
-    add(_chip("fu-house", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
-    return out[:limit]
+    # Fallback: never inject Status casă into unrelated chats.
+    if _looks_yes_no_question(assistant_text):
+        return _yes_no_chips(lang)[:limit]
+    return []
+
+
+def is_related(a: str, b: str) -> bool:
+    a = (a or "").lower()
+    b = (b or "").lower()
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    return a.split(".", 1)[-1][:6] == b.split(".", 1)[-1][:6]
