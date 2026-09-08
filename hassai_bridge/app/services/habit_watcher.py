@@ -28,7 +28,7 @@ _GROUPISH_NAME_RE = re.compile(
     r"(ambient|ambientale|group|grup|scene|seara|evening|all\b|toate|lumini\b)",
     re.I,
 )
-_GATEISH_RE = re.compile(r"(poart|gate|garage|garaj|portal|barrier)", re.I)
+_GATEISH_RE = re.compile(r"(poart|gate|garage|garaj|portal|barrier|pieton)", re.I)
 _LIGHTISH_RE = re.compile(r"(lumin|light|bec|bulb|led|lamp|ilumin)", re.I)
 _ACTIONABLE_PREFIXES = ("light.", "switch.", "cover.", "scene.", "climate.")
 _HELPER_PREFIXES = (
@@ -178,6 +178,30 @@ def is_gateish(name: str = "", entity_id: str = "") -> bool:
     if _LIGHTISH_RE.search(blob) and not eid.startswith("cover."):
         return False
     return eid.startswith(("cover.", "switch."))
+
+
+def is_open_like(
+    states: dict[str, dict] | None,
+    entity_id: str,
+    contact_id: str | None = None,
+) -> bool:
+    """True if a gate/cover looks open. Prefer contact; else switch on/off or cover state."""
+    states = states or {}
+    if contact_id:
+        cst = states.get(contact_id) or {}
+        cstate = str(cst.get("state") or "").lower()
+        # HA door/garage contact: on usually means open/detected.
+        if cstate in {"on", "open"}:
+            return True
+        if cstate in {"off", "closed"}:
+            return False
+    st = states.get(entity_id) or {}
+    state = str(st.get("state") or "").lower()
+    if state in {"open", "opening", "on"}:
+        return True
+    if state in {"closed", "closing", "off"}:
+        return False
+    return False
 
 
 def _period_buckets() -> dict[str, dict[str, int]]:
@@ -385,8 +409,9 @@ def score_logbook(
                 continue
             if kind != "on":
                 continue
-            # Roll leaf bulb counts up to parent group when possible.
-            target = info.get("parent_group_id") or eid
+            # Only roll "bec 1" leaves into the parent group. Named lamps the
+            # user toggles themselves (LED pat, Lampa dormitor 1) keep their own score.
+            target = eid
             if looks_like_bulb_name(names.get(eid, ""), eid) and info.get("parent_group_id"):
                 target = info["parent_group_id"]
                 if target not in names:
@@ -493,7 +518,7 @@ def score_logbook(
         "lights": lights,
         "covers": covers,
         "scenes": scenes,
-        "meta_version": 4,
+        "meta_version": 6,
     }
 
 
@@ -561,7 +586,7 @@ def needs_refresh(cfg: dict | None = None) -> bool:
     updated = float(data.get("updated_at") or 0)
     if not updated:
         return True
-    if int(data.get("meta_version") or 0) < 4:
+    if int(data.get("meta_version") or 0) < 6:
         return True
     return (time.time() - updated) >= _REFRESH_INTERVAL_S
 
@@ -628,27 +653,16 @@ def top_lights_for_period(
         score = int(periods.get(period) or 0) * 3 + int(row.get("count") or 0) - bulb_penalty
         scored.append((score, row))
     scored.sort(key=lambda x: x[0], reverse=True)
-    # Drop bulb rows if a group in same area already ranked higher.
+    # Drop "bec 1" leaves when a parent group is already in the ranking.
     out: list[dict] = []
-    seen_areas: set[str] = set()
     for score, row in scored:
         if score <= 0:
             continue
         eid = str(row.get("entity_id") or "")
         name = str(row.get("name") or "")
-        area = str(row.get("area_id") or row.get("area_name") or "")
         if looks_like_bulb_name(name, eid):
-            # Skip bulbs when we already have a non-bulb pick or any group in habits.
-            if any(
-                (r.get("kind") == "group" or (r.get("member_ids") or []))
-                for _, r in scored[:8]
-            ):
-                continue
-        if area and area in seen_areas and looks_like_bulb_name(name, eid):
             continue
         out.append(row)
-        if area:
-            seen_areas.add(area)
         if len(out) >= limit:
             break
     return out

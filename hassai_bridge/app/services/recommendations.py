@@ -1,4 +1,4 @@
-"""Build empty-chat and follow-up recommendation chips (no LLM)."""
+"""Build empty-chat and follow-up recommendation chips."""
 
 from __future__ import annotations
 
@@ -174,22 +174,7 @@ async def _has_energy_stats() -> bool:
 
 
 def _is_open_like(states: dict[str, dict], entity_id: str, contact_id: str | None = None) -> bool:
-    """True if gate/cover looks open (prefer contact sensor when present)."""
-    if contact_id:
-        cst = states.get(contact_id) or {}
-        cstate = str(cst.get("state") or "").lower()
-        # HA door contact: on usually means open/detected
-        if cstate in {"on", "open"}:
-            return True
-        if cstate in {"off", "closed"}:
-            return False
-    st = states.get(entity_id) or {}
-    state = str(st.get("state") or "").lower()
-    if state in {"open", "opening", "on"}:
-        return True
-    if state in {"closed", "closing", "off"}:
-        return False
-    return False
+    return hw.is_open_like(states, entity_id, contact_id)
 
 
 def _short_name(name: str) -> str:
@@ -197,23 +182,62 @@ def _short_name(name: str) -> str:
     return text[:42]
 
 
-def _scene_for_area(habits: dict, area_id: str | None, area_name: str, period: str) -> dict | None:
-    if period not in {"evening", "night"}:
-        return None
-    area_l = (area_name or "").lower()
-    for scene in habits.get("scenes") or []:
-        if not isinstance(scene, dict):
+def heuristic_empty_actions(
+    habits: dict,
+    states: dict[str, dict],
+    *,
+    lang: str,
+    period: str,
+    limit: int = 4,
+) -> list[dict]:
+    """Live open/close and turn-on chips from habits + current state."""
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def add(chip: dict) -> None:
+        if len(out) >= limit:
+            return
+        key = chip["prompt"].strip().lower()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(chip)
+
+    for row in hw.top_covers_for_period(habits, period=period, limit=3):
+        eid = str(row.get("entity_id") or "")
+        name = str(row.get("name") or eid)
+        if not hw.is_actionable_entity(eid):
             continue
-        s_area = str(scene.get("area_id") or "")
-        s_name = str(scene.get("name") or "")
-        if area_id and s_area and s_area == area_id:
-            return scene
-        if area_l and area_l in s_name.lower():
-            return scene
-        if "seara" in s_name.lower() or "evening" in s_name.lower():
-            if not area_l or area_l.split()[0] in s_name.lower():
-                return scene
-    return None
+        if not eid.startswith("cover.") and not hw.is_gateish(name, eid):
+            continue
+        name = _short_name(name)
+        contact = row.get("contact_entity_id")
+        is_open = hw.is_open_like(states, eid, contact)
+        verb = "close" if is_open else "open"
+        add(_chip(
+            f"{verb}-{eid}",
+            _t(lang, verb, name=name),
+            _t(lang, f"{verb}_prompt", name=name),
+            "action",
+        ))
+
+    for row in hw.top_lights_for_period(habits, period=period, limit=8):
+        eid = str(row.get("entity_id") or "")
+        name = _short_name(row.get("name") or eid)
+        if not hw.is_actionable_entity(eid):
+            continue
+        if hw.looks_like_bulb_name(name, eid) or hw.is_gateish(name, eid):
+            continue
+        st = states.get(eid) or {}
+        if str(st.get("state") or "").lower() == "on":
+            continue
+        add(_chip(
+            f"on-{eid}",
+            _t(lang, "turn_on", name=name),
+            _t(lang, "turn_on_prompt", name=name),
+            "action",
+        ))
+    return out
 
 
 async def build_empty_recs(
@@ -238,17 +262,6 @@ async def build_empty_recs(
     atmosphere = atmosphere if isinstance(atmosphere, dict) else {}
     weather = str(atmosphere.get("weather") or "").lower()
     mode = rl.recs_mode(cfg)
-    if mode in {"medium", "high"}:
-        wait = mode == "high"
-        llm_items = await rl.ensure_empty_pool(
-            lang=lang,
-            atmosphere=atmosphere,
-            habits=habits,
-            states=states,
-            wait=wait,
-        )
-        if llm_items:
-            return llm_items[:limit]
 
     out: list[dict] = []
     seen: set[str] = set()
@@ -259,96 +272,53 @@ async def build_empty_recs(
         key = chip["prompt"].strip().lower()
         if key in seen:
             return
+        if rl.is_device_status_chip(chip):
+            return
         seen.add(key)
         out.append(chip)
 
-    # 1) Cover / gate actions with correct open/close verb
-    for row in hw.top_covers_for_period(habits, period=period, limit=2):
-        eid = str(row.get("entity_id") or "")
-        name = str(row.get("name") or eid)
-        if not hw.is_actionable_entity(eid):
-            continue
-        if not eid.startswith("cover.") and not hw.is_gateish(name, eid):
-            continue
-        name = _short_name(name)
-        contact = row.get("contact_entity_id")
-        is_open = _is_open_like(states, eid, contact)
-        if is_open:
-            add(_chip(
-                f"close-{eid}",
-                _t(lang, "close", name=name),
-                _t(lang, "close_prompt", name=name),
-                "action",
-            ))
-        else:
-            add(_chip(
-                f"open-{eid}",
-                _t(lang, "open", name=name),
-                _t(lang, "open_prompt", name=name),
-                "action",
-            ))
+    for chip in heuristic_empty_actions(
+        habits, states, lang=lang, period=period, limit=5
+    ):
+        add(chip)
 
-    # 2) Preferred light groups (bulbs already rolled up / filtered)
-    light_actions = 0
-    for row in hw.top_lights_for_period(habits, period=period, limit=5):
-        if light_actions >= 2:
-            break
-        eid = str(row.get("entity_id") or "")
-        name = _short_name(row.get("name") or eid)
-        if not hw.is_actionable_entity(eid):
-            continue
-        if hw.looks_like_bulb_name(name, eid) or hw.is_gateish(name, eid):
-            continue
-        st = states.get(eid) or {}
-        state = str(st.get("state") or "").lower()
-        # Prefer evening scene over raw light when available
-        scene = _scene_for_area(
-            habits,
-            row.get("area_id"),
-            str(row.get("area_name") or ""),
-            period,
+    llm_items: list[dict] = []
+    if mode in {"medium", "high"}:
+        # Never replace live actions with a cached LLM pool.
+        llm_items = await rl.ensure_empty_pool(
+            lang=lang,
+            atmosphere=atmosphere,
+            habits=habits,
+            states=states,
+            wait=False,
         )
-        if scene and state != "on" and period in {"evening", "night"}:
-            sname = _short_name(scene.get("name") or scene.get("entity_id"))
-            add(_chip(
-                f"scene-{scene.get('entity_id')}",
-                _t(lang, "activate_scene", name=sname),
-                _t(lang, "activate_scene_prompt", name=sname),
-                "action",
-            ))
-            light_actions += 1
-            continue
-        if state == "on":
-            continue
-        add(_chip(
-            f"on-{eid}",
-            _t(lang, "turn_on", name=name),
-            _t(lang, "turn_on_prompt", name=name),
-            "action",
-        ))
-        light_actions += 1
+        for chip in llm_items:
+            if chip.get("kind") == "action":
+                continue
+            add(chip)
 
-    # 3) Contextual asks
-    if weather in {"rainy", "stormy", "snowy", "windy"} or weather:
+    notable = weather in {"rainy", "stormy", "snowy", "windy", "pouring"}
+    if notable:
         add(_chip("weather", _t(lang, "weather"), _t(lang, "weather_prompt"), "ask"))
 
     if await _has_energy_stats():
         add(_chip("energy-today", _t(lang, "energy_today"), _t(lang, "energy_prompt"), "ask"))
 
-    add(_chip("house-status", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
+    actions = [c for c in out if c["kind"] == "action"]
+    if len(actions) < 3:
+        add(_chip("house-status", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
 
     fr = cfg.get("frigate") if isinstance(cfg.get("frigate"), dict) else {}
-    if fr.get("enabled") is not False:
+    if fr.get("enabled") is not False and len(actions) < 4:
         add(_chip("cameras", _t(lang, "cameras"), _t(lang, "cameras_prompt"), "ask"))
 
-    if light_actions == 0:
+    if not actions:
         add(_chip("list-lights", _t(lang, "list_lights"), _t(lang, "list_lights_prompt"), "ask"))
 
     nonce = _day_nonce(period + weather)
-    actions = [c for c in out if c["kind"] == "action"]
     asks = [c for c in out if c["kind"] != "action"]
     asks.sort(key=lambda c: hashlib.md5(f"{nonce}:{c['id']}".encode()).hexdigest())
-    return (actions[:2] + asks)[:limit]
+    return (actions + asks)[:limit]
 
 
 def _looks_yes_no_question(text: str) -> bool:

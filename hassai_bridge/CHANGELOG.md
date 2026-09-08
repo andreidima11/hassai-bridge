@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.4
+
+### Fix
+- **Empty-chat chips are live actions** — new chat always builds Deschide/Închide and Aprinde from current state + habits. The LLM pool no longer replaces that list with the same two cached chips
+- **Gates** — auto gate uses contact when present; pedestrian gate (switch on/off, no sensor) maps on → Închide, off → Deschide. Never “Starea porții”
+- **Daily lights** — named favorites (ambient groups, seara living, lampa, LED pat) keep their own history instead of being rolled into a parent group or hidden behind a generic status ask
+
 ## 1.5.3
 
 ### Features

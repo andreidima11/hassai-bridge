@@ -186,6 +186,29 @@ def pool_stale(cfg: dict | None, *, period: str, weather: str, lang: str) -> boo
     return age >= 4 * 3600
 
 
+_DEVICE_STATUS_RE = re.compile(
+    r"(starea|stare(?:a)?|status|e\s+deschis|e\s+închis|e\s+inchis|"
+    r"is\s+(?:the\s+)?(?:gate|door)|open\s+or\s+closed)"
+    r".{0,40}(poar[tțţ]|por[tțţ]|gate|usa|uș[aă]|cover|garaj|garage)|"
+    r"(poar[tțţ]|por[tțţ]|gate|usa|uș[aă]|garaj|garage).{0,40}"
+    r"(stare|status|deschis|închis|inchis|open\?|closed\?)",
+    re.I,
+)
+
+
+def is_device_status_chip(chip: dict | None) -> bool:
+    """True for 'what's the gate state' chips — never useful as a suggestion."""
+    if not isinstance(chip, dict):
+        return False
+    blob = f"{chip.get('label') or ''} {chip.get('prompt') or ''}"
+    if _DEVICE_STATUS_RE.search(blob):
+        return True
+    low = blob.lower()
+    if "input_boolean" in low:
+        return True
+    return False
+
+
 def catalog_lines(
     habits: dict,
     states: dict[str, dict],
@@ -206,14 +229,21 @@ def catalog_lines(
         rows.append((score, f"{eid} | {label} | {kind} | {state}{extra}"))
 
     for row in hw.top_covers_for_period(habits, limit=4):
-        contact = row.get("contact_entity_id") or ""
+        eid = str(row.get("entity_id") or "")
+        contact = str(row.get("contact_entity_id") or "")
         extra = f" | contact={contact}" if contact else ""
-        add(row.get("entity_id"), row.get("name"), "gate/cover", extra, 50)
+        need = "close" if hw.is_open_like(states, eid, contact or None) else "open"
+        extra = f"{extra} | need={need}"
+        add(eid, row.get("name"), "gate/cover", extra, 50)
     for row in hw.top_lights_for_period(habits, limit=10):
-        add(row.get("entity_id"), row.get("name"), row.get("kind") or "light", "", 40)
+        eid = str(row.get("entity_id") or "")
+        st = states.get(eid) or {}
+        on = str(st.get("state") or "").lower() == "on"
+        extra = " | need=skip" if on else " | need=turn_on"
+        add(eid, row.get("name"), row.get("kind") or "light", extra, 40)
     for scene in (habits.get("scenes") or [])[:8]:
         if isinstance(scene, dict):
-            add(scene.get("entity_id"), scene.get("name"), "scene", "", 20)
+            add(scene.get("entity_id"), scene.get("name"), "scene", " | need=activate", 20)
     rows.sort(key=lambda x: x[0], reverse=True)
     return [line for _, line in rows[:limit]]
 
@@ -263,19 +293,18 @@ async def generate_empty_pool(
         return []
     lang_name = "Romanian" if lang == "ro" else "English"
     prompt = (
-        f"You pick suggestion chips for an empty Home Assistant chat (HASSAI).\n"
+        f"You pick extra ASK chips for an empty Home Assistant chat (HASSAI).\n"
         f"Language for labels AND prompts: {lang_name}.\n"
         f"Time of day: {period}. Weather: {weather or 'unknown'}.\n\n"
-        f"ONLY use entities from this catalog (entity_id | name | kind | state):\n"
+        f"Catalog (entity_id | name | kind | state | need=...):\n"
         + "\n".join(catalog)
-        + "\n\nReturn ONLY a JSON array of 4 or 5 objects: "
-        '{"id":"...","label":"...","prompt":"...","kind":"action"|"ask"}.\n'
+        + "\n\nReturn ONLY a JSON array of 2 or 3 objects: "
+        '{"id":"...","label":"...","prompt":"...","kind":"ask"}.\n'
         "Rules:\n"
-        "- Prefer light groups/scenes over individual bulbs.\n"
-        "- Gates/covers: Deschide/Închide (Open/Close) from state/contact — NEVER Aprinde/Turn on.\n"
-        "- Lights: Aprinde/Stinge (Turn on/off). Skip entities already on if suggesting turn-on.\n"
-        "- Never recommend input_boolean, binary_sensor, sensors, or entity_id as the label.\n"
-        "- Mix 1–2 actions + 2–3 short asks (status, weather, energy if relevant).\n"
+        "- ONLY kind=ask. Do not emit device actions (open/close/turn on) — those are built live.\n"
+        "- NEVER suggest checking a device's state (no 'Starea porții', no 'is the gate open').\n"
+        "- Asks: weather, energy, cameras, or a short house summary — not per-device status.\n"
+        "- Never recommend input_boolean, binary_sensor, or raw entity_id as the label.\n"
         "- Labels max ~6 words, human names only."
     )
     timeout = 12.0 if mode == "high" else 8.0
@@ -290,7 +319,8 @@ async def generate_empty_pool(
         )
         items = _parse_chip_array(raw)
         items = _filter_against_catalog(items, catalog)
-        if len(items) >= 2:
+        items = [c for c in items if not is_device_status_chip(c)]
+        if len(items) >= 1:
             save_pool(items, period=period, weather=weather, lang=lang)
             block = _block()
             block["last_generated_at"] = time.time()
@@ -308,16 +338,18 @@ async def generate_empty_pool(
 
 
 def _filter_against_catalog(items: list[dict], catalog: list[str]) -> list[dict]:
-    blob = "\n".join(catalog).lower()
     out = []
     for chip in items:
+        if is_device_status_chip(chip):
+            continue
         prompt = str(chip.get("prompt") or "").lower()
         label = str(chip.get("label") or "").lower()
+        if "input_boolean" in prompt or "input_boolean" in label:
+            continue
         kind = chip.get("kind")
         if kind != "action":
             out.append(chip)
             continue
-        # Action chips must mention a catalog name or entity_id.
         ok = False
         for line in catalog:
             parts = [p.strip().lower() for p in line.split("|")]
@@ -329,11 +361,7 @@ def _filter_against_catalog(items: list[dict], catalog: list[str]) -> list[dict]
             if name and len(name) > 3 and (name in label or name in prompt):
                 ok = True
                 break
-        if "input_boolean" in prompt or "input_boolean" in label:
-            continue
-        if ok or "status" in label or "vreme" in label or "weather" in label:
-            if "input_boolean" in blob and "input_boolean" in prompt:
-                continue
+        if ok:
             out.append(chip)
     return out[:5]
 
@@ -405,6 +433,7 @@ async def generate_followups(
         "Return ONLY a JSON array of {id,label,prompt,kind}.\n"
         "If the assistant asked a yes/no question, return Da/Nu or Yes/No chips.\n"
         "If this is NOT about the smart home, continue the TOPIC (never Status casă / home status).\n"
+        "Never suggest checking a gate/door/cover state — suggest Open/Close from catalog `need=` instead.\n"
         "If nothing useful, return [].\n"
         "Home actions: only catalog entities; gates Open/Close not Turn on; no input_boolean."
     )
@@ -421,7 +450,8 @@ async def generate_followups(
         items = _parse_chip_array(raw)[:limit]
         items = [
             c for c in items
-            if "input_boolean" not in str(c.get("prompt") or "").lower()
+            if not is_device_status_chip(c)
+            and "input_boolean" not in str(c.get("prompt") or "").lower()
             and "input_boolean" not in str(c.get("label") or "").lower()
         ]
         _followup_cache[key] = (time.time(), items)
