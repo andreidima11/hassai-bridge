@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.0
+
+### Features
+- **Recommendation chips** — styled suggestion bubbles on empty chat (habit-aware light actions + status/energy asks) and 2–3 follow-ups under assistant replies; click sends the prompt as a normal user turn
+- **Habit watcher** — aggregates manual `light.*` / `switch.*` toggles from the Home Assistant logbook into `habits.json` (paused when chips are disabled)
+- **Settings toggle** — General → Recommendation chips / Recomandări în chat (`recommendations.enabled`); off hides all chips, skips follow-ups, and pauses the watcher
+
 ## 1.4.1
 
 ### Fix

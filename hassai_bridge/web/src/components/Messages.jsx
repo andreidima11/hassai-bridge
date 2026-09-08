@@ -2,10 +2,19 @@ import { useEffect, useState } from "react";
 import { useScrollToBottom } from "../hooks/useScrollToBottom.js";
 import { MessageBubble } from "./MessageBubble.jsx";
 
-export function Messages({ messages, lang, greeting, onReuseMessage, userLabel = "", modelLabel = "" }) {
+export function Messages({
+  messages,
+  lang,
+  greeting,
+  onReuseMessage,
+  onPickFollowup,
+  userLabel = "",
+  modelLabel = "",
+}) {
   const { containerRef, endRef } = useScrollToBottom();
   const [selectedId, setSelectedId] = useState(null);
   const empty = messages.length === 0;
+  const lastId = messages.length ? messages[messages.length - 1]?.id : null;
 
   useEffect(() => {
     if (!selectedId) return undefined;
@@ -50,8 +59,10 @@ export function Messages({ messages, lang, greeting, onReuseMessage, userLabel =
               message={message}
               modelLabel={modelLabel}
               selected={selectedId === message.id}
+              showFollowups={message.id === lastId && message.role === "assistant" && !message.streaming}
               userLabel={userLabel}
               onReuse={onReuseMessage}
+              onPickFollowup={onPickFollowup}
               onSelect={setSelectedId}
             />
           ))}

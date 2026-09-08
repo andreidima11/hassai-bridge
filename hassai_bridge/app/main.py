@@ -103,6 +103,7 @@ async def lifespan(app: FastAPI):
     # Start auto-consolidation scheduler
     consolidation_task = asyncio.create_task(_auto_consolidation_loop())
     greetings_task = asyncio.create_task(_greeting_pool_loop())
+    habits_task = asyncio.create_task(_habit_watcher_loop())
 
     print("╔══════════════════════════════════════════════╗")
     print(f"║       HASSAI Bridge {VERSION} Started        ║")
@@ -114,6 +115,7 @@ async def lifespan(app: FastAPI):
     yield
     consolidation_task.cancel()
     greetings_task.cancel()
+    habits_task.cancel()
 
 
 async def _greeting_pool_loop():
@@ -131,6 +133,13 @@ async def _greeting_pool_loop():
         except Exception as e:
             log.error(f"Greeting pool loop error: {e}")
             await asyncio.sleep(600)
+
+
+async def _habit_watcher_loop():
+    """Refresh manual light/switch habits for recommendation chips."""
+    from services import habit_watcher as hw
+
+    await hw.habit_loop()
 
 
 async def _auto_consolidation_loop():
@@ -213,6 +222,7 @@ _PUBLIC_GET_PATHS = {
     "/api/settings/health",
     "/api/settings/stats",
     "/api/me",
+    "/api/recommendations",
     "/api/build",
 }
 

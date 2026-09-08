@@ -724,6 +724,9 @@ def get_session_messages(user_id, session_id, limit=100):
         sources = meta.get("sources")
         if isinstance(sources, list) and sources:
             item["sources"] = sources
+        followups = meta.get("followups")
+        if isinstance(followups, list) and followups:
+            item["followups"] = followups
         out.append(item)
     return out
 

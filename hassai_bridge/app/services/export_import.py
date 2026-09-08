@@ -36,6 +36,7 @@ CONFIG_SECTIONS = (
     "users",
     "language",
     "dynamic_greetings",
+    "recommendations",
     "greetings",
     "system_prompt",
     "ha_agent_prompt",

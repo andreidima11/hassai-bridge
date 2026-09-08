@@ -355,6 +355,13 @@
           </div>
           <label class="toggle"><input type="checkbox" id="settingsDynamicGreetings" checked onchange="onDynamicGreetingsToggle()"><span class="slider"></span></label>
         </div>
+        <div class="toggle-row" style="margin-top:14px">
+          <div>
+            <div data-i18n="settings.recommendationChips">Recommendation chips</div>
+            <p class="card-muted" style="margin:4px 0 0" data-i18n="settings.recommendationChipsDesc">Suggestion bubbles on new chats and under replies. Learns frequent manual light toggles from Home Assistant.</p>
+          </div>
+          <label class="toggle"><input type="checkbox" id="settingsRecommendationChips" checked><span class="slider"></span></label>
+        </div>
         <div id="greetingsPoolSettings" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
           <p class="card-muted" style="margin:0 0 12px" data-i18n="settings.greetingsPoolDesc">Builds a seasonal message pool with the selected provider (Christmas in December, Easter near spring, etc.). Curated built-in greetings remain as fallback.</p>
           <label data-i18n="settings.greetingsRefreshDays">Refresh every (days)</label>

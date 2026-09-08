@@ -851,6 +851,10 @@ async function loadSettings() {
     setVal('settingsLang', savedLang);
     setVal('langSelect', savedLang);
     setChecked('settingsDynamicGreetings', cfg.dynamic_greetings !== false);
+    setChecked(
+      'settingsRecommendationChips',
+      !(cfg.recommendations && cfg.recommendations.enabled === false),
+    );
     fillGreetingsProviderSelect(cfg.providers || [], (cfg.greetings || {}).provider_id || '');
     applyGreetingsSettings(cfg.greetings || {});
     if (!(cfg.greetings?.prompt_template || '').trim()) {
@@ -1459,6 +1463,9 @@ async function saveSettings() {
       knowledge_cutoff: document.getElementById('knowledgeCutoff').value,
       language: document.getElementById('settingsLang').value,
       dynamic_greetings: document.getElementById('settingsDynamicGreetings')?.checked !== false,
+      recommendations: {
+        enabled: document.getElementById('settingsRecommendationChips')?.checked !== false,
+      },
       greetings: collectGreetingsSettings(),
       ha_tools: collectHaTools(),
       bridge_tools: collectBridgeTools(),

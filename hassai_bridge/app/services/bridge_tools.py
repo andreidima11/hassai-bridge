@@ -43,6 +43,7 @@ _ALLOWED: dict[str, tuple] = {
     "language": ("enum", ("en", "ro")),
     "knowledge_cutoff": ("str", 20),
     "dynamic_greetings": ("bool",),
+    "recommendations.enabled": ("bool",),
     "memory.enabled": ("bool",),
     "memory.auto_extract": ("bool",),
     "memory.max_memories_per_user": ("int", 50, 5000),
@@ -352,6 +353,7 @@ def _get_settings(args: dict, cfg: dict) -> str:
             "language": cfg.get("language"),
             "knowledge_cutoff": cfg.get("knowledge_cutoff"),
             "dynamic_greetings": cfg.get("dynamic_greetings"),
+            "recommendations": cfg.get("recommendations"),
             "system_prompt": cfg.get("system_prompt"),
         }
     elif section in ("", "all"):

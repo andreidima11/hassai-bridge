@@ -806,6 +806,7 @@ def _activity_meta(
     route: dict | None = None,
     photo_context: str | None = None,
     sources: list | None = None,
+    followups: list | None = None,
 ) -> dict | None:
     merged = list(events or [])
     if trace_id and trace_id in _traces:
@@ -845,7 +846,46 @@ def _activity_meta(
     merged_sources = _merge_sources(sources, _sources_from_activity(compact))
     if merged_sources:
         meta["sources"] = merged_sources
+    if isinstance(followups, list) and followups:
+        clean = []
+        for row in followups[:3]:
+            if not isinstance(row, dict):
+                continue
+            label = str(row.get("label") or "").strip()
+            prompt = str(row.get("prompt") or "").strip()
+            if not label or not prompt:
+                continue
+            clean.append({
+                "id": str(row.get("id") or label)[:64],
+                "label": label[:80],
+                "prompt": prompt[:240],
+                "kind": str(row.get("kind") or "ask")[:16],
+            })
+        if clean:
+            meta["followups"] = clean
     return meta or None
+
+
+def _build_followups_for_turn(
+    *,
+    assistant_text: str,
+    tool_calls: list | None,
+    lang: str | None = None,
+) -> list[dict]:
+    try:
+        from services import recommendations as recs
+        from core.config import load_config
+
+        cfg = load_config()
+        if not recs.enabled(cfg):
+            return []
+        return recs.build_followups(
+            lang=lang or cfg.get("language") or "en",
+            assistant_text=assistant_text or "",
+            tools_used=recs.tools_from_trace(tool_calls),
+        )
+    except Exception:
+        return []
 
 
 def _reasoning_from_row_meta(meta: dict | None) -> str:
@@ -3523,6 +3563,17 @@ async def chat_completions(request: Request):
             model_label = reply_model or chat_provider.get("model", "")
             if model_label and upstream:
                 model_label = f"{model_label} · {upstream}"
+            followups = _build_followups_for_turn(
+                assistant_text=assistant_content,
+                tool_calls=turn_tools,
+            )
+            if followups and trace_id:
+                _trace_push(trace_id, {
+                    "id": "followups",
+                    "name": "followups",
+                    "status": "done",
+                    "followups": followups,
+                })
             add_conversation_message(
                 user_id, "assistant", assistant_content,
                 session_id=session_id,
@@ -3542,6 +3593,7 @@ async def chat_completions(request: Request):
                     route=route,
                     photo_context=photo_context or None,
                     sources=collected_sources,
+                    followups=followups,
                 ),
             )
             if assistant_content:
@@ -4087,6 +4139,17 @@ async def chat_completions(request: Request):
                 model_label = reply_model or chat_provider.get("model", "")
                 if model_label and stream_upstream:
                     model_label = f"{model_label} · {stream_upstream}"
+                followups = _build_followups_for_turn(
+                    assistant_text=clean_response,
+                    tool_calls=turn_tools,
+                )
+                if followups and trace_id:
+                    _trace_push(trace_id, {
+                        "id": "followups",
+                        "name": "followups",
+                        "status": "done",
+                        "followups": followups,
+                    })
                 add_conversation_message(
                     user_id, "assistant", clean_response,
                     session_id=session_id,
@@ -4100,6 +4163,7 @@ async def chat_completions(request: Request):
                         route=route,
                         photo_context=photo_context or None,
                         sources=collected_sources,
+                        followups=followups,
                     ),
                 )
                 if clean_response:

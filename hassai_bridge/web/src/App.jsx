@@ -74,6 +74,8 @@ export default function App() {
   const [lang, setLang] = useState(readStoredLang);
   const [atmosphere, setAtmosphere] = useState({});
   const [dynamicGreetings, setDynamicGreetings] = useState(true);
+  const [recommendationsEnabled, setRecommendationsEnabled] = useState(true);
+  const [emptyRecommendations, setEmptyRecommendations] = useState([]);
   const [greetingPool, setGreetingPool] = useState([]);
   const [greetingNonce, setGreetingNonce] = useState(() => Date.now() % 100000);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -175,6 +177,7 @@ export default function App() {
       setAttachments([]);
       clearDraftAttachments();
       setSidebarOpen(false);
+      setEmptyRecommendations([]);
       if (persist && dynamicGreetings) setGreetingNonce((n) => n + 1);
       // New session → show Settings defaults (no session override yet).
       apiJson("/api/me")
@@ -195,6 +198,31 @@ export default function App() {
     },
     [user.username, dynamicGreetings],
   );
+
+  useEffect(() => {
+    if (!recommendationsEnabled || messages.length > 0 || busy) {
+      if (messages.length > 0) setEmptyRecommendations([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiJson("/api/recommendations?context=empty");
+        if (cancelled) return;
+        if (data?.enabled === false) {
+          setRecommendationsEnabled(false);
+          setEmptyRecommendations([]);
+          return;
+        }
+        setEmptyRecommendations(Array.isArray(data?.items) ? data.items : []);
+      } catch {
+        if (!cancelled) setEmptyRecommendations([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [recommendationsEnabled, messages.length, busy, greetingNonce, lang]);
 
   const openSession = useCallback(
     async (id, usernameOverride) => {
@@ -221,6 +249,7 @@ export default function App() {
             .filter((ev) => ev?.name === "sources" && Array.isArray(ev.sources))
             .flatMap((ev) => ev.sources);
           const sources = mergeMessageSources(fromMeta, fromActivity);
+          const followups = Array.isArray(m.followups) ? m.followups : [];
           msgs.push({
             id: newId(),
             role: m.role,
@@ -232,6 +261,7 @@ export default function App() {
               ? { attachments: mapStoredAttachments(m.attachments) }
               : {}),
             ...(sources.length ? { sources } : {}),
+            ...(followups.length ? { followups } : {}),
           });
         } else {
           const content = m.content === "(image)" ? "" : m.content || "";
@@ -248,12 +278,16 @@ export default function App() {
           if (m.role === "assistant" && Array.isArray(m.sources) && m.sources.length) {
             row.sources = mergeMessageSources([], m.sources);
           }
+          if (m.role === "assistant" && Array.isArray(m.followups) && m.followups.length) {
+            row.followups = m.followups;
+          }
           msgs.push(row);
         }
       }
       setMessages(msgs);
       setAttachments([]);
       setSidebarOpen(false);
+      if (msgs.length) setEmptyRecommendations([]);
       try {
         const me = await apiJson(`/api/me?session_id=${encodeURIComponent(id)}`);
         const chat = me.chat || {};
@@ -367,6 +401,13 @@ export default function App() {
           }));
           return;
         }
+        if (ev?.name === "followups" && Array.isArray(ev.followups)) {
+          patchAssistant((m) => ({
+            ...m,
+            followups: ev.followups,
+          }));
+          return;
+        }
         patchAssistant((m) => ({
           ...m,
           thinking: applyActivity(m.thinking || emptyThinking(t("thinking")), ev, t("thinking")),
@@ -439,6 +480,7 @@ export default function App() {
         username = nextUser.username || "default";
         setUser(nextUser);
         setDynamicGreetings(data.dynamic_greetings !== false);
+        setRecommendationsEnabled(data.recommendations_enabled !== false);
         setGreetingPool(Array.isArray(data.greeting_pool) ? data.greeting_pool : []);
         setVoiceConfig(data.voice && typeof data.voice === "object" ? data.voice : { enabled: false });
         setAtmosphere(data.atmosphere && typeof data.atmosphere === "object" ? data.atmosphere : {});
@@ -716,6 +758,7 @@ export default function App() {
     const images = options.text ? [] : attachments;
     // Returns false when the turn did not start, so hands-free can recover.
     if (!canSendMessage(text, images) || busy) return false;
+    setEmptyRecommendations([]);
     // Only a spoken question gets a spoken answer.
     spokenTurnRef.current = Boolean(options.spoken);
     handsFreeRef.current = Boolean(options.handsFree);
@@ -820,6 +863,15 @@ export default function App() {
   useEffect(() => {
     sendRef.current = send;
   });
+
+  const pickRecommendation = useCallback(
+    (chip) => {
+      const prompt = String(chip?.prompt || chip?.label || "").trim();
+      if (!prompt || busy) return;
+      sendRef.current?.(null, { text: prompt });
+    },
+    [busy],
+  );
 
   const handsFreeUtterance = useCallback((text) => {
     setVoiceMode((v) => (v ? { ...v, phase: "thinking", audioUrl: "", error: "" } : v));
@@ -1008,12 +1060,20 @@ export default function App() {
 
         <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
           <Messages
-            greeting={<WelcomeHero hint={greeting.hint} title={greeting.title} />}
+            greeting={
+              <WelcomeHero
+                hint={greeting.hint}
+                title={greeting.title}
+                recommendations={recommendationsEnabled ? emptyRecommendations : []}
+                onPickRecommendation={pickRecommendation}
+              />
+            }
             lang={lang}
             messages={messages}
             modelLabel={providerInfo.auto ? "" : (providerInfo.model || "")}
             userLabel={user.display_name || user.username || ""}
             onReuseMessage={reuseMessage}
+            onPickFollowup={pickRecommendation}
           />
           <Composer
             attachDocLabel={t("attachDocument")}

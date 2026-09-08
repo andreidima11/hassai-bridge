@@ -4,6 +4,7 @@ import { MessageActions } from "./MessageActions.jsx";
 import { DocumentIcon, SparklesIcon, SpeakerIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
 import { SourceChips } from "./SourceChips.jsx";
+import { RecommendationChips } from "./RecommendationChips.jsx";
 import { Thinking } from "./Thinking.jsx";
 import { isDocumentAttachment, isVideoAttachment, isImageAttachment } from "../lib/images.js";
 import { tr } from "../lib/i18n.js";
@@ -154,6 +155,8 @@ export function MessageBubble({
   selected = false,
   onSelect,
   onReuse,
+  onPickFollowup,
+  showFollowups = false,
   userLabel = "",
   modelLabel = "",
 }) {
@@ -244,6 +247,13 @@ export function MessageBubble({
             </div>
           ) : null}
           {!streaming ? <SourceChips lang={lang} sources={message.sources} /> : null}
+          {!streaming && showFollowups ? (
+            <RecommendationChips
+              items={message.followups}
+              onSelect={onPickFollowup}
+              variant="followup"
+            />
+          ) : null}
           {message.audioUrl ? <ReplyAudio lang={lang} url={message.audioUrl} /> : null}
           {actions}
         </div>

@@ -63,6 +63,7 @@ class SettingsUpdate(BaseModel):
     knowledge_cutoff: str | None = None
     language: str | None = None
     dynamic_greetings: bool | None = None
+    recommendations: dict | None = None
     greetings: dict | None = None
     ha_tools: dict | None = None
     bridge_tools: dict | None = None
@@ -296,6 +297,13 @@ async def update_settings(data: SettingsUpdate):
         cfg["language"] = data.language
     if data.dynamic_greetings is not None:
         cfg["dynamic_greetings"] = bool(data.dynamic_greetings)
+    if data.recommendations is not None:
+        incoming = dict(data.recommendations)
+        prev = cfg.get("recommendations") if isinstance(cfg.get("recommendations"), dict) else {}
+        merged = dict(prev)
+        if "enabled" in incoming:
+            merged["enabled"] = bool(incoming.get("enabled"))
+        cfg["recommendations"] = merged
     if data.greetings is not None:
         from services.greeting_pool import normalize_greetings_cfg
         prev = cfg.get("greetings") if isinstance(cfg.get("greetings"), dict) else {}

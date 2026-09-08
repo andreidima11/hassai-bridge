@@ -52,7 +52,8 @@ export function toolSteps(steps) {
       step.name !== "think" &&
       step.name !== "say" &&
       step.name !== "route" &&
-      step.name !== "sources",
+      step.name !== "sources" &&
+      step.name !== "followups",
   );
 }
 

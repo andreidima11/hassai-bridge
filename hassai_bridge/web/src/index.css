@@ -210,6 +210,85 @@ input:focus-visible,
   animation: welcome-hint-in 1.6s ease-out 0.2s both;
 }
 
+.rec-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.rec-chips--followup {
+  justify-content: flex-start;
+  padding-top: 0.15rem;
+}
+
+.rec-chip {
+  appearance: none;
+  border: 1px solid color-mix(in oklab, var(--foreground) 14%, transparent);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--foreground) 8%, transparent),
+      color-mix(in oklab, var(--foreground) 2%, transparent)
+    );
+  color: color-mix(in oklab, var(--foreground) 88%, transparent);
+  border-radius: 999px;
+  padding: 0.45rem 0.9rem;
+  font-size: 13.5px;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease, color 160ms ease;
+  max-width: 100%;
+  text-align: left;
+  cursor: pointer;
+  animation: rec-chip-in 0.55s ease-out both;
+}
+
+.rec-chip:nth-child(2) { animation-delay: 0.06s; }
+.rec-chip:nth-child(3) { animation-delay: 0.12s; }
+.rec-chip:nth-child(4) { animation-delay: 0.18s; }
+.rec-chip:nth-child(5) { animation-delay: 0.24s; }
+
+.rec-chip:hover {
+  border-color: color-mix(in oklab, var(--foreground) 28%, transparent);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--foreground) 14%, transparent),
+      color-mix(in oklab, var(--foreground) 4%, transparent)
+    );
+  color: var(--foreground);
+  transform: translateY(-1px);
+}
+
+.rec-chip:active {
+  transform: translateY(0);
+}
+
+.rec-chip--action {
+  border-color: color-mix(in oklab, #7cb8ff 34%, transparent);
+}
+
+.rec-chip-label {
+  display: inline-block;
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+@keyframes rec-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes welcome-fade-in {
   from {
     opacity: 0;

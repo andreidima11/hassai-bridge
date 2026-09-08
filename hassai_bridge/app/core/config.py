@@ -137,6 +137,9 @@ DEFAULT_CONFIG = {
     "knowledge_cutoff": "2024-01",
     "language": "en",
     "dynamic_greetings": True,
+    "recommendations": {
+        "enabled": True,
+    },
     "greetings": {
         "refresh_days": 7,
         "pool_size": 40,

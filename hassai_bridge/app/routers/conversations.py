@@ -71,6 +71,8 @@ async def me(request: Request):
     from services import voice as vc
 
     dynamic = cfg.get("dynamic_greetings") is not False
+    rec_cfg = cfg.get("recommendations") if isinstance(cfg.get("recommendations"), dict) else {}
+    recommendations_enabled = rec_cfg.get("enabled") is not False
     greeting_pool = []
     if dynamic:
         try:
@@ -86,12 +88,36 @@ async def me(request: Request):
         "user": _public_profile(match),
         "language": cfg.get("language") or "en",
         "dynamic_greetings": dynamic,
+        "recommendations_enabled": recommendations_enabled,
         "greeting_pool": greeting_pool,
         "build": BUILD_ID,
         "voice": vc.public_status(cfg),
         "atmosphere": await atm.snapshot() if dynamic else {},
         "chat": chat,
     }
+
+
+@router.get("/api/recommendations")
+async def recommendations(request: Request, context: str = "empty"):
+    """Empty-chat recommendation chips (habits + atmosphere templates)."""
+    from core.config import load_config
+    from services import recommendations as recs
+
+    cfg = load_config()
+    if not recs.enabled(cfg):
+        return {"enabled": False, "items": []}
+    lang = cfg.get("language") or "en"
+    ctx = str(context or "empty").strip().lower()
+    if ctx != "empty":
+        return {"enabled": True, "items": []}
+    atmosphere = {}
+    try:
+        from services import atmosphere as atm
+        atmosphere = await atm.snapshot()
+    except Exception:
+        atmosphere = {}
+    items = await recs.build_empty_recs(lang=lang, atmosphere=atmosphere)
+    return {"enabled": True, "items": items}
 
 
 @router.get("/api/conversations")
