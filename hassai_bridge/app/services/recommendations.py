@@ -30,7 +30,7 @@ _I18N = {
         "energy_today": "How much energy did I produce today?",
         "energy_prompt": "How much solar/energy did I produce today? Summarize from Home Assistant statistics if available.",
         "house_status": "Home status",
-        "house_prompt": "Give me a short home status — lights on, doors/gates, climate.",
+        "house_prompt": "Give me a short home status — lights on, doors/gates, climate, and solar if available.",
         "cameras": "What's on the cameras?",
         "cameras_prompt": "Check recent Frigate detections and tell me briefly what's going on.",
         "detail": "Tell me more",
@@ -47,6 +47,14 @@ _I18N = {
         "yes_prompt": "Yes",
         "no": "No",
         "no_prompt": "No",
+        "ac_on": "Turn on {name}",
+        "ac_on_prompt": "It's warm ({temp}°C). Turn on {name} to cool.",
+        "heat_on": "Turn on {name}",
+        "heat_on_prompt": "It's cool ({temp}°C). Turn on {name}.",
+        "heat_raise": "Raise {name} to {target}°C",
+        "heat_raise_prompt": "It's cool ({temp}°C). Set {name} to {target}°C.",
+        "cool_lower": "Lower {name} to {target}°C",
+        "cool_lower_prompt": "It's warm ({temp}°C). Set {name} to {target}°C.",
     },
     "ro": {
         "turn_on": "Aprinde {name}",
@@ -62,7 +70,7 @@ _I18N = {
         "energy_today": "Cât curent am produs azi?",
         "energy_prompt": "Cât curent / energie solară am produs azi? Rezumat din statisticile Home Assistant dacă există.",
         "house_status": "Status casă",
-        "house_prompt": "Dă-mi pe scurt statusul casei — lumini aprinse, uși/porți, climă.",
+        "house_prompt": "Dă-mi pe scurt statusul casei — lumini aprinse, uși/porți, climă și producție solară dacă există.",
         "cameras": "Ce e pe camere?",
         "cameras_prompt": "Verifică detecțiile recente Frigate și spune pe scurt ce se întâmplă.",
         "detail": "Mai multe detalii",
@@ -79,6 +87,14 @@ _I18N = {
         "yes_prompt": "Da",
         "no": "Nu",
         "no_prompt": "Nu",
+        "ac_on": "Pornește {name}",
+        "ac_on_prompt": "E cald ({temp}°C). Pornește {name} pe răcire.",
+        "heat_on": "Pornește {name}",
+        "heat_on_prompt": "E răcoare ({temp}°C). Pornește {name}.",
+        "heat_raise": "Crește {name} la {target}°C",
+        "heat_raise_prompt": "E răcoare ({temp}°C). Setează {name} la {target}°C.",
+        "cool_lower": "Scade {name} la {target}°C",
+        "cool_lower_prompt": "E cald ({temp}°C). Setează {name} la {target}°C.",
     },
 }
 
@@ -182,28 +198,269 @@ def _short_name(name: str) -> str:
     return text[:42]
 
 
-def heuristic_empty_actions(
+_OUTDOOR_TEMP_RE = re.compile(
+    r"(outdoor|exterior|afara|afar[aă]|weather|meteo|outside)",
+    re.I,
+)
+_INDOOR_HINT_RE = re.compile(
+    r"(indoor|interior|room|camera|camer[aă]|living|dormitor|bedroom|bucatar|"
+    r"kitchen|baie|bath|hol|hall|casa|home|thermostat|termostat)",
+    re.I,
+)
+_AC_NAME_RE = re.compile(
+    r"(ac\b|air.?cond|aer.?cond|climatiz|cool|r[aă]cir|split)",
+    re.I,
+)
+_HEAT_NAME_RE = re.compile(
+    r"(heat|caldura|c[aă]ldur[aă]|thermostat|termostat|radiator|boiler|central)",
+    re.I,
+)
+_MANY_LIGHTS_ON = 3
+_HOT_C = 25.0
+_COOL_C = 22.0
+_HEAT_TARGET = 22.0
+_COOL_TARGET = 24.0
+_EMPTY_LIMIT = 3
+
+
+def _parse_temp(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _indoor_temperatures(states: dict[str, dict]) -> list[tuple[float, str, str]]:
+    """Return [(temp_c, entity_id, name), ...] for indoor-ish temperature sensors."""
+    found: list[tuple[float, str, str, int]] = []
+    for eid, st in states.items():
+        if not eid.startswith(("sensor.", "climate.")):
+            continue
+        attrs = st.get("attributes") if isinstance(st.get("attributes"), dict) else {}
+        name = str(attrs.get("friendly_name") or eid)
+        blob = f"{name} {eid}"
+        if _OUTDOOR_TEMP_RE.search(blob):
+            continue
+        temp = None
+        if eid.startswith("climate."):
+            temp = _parse_temp(attrs.get("current_temperature"))
+        else:
+            dc = str(attrs.get("device_class") or "").lower()
+            unit = str(attrs.get("unit_of_measurement") or "").lower()
+            if dc not in {"temperature", ""} and "°" not in unit and "c" not in unit:
+                if "temp" not in eid.lower() and "temp" not in name.lower():
+                    continue
+            if dc == "temperature" or "temp" in eid.lower() or "temp" in name.lower() or "°" in unit:
+                temp = _parse_temp(st.get("state"))
+        if temp is None or temp < -20 or temp > 60:
+            continue
+        rank = 2 if _INDOOR_HINT_RE.search(blob) else 1
+        if eid.startswith("climate."):
+            rank += 1
+        found.append((temp, eid, name, rank))
+    found.sort(key=lambda x: (-x[3], x[0]))
+    return [(t, eid, name) for t, eid, name, _ in found]
+
+
+def _climate_entities(states: dict[str, dict]) -> list[dict]:
+    rows = []
+    for eid, st in states.items():
+        if not eid.startswith("climate."):
+            continue
+        state = str(st.get("state") or "").lower()
+        if state in {"unavailable", "unknown", ""}:
+            continue
+        attrs = st.get("attributes") if isinstance(st.get("attributes"), dict) else {}
+        name = str(attrs.get("friendly_name") or eid)
+        rows.append({
+            "entity_id": eid,
+            "name": name,
+            "state": state,
+            "current": _parse_temp(attrs.get("current_temperature")),
+            "target": _parse_temp(attrs.get("temperature")),
+            "hvac_modes": attrs.get("hvac_modes") or [],
+        })
+    return rows
+
+
+def _pick_climate(rows: list[dict], *, want: str) -> dict | None:
+    """want: cool|heat"""
+    if not rows:
+        return None
+    ranked = []
+    for row in rows:
+        name = f"{row.get('name')} {row.get('entity_id')}"
+        score = 1
+        modes = [str(m).lower() for m in (row.get("hvac_modes") or [])]
+        if want == "cool":
+            if _AC_NAME_RE.search(name):
+                score += 8
+            if any(m in {"cool", "heat_cool"} for m in modes):
+                score += 3
+            if _HEAT_NAME_RE.search(name) and not _AC_NAME_RE.search(name):
+                score -= 4
+        else:
+            if _HEAT_NAME_RE.search(name):
+                score += 8
+            if any(m in {"heat", "heat_cool"} for m in modes):
+                score += 3
+            if _AC_NAME_RE.search(name) and not _HEAT_NAME_RE.search(name):
+                score -= 2
+        ranked.append((score, row))
+    ranked.sort(key=lambda x: x[0], reverse=True)
+    return ranked[0][1] if ranked and ranked[0][0] > 0 else rows[0]
+
+
+def _lights_currently_on(states: dict[str, dict], habits: dict) -> list[dict]:
+    """Actionable lights that are on; prefer habit-named entities over anonymous bulbs."""
+    habit_ids = {
+        str(r.get("entity_id"))
+        for r in (habits.get("lights") or [])
+        if isinstance(r, dict) and r.get("entity_id")
+    }
+    on_rows: list[tuple[int, dict]] = []
+    for eid, st in states.items():
+        if not eid.startswith("light."):
+            continue
+        if not hw.is_actionable_entity(eid):
+            continue
+        if str(st.get("state") or "").lower() != "on":
+            continue
+        attrs = st.get("attributes") if isinstance(st.get("attributes"), dict) else {}
+        name = str(attrs.get("friendly_name") or eid)
+        if hw.looks_like_bulb_name(name, eid):
+            continue
+        if hw.is_gateish(name, eid):
+            continue
+        score = 10 if eid in habit_ids else 1
+        # Prefer groups / ambient names.
+        if attrs.get("entity_id") and isinstance(attrs.get("entity_id"), (list, tuple)):
+            score += 5
+        on_rows.append((score, {"entity_id": eid, "name": name}))
+    on_rows.sort(key=lambda x: x[0], reverse=True)
+    return [r for _, r in on_rows]
+
+
+def climate_candidates(
+    states: dict[str, dict],
+    *,
+    lang: str,
+) -> list[tuple[int, dict]]:
+    """Scored climate action chips from indoor temp + climate entities."""
+    temps = _indoor_temperatures(states)
+    if not temps:
+        return []
+    temp, _src, _ = temps[0]
+    climates = _climate_entities(states)
+    if not climates:
+        return []
+    out: list[tuple[int, dict]] = []
+    temp_s = f"{temp:.0f}" if abs(temp - round(temp)) < 0.05 else f"{temp:.1f}"
+
+    if temp >= _HOT_C:
+        row = _pick_climate(climates, want="cool")
+        if not row:
+            return []
+        name = _short_name(row["name"])
+        eid = row["entity_id"]
+        state = row["state"]
+        target = row.get("target")
+        if state in {"off", "idle"} or state not in {"cool", "heat_cool", "auto", "fan_only"}:
+            out.append((95, _chip(
+                f"ac-on-{eid}",
+                _t(lang, "ac_on", name=name),
+                _t(lang, "ac_on_prompt", name=name, temp=temp_s),
+                "action",
+            )))
+        elif target is not None and target > _COOL_TARGET:
+            out.append((90, _chip(
+                f"cool-set-{eid}",
+                _t(lang, "cool_lower", name=name, target=int(_COOL_TARGET)),
+                _t(lang, "cool_lower_prompt", name=name, temp=temp_s, target=int(_COOL_TARGET)),
+                "action",
+            )))
+    elif temp <= _COOL_C:
+        row = _pick_climate(climates, want="heat")
+        if not row:
+            return []
+        name = _short_name(row["name"])
+        eid = row["entity_id"]
+        state = row["state"]
+        target = row.get("target")
+        if state in {"off", "idle"}:
+            out.append((95, _chip(
+                f"heat-on-{eid}",
+                _t(lang, "heat_on", name=name),
+                _t(lang, "heat_on_prompt", name=name, temp=temp_s),
+                "action",
+            )))
+        elif target is not None and target < _HEAT_TARGET:
+            out.append((90, _chip(
+                f"heat-set-{eid}",
+                _t(lang, "heat_raise", name=name, target=int(_HEAT_TARGET)),
+                _t(lang, "heat_raise_prompt", name=name, temp=temp_s, target=int(_HEAT_TARGET)),
+                "action",
+            )))
+    return out
+
+
+def scored_empty_candidates(
     habits: dict,
     states: dict[str, dict],
     *,
     lang: str,
     period: str,
-    limit: int = 4,
-) -> list[dict]:
-    """Live open/close and turn-on chips from habits + current state."""
-    out: list[dict] = []
-    seen: set[str] = set()
+    hour: int,
+    has_energy: bool,
+    weather: str = "",
+) -> list[tuple[int, dict]]:
+    """Ranked (score, chip) for empty chat — higher score = more useful now."""
+    scored: list[tuple[int, dict]] = []
 
-    def add(chip: dict) -> None:
-        if len(out) >= limit:
-            return
-        key = chip["prompt"].strip().lower()
-        if key in seen:
-            return
-        seen.add(key)
-        out.append(chip)
+    # 1) Climate from live indoor temperature
+    scored.extend(climate_candidates(states, lang=lang))
 
-    for row in hw.top_covers_for_period(habits, period=period, limit=3):
+    # 2) Many lights on → suggest turning one off
+    on_lights = _lights_currently_on(states, habits)
+    if len(on_lights) >= _MANY_LIGHTS_ON:
+        row = on_lights[0]
+        name = _short_name(row["name"])
+        eid = row["entity_id"]
+        scored.append((88, _chip(
+            f"off-{eid}",
+            _t(lang, "turn_off", name=name),
+            _t(lang, "turn_off_prompt", name=name),
+            "action",
+        )))
+
+    # 3) Hour-learned lights that are currently off → turn on
+    for row in hw.top_lights_for_period(habits, period=period, hour=hour, limit=6):
+        eid = str(row.get("entity_id") or "")
+        name = _short_name(row.get("name") or eid)
+        if not hw.is_actionable_entity(eid):
+            continue
+        if hw.looks_like_bulb_name(name, eid) or hw.is_gateish(name, eid):
+            continue
+        st = states.get(eid) or {}
+        if str(st.get("state") or "").lower() == "on":
+            continue
+        affinity = hw.hour_affinity(row.get("hours"), hour)
+        # Need some hour signal, or a strong period count as soft fallback.
+        periods = row.get("periods") if isinstance(row.get("periods"), dict) else {}
+        period_n = int(periods.get(period) or 0)
+        if affinity < 3 and period_n < 2:
+            continue
+        score = 70 + min(20, affinity * 2) + min(8, period_n)
+        scored.append((score, _chip(
+            f"on-{eid}",
+            _t(lang, "turn_on", name=name),
+            _t(lang, "turn_on_prompt", name=name),
+            "action",
+        )))
+
+    # 4) Gates — prefer morning / afternoon windows; always state-aware
+    gate_window = 6 <= hour <= 10 or 15 <= hour <= 19
+    for row in hw.top_covers_for_period(habits, period=period, hour=hour, limit=3):
         eid = str(row.get("entity_id") or "")
         name = str(row.get("name") or eid)
         if not hw.is_actionable_entity(eid):
@@ -214,29 +471,73 @@ def heuristic_empty_actions(
         contact = row.get("contact_entity_id")
         is_open = hw.is_open_like(states, eid, contact)
         verb = "close" if is_open else "open"
-        add(_chip(
+        affinity = hw.hour_affinity(row.get("hours"), hour)
+        score = 55 + min(15, affinity * 2)
+        if gate_window:
+            score += 20
+        # Open gate that's been left open is more urgent than "open it".
+        if is_open:
+            score += 8
+        scored.append((score, _chip(
             f"{verb}-{eid}",
             _t(lang, verb, name=name),
             _t(lang, f"{verb}_prompt", name=name),
             "action",
-        ))
+        )))
 
-    for row in hw.top_lights_for_period(habits, period=period, limit=8):
-        eid = str(row.get("entity_id") or "")
-        name = _short_name(row.get("name") or eid)
-        if not hw.is_actionable_entity(eid):
+    # 5) Asks — house status + solar (daytime) + weather when notable
+    scored.append((40, _chip(
+        "house-status",
+        _t(lang, "house_status"),
+        _t(lang, "house_prompt"),
+        "ask",
+    )))
+    if has_energy and 8 <= hour <= 20:
+        scored.append((45, _chip(
+            "energy-today",
+            _t(lang, "energy_today"),
+            _t(lang, "energy_prompt"),
+            "ask",
+        )))
+    elif has_energy:
+        scored.append((25, _chip(
+            "energy-today",
+            _t(lang, "energy_today"),
+            _t(lang, "energy_prompt"),
+            "ask",
+        )))
+    if weather in {"rainy", "stormy", "snowy", "windy", "pouring"}:
+        scored.append((35, _chip(
+            "weather",
+            _t(lang, "weather"),
+            _t(lang, "weather_prompt"),
+            "ask",
+        )))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return scored
+
+
+def heuristic_empty_actions(
+    habits: dict,
+    states: dict[str, dict],
+    *,
+    lang: str,
+    period: str,
+    limit: int = 4,
+    hour: int | None = None,
+) -> list[dict]:
+    """Backward-compatible helper used by tests — actions only from scored engine."""
+    hour = hw.current_hour() if hour is None else hour
+    out = []
+    for score, chip in scored_empty_candidates(
+        habits, states, lang=lang, period=period, hour=hour, has_energy=False
+    ):
+        if chip.get("kind") != "action":
             continue
-        if hw.looks_like_bulb_name(name, eid) or hw.is_gateish(name, eid):
-            continue
-        st = states.get(eid) or {}
-        if str(st.get("state") or "").lower() == "on":
-            continue
-        add(_chip(
-            f"on-{eid}",
-            _t(lang, "turn_on", name=name),
-            _t(lang, "turn_on_prompt", name=name),
-            "action",
-        ))
+        out.append(chip)
+        if len(out) >= limit:
+            break
     return out
 
 
@@ -245,8 +546,9 @@ async def build_empty_recs(
     lang: str = "en",
     atmosphere: dict | None = None,
     habits: dict | None = None,
-    limit: int = 5,
+    limit: int = _EMPTY_LIMIT,
 ) -> list[dict]:
+    """Empty/new chat: max 3 useful chips from live state + hour-learned habits."""
     cfg = load_config()
     if not enabled(cfg):
         return []
@@ -259,32 +561,43 @@ async def build_empty_recs(
 
     states = await _states_map()
     period = hw.current_period()
+    hour = hw.current_hour()
     atmosphere = atmosphere if isinstance(atmosphere, dict) else {}
     weather = str(atmosphere.get("weather") or "").lower()
-    mode = rl.recs_mode(cfg)
+    has_energy = await _has_energy_stats()
+    limit = min(int(limit or _EMPTY_LIMIT), _EMPTY_LIMIT)
 
     out: list[dict] = []
     seen: set[str] = set()
 
-    def add(chip: dict) -> None:
+    def add(chip: dict) -> bool:
         if len(out) >= limit:
-            return
+            return False
         key = chip["prompt"].strip().lower()
         if key in seen:
-            return
+            return False
         if rl.is_device_status_chip(chip):
-            return
+            return False
         seen.add(key)
         out.append(chip)
+        return True
 
-    for chip in heuristic_empty_actions(
-        habits, states, lang=lang, period=period, limit=5
+    for _score, chip in scored_empty_candidates(
+        habits,
+        states,
+        lang=lang,
+        period=period,
+        hour=hour,
+        has_energy=has_energy,
+        weather=weather,
     ):
         add(chip)
+        if len(out) >= limit:
+            break
 
-    llm_items: list[dict] = []
-    if mode in {"medium", "high"}:
-        # Never replace live actions with a cached LLM pool.
+    # Soft fill from LLM asks only if we still have slots (never overrides actions).
+    mode = rl.recs_mode(cfg)
+    if len(out) < limit and mode in {"medium", "high"}:
         llm_items = await rl.ensure_empty_pool(
             lang=lang,
             atmosphere=atmosphere,
@@ -296,29 +609,13 @@ async def build_empty_recs(
             if chip.get("kind") == "action":
                 continue
             add(chip)
+            if len(out) >= limit:
+                break
 
-    notable = weather in {"rainy", "stormy", "snowy", "windy", "pouring"}
-    if notable:
-        add(_chip("weather", _t(lang, "weather"), _t(lang, "weather_prompt"), "ask"))
-
-    if await _has_energy_stats():
-        add(_chip("energy-today", _t(lang, "energy_today"), _t(lang, "energy_prompt"), "ask"))
-
-    actions = [c for c in out if c["kind"] == "action"]
-    if len(actions) < 3:
+    if not out:
         add(_chip("house-status", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
 
-    fr = cfg.get("frigate") if isinstance(cfg.get("frigate"), dict) else {}
-    if fr.get("enabled") is not False and len(actions) < 4:
-        add(_chip("cameras", _t(lang, "cameras"), _t(lang, "cameras_prompt"), "ask"))
-
-    if not actions:
-        add(_chip("list-lights", _t(lang, "list_lights"), _t(lang, "list_lights_prompt"), "ask"))
-
-    nonce = _day_nonce(period + weather)
-    asks = [c for c in out if c["kind"] != "action"]
-    asks.sort(key=lambda c: hashlib.md5(f"{nonce}:{c['id']}".encode()).hexdigest())
-    return (actions + asks)[:limit]
+    return out[:limit]
 
 
 def _looks_yes_no_question(text: str) -> bool:

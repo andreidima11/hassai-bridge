@@ -213,16 +213,52 @@ def _period_buckets() -> dict[str, dict[str, int]]:
     }
 
 
-def _entry_period(entry: dict) -> str:
+def _entry_datetime(entry: dict) -> datetime | None:
     when = entry.get("when") or entry.get("last_changed") or ""
     try:
         if isinstance(when, (int, float)):
-            dt = datetime.fromtimestamp(float(when), tz=timezone.utc).astimezone()
-        else:
-            dt = datetime.fromisoformat(str(when).replace("Z", "+00:00")).astimezone()
-        return _period_for_hour(dt.hour)
+            return datetime.fromtimestamp(float(when), tz=timezone.utc).astimezone()
+        return datetime.fromisoformat(str(when).replace("Z", "+00:00")).astimezone()
     except Exception:
+        return None
+
+
+def _entry_period(entry: dict) -> str:
+    dt = _entry_datetime(entry)
+    if dt is None:
         return current_period()
+    return _period_for_hour(dt.hour)
+
+
+def _entry_hour(entry: dict) -> int:
+    dt = _entry_datetime(entry)
+    if dt is None:
+        return datetime.now().astimezone().hour
+    return int(dt.hour)
+
+
+def current_hour(now: datetime | None = None) -> int:
+    now = now or datetime.now().astimezone()
+    return int(now.hour)
+
+
+def _hour_buckets() -> dict[str, int]:
+    return {str(h): 0 for h in range(24)}
+
+
+def _bump_hour(hours: dict[str, int], hour: int, n: int = 1) -> None:
+    key = str(int(hour) % 24)
+    hours[key] = int(hours.get(key) or 0) + n
+
+
+def hour_affinity(hours: dict | None, hour: int | None = None) -> int:
+    """Score how often an entity is used around the given hour (±1)."""
+    hour = current_hour() if hour is None else int(hour) % 24
+    hours = hours if isinstance(hours, dict) else {}
+    center = int(hours.get(str(hour)) or 0)
+    left = int(hours.get(str((hour - 1) % 24)) or 0)
+    right = int(hours.get(str((hour + 1) % 24)) or 0)
+    return center * 5 + left * 3 + right * 3
 
 
 def build_group_index(states_by_id: dict[str, dict]) -> dict[str, str]:
@@ -373,9 +409,11 @@ def score_logbook(
 
     light_on: dict[str, int] = defaultdict(int)
     light_periods = _period_buckets()
+    light_hours: dict[str, dict[str, int]] = defaultdict(_hour_buckets)
     cover_open: dict[str, int] = defaultdict(int)
     cover_close: dict[str, int] = defaultdict(int)
     cover_periods = _period_buckets()
+    cover_hours: dict[str, dict[str, int]] = defaultdict(_hour_buckets)
     names: dict[str, str] = {}
 
     for entry in entries or []:
@@ -388,6 +426,7 @@ def score_logbook(
         if not kind:
             continue
         period = _entry_period(entry)
+        hour = _entry_hour(entry)
         if eid not in names:
             names[eid] = _friendly_name(states_by_id, eid, str(entry.get("name") or ""))
 
@@ -403,9 +442,11 @@ def score_logbook(
                 if kind in {"on", "open"}:
                     cover_open[eid] += 1
                     cover_periods[period][eid] += 1
+                    _bump_hour(cover_hours[eid], hour)
                 elif kind in {"off", "close"}:
                     cover_close[eid] += 1
                     cover_periods[period][eid] += 1
+                    _bump_hour(cover_hours[eid], hour)
                 continue
             if kind != "on":
                 continue
@@ -418,13 +459,16 @@ def score_logbook(
                     names[target] = _friendly_name(states_by_id, target)
             light_on[target] += 1
             light_periods[period][target] += 1
+            _bump_hour(light_hours[target], hour)
         elif eid.startswith("cover."):
             if kind in {"open", "on"}:
                 cover_open[eid] += 1
                 cover_periods[period][eid] += 1
+                _bump_hour(cover_hours[eid], hour)
             elif kind in {"close", "off"}:
                 cover_close[eid] += 1
                 cover_periods[period][eid] += 1
+                _bump_hour(cover_hours[eid], hour)
 
     lights = []
     for eid, count in sorted(light_on.items(), key=lambda kv: kv[1], reverse=True)[:20]:
@@ -439,7 +483,15 @@ def score_logbook(
                     int(cover_periods[p].get(eid) or 0),
                     int(light_periods[p].get(eid) or 0),
                 )
+            for h, n in (light_hours.get(eid) or {}).items():
+                if int(n or 0) > 0:
+                    _bump_hour(cover_hours[eid], int(h), int(n))
             continue
+        hours = {
+            str(h): int((light_hours.get(eid) or {}).get(str(h)) or 0)
+            for h in range(24)
+            if int((light_hours.get(eid) or {}).get(str(h)) or 0) > 0
+        }
         lights.append({
             "entity_id": eid,
             "name": name,
@@ -448,6 +500,7 @@ def score_logbook(
                 p: int(light_periods[p].get(eid) or 0)
                 for p in ("morning", "day", "evening", "night")
             },
+            "hours": hours,
             "kind": info.get("kind") or "light",
             "area_id": info.get("area_id"),
             "area_name": info.get("area_name") or "",
@@ -478,6 +531,11 @@ def score_logbook(
     )[:15]
     for eid in ranked:
         info = meta.get(eid) or {}
+        hours = {
+            str(h): int((cover_hours.get(eid) or {}).get(str(h)) or 0)
+            for h in range(24)
+            if int((cover_hours.get(eid) or {}).get(str(h)) or 0) > 0
+        }
         covers.append({
             "entity_id": eid,
             "name": names.get(eid) or info.get("name") or eid,
@@ -487,6 +545,7 @@ def score_logbook(
                 p: int(cover_periods[p].get(eid) or 0)
                 for p in ("morning", "day", "evening", "night")
             },
+            "hours": hours,
             "kind": info.get("kind") or "cover",
             "area_id": info.get("area_id"),
             "area_name": info.get("area_name") or "",
@@ -518,7 +577,7 @@ def score_logbook(
         "lights": lights,
         "covers": covers,
         "scenes": scenes,
-        "meta_version": 6,
+        "meta_version": 7,
     }
 
 
@@ -586,7 +645,7 @@ def needs_refresh(cfg: dict | None = None) -> bool:
     updated = float(data.get("updated_at") or 0)
     if not updated:
         return True
-    if int(data.get("meta_version") or 0) < 6:
+    if int(data.get("meta_version") or 0) < 7:
         return True
     return (time.time() - updated) >= _REFRESH_INTERVAL_S
 
@@ -611,12 +670,14 @@ def _normalize_cover_rows(habits: dict) -> list[dict]:
             continue
         seen.add(eid)
         periods = row.get("periods") if isinstance(row.get("periods"), dict) else {}
+        hours = row.get("hours") if isinstance(row.get("hours"), dict) else {}
         out.append({
             "entity_id": eid,
             "name": name or eid,
             "open_count": int(row.get("open_count") or row.get("count") or 0),
             "close_count": int(row.get("close_count") or 0),
             "periods": periods,
+            "hours": hours,
             "kind": row.get("kind") or "gate_switch",
             "area_id": row.get("area_id"),
             "area_name": row.get("area_name") or "",
@@ -629,10 +690,12 @@ def top_lights_for_period(
     habits: dict | None = None,
     *,
     period: str | None = None,
+    hour: int | None = None,
     limit: int = 5,
 ) -> list[dict]:
     habits = habits or load_habits()
     period = period or current_period()
+    hour = current_hour() if hour is None else int(hour) % 24
     lights = list(habits.get("lights") or [])
     scored = []
     for row in lights:
@@ -643,17 +706,18 @@ def top_lights_for_period(
         # Prefer groups over leaf bulbs.
         kind = str(row.get("kind") or "")
         if kind == "bulb" and looks_like_bulb_name(name, eid):
-            # Demote explicit bulbs hard unless no group alternative later.
             bulb_penalty = 8
         elif kind in {"group", "light"} and (row.get("member_ids") or kind == "group"):
             bulb_penalty = -6
         else:
             bulb_penalty = 0
         periods = row.get("periods") if isinstance(row.get("periods"), dict) else {}
-        score = int(periods.get(period) or 0) * 3 + int(row.get("count") or 0) - bulb_penalty
+        hours = row.get("hours") if isinstance(row.get("hours"), dict) else {}
+        affinity = hour_affinity(hours, hour)
+        # Hour affinity dominates; period + total count are soft fallbacks.
+        score = affinity * 4 + int(periods.get(period) or 0) * 2 + int(row.get("count") or 0) - bulb_penalty
         scored.append((score, row))
     scored.sort(key=lambda x: x[0], reverse=True)
-    # Drop "bec 1" leaves when a parent group is already in the ranking.
     out: list[dict] = []
     for score, row in scored:
         if score <= 0:
@@ -672,19 +736,26 @@ def top_covers_for_period(
     habits: dict | None = None,
     *,
     period: str | None = None,
+    hour: int | None = None,
     limit: int = 3,
 ) -> list[dict]:
     habits = habits or load_habits()
     period = period or current_period()
+    hour = current_hour() if hour is None else int(hour) % 24
     covers = _normalize_cover_rows(habits)
     scored = []
     for row in covers:
         periods = row.get("periods") if isinstance(row.get("periods"), dict) else {}
+        hours = row.get("hours") if isinstance(row.get("hours"), dict) else {}
         total = int(row.get("open_count") or 0) + int(row.get("close_count") or 0)
-        score = int(periods.get(period) or 0) * 3 + total
+        affinity = hour_affinity(hours, hour)
+        score = affinity * 4 + int(periods.get(period) or 0) * 2 + total
         # Name-matched gates still surface even with thin logbook counts.
         if score <= 0 and is_gateish(str(row.get("name") or ""), str(row.get("entity_id") or "")):
             score = 1
+        # Morning (6–10) / afternoon (15–19) boost for gates people actually use then.
+        if 6 <= hour <= 10 or 15 <= hour <= 19:
+            score += 4
         scored.append((score, row))
     scored.sort(key=lambda x: x[0], reverse=True)
     return [r for s, r in scored if s > 0][:limit]

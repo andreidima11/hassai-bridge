@@ -187,11 +187,11 @@ def pool_stale(cfg: dict | None, *, period: str, weather: str, lang: str) -> boo
 
 
 _DEVICE_STATUS_RE = re.compile(
-    r"(starea|stare(?:a)?|status|e\s+deschis|e\s+închis|e\s+inchis|"
-    r"is\s+(?:the\s+)?(?:gate|door)|open\s+or\s+closed)"
-    r".{0,40}(poar[tțţ]|por[tțţ]|gate|usa|uș[aă]|cover|garaj|garage)|"
-    r"(poar[tțţ]|por[tțţ]|gate|usa|uș[aă]|garaj|garage).{0,40}"
-    r"(stare|status|deschis|închis|inchis|open\?|closed\?)",
+    r"(starea|stare(?:a)?|status)\s+(por[tțţ]|poar[tțţ]|gate|usa|uș[aă]|cover|garaj|garage)|"
+    r"(starea|stare(?:a)?|status).{0,24}(por[tțţ]i[ei]?|poar[tțţ](?:ei|ii)?|gate|garaj|garage)|"
+    r"(por[tțţ]|poar[tțţ]|gate|garaj|garage).{0,24}(stare|status|deschis\?|închis\?|inchis\?|open\?|closed\?)|"
+    r"(e\s+deschis[aă]?|e\s+închis[aă]?|e\s+inchis[aă]?|is\s+(?:the\s+)?(?:gate|door)\s+open|"
+    r"open\s+or\s+closed).{0,24}(por[tțţ]|poar[tțţ]|gate|usa|uș[aă]|garaj|garage)",
     re.I,
 )
 
@@ -200,13 +200,17 @@ def is_device_status_chip(chip: dict | None) -> bool:
     """True for 'what's the gate state' chips — never useful as a suggestion."""
     if not isinstance(chip, dict):
         return False
+    cid = str(chip.get("id") or "").lower()
+    if cid in {"house-status", "energy-today", "weather", "cameras", "list-lights"}:
+        return False
     blob = f"{chip.get('label') or ''} {chip.get('prompt') or ''}"
-    if _DEVICE_STATUS_RE.search(blob):
-        return True
     low = blob.lower()
     if "input_boolean" in low:
         return True
-    return False
+    # Whole-home status is fine; per-device gate/door status is not.
+    if re.search(r"\b(status\s+cas|home\s+status|statusul\s+casei)\b", low):
+        return False
+    return bool(_DEVICE_STATUS_RE.search(blob))
 
 
 def catalog_lines(

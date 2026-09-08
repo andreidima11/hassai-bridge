@@ -1,5 +1,14 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.5
+
+### Fix
+- **Empty-chat recommendations redesigned** — max **3** chips, ranked by usefulness now (not a sticky LLM pair)
+- **Hour learning** — habits keep a 0–23 hour histogram; “Aprinde Lampa dormitor 1” shows around the hours you actually use it (±1h)
+- **Climate** — indoor temp ≥25°C → start AC / lower setpoint; ≤22°C → start thermostat or raise setpoint if it’s on but set too low
+- **Many lights on** → suggest **Stinge** a named light; gates stay Deschide/Închide from state (contact or switch), boosted morning + afternoon
+- **Asks** — Status casă + producție solară (daytime) fill remaining slots; per-device “starea porții” still blocked
+
 ## 1.5.4
 
 ### Fix

@@ -120,7 +120,7 @@ async def recommendations(request: Request, context: str = "empty"):
         atmosphere = await atm.snapshot()
     except Exception:
         atmosphere = {}
-    items = await recs.build_empty_recs(lang=lang, atmosphere=atmosphere)
+    items = await recs.build_empty_recs(lang=lang, atmosphere=atmosphere, limit=3)
     return {"enabled": True, "mode": mode, "items": items}
 
 
