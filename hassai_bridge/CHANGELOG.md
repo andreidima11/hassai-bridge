@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.1
+
+### Features
+- **Smarter recommendation chips** — prefer light groups/scenes over individual bulbs; roll bulb habits up to parent groups (e.g. ambient room lights)
+- **Gates / covers** — learn open/close from logbook; pair contact sensors; suggest **Deschide/Închide** (not Aprinde) from contact state
+- **Contextual follow-ups** — intent from user text + tool entities; smalltalk → weather/status; no hardcoded hallway chip; **Status casă** copy
+
 ## 1.5.0
 
 ### Features

@@ -866,11 +866,31 @@ def _activity_meta(
     return meta or None
 
 
+def _last_user_text(messages: list | None) -> str:
+    for msg in reversed(messages or []):
+        if not isinstance(msg, dict) or msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    parts.append(str(part.get("text") or ""))
+                elif isinstance(part, str):
+                    parts.append(part)
+            return " ".join(parts).strip()
+    return ""
+
+
 def _build_followups_for_turn(
     *,
     assistant_text: str,
     tool_calls: list | None,
     lang: str | None = None,
+    user_text: str | None = None,
+    messages: list | None = None,
 ) -> list[dict]:
     try:
         from services import recommendations as recs
@@ -882,6 +902,8 @@ def _build_followups_for_turn(
         return recs.build_followups(
             lang=lang or cfg.get("language") or "en",
             assistant_text=assistant_text or "",
+            user_text=user_text if user_text is not None else _last_user_text(messages),
+            tool_calls=tool_calls,
             tools_used=recs.tools_from_trace(tool_calls),
         )
     except Exception:
@@ -3566,6 +3588,7 @@ async def chat_completions(request: Request):
             followups = _build_followups_for_turn(
                 assistant_text=assistant_content,
                 tool_calls=turn_tools,
+                messages=messages,
             )
             if followups and trace_id:
                 _trace_push(trace_id, {
@@ -4142,6 +4165,7 @@ async def chat_completions(request: Request):
                 followups = _build_followups_for_turn(
                     assistant_text=clean_response,
                     tool_calls=turn_tools,
+                    messages=messages,
                 )
                 if followups and trace_id:
                     _trace_push(trace_id, {
