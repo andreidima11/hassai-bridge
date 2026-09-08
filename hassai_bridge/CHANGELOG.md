@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.6
+
+### Fix
+- **aarch64 image build** — frontend stage builds on the host platform so `lightningcss` native bindings resolve (1.5.5 GHCR aarch64 failed)
+
 ## 1.5.5
 
 ### Fix

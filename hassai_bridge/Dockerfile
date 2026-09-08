@@ -1,6 +1,8 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.20
 
-FROM node:22-alpine AS web
+# Frontend assets are arch-independent — build on the host platform so native
+# bindings (lightningcss) are not pulled for the wrong arch under QEMU.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci
@@ -11,7 +13,7 @@ FROM $BUILD_FROM
 
 # Bumped by scripts/sync_version.sh. Changing this ARG invalidates every
 # layer below so Supervisor cannot reuse a cached COPY of an old app/.
-ARG HASSAI_VERSION=1.5.5
+ARG HASSAI_VERSION=1.5.6
 
 ENV LANG=C.UTF-8
 
