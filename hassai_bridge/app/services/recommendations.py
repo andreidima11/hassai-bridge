@@ -122,6 +122,58 @@ _YESNO_RE = re.compile(
     r")",
     re.I | re.S,
 )
+# Offers to dig deeper → prefer topic chips, not bare Da/Nu.
+_OFFER_DETAIL_RE = re.compile(
+    r"\b(?:"
+    r"verific(?:a|ă)|detalia|mai\s+detaliat|în\s+detaliu|in\s+detaliu|"
+    r"check\s+(?:something|anything|further|more)|more\s+detail|dig\s+deeper|"
+    r"look\s+(?:into|at)\s+(?:something|anything|that)|anything\s+(?:else|specific)"
+    r")\b",
+    re.I,
+)
+# Topics mentioned in a status-style reply → contextual follow-up chips.
+_TOPIC_CHIPS = (
+    (re.compile(r"\binunda", re.I), {
+        "id": "fu-topic-flood",
+        "ro": ("Senzori inundație", "Verifică mai detaliat senzorii de inundație."),
+        "en": ("Flood sensors", "Check the flood sensors in more detail."),
+    }),
+    (re.compile(r"\bbateri", re.I), {
+        "id": "fu-topic-battery",
+        "ro": ("Baterii slabe", "Detaliază bateriile slabe și ce merită înlocuit."),
+        "en": ("Low batteries", "Detail the low batteries and what to replace."),
+    }),
+    (re.compile(r"\biriga", re.I), {
+        "id": "fu-topic-irrigation",
+        "ro": ("Irigații", "Detaliază irigațiile — ce zone au rulat și când."),
+        "en": ("Irrigation", "Detail the irrigation — which zones ran and when."),
+    }),
+    (re.compile(r"\b(?:solar|produc(?:ție|tie)|pv\b|kwh)", re.I), {
+        "id": "fu-topic-solar",
+        "ro": ("Producție solară", "Spune-mi mai multe despre producția solară de azi."),
+        "en": ("Solar production", "Tell me more about today's solar production."),
+    }),
+    (re.compile(r"\b(?:poart|garaj|gate)", re.I), {
+        "id": "fu-topic-gates",
+        "ro": ("Porți", "Verifică starea porților și dacă e ceva de făcut."),
+        "en": ("Gates", "Check the gates and whether anything needs doing."),
+    }),
+    (re.compile(r"\b(?:lumin|aprins)", re.I), {
+        "id": "fu-topic-lights",
+        "ro": ("Lumini aprinse", "Listează luminile aprinse acum."),
+        "en": ("Lights on", "List which lights are on right now."),
+    }),
+    (re.compile(r"\b(?:climat|termostat|temperatur|aer\s+cond)", re.I), {
+        "id": "fu-topic-climate",
+        "ro": ("Climă", "Detaliază clima / termostatele acum."),
+        "en": ("Climate", "Detail the climate / thermostats right now."),
+    }),
+    (re.compile(r"\b(?:frigate|camer[aă]|detec)", re.I), {
+        "id": "fu-topic-cameras",
+        "ro": ("Camere", "Verifică detecțiile recente de pe camere."),
+        "en": ("Cameras", "Check recent camera detections."),
+    }),
+)
 _ENTITY_ID_RE = re.compile(r"\b(?:light|switch|cover|scene|binary_sensor|climate|media_player)\.[a-z0-9_]+", re.I)
 
 
@@ -629,11 +681,119 @@ def _looks_yes_no_question(text: str) -> bool:
     return bool(_YESNO_RE.search(last))
 
 
-def _yes_no_chips(lang: str) -> list[dict]:
+def _last_question(text: str) -> str:
+    raw = (text or "").strip()
+    if not raw or "?" not in raw:
+        return ""
+    # Prefer the last question mark sentence.
+    parts = re.split(r"(?<=\?)\s*", raw)
+    for chunk in reversed(parts):
+        chunk = chunk.strip()
+        if "?" in chunk or chunk.endswith("?"):
+            # Take last sentence-ish ending with ?
+            m = re.search(r"([^.!?\n]{8,160}\?)\s*$", chunk)
+            if m:
+                return re.sub(r"\s+", " ", m.group(1)).strip()
+            if chunk.endswith("?"):
+                return re.sub(r"\s+", " ", chunk[-160:]).strip()
+    return ""
+
+
+def _affirmation_clause(lang: str, question: str) -> str:
+    """Turn 'Vrei să verific X?' into a concrete yes clause the model can act on."""
+    q = (question or "").strip()
+    if not q:
+        return "continuă" if lang == "ro" else "continue"
+    body = q.rstrip("?").strip()
+    # Strip leading offer verbs so the yes-prompt becomes an instruction.
+    body = re.sub(
+        r"^(?:"
+        r"vrei\s+s[aă]\s+|vreți\s+s[aă]\s+|vreti\s+sa\s+|"
+        r"poți\s+s[aă]\s+|poti\s+sa\s+|putem\s+s[aă]\s+|"
+        r"do\s+you\s+want\s+(?:me\s+)?to\s+|would\s+you\s+like\s+(?:me\s+)?to\s+|"
+        r"should\s+i\s+|shall\s+i\s+|can\s+i\s+|can\s+you\s+"
+        r")",
+        "",
+        body,
+        flags=re.I,
+    ).strip()
+    # "verific" (1st person) → "verifică" so the chip reads as a user request.
+    if lang == "ro":
+        body = re.sub(r"^verific\b", "verifică", body, flags=re.I)
+        body = re.sub(r"^uit\b", "uite-te", body, flags=re.I)
+        body = re.sub(r"^fac\b", "fă", body, flags=re.I)
+    else:
+        body = re.sub(r"^check\b", "check", body, flags=re.I)
+    body = body[:140].strip(" .,")
+    return body or ("continuă" if lang == "ro" else "continue")
+
+
+def topic_followups_from_reply(assistant_text: str, *, lang: str, limit: int = 3) -> list[dict]:
+    """Build topic chips from subjects mentioned in the assistant reply."""
+    text = assistant_text or ""
+    if len(text) < 40:
+        return []
+    # Don't scan only the closing question — topics are usually above it.
+    body = text
+    q = _last_question(text)
+    if q and q in body:
+        body = body[: body.rfind(q)]
+    out: list[dict] = []
+    seen: set[str] = set()
+    for pattern, meta in _TOPIC_CHIPS:
+        if not pattern.search(body):
+            continue
+        cid = meta["id"]
+        if cid in seen:
+            continue
+        label, prompt = meta.get(lang) or meta["en"]
+        seen.add(cid)
+        out.append(_chip(cid, label, prompt, "ask"))
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _yes_no_chips(lang: str, assistant_text: str = "") -> list[dict]:
+    """Da/Nu with prompts that keep the prior question — bare 'Da' loses context."""
+    question = _last_question(assistant_text)
+    clause = _affirmation_clause(lang, question)
+    if lang == "ro":
+        yes_prompt = f"Da — {clause}."
+        no_prompt = "Nu, mulțumesc. Nu e nevoie."
+    else:
+        yes_prompt = f"Yes — {clause}."
+        no_prompt = "No thanks, that's enough."
     return [
-        _chip("fu-yes", _t(lang, "yes"), _t(lang, "yes_prompt"), "ask"),
-        _chip("fu-no", _t(lang, "no"), _t(lang, "no_prompt"), "ask"),
+        _chip("fu-yes", _t(lang, "yes"), yes_prompt, "ask"),
+        _chip("fu-no", _t(lang, "no"), no_prompt, "ask"),
     ]
+
+
+def followups_for_yes_no_turn(
+    *,
+    lang: str,
+    assistant_text: str,
+    limit: int = 3,
+) -> list[dict]:
+    """Prefer concrete topic chips when the assistant offered more detail."""
+    question = _last_question(assistant_text)
+    offer = bool(question and _OFFER_DETAIL_RE.search(question))
+    topics = topic_followups_from_reply(assistant_text, lang=lang, limit=limit)
+    if offer and topics:
+        # Lead with a contextual Yes that actually continues the offer, then topics.
+        yes_chip = _yes_no_chips(lang, assistant_text)[0]
+        merged = [yes_chip]
+        for chip in topics:
+            if len(merged) >= limit:
+                break
+            if chip["prompt"].lower() == yes_chip["prompt"].lower():
+                continue
+            merged.append(chip)
+        return merged[:limit]
+    if topics and offer:
+        return topics[:limit]
+    return _yes_no_chips(lang, assistant_text)[:limit]
 
 
 def classify_turn_intent(
@@ -774,7 +934,9 @@ async def build_followups(
     )
     mode = rl.recs_mode(cfg)
     if _looks_yes_no_question(assistant_text):
-        return _yes_no_chips(lang)[:limit]
+        return followups_for_yes_no_turn(
+            lang=lang, assistant_text=assistant_text, limit=limit
+        )
 
     ha_intent = intent in {"lights", "cover", "energy", "cameras", "status", "weather"}
     use_llm = False
@@ -906,7 +1068,11 @@ def _heuristic_followups(
         return out[:limit]
 
     if intent in {"cameras", "status"}:
-        add(_chip("fu-house", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
+        topics = topic_followups_from_reply(assistant_text, lang=lang, limit=limit)
+        for chip in topics:
+            add(chip)
+        if not out:
+            add(_chip("fu-house", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
         return out[:limit]
     return []
 

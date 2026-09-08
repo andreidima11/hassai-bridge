@@ -259,6 +259,42 @@ def test_followups_yes_no_on_chat_question():
     )
     labels = [c["label"] for c in chips]
     assert labels == ["Da", "Nu"]
+    assert "pictura" in chips[0]["prompt"].lower() or "începem" in chips[0]["prompt"].lower()
+    assert chips[0]["prompt"].lower() != "da"
+
+
+def test_followups_status_offer_uses_topics_not_bare_da():
+    assistant = (
+        "Senzori inundație: camera tehnică #2 — fără scurgeri. "
+        "Baterii slabe: temperatura_afara la 59%. "
+        "Irigații: au rulat dimineața la 2:00–2:45.\n"
+        "Totul pare în regulă. Vrei să verific ceva anume mai detaliat?"
+    )
+    chips = _run_followups(
+        lang="ro",
+        user_text="Status casă",
+        assistant_text=assistant,
+        tool_calls=[{"name": "ha_get_state", "arguments": "{}"}],
+    )
+    labels = [c["label"] for c in chips]
+    prompts = " ".join(c["prompt"].lower() for c in chips)
+    assert "Nu" not in labels or labels[0] == "Da"
+    assert any(x in labels for x in ("Irigații", "Baterii slabe", "Senzori inundație"))
+    assert "da" != prompts.strip()
+    assert "iriga" in prompts or "bater" in prompts or "inunda" in prompts
+    # Contextual yes keeps the offer
+    yes = next(c for c in chips if c["label"] == "Da")
+    assert "verific" in yes["prompt"].lower()
+
+
+def test_yes_prompt_never_bare():
+    chips = recs._yes_no_chips(
+        "ro",
+        "Pot să verific senzorii de inundație acum?",
+    )
+    assert chips[0]["label"] == "Da"
+    assert chips[0]["prompt"] != "Da"
+    assert "inunda" in chips[0]["prompt"].lower() or "verific" in chips[0]["prompt"].lower()
 
 
 def test_build_followups_smalltalk_no_hallway():
