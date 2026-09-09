@@ -12,6 +12,7 @@ export function RecommendationChips({
 }) {
   const list = Array.isArray(items) ? items.filter((c) => c?.label && c?.prompt) : [];
   const pressRef = useRef(null);
+  const skipClickRef = useRef(false);
 
   if (!list.length) return null;
 
@@ -25,16 +26,17 @@ export function RecommendationChips({
     if (!onManage) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     clearPress();
+    skipClickRef.current = false;
     const x = event.clientX;
     const y = event.clientY;
     pressRef.current = {
       chip,
       x,
       y,
-      long: false,
       timer: setTimeout(() => {
         if (!pressRef.current || pressRef.current.chip !== chip) return;
-        pressRef.current.long = true;
+        skipClickRef.current = true;
+        clearPress();
         onManage(chip);
       }, LONG_MS),
     };
@@ -48,12 +50,15 @@ export function RecommendationChips({
     }
   };
 
-  const endPress = (chip, event) => {
-    const p = pressRef.current;
-    const wasLong = Boolean(p?.long);
+  const endPress = () => {
     clearPress();
-    if (wasLong) {
+  };
+
+  const onClick = (chip, event) => {
+    if (skipClickRef.current) {
+      skipClickRef.current = false;
       event.preventDefault();
+      event.stopPropagation();
       return;
     }
     onSelect?.(chip);
@@ -73,12 +78,13 @@ export function RecommendationChips({
           className={`rec-chip rec-chip--${chip.kind === "action" ? "action" : "ask"}`}
           onPointerDown={(e) => startPress(chip, e)}
           onPointerMove={movePress}
-          onPointerUp={(e) => endPress(chip, e)}
+          onPointerUp={endPress}
           onPointerCancel={clearPress}
-          onPointerLeave={clearPress}
+          onClick={(e) => onClick(chip, e)}
           onContextMenu={(e) => {
             if (!onManage) return;
             e.preventDefault();
+            skipClickRef.current = true;
             clearPress();
             onManage(chip);
           }}
