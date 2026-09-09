@@ -382,8 +382,21 @@
             </div>
             <label class="toggle"><input type="checkbox" id="settingsLearnFromChat" checked><span class="slider"></span></label>
           </div>
-          <div class="btn-row" style="margin-top:10px">
+          <div class="btn-row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="openChatPatterns()" data-i18n="settings.viewChatPatterns">View learned patterns</button>
             <button type="button" class="btn btn-secondary btn-sm" onclick="clearChatHabits()" data-i18n="settings.clearChatHabits">Clear learned chat patterns</button>
+          </div>
+          <div id="chatPatternsPanel" class="card" style="display:none;margin-top:12px;padding:12px">
+            <div class="btn-row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+              <strong data-i18n="settings.chatPatternsTitle">Learned patterns</strong>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="closeChatPatterns()" data-i18n="settings.chatPatternsClose">Close</button>
+            </div>
+            <p class="card-muted" style="margin:0 0 10px" data-i18n="settings.chatPatternsHint">Topics from chat plus chips you edited or hid.</p>
+            <div id="chatPatternsHabits"></div>
+            <div id="chatPatternsOverrides" style="margin-top:12px"></div>
+            <div class="btn-row" style="margin-top:10px">
+              <button type="button" class="btn btn-secondary btn-sm" onclick="clearChipOverrides()" data-i18n="settings.clearChipOverrides">Restore all hidden/edited chips</button>
+            </div>
           </div>
         </div>
         <div id="greetingsPoolSettings" style="display:none;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">

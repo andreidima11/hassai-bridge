@@ -214,6 +214,33 @@ def is_device_status_chip(chip: dict | None) -> bool:
     return bool(_DEVICE_STATUS_RE.search(blob))
 
 
+_META_USER_CHIP_RE = re.compile(
+    r"(?:"
+    r"\b(?:what\s+(?:next|else|now)|anything\s+else|what\s+should\s+we|"
+    r"how\s+can\s+i\s+help|continue\s+the\s+conversation|ce\s+facem|"
+    r"ce\s+mai\s+(?:vrei|facem)|altceva|cu\s+ce\s+te\s+(?:mai\s+)?ajut)\b"
+    r")",
+    re.I,
+)
+
+
+def _is_meta_user_chip(chip: dict | None) -> bool:
+    if not isinstance(chip, dict):
+        return True
+    label = str(chip.get("label") or "").strip()
+    prompt = str(chip.get("prompt") or "").strip()
+    blob = f"{label} {prompt}".strip()
+    if not blob:
+        return True
+    if _META_USER_CHIP_RE.search(blob):
+        return True
+    for part in (label, prompt):
+        low = part.lower().strip(" .!")
+        if low in {"yes", "no", "da", "nu", "ok", "okay"}:
+            return True
+    return False
+
+
 def catalog_lines(
     habits: dict,
     states: dict[str, dict],
@@ -436,12 +463,17 @@ async def generate_followups(
         f"Intent: {intent}\n"
         f"Home catalog:\n{catalog_block}\n\n"
         "Return ONLY a JSON array of {id,label,prompt,kind}.\n"
-        "If the assistant asked a yes/no confirmation, Da/Nu (or Yes/No) chips are OK — "
-        "but the prompt MUST restate what they agree to (never bare 'Da'/'Yes').\n"
-        "If the assistant offered more detail on topics already mentioned (irrigation, "
-        "batteries, flood sensors, etc.), prefer 2–3 topic chips over bare yes/no.\n"
-        "If this is NOT about the smart home, continue the TOPIC (never Status casă / home status).\n"
-        "Never suggest checking a gate/door/cover state — suggest Open/Close from catalog `need=` instead.\n"
+        "CRITICAL: each chip is a short REPLY the USER would type next — first person or an "
+        "imperative to the home (as if answering/reacting to the assistant). Not assistant questions.\n"
+        "label ≤ ~40 chars (bubble text); prompt = the full message to send.\n"
+        "FORBIDDEN: meta prompts (what next, anything else, how can I help, continue the chat), "
+        "bare Yes/No without restating the action, House status filler on non-home turns, "
+        "asking for a device's status instead of Open/Close from catalog need=.\n"
+        "If the assistant offered more detail on topics already mentioned (irrigation, batteries, "
+        "flood sensors, solar…), prefer 2–3 concrete topic replies as user requests.\n"
+        "If the assistant asked a clear confirmatory offer (open gate, turn on light), chips should "
+        "be the action itself (e.g. Open the gate) and/or a polite decline — not Yes/No labels.\n"
+        "If this is NOT about the smart home, continue the TOPIC in the user's voice (never home status).\n"
         "If nothing useful, return [].\n"
         "Home actions: only catalog entities; gates Open/Close not Turn on; no input_boolean."
     )
@@ -461,6 +493,7 @@ async def generate_followups(
             if not is_device_status_chip(c)
             and "input_boolean" not in str(c.get("prompt") or "").lower()
             and "input_boolean" not in str(c.get("label") or "").lower()
+            and not _is_meta_user_chip(c)
         ]
         _followup_cache[key] = (time.time(), items)
         if len(_followup_cache) > 80:

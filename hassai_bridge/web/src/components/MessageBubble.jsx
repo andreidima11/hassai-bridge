@@ -156,6 +156,7 @@ export function MessageBubble({
   onSelect,
   onReuse,
   onPickFollowup,
+  onManageFollowup,
   showFollowups = false,
   userLabel = "",
   modelLabel = "",
@@ -251,6 +252,7 @@ export function MessageBubble({
             <RecommendationChips
               items={message.followups}
               onSelect={onPickFollowup}
+              onManage={onManageFollowup}
               variant="followup"
             />
           ) : null}

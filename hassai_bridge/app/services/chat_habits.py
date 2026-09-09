@@ -317,6 +317,56 @@ def clear_for_user(user_id: str) -> int:
         return int(cur.rowcount or 0)
 
 
+def clear_topic(user_id: str, topic: str) -> int:
+    if not user_id or not topic:
+        return 0
+    with get_db() as conn:
+        cur = conn.execute(
+            "DELETE FROM chat_habits WHERE user_id = ? AND topic = ?",
+            (user_id, str(topic)[:40]),
+        )
+        return int(cur.rowcount or 0)
+
+
+def list_patterns(user_id: str, *, limit: int = 30) -> list[dict]:
+    """Aggregated habit topics for Settings UI."""
+    if not user_id:
+        return []
+    try:
+        with get_db() as conn:
+            rows = conn.execute(
+                """
+                SELECT topic, SUM(count) AS c, MAX(last_at) AS last_at,
+                       GROUP_CONCAT(DISTINCT hour) AS hours
+                FROM chat_habits
+                WHERE user_id = ?
+                GROUP BY topic
+                ORDER BY c DESC
+                LIMIT ?
+                """,
+                (user_id, int(limit)),
+            ).fetchall()
+    except Exception as e:
+        log.debug("chat_habits list_patterns failed: %s", e)
+        return []
+    out = []
+    for row in rows:
+        topic = str(row["topic"] or "")
+        if not topic:
+            continue
+        hours_raw = str(row["hours"] or "")
+        hours = sorted({int(h) for h in hours_raw.split(",") if h.strip().isdigit()})
+        labels = topic_labels(topic, "en")
+        out.append({
+            "topic": topic,
+            "score": round(float(row["c"] or 0), 2),
+            "last_at": float(row["last_at"] or 0),
+            "hours": hours[:12],
+            "label": (labels[0] if labels else topic),
+        })
+    return out
+
+
 def preference_topic_boosts(user_id: str) -> dict[str, float]:
     """Soft boosts from long-term preference/instruction memories."""
     if not user_id or not learn_from_chat_enabled():

@@ -8,6 +8,7 @@ export function Messages({
   greeting,
   onReuseMessage,
   onPickFollowup,
+  onManageFollowup,
   userLabel = "",
   modelLabel = "",
 }) {
@@ -63,6 +64,7 @@ export function Messages({
               userLabel={userLabel}
               onReuse={onReuseMessage}
               onPickFollowup={onPickFollowup}
+              onManageFollowup={onManageFollowup}
               onSelect={setSelectedId}
             />
           ))}

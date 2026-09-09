@@ -3,6 +3,7 @@ import { Composer } from "./components/Composer.jsx";
 import { AUTO_PROVIDER } from "./components/ProviderQuickSettings.jsx";
 import { VoiceMode } from "./components/VoiceMode.jsx";
 import { WelcomeHero } from "./components/WelcomeHero.jsx";
+import { ChipManageModal } from "./components/ChipManageModal.jsx";
 import { ChatWindowIcon, GearIcon } from "./components/Icons.jsx";
 import { Messages } from "./components/Messages.jsx";
 import { Sidebar } from "./components/Sidebar.jsx";
@@ -76,6 +77,7 @@ export default function App() {
   const [dynamicGreetings, setDynamicGreetings] = useState(true);
   const [recommendationsEnabled, setRecommendationsEnabled] = useState(true);
   const [emptyRecommendations, setEmptyRecommendations] = useState([]);
+  const [manageChip, setManageChip] = useState(null);
   const [greetingPool, setGreetingPool] = useState([]);
   const [greetingNonce, setGreetingNonce] = useState(() => Date.now() % 100000);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -885,6 +887,62 @@ export default function App() {
     [busy, messages.length],
   );
 
+  const manageRecommendation = useCallback((chip) => {
+    if (!chip?.id && !chip?.prompt) return;
+    setManageChip(chip);
+  }, []);
+
+  const patchChipInUi = useCallback((chipId, next) => {
+    setEmptyRecommendations((prev) => {
+      if (!Array.isArray(prev) || !prev.length) return prev;
+      if (next == null) return prev.filter((c) => c.id !== chipId);
+      return prev.map((c) => (c.id === chipId ? { ...c, ...next } : c));
+    });
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (!Array.isArray(m.followups) || !m.followups.length) return m;
+        const followups =
+          next == null
+            ? m.followups.filter((c) => c.id !== chipId)
+            : m.followups.map((c) => (c.id === chipId ? { ...c, ...next } : c));
+        return { ...m, followups };
+      }),
+    );
+  }, []);
+
+  const saveChipOverride = useCallback(
+    async (chip) => {
+      const id = String(chip?.id || "").trim();
+      if (!id) throw new Error("missing id");
+      await apiJson("/api/recommendations/chip-override", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          action: "edit",
+          label: chip.label,
+          prompt: chip.prompt,
+        }),
+      });
+      patchChipInUi(id, { label: chip.label, prompt: chip.prompt });
+    },
+    [patchChipInUi],
+  );
+
+  const suppressChipOverride = useCallback(
+    async (chip) => {
+      const id = String(chip?.id || "").trim();
+      if (!id) throw new Error("missing id");
+      await apiJson("/api/recommendations/chip-override", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, action: "suppress" }),
+      });
+      patchChipInUi(id, null);
+    },
+    [patchChipInUi],
+  );
+
   const handsFreeUtterance = useCallback((text) => {
     setVoiceMode((v) => (v ? { ...v, phase: "thinking", audioUrl: "", error: "" } : v));
     Promise.resolve(sendRef.current?.(null, { text, spoken: true, handsFree: true })).then(
@@ -1078,6 +1136,7 @@ export default function App() {
                 title={greeting.title}
                 recommendations={recommendationsEnabled ? emptyRecommendations : []}
                 onPickRecommendation={pickRecommendation}
+                onManageRecommendation={manageRecommendation}
               />
             }
             lang={lang}
@@ -1086,7 +1145,17 @@ export default function App() {
             userLabel={user.display_name || user.username || ""}
             onReuseMessage={reuseMessage}
             onPickFollowup={pickRecommendation}
+            onManageFollowup={manageRecommendation}
           />
+          {manageChip ? (
+            <ChipManageModal
+              chip={manageChip}
+              lang={lang}
+              onClose={() => setManageChip(null)}
+              onSave={saveChipOverride}
+              onSuppress={suppressChipOverride}
+            />
+          ) : null}
           <Composer
             attachDocLabel={t("attachDocument")}
             attachLabel={t("attachImage")}

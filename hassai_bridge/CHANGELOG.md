@@ -1,5 +1,15 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.9
+
+### Features
+- **View learned patterns** — Settings lists chat topics and chip overrides; remove a topic or restore a hidden/edited chip
+- **Long-press a suggestion** — edit label/prompt or hide that chip permanently (by chip id)
+- **User-voice follow-ups** — under-reply chips are short replies you would send (action phrases), not meta “what next?” or bare Yes/No
+
+### Fix
+- Confirmatory offers use action labels (e.g. Open the gate / No thanks) instead of Yes/No bubbles
+
 ## 1.5.8
 
 ### Features

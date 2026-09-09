@@ -257,6 +257,7 @@ def init_db():
                         pass
             # v7: session_state + toolkit_audit created via CREATE IF NOT EXISTS below
             # v8: chat_habits (+ meta) created via CREATE IF NOT EXISTS below
+            # v9: chip_overrides created via CREATE IF NOT EXISTS below
             conn.execute(
                 "UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1",
                 (DB_SCHEMA_VERSION, time.time()),
@@ -286,6 +287,20 @@ def init_db():
                 PRIMARY KEY (user_id, key)
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chip_overrides (
+                user_id TEXT NOT NULL,
+                chip_id TEXT NOT NULL,
+                suppressed INTEGER NOT NULL DEFAULT 0,
+                label TEXT NOT NULL DEFAULT '',
+                prompt TEXT NOT NULL DEFAULT '',
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (user_id, chip_id)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chip_overrides_user ON chip_overrides(user_id)"
+        )
 
         conn.execute("""
             CREATE TABLE IF NOT EXISTS session_state (

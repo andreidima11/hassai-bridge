@@ -13,6 +13,7 @@ from core.config import load_config
 from services import habit_watcher as hw
 from services import recs_llm as rl
 from services import chat_habits as ch
+from services import chip_overrides as co
 
 log = logging.getLogger("hassai.recommendations")
 
@@ -46,8 +47,12 @@ _I18N = {
         "also_same_area_prompt": "Also turn on {name}",
         "yes": "Yes",
         "yes_prompt": "Yes",
-        "no": "No",
-        "no_prompt": "No",
+        "no": "No thanks",
+        "no_prompt": "No thanks, that's enough.",
+        "decline": "No thanks",
+        "decline_prompt": "No thanks, that's enough.",
+        "decline_ro": "Nu, mulțumesc",
+        "decline_prompt_ro": "Nu, mulțumesc. Nu e nevoie.",
         "ac_on": "Turn on {name}",
         "ac_on_prompt": "It's warm ({temp}°C). Turn on {name} to cool.",
         "heat_on": "Turn on {name}",
@@ -86,8 +91,10 @@ _I18N = {
         "also_same_area_prompt": "Aprinde și {name}",
         "yes": "Da",
         "yes_prompt": "Da",
-        "no": "Nu",
-        "no_prompt": "Nu",
+        "no": "Nu, mulțumesc",
+        "no_prompt": "Nu, mulțumesc. Nu e nevoie.",
+        "decline": "Nu, mulțumesc",
+        "decline_prompt": "Nu, mulțumesc. Nu e nevoie.",
         "ac_on": "Pornește {name}",
         "ac_on_prompt": "E cald ({temp}°C). Pornește {name} pe răcire.",
         "heat_on": "Pornește {name}",
@@ -710,7 +717,34 @@ async def build_empty_recs(
     if not out:
         add(_chip("house-status", _t(lang, "house_status"), _t(lang, "house_prompt"), "ask"))
 
-    return out[:limit]
+    return co.apply_overrides(user_id, out[:limit])
+
+
+_META_FOLLOWUP_RE = re.compile(
+    r"(?:"
+    r"\b(?:what\s+(?:next|else|now)|anything\s+else|what\s+should\s+we|"
+    r"how\s+can\s+i\s+help|continue\s+the\s+conversation|ce\s+facem|"
+    r"ce\s+mai\s+(?:vrei|facem)|altceva|cu\s+ce\s+te\s+(?:mai\s+)?ajut)\b"
+    r")",
+    re.I,
+)
+
+
+def _is_meta_followup_chip(chip: dict | None) -> bool:
+    if not isinstance(chip, dict):
+        return True
+    label = str(chip.get("label") or "").strip()
+    prompt = str(chip.get("prompt") or "").strip()
+    blob = f"{label} {prompt}".strip()
+    if not blob:
+        return True
+    if _META_FOLLOWUP_RE.search(blob):
+        return True
+    for part in (label, prompt):
+        low = part.lower().strip(" .!")
+        if low in {"yes", "no", "da", "nu", "ok", "okay"}:
+            return True
+    return False
 
 
 def _looks_yes_no_question(text: str) -> bool:
@@ -772,18 +806,25 @@ def _affirmation_clause(lang: str, question: str) -> str:
 
 
 def _yes_no_chips(lang: str, assistant_text: str = "") -> list[dict]:
-    """Da/Nu with prompts that keep the prior question — bare 'Da' loses context."""
+    """User-voice accept/decline — labels are actions, not bare Yes/No."""
     question = _last_question(assistant_text)
     clause = _affirmation_clause(lang, question)
     if lang == "ro":
-        yes_prompt = f"Da — {clause}."
+        yes_label = clause[:40].rstrip(" .,") or "Da"
+        yes_prompt = f"Da — {clause}." if clause else "Da."
+        no_label = "Nu, mulțumesc"
         no_prompt = "Nu, mulțumesc. Nu e nevoie."
     else:
-        yes_prompt = f"Yes — {clause}."
+        yes_label = clause[:40].rstrip(" .,") or "Yes"
+        # Capitalize first letter for chip label
+        if yes_label:
+            yes_label = yes_label[0].upper() + yes_label[1:]
+        yes_prompt = f"Yes — {clause}." if clause else "Yes."
+        no_label = "No thanks"
         no_prompt = "No thanks, that's enough."
     return [
-        _chip("fu-yes", _t(lang, "yes"), yes_prompt, "ask"),
-        _chip("fu-no", _t(lang, "no"), no_prompt, "ask"),
+        _chip("fu-yes", yes_label, yes_prompt, "ask"),
+        _chip("fu-no", no_label, no_prompt, "ask"),
     ]
 
 
@@ -860,18 +901,20 @@ def followups_for_yes_no_turn(
         after_intent="status",
     )
     if offer and topics:
-        yes_chip = _yes_no_chips(lang, assistant_text)[0]
-        merged = [yes_chip]
+        # Topic chips already are user requests — skip bare yes; keep decline as optional
+        merged: list[dict] = []
         for chip in topics:
             if len(merged) >= limit:
                 break
-            if chip["prompt"].lower() == yes_chip["prompt"].lower():
-                continue
             merged.append(chip)
-        return merged[:limit]
+        if len(merged) < limit:
+            decline = _yes_no_chips(lang, assistant_text)[1]
+            if decline["prompt"].lower() not in {c["prompt"].lower() for c in merged}:
+                merged.append(decline)
+        return co.apply_overrides(user_id, merged[:limit])
     if topics and offer:
-        return topics[:limit]
-    return _yes_no_chips(lang, assistant_text)[:limit]
+        return co.apply_overrides(user_id, topics[:limit])
+    return co.apply_overrides(user_id, _yes_no_chips(lang, assistant_text)[:limit])
 
 
 def classify_turn_intent(
@@ -1041,20 +1084,24 @@ async def build_followups(
             catalog=catalog,
             limit=limit,
         )
+        llm_items = [c for c in (llm_items or []) if not _is_meta_followup_chip(c)]
         if llm_items:
-            return llm_items[:limit]
+            return co.apply_overrides(user_id, llm_items[:limit])
         if mode == "high" and not ha_intent:
             return []
 
-    return _heuristic_followups(
-        lang=lang,
-        assistant_text=assistant_text,
-        user_text=user_text,
-        intent=intent,
-        tools=tools,
-        habits=habits,
-        limit=limit,
-        user_id=user_id,
+    return co.apply_overrides(
+        user_id,
+        _heuristic_followups(
+            lang=lang,
+            assistant_text=assistant_text,
+            user_text=user_text,
+            intent=intent,
+            tools=tools,
+            habits=habits,
+            limit=limit,
+            user_id=user_id,
+        ),
     )
 
 

@@ -1028,6 +1028,97 @@ async function clearChatHabits() {
   try {
     await api('POST', '/api/recommendations/clear-habits');
     toast(t('settings.clearChatHabitsDone') || 'Learned chat patterns cleared.');
+    const panel = document.getElementById('chatPatternsPanel');
+    if (panel && panel.style.display !== 'none') await openChatPatterns();
+  } catch (e) {
+    toast(e.message || String(e), true);
+  }
+}
+
+async function openChatPatterns() {
+  const panel = document.getElementById('chatPatternsPanel');
+  if (!panel) return;
+  panel.style.display = '';
+  const habitsEl = document.getElementById('chatPatternsHabits');
+  const ovEl = document.getElementById('chatPatternsOverrides');
+  if (habitsEl) habitsEl.innerHTML = `<p class="card-muted">${t('settings.chatPatternsLoading') || 'Loading…'}</p>`;
+  if (ovEl) ovEl.innerHTML = '';
+  try {
+    const data = await api('GET', '/api/recommendations/patterns');
+    const habits = Array.isArray(data.habits) ? data.habits : [];
+    const overrides = Array.isArray(data.overrides) ? data.overrides : [];
+    if (habitsEl) {
+      if (!habits.length) {
+        habitsEl.innerHTML = `<p class="card-muted">${t('settings.chatPatternsNoHabits') || 'No topic patterns yet.'}</p>`;
+      } else {
+        habitsEl.innerHTML = `<div style="font-weight:600;margin-bottom:6px">${t('settings.chatPatternsTopics') || 'Topics'}</div>` +
+          habits.map((h) => {
+            const hours = Array.isArray(h.hours) && h.hours.length ? ` · h ${h.hours.slice(0, 6).join(',')}` : '';
+            const label = escapeHtml(h.label || h.topic || '');
+            const topic = encodeURIComponent(h.topic || '');
+            return `<div class="toggle-row" style="padding:6px 0;border-bottom:1px solid var(--border)">
+              <div><div>${label}</div><p class="card-muted" style="margin:2px 0 0">${escapeHtml(String(h.topic || ''))} · ${escapeHtml(String(h.score || 0))}${hours}</p></div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="clearHabitTopic('${topic}')">${t('settings.chatPatternsRemove') || 'Remove'}</button>
+            </div>`;
+          }).join('');
+      }
+    }
+    if (ovEl) {
+      if (!overrides.length) {
+        ovEl.innerHTML = `<p class="card-muted">${t('settings.chatPatternsNoOverrides') || 'No edited or hidden chips.'}</p>`;
+      } else {
+        ovEl.innerHTML = `<div style="font-weight:600;margin-bottom:6px">${t('settings.chatPatternsOverrides') || 'Chip overrides'}</div>` +
+          overrides.map((o) => {
+            const id = encodeURIComponent(o.id || '');
+            const state = o.suppressed
+              ? (t('settings.chatPatternsHidden') || 'Hidden')
+              : (t('settings.chatPatternsEdited') || 'Edited');
+            const text = escapeHtml(o.label || o.prompt || o.id || '');
+            return `<div class="toggle-row" style="padding:6px 0;border-bottom:1px solid var(--border)">
+              <div><div>${text}</div><p class="card-muted" style="margin:2px 0 0">${escapeHtml(String(o.id || ''))} · ${state}</p></div>
+              <button type="button" class="btn btn-secondary btn-sm" onclick="restoreChipOverride('${id}')">${t('settings.chatPatternsRestore') || 'Restore'}</button>
+            </div>`;
+          }).join('');
+      }
+    }
+  } catch (e) {
+    if (habitsEl) habitsEl.innerHTML = `<p class="card-muted">${escapeHtml(e.message || String(e))}</p>`;
+  }
+}
+
+function closeChatPatterns() {
+  const panel = document.getElementById('chatPatternsPanel');
+  if (panel) panel.style.display = 'none';
+}
+
+async function clearHabitTopic(topicEnc) {
+  const topic = decodeURIComponent(topicEnc || '');
+  if (!topic) return;
+  try {
+    await api('POST', '/api/recommendations/chip-override', { action: 'clear_topic', topic });
+    await openChatPatterns();
+  } catch (e) {
+    toast(e.message || String(e), true);
+  }
+}
+
+async function restoreChipOverride(idEnc) {
+  const id = decodeURIComponent(idEnc || '');
+  if (!id) return;
+  try {
+    await api('POST', '/api/recommendations/chip-override', { action: 'clear', id });
+    await openChatPatterns();
+  } catch (e) {
+    toast(e.message || String(e), true);
+  }
+}
+
+async function clearChipOverrides() {
+  if (!confirm(t('settings.clearChipOverridesConfirm') || 'Restore all hidden/edited chips?')) return;
+  try {
+    await api('POST', '/api/recommendations/chip-override', { action: 'clear_overrides' });
+    toast(t('settings.clearChipOverridesDone') || 'Chip overrides cleared.');
+    await openChatPatterns();
   } catch (e) {
     toast(e.message || String(e), true);
   }

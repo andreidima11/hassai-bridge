@@ -1,6 +1,6 @@
 import { RecommendationChips } from "./RecommendationChips.jsx";
 
-export function WelcomeHero({ title, hint, recommendations, onPickRecommendation }) {
+export function WelcomeHero({ title, hint, recommendations, onPickRecommendation, onManageRecommendation }) {
   return (
     <div className="welcome-hero relative mx-auto flex w-full max-w-2xl flex-col items-center px-4 py-6 sm:px-8">
       <h1 className="welcome-title text-center text-[28px] font-semibold tracking-tight">{title}</h1>
@@ -10,6 +10,7 @@ export function WelcomeHero({ title, hint, recommendations, onPickRecommendation
           <RecommendationChips
             items={recommendations}
             onSelect={onPickRecommendation}
+            onManage={onManageRecommendation}
             variant="empty"
           />
         </div>

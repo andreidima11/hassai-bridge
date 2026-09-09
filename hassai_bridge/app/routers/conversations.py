@@ -172,6 +172,58 @@ async def recommendations_clear_habits(request: Request):
     return {"ok": True, "deleted": n}
 
 
+@router.get("/api/recommendations/patterns")
+async def recommendations_patterns(request: Request):
+    from services import chat_habits as ch
+    from services import chip_overrides as co
+
+    user_id = _current_username(request)
+    return {
+        "habits": ch.list_patterns(user_id),
+        "overrides": co.list_for_user(user_id),
+    }
+
+
+@router.post("/api/recommendations/chip-override")
+async def recommendations_chip_override(request: Request):
+    from services import chip_overrides as co
+    from services import chat_habits as ch
+
+    user_id = _current_username(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    action = str(body.get("action") or "").strip().lower()
+    chip_id = str(body.get("id") or "").strip()[:64]
+    topic = str(body.get("topic") or "").strip()[:40]
+    if action == "clear_topic" and topic:
+        n = ch.clear_topic(user_id, topic)
+        return {"ok": True, "deleted": n}
+    if action == "clear_overrides":
+        n = co.clear_all(user_id)
+        return {"ok": True, "deleted": n}
+    if not chip_id:
+        return {"ok": False, "error": "missing id"}
+    if action == "suppress":
+        co.suppress(user_id, chip_id)
+        return {"ok": True}
+    if action == "edit":
+        co.set_text(
+            user_id,
+            chip_id,
+            str(body.get("label") or ""),
+            str(body.get("prompt") or ""),
+        )
+        return {"ok": True}
+    if action == "clear":
+        n = co.clear(user_id, chip_id)
+        return {"ok": True, "deleted": n}
+    return {"ok": False, "error": "unknown action"}
+
+
 @router.get("/api/conversations")
 async def list_mine(request: Request, limit: int = 50):
     user_id = _current_username(request)

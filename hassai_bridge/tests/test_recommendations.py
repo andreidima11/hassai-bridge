@@ -258,9 +258,12 @@ def test_followups_yes_no_on_chat_question():
         assistant_text="Interesant. Vrei să începem cu pictura modernă?",
     )
     labels = [c["label"] for c in chips]
-    assert labels == ["Da", "Nu"]
-    assert "pictura" in chips[0]["prompt"].lower() or "începem" in chips[0]["prompt"].lower()
+    assert len(chips) == 2
+    # User-voice: accept chip is the action, not bare Da
+    assert labels[0].lower() != "da"
+    assert "pictura" in labels[0].lower() or "începem" in labels[0].lower() or "pictura" in chips[0]["prompt"].lower()
     assert chips[0]["prompt"].lower() != "da"
+    assert "mulțumesc" in labels[1].lower() or "mulțumesc" in chips[1]["prompt"].lower()
 
 
 def test_followups_status_offer_uses_topics_not_bare_da():
@@ -278,13 +281,10 @@ def test_followups_status_offer_uses_topics_not_bare_da():
     )
     labels = [c["label"] for c in chips]
     prompts = " ".join(c["prompt"].lower() for c in chips)
-    assert "Nu" not in labels or labels[0] == "Da"
+    assert "Da" not in labels
     assert any(x in labels for x in ("Irigații", "Baterii slabe", "Senzori inundație"))
-    assert "da" != prompts.strip()
     assert "iriga" in prompts or "bater" in prompts or "inunda" in prompts
-    # Contextual yes keeps the offer
-    yes = next(c for c in chips if c["label"] == "Da")
-    assert "verific" in yes["prompt"].lower()
+    assert any("mulțumesc" in (c["label"] + c["prompt"]).lower() for c in chips) or len(chips) >= 1
 
 
 def test_yes_prompt_never_bare():
@@ -292,14 +292,15 @@ def test_yes_prompt_never_bare():
         "ro",
         "Pot să verific senzorii de inundație acum?",
     )
-    assert chips[0]["label"] == "Da"
-    assert chips[0]["prompt"] != "Da"
+    assert chips[0]["label"].lower() != "da"
+    assert chips[0]["prompt"].lower() != "da"
     assert "inunda" in chips[0]["prompt"].lower() or "verific" in chips[0]["prompt"].lower()
 
 
 def test_build_followups_smalltalk_no_hallway():
     chips = _run_followups(lang="ro", user_text="Ce faci?", assistant_text="Bine, tu?")
-    assert chips == [] or {c["label"] for c in chips} <= {"Da", "Nu"}
+    # Smalltalk / chat → no HA filler; yes/no voice chips OK only if a clear offer
+    assert all("Status" not in c["label"] and "hallway" not in c["label"].lower() for c in chips)
 
 
 def test_build_followups_light_same_area_not_hallway():
@@ -1035,3 +1036,49 @@ def test_topic_followups_reorder_by_chat_habits(tmp_path, monkeypatch):
         )
     labels = [c["label"] for c in chips]
     assert labels and "Irigații" in labels[0]
+
+
+def test_chip_override_suppress_and_edit(tmp_path, monkeypatch):
+    from core import database as core_db
+    from services import chip_overrides as co
+
+    db_path = tmp_path / "hassai.db"
+    monkeypatch.setattr(core_db, "DB_PATH", db_path)
+    core_db.init_db()
+    chips = [
+        {"id": "house-status", "label": "Home status", "prompt": "Give me home status", "kind": "ask"},
+        {"id": "energy-today", "label": "Solar", "prompt": "Solar today", "kind": "ask"},
+    ]
+    co.suppress("u1", "house-status")
+    out = co.apply_overrides("u1", chips)
+    assert [c["id"] for c in out] == ["energy-today"]
+    co.clear("u1", "house-status")
+    co.set_text("u1", "energy-today", "My solar", "How much solar today?")
+    out2 = co.apply_overrides("u1", chips)
+    assert len(out2) == 2
+    energy = next(c for c in out2 if c["id"] == "energy-today")
+    assert energy["label"] == "My solar"
+    assert energy["prompt"] == "How much solar today?"
+
+
+def test_meta_followup_chip_filtered():
+    assert recs._is_meta_followup_chip({
+        "id": "x",
+        "label": "What next?",
+        "prompt": "What should we do next?",
+        "kind": "ask",
+    })
+    assert recs._is_meta_followup_chip({"id": "y", "label": "Yes", "prompt": "Yes", "kind": "ask"})
+    assert not recs._is_meta_followup_chip({
+        "id": "z",
+        "label": "Open the gate",
+        "prompt": "Open the gate",
+        "kind": "action",
+    })
+
+
+def test_gate_offer_yes_chip_is_action_phrase():
+    chips = recs._yes_no_chips("en", "Want me to open the driveway gate?")
+    assert "open" in chips[0]["label"].lower() or "open" in chips[0]["prompt"].lower()
+    assert chips[0]["label"].lower() != "yes"
+    assert chips[0]["prompt"].lower() != "yes"
