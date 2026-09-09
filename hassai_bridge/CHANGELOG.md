@@ -3,8 +3,8 @@
 ## 1.5.8
 
 ### Features
-- **Chat habits** — learns which topics you ask about (and when) from chip clicks, user turns, and contextual Da; ranks empty-chat asks and reorders status follow-ups (e.g. Irigații before Baterii). Local SQLite only; Settings → Learn from chat + clear patterns
-- **Gate hour gate** — empty-chat Poartă chips only in morning (6–10) / afternoon (15–19), or when logbook hour affinity is strong; no more gate chips at random evening hours
+- **Chat habits** — learns which topics you ask about (and when) from chip clicks, user turns, and contextual Yes; ranks empty-chat asks and reorders status follow-ups (e.g. Irrigation before Batteries). Local SQLite only; Settings → Learn from chat + clear patterns
+- **Gate hour gate** — empty-chat gate chips only in morning (6–10) / afternoon (15–19), or when logbook hour affinity is strong; no more gate chips at random evening hours
 
 ### Fix
 - Pedestrian / auto gates no longer appear at night without real hour history
@@ -12,8 +12,8 @@
 ## 1.5.7
 
 ### Fix
-- **Follow-up Da/Nu keeps context** — clicking Da no longer sends a bare “Da” (which made the model forget the prior turn); the prompt restates what you’re agreeing to
-- **Status offers** — after “Vrei să verific ceva mai detaliat?”, chips prefer topics from the reply (Irigații, Baterii slabe, Senzori inundație…) instead of only Da/Nu
+- **Follow-up Yes/No keeps context** — clicking Yes no longer sends a bare “Yes” (which made the model forget the prior turn); the prompt restates what you’re agreeing to
+- **Status offers** — after “Want me to check something in more detail?”, chips prefer topics from the reply (Irrigation, Low batteries, Flood sensors…) instead of only Yes/No
 
 ## 1.5.6
 
@@ -24,17 +24,17 @@
 
 ### Fix
 - **Empty-chat recommendations redesigned** — max **3** chips, ranked by usefulness now (not a sticky LLM pair)
-- **Hour learning** — habits keep a 0–23 hour histogram; “Aprinde Lampa dormitor 1” shows around the hours you actually use it (±1h)
+- **Hour learning** — habits keep a 0–23 hour histogram; “Turn on Bedroom lamp 1” shows around the hours you actually use it (±1h)
 - **Climate** — indoor temp ≥25°C → start AC / lower setpoint; ≤22°C → start thermostat or raise setpoint if it’s on but set too low
-- **Many lights on** → suggest **Stinge** a named light; gates stay Deschide/Închide from state (contact or switch), boosted morning + afternoon
-- **Asks** — Status casă + producție solară (daytime) fill remaining slots; per-device “starea porții” still blocked
+- **Many lights on** → suggest **Turn off** a named light; gates stay Open/Close from state (contact or switch), boosted morning + afternoon
+- **Asks** — House status + solar production (daytime) fill remaining slots; per-device “gate status” asks still blocked
 
 ## 1.5.4
 
 ### Fix
-- **Empty-chat chips are live actions** — new chat always builds Deschide/Închide and Aprinde from current state + habits. The LLM pool no longer replaces that list with the same two cached chips
-- **Gates** — auto gate uses contact when present; pedestrian gate (switch on/off, no sensor) maps on → Închide, off → Deschide. Never “Starea porții”
-- **Daily lights** — named favorites (ambient groups, seara living, lampa, LED pat) keep their own history instead of being rolled into a parent group or hidden behind a generic status ask
+- **Empty-chat chips are live actions** — new chat always builds Open/Close and Turn on from current state + habits. The LLM pool no longer replaces that list with the same two cached chips
+- **Gates** — auto gate uses contact when present; pedestrian gate (switch on/off, no sensor) maps on → Close, off → Open. Never “Gate status”
+- **Daily lights** — named favorites (ambient groups, evening living, lamp, bed LED) keep their own history instead of being rolled into a parent group or hidden behind a generic status ask
 
 ## 1.5.3
 
@@ -44,33 +44,33 @@
 - **LLM empty-chat pool** — JSON chips from a compact home catalog; helpers like `input_boolean` are never recommended
 
 ### Fix
-- **Lumina poartă** is not treated as a gate; only real cover/switch actuators get Deschide/Închide
+- A light whose name looks like a gate is not treated as a gate; only real cover/switch actuators get Open/Close
 - Light groups show again instead of being crowded out by misclassified helpers
 
 ## 1.5.2
 
 ### Fix
-- **Gate verbs** — `poartă` / gate switches always use Deschide/Închide (even without a paired contact); rescued from old `lights` habits so they never show as Aprinde
-- **Chat follow-ups** — non-smarthome conversations show no HA chips (no more Status casă during philosophy chat); yes/no chips when the assistant asks a clear confirmatory question
+- **Gate verbs** — gate switches always use Open/Close (even without a paired contact); rescued from old `lights` habits so they never show as Turn on
+- **Chat follow-ups** — non-smarthome conversations show no HA chips (no more House status during philosophy chat); yes/no chips when the assistant asks a clear confirmatory question
 
 ## 1.5.1
 
 ### Features
 - **Smarter recommendation chips** — prefer light groups/scenes over individual bulbs; roll bulb habits up to parent groups (e.g. ambient room lights)
-- **Gates / covers** — learn open/close from logbook; pair contact sensors; suggest **Deschide/Închide** (not Aprinde) from contact state
-- **Contextual follow-ups** — intent from user text + tool entities; smalltalk → weather/status; no hardcoded hallway chip; **Status casă** copy
+- **Gates / covers** — learn open/close from logbook; pair contact sensors; suggest **Open/Close** (not Turn on) from contact state
+- **Contextual follow-ups** — intent from user text + tool entities; smalltalk → weather/status; no hardcoded hallway chip; **House status** copy
 
 ## 1.5.0
 
 ### Features
 - **Recommendation chips** — styled suggestion bubbles on empty chat (habit-aware light actions + status/energy asks) and 2–3 follow-ups under assistant replies; click sends the prompt as a normal user turn
 - **Habit watcher** — aggregates manual `light.*` / `switch.*` toggles from the Home Assistant logbook into `habits.json` (paused when chips are disabled)
-- **Settings toggle** — General → Recommendation chips / Recomandări în chat (`recommendations.enabled`); off hides all chips, skips follow-ups, and pauses the watcher
+- **Settings toggle** — General → Recommendation chips (`recommendations.enabled`); off hides all chips, skips follow-ups, and pauses the watcher
 
 ## 1.4.1
 
 ### Fix
-- **Who-is search rewrite** — conversational `cine e X` / `who is X` queries are searched as the entity `X`, so trusted sources rank above comedy/junk hits
+- **Who-is search rewrite** — conversational `who is X` / `cine e X` queries are searched as the entity `X`, so trusted sources rank above comedy/junk hits
 - **Junk demotion** — YouTube sketches, casino, citizenship quizzes, year-roundups demoted; answer-like role+name snippets promoted
 - **Best result block** — tool payload leads with the best non-junk hit so the model cannot miss the correct snippet
 
