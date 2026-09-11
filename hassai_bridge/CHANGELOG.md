@@ -1,5 +1,15 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.11
+
+### Features
+- **Currency tools** — `currency_convert` and `currency_rates` via the free fawazahmed0 exchange-api (CDN + Cloudflare fallback, no API key). Prefer these over web search for FX questions
+
+## 1.5.10
+
+### Fix
+- **Recommendation chip click** — tapping a suggestion sends it again (long-press manage no longer swallowed the click)
+
 ## 1.5.9
 
 ### Features

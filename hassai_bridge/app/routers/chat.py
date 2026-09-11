@@ -48,6 +48,7 @@ from services import gemini as gm
 from services import memory_tools as mt
 from services import bridge_tools as bt
 from services import bridge_tool_access as bta
+from services import currency as currency_fx
 from services import pricing
 from services import openrouter as ovr
 from services import thinking_text as tt
@@ -64,7 +65,15 @@ _FRIGATE_TOOL_NAMES = {"frigate_list_cameras", "frigate_events", "frigate_snapsh
 
 
 def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
-    if fn_name in ("search_web", "fetch_url", "run_skill", "generate_image", "activate_toolkits"):
+    if fn_name in (
+        "search_web",
+        "fetch_url",
+        "run_skill",
+        "generate_image",
+        "activate_toolkits",
+        "currency_convert",
+        "currency_rates",
+    ):
         return True
     if fn_name in _MEDIA_TOOL_NAMES or fn_name in _FRIGATE_TOOL_NAMES:
         return True
@@ -1234,6 +1243,22 @@ async def _invoke_internal_tool(
             + suffix,
             True,
         )
+
+    if fn_name in currency_fx.TOOL_NAMES:
+        if fn_name == "currency_convert":
+            text = await currency_fx.convert(
+                args.get("amount"),
+                str(args.get("from_currency") or ""),
+                str(args.get("to_currency") or ""),
+                day=str(args.get("date") or "latest"),
+            )
+            return text, False
+        text = await currency_fx.rates(
+            str(args.get("base") or ""),
+            currency_fx.parse_quotes_arg(args.get("quotes")),
+            day=str(args.get("date") or "latest"),
+        )
+        return text, False
 
     if fn_name == "generate_image":
         gen_provider = image_gen_provider or provider
@@ -2807,6 +2832,7 @@ async def chat_completions(request: Request):
     if search_enabled:
         all_tools.append(_search_web_tool(cfg))
         all_tools.append(_fetch_url_tool(cfg))
+    all_tools.extend(currency_fx.TOOL_SPECS)
     all_tools.extend(_build_skill_tools())
     if bta.group_enabled("media", cfg):
         all_tools.extend(_MEDIA_TOOLS)
