@@ -1418,7 +1418,52 @@ async def _invoke_internal_tool(
 
     if bt.is_bridge_tool(fn_name):
         log.info("AI requested bridge tool '%s': %s", fn_name, args)
-        return await bt.run_tool(fn_name, args, user_id=user_id), False
+        text = await bt.run_tool(fn_name, args, user_id=user_id)
+        # Enabling a Settings group mid-turn must refresh the live tool list
+        # (e.g. bridge_tools.browser → browser_interact on the next LLM call).
+        if (
+            fn_name == "hassai_set_setting"
+            and toolkit_state is not None
+            and not str(text or "").lower().startswith("error")
+        ):
+            key = str((args or {}).get("key") or "")
+            if key.startswith("bridge_tools.") or key.startswith("ha_tools.") or key in {
+                "searxng.enabled", "frigate.enabled", "browser.enabled",
+            }:
+                fresh = load_config()
+                toolkit_state["cfg"] = fresh
+                _refresh_tools_after_enable(
+                    toolkit_state,
+                    cfg=fresh,
+                    session_id=session_id,
+                    client_tools=(toolkit_state or {}).get("client_tools"),
+                )
+                # Re-resolve Dynamic core so newly enabled tools stay visible.
+                if toolkit_state.get("enabled"):
+                    try:
+                        from services import toolkits as tk
+
+                        rebuilt = toolkit_state.get("all_tools") or []
+                        effective, active, eligible = tk.resolve_dynamic_tools(
+                            rebuilt,
+                            cfg=fresh,
+                            user_text=str(toolkit_state.get("user_text") or ""),
+                            route_klass=str(toolkit_state.get("route_klass") or "simple"),
+                            session_id=session_id or "",
+                            user_id=str(toolkit_state.get("user_id") or user_id or ""),
+                            provider=toolkit_state.get("provider") or provider,
+                            primed_packs=toolkit_state.get("active_packs") or set(),
+                            frigate_available=bool(toolkit_state.get("frigate_available", True)),
+                            image_gen_available=bool(toolkit_state.get("image_gen_available", True)),
+                            skills_available=bool(toolkit_state.get("skills_available", True)),
+                        )
+                        toolkit_state["effective"] = effective
+                        toolkit_state["live_tools"] = list(effective)
+                        toolkit_state["active_packs"] = active
+                        toolkit_state["eligible"] = eligible
+                    except Exception:
+                        log.exception("Failed to re-resolve tools after set_setting")
+        return text, False
 
     if ha_api.is_ha_tool(fn_name):
         log.info("AI requested HA tool '%s': %s", fn_name, args)

@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.6.5
+
+### Fix
+- **Dynamic toolkits dropped browser tools** — `browser_interact` and `request_enable_tools` were not marked as core, so Dynamic mode never exposed them even when enabled in Settings. Enabling `bridge_tools.browser` mid-chat also refreshes the live tool list.
+
 ## 1.6.4
 
 ### Fix
