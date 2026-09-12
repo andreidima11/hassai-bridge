@@ -3,31 +3,38 @@ import { ChevronIcon } from "./Icons.jsx";
 import { activityVerb, formatMs, liveThinkingLabel, tr } from "../lib/i18n.js";
 import { toolSteps } from "../lib/thinking.js";
 
-function ApprovalCard({ step, lang, busy, onDecide }) {
+export function ApprovalCard({ step, lang, busy, onDecide }) {
   const preview = String(step.args_preview || step.detail || "").trim();
   const enabling = Boolean(step.enable_group);
   return (
-    <div className="relative my-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[13px] leading-snug">
-      <div className="font-medium text-foreground">
+    <div
+      className="w-full max-w-xl rounded-2xl border border-amber-500/35 bg-amber-500/[0.12] px-4 py-3.5 text-[14px] leading-snug"
+      data-approval="true"
+      role="group"
+      aria-label={enabling ? tr(lang, "enableTitle") : tr(lang, "approvalTitle")}
+    >
+      <div className="font-semibold text-foreground">
         {enabling ? tr(lang, "enableTitle") : tr(lang, "approvalTitle")}
-        {!enabling ? ` · ${activityVerb(lang, step.name)}` : null}
+        {!enabling ? (
+          <span className="font-normal text-muted-foreground"> · {activityVerb(lang, step.name)}</span>
+        ) : null}
       </div>
       {preview ? (
-        <p className="mt-1 break-words text-[12px] text-muted-foreground/90">{preview}</p>
+        <p className="mt-1.5 break-words text-[13px] text-muted-foreground">{preview}</p>
       ) : null}
-      <div className="mt-2.5 flex flex-wrap gap-2">
+      <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
           disabled={busy}
-          className="rounded-lg bg-emerald-500/90 px-2.5 py-1 text-[12px] font-semibold text-white disabled:opacity-50"
-          onClick={() => onDecide?.("approve", enabling ? "once" : "once")}
+          className="rounded-xl bg-emerald-500/90 px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
+          onClick={() => onDecide?.("approve", "once")}
         >
           {enabling ? tr(lang, "enableApprove") : tr(lang, "approvalApprove")}
         </button>
         <button
           type="button"
           disabled={busy}
-          className="rounded-lg bg-white/10 px-2.5 py-1 text-[12px] font-semibold text-foreground disabled:opacity-50"
+          className="rounded-xl bg-white/10 px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-50"
           onClick={() => onDecide?.("decline", "once")}
         >
           {tr(lang, "approvalDecline")}
@@ -36,7 +43,7 @@ function ApprovalCard({ step, lang, busy, onDecide }) {
           <button
             type="button"
             disabled={busy}
-            className="rounded-lg border border-white/15 px-2.5 py-1 text-[12px] font-medium text-muted-foreground disabled:opacity-50"
+            className="rounded-xl border border-white/15 px-3 py-1.5 text-[13px] font-medium text-muted-foreground disabled:opacity-50"
             onClick={() => onDecide?.("approve", "settings")}
           >
             {tr(lang, "enableSaveSettings")}
@@ -45,7 +52,7 @@ function ApprovalCard({ step, lang, busy, onDecide }) {
           <button
             type="button"
             disabled={busy}
-            className="rounded-lg border border-white/15 px-2.5 py-1 text-[12px] font-medium text-muted-foreground disabled:opacity-50"
+            className="rounded-xl border border-white/15 px-3 py-1.5 text-[13px] font-medium text-muted-foreground disabled:opacity-50"
             onClick={() => onDecide?.("approve", "conversation")}
           >
             {tr(lang, "approvalAllowChat")}
@@ -56,12 +63,15 @@ function ApprovalCard({ step, lang, busy, onDecide }) {
   );
 }
 
-function StepRow({ step, lang, onApprove, approvalBusy }) {
+function StepRow({ step, lang }) {
   const running = step.status === "running";
   const awaiting = step.status === "awaiting_approval";
   const done = step.status === "done";
   const skipped = step.status === "skip";
   const isThink = step.name === "think";
+
+  // Approvals render in the chat message body, not in Thinking.
+  if (awaiting) return null;
 
   if (step.name === "say") {
     return (
@@ -91,17 +101,6 @@ function StepRow({ step, lang, onApprove, approvalBusy }) {
           ) : null}
         </div>
       </div>
-    );
-  }
-
-  if (awaiting) {
-    return (
-      <ApprovalCard
-        step={step}
-        lang={lang}
-        busy={approvalBusy}
-        onDecide={(decision, scope) => onApprove?.(step.id, decision, scope)}
-      />
     );
   }
 
@@ -140,7 +139,7 @@ function StepRow({ step, lang, onApprove, approvalBusy }) {
   );
 }
 
-export function Thinking({ thinking, lang, streaming = false, onApprove = null }) {
+export function Thinking({ thinking, lang, streaming = false }) {
   const steps = thinking.steps || [];
   const tools = toolSteps(steps);
   const hasSteps = steps.length > 0;
@@ -150,13 +149,9 @@ export function Thinking({ thinking, lang, streaming = false, onApprove = null }
   const canToggle = isLive || hasSteps;
   const [open, setOpen] = useState(false);
   const [autoClosed, setAutoClosed] = useState(false);
-  const [approvalBusy, setApprovalBusy] = useState(false);
 
   useEffect(() => {
-    if (awaiting) {
-      setOpen(true);
-      setAutoClosed(false);
-    }
+    if (awaiting) setAutoClosed(false);
   }, [awaiting]);
 
   useEffect(() => {
@@ -170,26 +165,14 @@ export function Thinking({ thinking, lang, streaming = false, onApprove = null }
   }, [isLive, hasSteps, open, autoClosed, awaiting]);
 
   useEffect(() => {
-    if (thinking.collapsed && !isLive) setOpen(false);
-  }, [thinking.collapsed, isLive]);
+    if (thinking.collapsed && !isLive && !awaiting) setOpen(false);
+  }, [thinking.collapsed, isLive, awaiting]);
 
   if (!thinking.visible && !hasSteps) return null;
 
-  const headerLabel = awaiting
-    ? tr(lang, "approvalWaiting")
-    : isLive
-      ? liveThinkingLabel(lang, thinking)
-      : thinking.label || tr(lang, "thoughtBrief");
-
-  const handleDecide = async (callId, decision, scope) => {
-    if (!onApprove || approvalBusy) return;
-    setApprovalBusy(true);
-    try {
-      await onApprove(callId, decision, scope);
-    } finally {
-      setApprovalBusy(false);
-    }
-  };
+  const headerLabel = isLive
+    ? liveThinkingLabel(lang, thinking)
+    : thinking.label || tr(lang, "thoughtBrief");
 
   return (
     <div className="w-full">
@@ -204,7 +187,7 @@ export function Thinking({ thinking, lang, streaming = false, onApprove = null }
         {isLive && !hasTools ? (
           <span className="thinking-shimmer truncate">{headerLabel}</span>
         ) : (
-          <span className={`truncate ${awaiting ? "text-amber-300" : ""}`}>{headerLabel}</span>
+          <span className="truncate">{headerLabel}</span>
         )}
         {!open && hasTools && !isLive ? (
           <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground/75">
@@ -215,15 +198,7 @@ export function Thinking({ thinking, lang, streaming = false, onApprove = null }
       {open && canToggle ? (
         <div className="mt-0.5 ml-[7px] border-l border-white/10 pl-3.5">
           {hasSteps ? (
-            steps.map((step) => (
-              <StepRow
-                key={step.id}
-                lang={lang}
-                step={step}
-                onApprove={handleDecide}
-                approvalBusy={approvalBusy}
-              />
-            ))
+            steps.map((step) => <StepRow key={step.id} lang={lang} step={step} />)
           ) : isLive ? (
             <div className="flex items-center gap-2.5 py-1.5 text-[13px] text-muted-foreground">
               <span

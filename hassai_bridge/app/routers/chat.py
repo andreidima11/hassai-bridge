@@ -151,6 +151,7 @@ def _refresh_tools_after_enable(
     rebuilt = _assemble_addon_tools(cfg_eff)
     merged = _merge_tool_lists(client_tools, rebuilt)
     if toolkit_state is not None:
+        toolkit_state["cfg"] = cfg_eff
         toolkit_state["all_tools"] = _merge_tool_lists(toolkit_state.get("all_tools"), merged)
         live = toolkit_state.get("live_tools")
         if isinstance(live, list):
@@ -1484,6 +1485,8 @@ async def _append_internal_tool_results(
             approved = True
             cfg_eff = te.apply_session_overrides(cfg, session_id)
 
+            from services import toolkits as tk
+
             enable_group = None
             if fn_name == te.TOOL_NAME:
                 enable_group = te.resolve_group(args.get("group"))
@@ -1501,6 +1504,15 @@ async def _append_internal_tool_results(
                         "role": "tool", "tool_call_id": tc_id, "name": fn_name, "content": content,
                     })
                     continue
+            elif fn_name == tk.ACTIVATE_TOOL:
+                # Settings-off packs are not in eligible — ask Approve/Decline to enable
+                # instead of silently denying (model otherwise invents "Decline").
+                packs = args.get("packs") if isinstance(args.get("packs"), list) else []
+                for pack in packs:
+                    maybe = te.resolve_group(pack)
+                    if maybe and not te.effectively_enabled(maybe, cfg, session_id):
+                        enable_group = maybe
+                        break
             else:
                 maybe = te.canonical_for_tool(fn_name)
                 if maybe and not te.effectively_enabled(maybe, cfg, session_id):
@@ -1592,7 +1604,22 @@ async def _append_internal_tool_results(
                 continue
 
             if ta.needs_approval(fn_name, args):
-                if ta.is_conversation_allowed(session_id, fn_name, args):
+                from services import browser_interact as bi
+
+                preapproved = False
+                if fn_name == "browser_interact":
+                    action = str(args.get("action") or "").strip().lower()
+                    if action == "open" and bi.host_preapproved(
+                        str(args.get("url") or ""), cfg, session_id,
+                    ):
+                        preapproved = True
+                    elif action != "open" and (
+                        ta.is_conversation_allowed(session_id, fn_name, args)
+                        or bool(bi.session_hosts(session_id))
+                    ):
+                        # Follow-up actions after an approved open this chat
+                        preapproved = True
+                if preapproved or ta.is_conversation_allowed(session_id, fn_name, args):
                     run_args = ta.inject_confirm(args)
                 else:
                     preview = ta.args_preview(fn_name, args)
@@ -1609,9 +1636,16 @@ async def _append_internal_tool_results(
                     decision = await ta.wait_decision(fut)
                     await _check_trace(trace_id)
                     dec = str(decision.get("decision") or "decline").lower()
+                    scope = str(decision.get("scope") or "once").lower()
                     if dec == "approve":
                         run_args = ta.inject_confirm(args)
                         approved = True
+                        if fn_name == "browser_interact":
+                            host = bi.host_from_url(str(args.get("url") or ""))
+                            if host:
+                                bi.grant_session_host(session_id, host)
+                        if scope == "conversation":
+                            ta.grant_conversation(session_id, fn_name, args)
                     elif dec == "timeout":
                         approved = False
                         content = ta.TIMEOUT_RESULT

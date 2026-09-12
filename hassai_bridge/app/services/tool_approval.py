@@ -59,6 +59,17 @@ def conversation_allow_key(name: str, args: dict | None = None) -> str:
             return f"{name}:{domain}.{service}"
     if name == "browser_interact":
         action = str(args.get("action") or "").strip().lower()
+        url = str(args.get("url") or "").strip()
+        host = ""
+        if url:
+            try:
+                from urllib.parse import urlparse
+
+                host = (urlparse(url).hostname or "").lower().removeprefix("www.")
+            except Exception:
+                host = ""
+        if action == "open" and host:
+            return f"{name}:open:{host}"
         return f"{name}:{action or '*'}"
     return str(name or "")
 
@@ -98,6 +109,21 @@ def inject_confirm(args: dict | None) -> dict:
 def args_preview(name: str, args: dict | None, *, limit: int = 280) -> str:
     """Short human-readable preview for the approval bubble."""
     raw = args if isinstance(args, dict) else {}
+    if name == "browser_interact":
+        action = str(raw.get("action") or "").strip()
+        url = str(raw.get("url") or "").strip()
+        selector = str(raw.get("selector") or "").strip()
+        bits = []
+        if action:
+            bits.append(action)
+        if url:
+            bits.append(url)
+        elif selector:
+            bits.append(selector)
+        text = " · ".join(bits) if bits else "browser"
+        if len(text) > limit:
+            return text[: limit - 1] + "…"
+        return text
     # Prefer a few meaningful keys; fall back to compact JSON.
     prefer = (
         "action", "url", "path", "entity_id", "domain", "service", "name",

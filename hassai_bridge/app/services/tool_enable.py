@@ -61,6 +61,8 @@ _ALIASES: dict[str, str] = {
     "web_search": "feature:searxng",
     "frigate": "feature:frigate",
     "cameras": "feature:frigate",
+    "bridge_write": "bridge:control",
+    "media_write": "bridge:media",
 }
 for _k in bta.GROUP_KEYS:
     _ALIASES[_k] = f"bridge:{_k}"

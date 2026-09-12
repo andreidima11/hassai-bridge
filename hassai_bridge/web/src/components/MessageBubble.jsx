@@ -5,7 +5,7 @@ import { DocumentIcon, SparklesIcon, SpeakerIcon } from "./Icons.jsx";
 import { MarkdownBody } from "./MarkdownBody.jsx";
 import { SourceChips } from "./SourceChips.jsx";
 import { RecommendationChips } from "./RecommendationChips.jsx";
-import { Thinking } from "./Thinking.jsx";
+import { Thinking, ApprovalCard } from "./Thinking.jsx";
 import { isDocumentAttachment, isVideoAttachment, isImageAttachment } from "../lib/images.js";
 import { tr } from "../lib/i18n.js";
 import { useSmoothStreamText } from "../lib/smoothStream.js";
@@ -165,12 +165,24 @@ export function MessageBubble({
   const isUser = message.role === "user";
   const streaming = Boolean(message.streaming);
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  const awaitingSteps = (message.thinking?.steps || []).filter((s) => s.status === "awaiting_approval");
+  const [approvalBusy, setApprovalBusy] = useState(false);
   const rawContent = useMemo(
     () => (isUser ? message.content : stripDuplicateAttachmentMarkdown(message.content, attachments)),
     [isUser, message.content, attachments],
   );
   const content = useSmoothStreamText(rawContent, !isUser && streaming);
   const canSelect = !streaming;
+
+  const handleApprove = async (callId, decision, scope) => {
+    if (!onApproveTool || approvalBusy || !callId) return;
+    setApprovalBusy(true);
+    try {
+      await onApproveTool(callId, decision, scope);
+    } finally {
+      setApprovalBusy(false);
+    }
+  };
 
   const handleSelect = (event) => {
     if (!canSelect) return;
@@ -231,13 +243,17 @@ export function MessageBubble({
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
           {message.thinking?.visible ? (
-            <Thinking
-              thinking={message.thinking}
-              lang={lang}
-              streaming={streaming}
-              onApprove={onApproveTool}
-            />
+            <Thinking thinking={message.thinking} lang={lang} streaming={streaming} />
           ) : null}
+          {awaitingSteps.map((step) => (
+            <ApprovalCard
+              key={`approve-${step.id}`}
+              step={step}
+              lang={lang}
+              busy={approvalBusy}
+              onDecide={(decision, scope) => handleApprove(step.id, decision, scope)}
+            />
+          ))}
           <AttachmentGallery attachments={attachments} align="start" lang={lang} />
           {content ? (
             <MarkdownBody
@@ -248,7 +264,7 @@ export function MessageBubble({
               lang={lang}
               text={content}
             />
-          ) : streaming && !message.thinking?.visible ? (
+          ) : streaming && !message.thinking?.visible && !awaitingSteps.length ? (
             <div className="flex min-h-7 items-center gap-1 text-[15px] text-muted-foreground">
               <span className="stream-cursor stream-cursor--alone" aria-hidden="true" />
             </div>

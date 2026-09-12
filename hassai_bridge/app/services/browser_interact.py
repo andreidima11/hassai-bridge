@@ -38,15 +38,56 @@ _SENSITIVE_PATH_PREFIXES = (
 
 _sessions: dict[str, "BrowserSession"] = {}
 _lock = asyncio.Lock()
+# session_id → hosts approved for this chat (Approve / Allow for this chat)
+_session_hosts: dict[str, set[str]] = {}
+
+
+def clear_session_hosts(session_id: str | None) -> None:
+    sid = str(session_id or "").strip()
+    if sid:
+        _session_hosts.pop(sid, None)
+
+
+def grant_session_host(session_id: str | None, host: str) -> None:
+    sid = str(session_id or "").strip()
+    h = _normalize_domain(host)
+    if not sid or not h:
+        return
+    _session_hosts.setdefault(sid, set()).add(h)
+
+
+def session_hosts(session_id: str | None) -> set[str]:
+    sid = str(session_id or "").strip()
+    if not sid:
+        return set()
+    return set(_session_hosts.get(sid) or ())
+
+
+def host_from_url(url: str) -> str:
+    try:
+        return _normalize_domain(urlparse(str(url or "").strip()).hostname or "")
+    except Exception:
+        return ""
+
+
+def host_preapproved(url: str, cfg: dict | None = None, session_id: str | None = None) -> bool:
+    """True when Settings allowlist (or HA defaults) already trust this host."""
+    host = host_from_url(url)
+    if not host:
+        return False
+    if host in session_hosts(session_id):
+        return True
+    return host in allowed_hosts(cfg)
 
 TOOL_SPEC = {
     "type": "function",
     "function": {
         "name": TOOL_NAME,
         "description": (
-            "Open an allowlisted web page in a headless browser, take screenshots, "
-            "click, scroll, or type. Use to visually verify Home Assistant dashboards "
-            "and other approved sites after changes. Always screenshot after navigate/click."
+            "Open a web page in a headless browser, take screenshots, click, scroll, or type. "
+            "Use to visually verify Home Assistant dashboards and other sites after changes. "
+            "Each new site pauses for Approve / Decline in the chat UI (optional Settings "
+            "allowlist skips the prompt for listed hosts). Always screenshot after navigate/click."
         ),
         "parameters": {
             "type": "object",
@@ -140,7 +181,8 @@ def allowed_hosts(cfg: dict | None = None) -> set[str]:
     return hosts
 
 
-def url_allowed(url: str, cfg: dict | None = None) -> tuple[bool, str]:
+def url_allowed(url: str, cfg: dict | None = None, session_id: str | None = None) -> tuple[bool, str]:
+    """Validate scheme/path. Allowlist is optional pre-trust — not required to open."""
     raw = str(url or "").strip()
     if not raw:
         return False, "empty URL"
@@ -153,12 +195,12 @@ def url_allowed(url: str, cfg: dict | None = None) -> tuple[bool, str]:
     host = _normalize_domain(parsed.hostname or "")
     if not host:
         return False, "URL missing host"
-    if host not in allowed_hosts(cfg):
-        return False, f"host '{host}' is not on the browser allowlist"
     path = parsed.path or "/"
     for prefix in _SENSITIVE_PATH_PREFIXES:
         if path == prefix or path.startswith(prefix + "/"):
             return False, f"path '{path}' is blocked"
+    # session_id reserved for callers that also check host_preapproved
+    _ = session_id
     return True, ""
 
 

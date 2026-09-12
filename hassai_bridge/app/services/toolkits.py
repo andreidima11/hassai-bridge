@@ -397,8 +397,11 @@ def expand_after_activate(
             "Domain tools for the activated packs are now available. "
             "Continue the task with those tools."
             if allowed
-            else "No new packs activated. Check pack ids against Available packs, "
-            "or Settings toggles may have disabled them."
+            else (
+                "No new packs activated. If a pack is OFF in Settings, call "
+                "request_enable_tools with group=<pack_id> so the user can Approve / Decline "
+                "in the chat UI — do not invent a Decline."
+            )
         ),
     }
     return deduped, active, json.dumps(payload)
@@ -414,7 +417,8 @@ def tool_inactive_message(name: str, eligible: dict[str, str]) -> str:
     if pack:
         return (
             f"Tool '{name}' belongs to pack '{pack}', which is disabled in Settings "
-            f"or unavailable. Ask the user to enable it, or use another approach."
+            f"or unavailable. Call request_enable_tools with group=\"{pack}\" so the user "
+            f"can Approve / Decline in the chat UI — do not invent a Decline."
         )
     return f"Tool '{name}' is not available in the current tool list."
 

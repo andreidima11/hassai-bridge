@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.6.4
+
+### Fix
+- **Approve / Decline in chat** — approval cards render as a chat bubble (not buried in Thinking); Settings-disabled toolkit packs now open the same enable prompt instead of a silent deny
+- **Browser sites** — allowlist is optional; new hosts ask Approve / Decline in chat (token only needed for authenticated HA pages)
+
 ## 1.6.3
 
 ### Features
