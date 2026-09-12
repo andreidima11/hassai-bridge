@@ -157,6 +157,7 @@ export function MessageBubble({
   onReuse,
   onPickFollowup,
   onManageFollowup,
+  onApproveTool = null,
   showFollowups = false,
   userLabel = "",
   modelLabel = "",
@@ -230,7 +231,12 @@ export function MessageBubble({
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-2 pt-0.5">
           {message.thinking?.visible ? (
-            <Thinking thinking={message.thinking} lang={lang} streaming={streaming} />
+            <Thinking
+              thinking={message.thinking}
+              lang={lang}
+              streaming={streaming}
+              onApprove={onApproveTool}
+            />
           ) : null}
           <AttachmentGallery attachments={attachments} align="start" lang={lang} />
           {content ? (

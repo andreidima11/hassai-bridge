@@ -907,6 +907,12 @@ async function loadSettings() {
     setChecked('frigateEnabled', fr.enabled !== false);
     setVal('frigateUrl', fr.base_url || 'http://ccab4aaf-frigate:5000');
     setVal('frigateTimeout', fr.timeout ?? 12);
+    const br = cfg.browser || {};
+    setChecked('browserEnabled', br.enabled === true);
+    setVal('browserHaUrl', br.ha_url || 'http://homeassistant:8123');
+    setVal('browserToken', br.access_token || '');
+    setVal('browserAllowlist', Array.isArray(br.allowlist) ? br.allowlist.join('\n') : '');
+    setChecked('browserKeepWarm', br.keep_warm === true);
 
     // Voice
     const voice = cfg.voice || {};
@@ -1574,6 +1580,16 @@ async function saveSettings() {
         enabled: document.getElementById('frigateEnabled')?.checked !== false,
         base_url: (document.getElementById('frigateUrl')?.value || '').trim(),
         timeout: parseInt(document.getElementById('frigateTimeout')?.value) || 12,
+      },
+      browser: {
+        enabled: document.getElementById('browserEnabled')?.checked === true,
+        ha_url: (document.getElementById('browserHaUrl')?.value || '').trim() || 'http://homeassistant:8123',
+        access_token: (document.getElementById('browserToken')?.value || '').trim(),
+        allowlist: (document.getElementById('browserAllowlist')?.value || '')
+          .split(/[\n,]+/)
+          .map((s) => s.trim())
+          .filter(Boolean),
+        keep_warm: document.getElementById('browserKeepWarm')?.checked === true,
       },
       memory: {
         enabled: document.getElementById('memEnabled').checked,

@@ -20,6 +20,11 @@ const I18N = {
     thinkingLive: "Thinking…",
     thinkingBrieflyLive: "Thinking briefly…",
     thoughtBriefly: "Thought briefly",
+    approvalTitle: "Allow tool?",
+    approvalApprove: "Approve",
+    approvalDecline: "Decline",
+    approvalAllowChat: "Allow for this chat",
+    approvalWaiting: "Waiting for approval…",
     steps: "{n} steps · {s}s",
     thoughtFor: "Thought for {s}s",
     thoughtBrief: "Finished thinking",
@@ -121,6 +126,7 @@ const I18N = {
     fetch_url: "Fetch",
     currency_convert: "Convert currency",
     currency_rates: "Exchange rates",
+    browser_interact: "Browser",
     run_skill: "Skill",
     generate_image: "Imagine",
     media_list: "Files",
@@ -226,6 +232,11 @@ const I18N = {
     thinkingLive: "Gândește…",
     thinkingBrieflyLive: "Gândește puțin…",
     thoughtBriefly: "A gândit puțin",
+    approvalTitle: "Permiți tool-ul?",
+    approvalApprove: "Aprobă",
+    approvalDecline: "Refuză",
+    approvalAllowChat: "Permite pe chat",
+    approvalWaiting: "Așteaptă aprobarea…",
     steps: "{n} pași · {s}s",
     thoughtFor: "A gândit {s}s",
     thoughtBrief: "Gândire terminată",
@@ -327,6 +338,7 @@ const I18N = {
     fetch_url: "Citește",
     currency_convert: "Conversie valută",
     currency_rates: "Curs valutar",
+    browser_interact: "Browser",
     run_skill: "Skill",
     generate_image: "Imagine",
     media_list: "Fișiere",
@@ -448,6 +460,8 @@ export function activityVerb(lang, name) {
 }
 
 export function liveThinkingLabel(lang, thinking) {
+  const awaiting = (thinking.steps || []).find((step) => step.status === "awaiting_approval");
+  if (awaiting) return tr(lang, "approvalWaiting");
   const runningTool = (thinking.steps || []).find((step) => step.status === "running" && step.name !== "think");
   if (runningTool) {
     const verb = activityVerb(lang, runningTool.name);

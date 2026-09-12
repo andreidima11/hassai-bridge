@@ -9,6 +9,7 @@ export function Messages({
   onReuseMessage,
   onPickFollowup,
   onManageFollowup,
+  onApproveTool = null,
   userLabel = "",
   modelLabel = "",
 }) {
@@ -65,6 +66,7 @@ export function Messages({
               onReuse={onReuseMessage}
               onPickFollowup={onPickFollowup}
               onManageFollowup={onManageFollowup}
+              onApproveTool={onApproveTool}
               onSelect={setSelectedId}
             />
           ))}

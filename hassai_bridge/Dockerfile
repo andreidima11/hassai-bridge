@@ -13,7 +13,7 @@ FROM $BUILD_FROM
 
 # Bumped by scripts/sync_version.sh. Changing this ARG invalidates every
 # layer below so Supervisor cannot reuse a cached COPY of an old app/.
-ARG HASSAI_VERSION=1.5.13
+ARG HASSAI_VERSION=1.6.0
 
 ENV LANG=C.UTF-8
 
@@ -25,7 +25,16 @@ COPY --from=web /src/app/static/index.html /opt/hassai-bridge/static/index.html
 COPY --from=web /src/app/static/assets /opt/hassai-bridge/static/assets
 COPY run.sh /
 RUN chmod a+x /run.sh \
-    && apk add --no-cache ca-certificates libheif libjpeg-turbo \
+    && apk add --no-cache \
+        ca-certificates \
+        libheif \
+        libjpeg-turbo \
+        chromium \
+        nss \
+        freetype \
+        harfbuzz \
+        ttf-freefont \
+        font-noto \
     && update-ca-certificates \
     && pip3 install --no-cache-dir --break-system-packages --upgrade pip \
     && pip3 install --no-cache-dir --break-system-packages \
@@ -34,6 +43,10 @@ RUN chmod a+x /run.sh \
     && test "$(tr -d '[:space:]' < /opt/hassai-bridge/VERSION)" = "${HASSAI_VERSION}" \
     && test -f /opt/hassai-bridge/static/index.html \
     && test -d /opt/hassai-bridge/static/assets/chat
+
+ENV HASSAI_CHROMIUM_PATH=/usr/bin/chromium
+# Launch code also probes chromium-browser if this path is missing.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 
 WORKDIR /opt/hassai-bridge
 CMD [ "/run.sh" ]

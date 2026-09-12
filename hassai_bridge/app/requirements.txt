@@ -9,4 +9,6 @@ pillow-heif>=0.16.0,<2.0.0
 pypdf>=5.0.0,<7.0.0
 yfinance>=0.2.0,<2.0.0
 pytest>=8.0.0,<9.0.0
+pytest-asyncio>=0.23.0,<1.0.0
 PyYAML>=6.0.0,<7.0.0
+playwright>=1.40.0,<2.0.0

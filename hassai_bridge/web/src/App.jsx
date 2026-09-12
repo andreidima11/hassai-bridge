@@ -10,6 +10,7 @@ import { Sidebar } from "./components/Sidebar.jsx";
 import {
   apiJson,
   apiUrl,
+  approveChatTool,
   cancelChat,
   clearPendingTrace,
   ensureFreshBuild,
@@ -1146,6 +1147,11 @@ export default function App() {
             onReuseMessage={reuseMessage}
             onPickFollowup={pickRecommendation}
             onManageFollowup={manageRecommendation}
+            onApproveTool={async (callId, decision, scope) => {
+              const tid = traceIdRef.current;
+              if (!tid || !callId) return;
+              await approveChatTool(tid, callId, decision, scope);
+            }}
           />
           {manageChip ? (
             <ChipManageModal

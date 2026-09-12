@@ -82,6 +82,17 @@ export function cancelChat(traceId) {
   return apiJson(`/v1/chat/cancel/${encodeURIComponent(traceId)}`, { method: "POST" });
 }
 
+export function approveChatTool(traceId, callId, decision, scope = "once") {
+  return apiJson(`/v1/chat/approve/${encodeURIComponent(traceId)}`, {
+    method: "POST",
+    body: JSON.stringify({
+      call_id: callId,
+      decision,
+      scope,
+    }),
+  });
+}
+
 export function traceStoreKey(username) {
   return `hassai.chat.trace.${username || "default"}`;
 }

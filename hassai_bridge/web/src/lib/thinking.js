@@ -35,11 +35,19 @@ export function applyActivity(thinking, ev, fallbackLabel) {
     else next.steps.push(row);
     return next;
   }
-  next.active = ev.status === "running";
+  const awaiting = ev.status === "awaiting_approval";
+  next.active = ev.status === "running" || awaiting;
   const id = String(ev.id || `i${ev.i ?? ""}`);
   const idx = next.steps.findIndex((s) => s.id === id);
-  const row = { id, name, status: ev.status, detail: ev.detail || "", ms: ev.ms };
-  if (idx >= 0) next.steps[idx] = row;
+  const row = {
+    id,
+    name,
+    status: ev.status,
+    detail: ev.detail || ev.args_preview || "",
+    args_preview: ev.args_preview || "",
+    ms: ev.ms,
+  };
+  if (idx >= 0) next.steps[idx] = { ...next.steps[idx], ...row };
   else next.steps.push(row);
   return next;
 }

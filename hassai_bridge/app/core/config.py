@@ -86,6 +86,13 @@ DEFAULT_CONFIG = {
         "base_url": "http://ccab4aaf-frigate:5000",
         "timeout": 12,
     },
+    "browser": {
+        "enabled": False,
+        "ha_url": "http://homeassistant:8123",
+        "access_token": "",
+        "allowlist": [],
+        "keep_warm": False,
+    },
     "voice": {
         "enabled": False,
         "provider": "google",

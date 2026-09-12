@@ -53,7 +53,7 @@ COMPACT_HA_AGENT_PROMPT = """Home Assistant copilot. Tools: {tools}.
 
 Simple commands (lights, switches, status): ha_list_entities → ha_get_state → ha_call_service (confirm=true for writes).
 Device on/off/running: read entity state — not automations. Lights may be switch.* relays.
-Mutations need confirm=true. Stop after the job is done — no narration."""
+Mutations are gated by the user's Approve / Decline UI in chat — call tools normally; do not invent a confirm=false preview loop. Stop after the job is done — no narration."""
 
 HA_ENTITY_TOOLS = frozenset({
     "ha_list_entities",

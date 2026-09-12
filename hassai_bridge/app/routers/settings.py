@@ -54,6 +54,7 @@ class SettingsUpdate(BaseModel):
     lmstudio: dict | None = None
     searxng: dict | None = None
     frigate: dict | None = None
+    browser: dict | None = None
     memory: dict | None = None
     voice: dict | None = None
     performance: dict | None = None
@@ -266,6 +267,13 @@ async def update_settings(data: SettingsUpdate):
         cfg["searxng"].update(data.searxng)
     if data.frigate is not None:
         cfg.setdefault("frigate", {}).update(data.frigate)
+    if data.browser is not None:
+        incoming = dict(data.browser)
+        if "allowlist" in incoming and isinstance(incoming["allowlist"], str):
+            incoming["allowlist"] = [
+                p.strip() for p in incoming["allowlist"].replace(",", "\n").splitlines() if p.strip()
+            ]
+        cfg.setdefault("browser", {}).update(incoming)
     if data.memory is not None:
         incoming = dict(data.memory)
         if isinstance(incoming.get("auto_consolidation"), dict):

@@ -73,6 +73,7 @@ def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
         "activate_toolkits",
         "currency_convert",
         "currency_rates",
+        "browser_interact",
     ):
         return True
     if fn_name in _MEDIA_TOOL_NAMES or fn_name in _FRIGATE_TOOL_NAMES:
@@ -110,9 +111,10 @@ def _agentic_instruction() -> str:
         "Keep using tools until the task is actually done — inspect, change, verify, fix, then stop. "
         "Never ask \"should I continue?\" or \"want me to proceed?\". "
         "Read-only questions (explain, what does X do, list, show): use 1–3 tool calls, then answer clearly — do not loop tools or expose chain-of-thought. "
-        "If the user asked you to change Home Assistant (entities, cards, files, automations, reloads), "
-        "set confirm=true and do it. Only pause when the request is ambiguous or truly destructive "
-        "and they did not ask for that change. End with a short summary of what you did."
+        "Risky changes (Home Assistant writes, deletes, browser actions, settings) are gated by the "
+        "user's Approve / Decline UI — call the tool normally; do not ask them to confirm in chat "
+        "and do not invent a confirm=false preview loop. If a tool result says the user declined, "
+        "acknowledge briefly and stop that action. End with a short summary of what you did."
     )
 
 
@@ -383,6 +385,9 @@ def _tool_detail(name: str, args: dict) -> str:
         return _clip_detail(args.get("url") or args.get("focus") or "")
     if name == "generate_image":
         return _clip_detail(args.get("prompt"))
+    if name == "browser_interact":
+        bits = [args.get("action") or "", args.get("url") or args.get("selector") or ""]
+        return _clip_detail(" ".join(str(b) for b in bits if b))
     if name == "run_skill":
         return _clip_detail(args.get("skill_name"))
     if name in {"media_list", "media_read", "media_delete"}:
@@ -580,6 +585,12 @@ def _trace_cancel(trace_id: str) -> bool:
     bucket["cancelled"] = True
     bucket["status"] = "cancelled"
     bucket["ts"] = time.time()
+    try:
+        from services import tool_approval as ta
+
+        ta.cancel_trace(trace_id)
+    except Exception:
+        pass
     return True
 
 
@@ -1307,6 +1318,18 @@ async def _invoke_internal_tool(
         )
         return f"[Skill '{skill_name}' result]\n{body}", False
 
+    if fn_name == "browser_interact":
+        from services import browser_interact as bi
+
+        log.info("AI requested browser_interact: %s", args.get("action"))
+        return await bi.run_tool(
+            args,
+            user_id=user_id,
+            session_id=session_id,
+            generated_attachments=generated_attachments,
+            cfg=cfg or load_config(),
+        ), False
+
     if fn_name in _MEDIA_TOOL_NAMES:
         if not bta.group_enabled("media", load_config()):
             return "Error: media tools are disabled in Settings (HASSAI Bridge tool permissions).", False
@@ -1365,12 +1388,12 @@ async def _append_internal_tool_results(
         args = _parse_tool_args(fn.get("arguments"))
         detail = _tool_detail(fn_name, args)
         fp = _tool_fingerprint(fn_name, args)
-        await _fire_activity(on_event, {
-            "id": tc_id, "name": fn_name, "detail": detail, "status": "running",
-        })
         started = time.time()
         if _should_skip_repeated_tool(fn_name, args, fingerprints, fp):
             log.info("Skipping repeated tool %s", fp[:80])
+            await _fire_activity(on_event, {
+                "id": tc_id, "name": fn_name, "detail": detail, "status": "running",
+            })
             content = (
                 "Repeated tool call skipped — you already received this result. "
                 "Do not call the same tool with the same arguments again. "
@@ -1381,10 +1404,60 @@ async def _append_internal_tool_results(
                 "status": "skip", "ms": int((time.time() - started) * 1000),
             })
         else:
+            from services import tool_approval as ta
+
+            run_args = args
+            approved = True
+            if ta.needs_approval(fn_name, args):
+                if ta.is_conversation_allowed(session_id, fn_name, args):
+                    run_args = ta.inject_confirm(args)
+                else:
+                    preview = ta.args_preview(fn_name, args)
+                    await _fire_activity(on_event, {
+                        "id": tc_id,
+                        "name": fn_name,
+                        "detail": detail or preview,
+                        "status": "awaiting_approval",
+                        "args_preview": preview,
+                    })
+                    fut = ta.register_pending(
+                        trace_id, tc_id, name=fn_name, args=args, detail=detail or preview,
+                    )
+                    decision = await ta.wait_decision(fut)
+                    await _check_trace(trace_id)
+                    dec = str(decision.get("decision") or "decline").lower()
+                    if dec == "approve":
+                        run_args = ta.inject_confirm(args)
+                        approved = True
+                    elif dec == "timeout":
+                        approved = False
+                        content = ta.TIMEOUT_RESULT
+                    elif dec == "cancelled":
+                        raise TraceCancelled(trace_id)
+                    else:
+                        approved = False
+                        content = ta.DECLINED_RESULT
+                    if not approved:
+                        await _fire_activity(on_event, {
+                            "id": tc_id, "name": fn_name, "detail": detail or preview,
+                            "status": "skip", "ms": int((time.time() - started) * 1000),
+                        })
+                        fingerprints.append(fp)
+                        augmented.append({
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "name": fn_name,
+                            "content": content,
+                        })
+                        continue
+
+            await _fire_activity(on_event, {
+                "id": tc_id, "name": fn_name, "detail": detail, "status": "running",
+            })
             fingerprints.append(fp)
             content, used_search = await _invoke_internal_tool(
                 fn_name,
-                args,
+                run_args,
                 search_enabled=search_enabled,
                 provider=provider,
                 image_gen_provider=image_gen_provider,
@@ -2811,6 +2884,46 @@ async def chat_cancel(trace_id: str, request: Request):
     return {"ok": True, "cancelled": cancelled}
 
 
+@router.post("/v1/chat/approve/{trace_id}")
+async def chat_approve(trace_id: str, request: Request):
+    """Approve or decline a risky tool paused mid-loop (Cursor-style gate)."""
+    _validate_api_key(request)
+    _trace_gc()
+    safe_id = _sanitize_trace_id(trace_id)
+    if not safe_id:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"message": "Invalid trace_id", "type": "invalid_request_error"}},
+        )
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    call_id = str(body.get("call_id") or "").strip()
+    decision = str(body.get("decision") or "").strip().lower()
+    scope = str(body.get("scope") or "once").strip().lower()
+    if not call_id:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"message": "call_id required", "type": "invalid_request_error"}},
+        )
+    bucket = _traces.get(safe_id)
+    session_id = str((bucket or {}).get("session_id") or body.get("session_id") or "")
+    from services import tool_approval as ta
+
+    result = ta.resolve(
+        safe_id, call_id, decision=decision, scope=scope, session_id=session_id,
+    )
+    if not result.get("ok"):
+        return JSONResponse(
+            status_code=404 if "No pending" in str(result.get("error") or "") else 400,
+            content={"error": {"message": result.get("error") or "Failed", "type": "invalid_request_error"}},
+        )
+    return result
+
+
 @router.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
@@ -2833,6 +2946,10 @@ async def chat_completions(request: Request):
         all_tools.append(_search_web_tool(cfg))
         all_tools.append(_fetch_url_tool(cfg))
     all_tools.extend(currency_fx.TOOL_SPECS)
+    from services import browser_interact as bi
+
+    if bi.is_enabled(cfg):
+        all_tools.append(bi.TOOL_SPEC)
     all_tools.extend(_build_skill_tools())
     if bta.group_enabled("media", cfg):
         all_tools.extend(_MEDIA_TOOLS)

@@ -3,14 +3,53 @@ import { ChevronIcon } from "./Icons.jsx";
 import { activityVerb, formatMs, liveThinkingLabel, tr } from "../lib/i18n.js";
 import { toolSteps } from "../lib/thinking.js";
 
-function StepRow({ step, lang }) {
+function ApprovalCard({ step, lang, busy, onDecide }) {
+  const preview = String(step.args_preview || step.detail || "").trim();
+  return (
+    <div className="relative my-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[13px] leading-snug">
+      <div className="font-medium text-foreground">
+        {tr(lang, "approvalTitle")} · {activityVerb(lang, step.name)}
+      </div>
+      {preview ? (
+        <p className="mt-1 break-words text-[12px] text-muted-foreground/90">{preview}</p>
+      ) : null}
+      <div className="mt-2.5 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-lg bg-emerald-500/90 px-2.5 py-1 text-[12px] font-semibold text-white disabled:opacity-50"
+          onClick={() => onDecide?.("approve", "once")}
+        >
+          {tr(lang, "approvalApprove")}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-lg bg-white/10 px-2.5 py-1 text-[12px] font-semibold text-foreground disabled:opacity-50"
+          onClick={() => onDecide?.("decline", "once")}
+        >
+          {tr(lang, "approvalDecline")}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-lg border border-white/15 px-2.5 py-1 text-[12px] font-medium text-muted-foreground disabled:opacity-50"
+          onClick={() => onDecide?.("approve", "conversation")}
+        >
+          {tr(lang, "approvalAllowChat")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StepRow({ step, lang, onApprove, approvalBusy }) {
   const running = step.status === "running";
+  const awaiting = step.status === "awaiting_approval";
   const done = step.status === "done";
   const skipped = step.status === "skip";
   const isThink = step.name === "think";
 
-  // What the model said on its way to the answer — full sentence, not truncated
-  // like a tool argument.
   if (step.name === "say") {
     return (
       <div className="relative flex min-w-0 items-start gap-2.5 py-1 text-[13px] leading-snug">
@@ -39,6 +78,17 @@ function StepRow({ step, lang }) {
           ) : null}
         </div>
       </div>
+    );
+  }
+
+  if (awaiting) {
+    return (
+      <ApprovalCard
+        step={step}
+        lang={lang}
+        busy={approvalBusy}
+        onDecide={(decision, scope) => onApprove?.(step.id, decision, scope)}
+      />
     );
   }
 
@@ -77,25 +127,34 @@ function StepRow({ step, lang }) {
   );
 }
 
-export function Thinking({ thinking, lang, streaming = false }) {
+export function Thinking({ thinking, lang, streaming = false, onApprove = null }) {
   const steps = thinking.steps || [];
   const tools = toolSteps(steps);
   const hasSteps = steps.length > 0;
   const hasTools = tools.length > 0;
-  const isLive = Boolean(thinking.active || streaming);
+  const awaiting = steps.some((s) => s.status === "awaiting_approval");
+  const isLive = Boolean(thinking.active || streaming || awaiting);
   const canToggle = isLive || hasSteps;
   const [open, setOpen] = useState(false);
   const [autoClosed, setAutoClosed] = useState(false);
+  const [approvalBusy, setApprovalBusy] = useState(false);
 
   useEffect(() => {
-    if (!isLive && hasSteps && open && !autoClosed) {
+    if (awaiting) {
+      setOpen(true);
+      setAutoClosed(false);
+    }
+  }, [awaiting]);
+
+  useEffect(() => {
+    if (!isLive && hasSteps && open && !autoClosed && !awaiting) {
       const timer = window.setTimeout(() => {
         setOpen(false);
         setAutoClosed(true);
       }, 1000);
       return () => window.clearTimeout(timer);
     }
-  }, [isLive, hasSteps, open, autoClosed]);
+  }, [isLive, hasSteps, open, autoClosed, awaiting]);
 
   useEffect(() => {
     if (thinking.collapsed && !isLive) setOpen(false);
@@ -103,9 +162,21 @@ export function Thinking({ thinking, lang, streaming = false }) {
 
   if (!thinking.visible && !hasSteps) return null;
 
-  const headerLabel = isLive
-    ? liveThinkingLabel(lang, thinking)
-    : thinking.label || tr(lang, "thoughtBrief");
+  const headerLabel = awaiting
+    ? tr(lang, "approvalWaiting")
+    : isLive
+      ? liveThinkingLabel(lang, thinking)
+      : thinking.label || tr(lang, "thoughtBrief");
+
+  const handleDecide = async (callId, decision, scope) => {
+    if (!onApprove || approvalBusy) return;
+    setApprovalBusy(true);
+    try {
+      await onApprove(callId, decision, scope);
+    } finally {
+      setApprovalBusy(false);
+    }
+  };
 
   return (
     <div className="w-full">
@@ -120,7 +191,7 @@ export function Thinking({ thinking, lang, streaming = false }) {
         {isLive && !hasTools ? (
           <span className="thinking-shimmer truncate">{headerLabel}</span>
         ) : (
-          <span className="truncate">{headerLabel}</span>
+          <span className={`truncate ${awaiting ? "text-amber-300" : ""}`}>{headerLabel}</span>
         )}
         {!open && hasTools && !isLive ? (
           <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground/75">
@@ -131,7 +202,15 @@ export function Thinking({ thinking, lang, streaming = false }) {
       {open && canToggle ? (
         <div className="mt-0.5 ml-[7px] border-l border-white/10 pl-3.5">
           {hasSteps ? (
-            steps.map((step) => <StepRow key={step.id} lang={lang} step={step} />)
+            steps.map((step) => (
+              <StepRow
+                key={step.id}
+                lang={lang}
+                step={step}
+                onApprove={handleDecide}
+                approvalBusy={approvalBusy}
+              />
+            ))
           ) : isLive ? (
             <div className="flex items-center gap-2.5 py-1.5 text-[13px] text-muted-foreground">
               <span

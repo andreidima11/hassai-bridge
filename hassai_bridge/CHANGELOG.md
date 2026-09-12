@@ -1,5 +1,14 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.6.0
+
+### Features
+- **Tool approval in chat** — risky tools (HA writes/deletes, media delete, settings, browser) pause with Approve / Decline / Allow for this chat (Cursor-style), instead of the model inventing `confirm=true`
+- **browser_interact** — optional headless Chromium in the add-on: open allowlisted pages, click/scroll/type, screenshot into chat. Settings → Cameras: enable, HA URL, long-lived token, domain allowlist
+
+### Note
+- Chromium adds image size and RAM when the browser is active; leave the tool disabled if you do not need visual checks
+
 ## 1.5.13
 
 ### Fix
