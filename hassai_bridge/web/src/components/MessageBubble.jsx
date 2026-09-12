@@ -245,7 +245,9 @@ export function MessageBubble({
           {message.thinking?.visible ? (
             <Thinking thinking={message.thinking} lang={lang} streaming={streaming} />
           ) : null}
-          {awaitingSteps.map((step) => (
+          {awaitingSteps
+            .filter((step) => step.enable_group)
+            .map((step) => (
             <ApprovalCard
               key={`approve-${step.id}`}
               step={step}

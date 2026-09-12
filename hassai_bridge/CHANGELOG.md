@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.6.6
+
+### Fix
+- **Approvals only for Settings-disabled tools** — groups already ON run without Approve/Decline (including browser sites). Approve remains only to enable an OFF group for this chat or Save in Settings.
+
 ## 1.6.5
 
 ### Fix

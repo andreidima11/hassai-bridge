@@ -12,7 +12,7 @@ GROUP_KEYS: dict[str, str] = {
     "status": "Read own version, provider, settings and usage",
     "control": "Change own settings, provider and model",
     "media": "List, read and delete files in /media and /share",
-    "browser": "Open pages (Approve in chat), click, and screenshot (Chromium)",
+    "browser": "Open pages, click, and screenshot (Chromium)",
 }
 
 DEFAULT_BRIDGE_TOOLS: dict[str, bool] = {

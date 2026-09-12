@@ -13,7 +13,7 @@ def test_url_allowed_blocks_file_not_offlist():
     }
     ok, _ = bi.url_allowed("https://example.com/docs", cfg)
     assert ok
-    # Off-list hosts are allowed at the policy layer — chat Approve gates them.
+    # Off-list hosts are allowed when Browser is ON (Settings gate, not allowlist).
     ok, _ = bi.url_allowed("https://evil.test/", cfg)
     assert ok
     ok, reason = bi.url_allowed("file:///etc/passwd", cfg)

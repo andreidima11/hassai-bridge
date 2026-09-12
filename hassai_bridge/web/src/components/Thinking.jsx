@@ -3,22 +3,17 @@ import { ChevronIcon } from "./Icons.jsx";
 import { activityVerb, formatMs, liveThinkingLabel, tr } from "../lib/i18n.js";
 import { toolSteps } from "../lib/thinking.js";
 
+/** Enable-group Approve / Decline card (Settings-disabled tools only). */
 export function ApprovalCard({ step, lang, busy, onDecide }) {
   const preview = String(step.args_preview || step.detail || "").trim();
-  const enabling = Boolean(step.enable_group);
   return (
     <div
       className="w-full max-w-xl rounded-2xl border border-amber-500/35 bg-amber-500/[0.12] px-4 py-3.5 text-[14px] leading-snug"
       data-approval="true"
       role="group"
-      aria-label={enabling ? tr(lang, "enableTitle") : tr(lang, "approvalTitle")}
+      aria-label={tr(lang, "enableTitle")}
     >
-      <div className="font-semibold text-foreground">
-        {enabling ? tr(lang, "enableTitle") : tr(lang, "approvalTitle")}
-        {!enabling ? (
-          <span className="font-normal text-muted-foreground"> · {activityVerb(lang, step.name)}</span>
-        ) : null}
-      </div>
+      <div className="font-semibold text-foreground">{tr(lang, "enableTitle")}</div>
       {preview ? (
         <p className="mt-1.5 break-words text-[13px] text-muted-foreground">{preview}</p>
       ) : null}
@@ -29,7 +24,7 @@ export function ApprovalCard({ step, lang, busy, onDecide }) {
           className="rounded-xl bg-emerald-500/90 px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
           onClick={() => onDecide?.("approve", "once")}
         >
-          {enabling ? tr(lang, "enableApprove") : tr(lang, "approvalApprove")}
+          {tr(lang, "enableApprove")}
         </button>
         <button
           type="button"
@@ -39,25 +34,14 @@ export function ApprovalCard({ step, lang, busy, onDecide }) {
         >
           {tr(lang, "approvalDecline")}
         </button>
-        {enabling ? (
-          <button
-            type="button"
-            disabled={busy}
-            className="rounded-xl border border-white/15 px-3 py-1.5 text-[13px] font-medium text-muted-foreground disabled:opacity-50"
-            onClick={() => onDecide?.("approve", "settings")}
-          >
-            {tr(lang, "enableSaveSettings")}
-          </button>
-        ) : (
-          <button
-            type="button"
-            disabled={busy}
-            className="rounded-xl border border-white/15 px-3 py-1.5 text-[13px] font-medium text-muted-foreground disabled:opacity-50"
-            onClick={() => onDecide?.("approve", "conversation")}
-          >
-            {tr(lang, "approvalAllowChat")}
-          </button>
-        )}
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-xl border border-white/15 px-3 py-1.5 text-[13px] font-medium text-muted-foreground disabled:opacity-50"
+          onClick={() => onDecide?.("approve", "settings")}
+        >
+          {tr(lang, "enableSaveSettings")}
+        </button>
       </div>
     </div>
   );

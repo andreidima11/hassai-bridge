@@ -38,7 +38,7 @@ _SENSITIVE_PATH_PREFIXES = (
 
 _sessions: dict[str, "BrowserSession"] = {}
 _lock = asyncio.Lock()
-# session_id → hosts approved for this chat (Approve / Allow for this chat)
+# session_id → hosts remembered this chat (optional; not used as an Approve gate)
 _session_hosts: dict[str, set[str]] = {}
 
 
@@ -71,7 +71,7 @@ def host_from_url(url: str) -> str:
 
 
 def host_preapproved(url: str, cfg: dict | None = None, session_id: str | None = None) -> bool:
-    """True when Settings allowlist (or HA defaults) already trust this host."""
+    """True when host is on Settings allowlist, HA defaults, or session memory."""
     host = host_from_url(url)
     if not host:
         return False
@@ -86,8 +86,8 @@ TOOL_SPEC = {
         "description": (
             "Open a web page in a headless browser, take screenshots, click, scroll, or type. "
             "Use to visually verify Home Assistant dashboards and other sites after changes. "
-            "Each new site pauses for Approve / Decline in the chat UI (optional Settings "
-            "allowlist skips the prompt for listed hosts). Always screenshot after navigate/click."
+            "Requires Browser ON in Settings (or Approve to enable for this chat). "
+            "Always screenshot after navigate/click."
         ),
         "parameters": {
             "type": "object",

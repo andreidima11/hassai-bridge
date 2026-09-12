@@ -475,15 +475,15 @@
 
       <div class="card">
         <h2 data-i18n="settings.browser">Browser tool options</h2>
-        <p class="card-muted" data-i18n="settings.browserDesc">Turn the tool on above under Bridge permissions. Optional: HA URL, long-lived token (HA pages only), and domains that skip Approve. Other sites ask Approve / Decline in chat.</p>
+        <p class="card-muted" data-i18n="settings.browserDesc">Turn the tool on above under Bridge permissions. Optional: HA URL and long-lived token (HA pages only). When Browser is ON, sites open without Approve; turn the group OFF to require enable approval first.</p>
         <label data-i18n="settings.browserHaUrl">Home Assistant URL (for dashboards)</label>
         <input type="text" id="browserHaUrl" placeholder="http://homeassistant:8123">
         <label data-i18n="settings.browserToken">Long-lived access token (optional, HA pages only)</label>
         <input type="password" id="browserToken" placeholder="" autocomplete="off">
         <p class="card-muted" style="margin-top:4px" data-i18n="settings.browserTokenHint">Recommended for authenticated Lovelace. Create under HA profile → Long-lived access tokens. Left empty, the add-on tries SUPERVISOR_TOKEN (may not log into the UI).</p>
-        <label data-i18n="settings.browserAllowlist">Pre-approved domains (optional, one per line)</label>
+        <label data-i18n="settings.browserAllowlist">Preferred domains (optional, one per line)</label>
         <textarea id="browserAllowlist" rows="4" placeholder="example.com&#10;docs.example.com"></textarea>
-        <p class="card-muted" style="margin-top:4px" data-i18n="settings.browserAllowlistHint">Hosts listed here skip the Approve prompt. Everything else asks in chat. HA host is always pre-approved.</p>
+        <p class="card-muted" style="margin-top:4px" data-i18n="settings.browserAllowlistHint">Optional list of domains you care about. Does not gate browsing when Browser is ON in permissions.</p>
         <div class="toggle-row">
           <span data-i18n="settings.browserKeepWarm">Keep browser warm between chats</span>
           <label class="toggle"><input type="checkbox" id="browserKeepWarm"><span class="slider"></span></label>

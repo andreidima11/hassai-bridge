@@ -183,10 +183,11 @@ def _agentic_instruction() -> str:
         "Keep using tools until the task is actually done — inspect, change, verify, fix, then stop. "
         "Never ask \"should I continue?\" or \"want me to proceed?\". "
         "Read-only questions (explain, what does X do, list, show): use 1–3 tool calls, then answer clearly — do not loop tools or expose chain-of-thought. "
-        "Risky changes (Home Assistant writes, deletes, browser actions, settings) are gated by the "
-        "user's Approve / Decline UI — call the tool normally; do not ask them to confirm in chat "
-        "and do not invent a confirm=false preview loop. If a tool result says the user declined, "
-        "acknowledge briefly and stop that action. End with a short summary of what you did."
+        "Tool groups ON in Settings are already approved — call those tools and do the work. "
+        "If a group is OFF, call request_enable_tools (or the real tool) so the user gets "
+        "Approve / Decline in chat to enable it for this chat or Save in Settings — "
+        "do not invent a confirm=false preview loop. If they decline, acknowledge briefly and stop. "
+        "End with a short summary of what you did."
     )
 
 
@@ -1609,7 +1610,7 @@ async def _append_internal_tool_results(
                         })
                         continue
                     # Fall through to run the original gated tool
-                    run_args = ta.inject_confirm(args) if ta.needs_approval(fn_name, args) else args
+                    run_args = ta.inject_confirm(args) if ta.is_risky(fn_name) else args
                 elif dec == "timeout":
                     approved = False
                     content = ta.TIMEOUT_RESULT
@@ -1648,70 +1649,10 @@ async def _append_internal_tool_results(
                 })
                 continue
 
-            if ta.needs_approval(fn_name, args):
-                from services import browser_interact as bi
-
-                preapproved = False
-                if fn_name == "browser_interact":
-                    action = str(args.get("action") or "").strip().lower()
-                    if action == "open" and bi.host_preapproved(
-                        str(args.get("url") or ""), cfg, session_id,
-                    ):
-                        preapproved = True
-                    elif action != "open" and (
-                        ta.is_conversation_allowed(session_id, fn_name, args)
-                        or bool(bi.session_hosts(session_id))
-                    ):
-                        # Follow-up actions after an approved open this chat
-                        preapproved = True
-                if preapproved or ta.is_conversation_allowed(session_id, fn_name, args):
-                    run_args = ta.inject_confirm(args)
-                else:
-                    preview = ta.args_preview(fn_name, args)
-                    await _fire_activity(on_event, {
-                        "id": tc_id,
-                        "name": fn_name,
-                        "detail": detail or preview,
-                        "status": "awaiting_approval",
-                        "args_preview": preview,
-                    })
-                    fut = ta.register_pending(
-                        trace_id, tc_id, name=fn_name, args=args, detail=detail or preview,
-                    )
-                    decision = await ta.wait_decision(fut)
-                    await _check_trace(trace_id)
-                    dec = str(decision.get("decision") or "decline").lower()
-                    scope = str(decision.get("scope") or "once").lower()
-                    if dec == "approve":
-                        run_args = ta.inject_confirm(args)
-                        approved = True
-                        if fn_name == "browser_interact":
-                            host = bi.host_from_url(str(args.get("url") or ""))
-                            if host:
-                                bi.grant_session_host(session_id, host)
-                        if scope == "conversation":
-                            ta.grant_conversation(session_id, fn_name, args)
-                    elif dec == "timeout":
-                        approved = False
-                        content = ta.TIMEOUT_RESULT
-                    elif dec == "cancelled":
-                        raise TraceCancelled(trace_id)
-                    else:
-                        approved = False
-                        content = ta.DECLINED_RESULT
-                    if not approved:
-                        await _fire_activity(on_event, {
-                            "id": tc_id, "name": fn_name, "detail": detail or preview,
-                            "status": "skip", "ms": int((time.time() - started) * 1000),
-                        })
-                        fingerprints.append(fp)
-                        augmented.append({
-                            "role": "tool",
-                            "tool_call_id": tc_id,
-                            "name": fn_name,
-                            "content": content,
-                        })
-                        continue
+            # Settings ON (or just granted) = trusted. Auto-satisfy legacy confirm=true
+            # handlers; no per-call Approve bubble.
+            if ta.is_risky(fn_name):
+                run_args = ta.inject_confirm(args)
 
             await _fire_activity(on_event, {
                 "id": tc_id, "name": fn_name, "detail": detail, "status": "running",
@@ -2637,8 +2578,8 @@ _MEDIA_TOOLS = [
         "function": {
             "name": "media_delete",
             "description": (
-                "Delete one file from /media or /share. Irreversible — confirm=true is required, "
-                "and only when the user asked for the deletion."
+                "Delete one file from /media or /share. Irreversible. "
+                "Requires media tools ON in Settings; confirm is injected when allowed."
             ),
             "parameters": {
                 "type": "object",
@@ -3148,7 +3089,7 @@ async def chat_cancel(trace_id: str, request: Request):
 
 @router.post("/v1/chat/approve/{trace_id}")
 async def chat_approve(trace_id: str, request: Request):
-    """Approve or decline a risky tool paused mid-loop (Cursor-style gate)."""
+    """Approve or decline enabling a Settings-disabled tool group (or legacy pending)."""
     _validate_api_key(request)
     _trace_gc()
     safe_id = _sanitize_trace_id(trace_id)

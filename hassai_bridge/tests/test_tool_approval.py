@@ -17,6 +17,9 @@ def test_risky_tools_include_ha_and_extras():
     assert ta.is_risky("hassai_set_setting")
     assert not ta.is_risky("ha_get_state")
     assert not ta.is_risky("search_web")
+    # Per-call UI gate removed — Settings-disabled groups use enable flow instead.
+    assert ta.needs_approval("ha_call_service") is False
+    assert ta.needs_approval("browser_interact") is False
 
 
 def test_inject_confirm():

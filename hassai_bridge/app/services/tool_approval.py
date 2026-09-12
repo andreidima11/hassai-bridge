@@ -1,7 +1,8 @@
-"""Cursor-style mid-loop approval for risky tools.
+"""Mid-loop approval for enabling Settings-disabled tool groups.
 
-The agent loop parks on an asyncio.Future until the Web UI posts
-approve / decline (or the request times out / the trace is cancelled).
+Per-call risky-tool gating was removed: groups ON in Settings run immediately
+(with confirm=true injected for legacy handlers). Approve / Decline is only for
+turning a disabled group on (this chat or Save in Settings).
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from typing import Any
 
 from services.lovelace_tools import HA_MUTATING_TOOLS
 
-# Extra mutating tools outside HA_MUTATING_TOOLS.
+# Tools that still need confirm=true injected when Settings already allow them.
 _EXTRA_RISKY = frozenset({
     "media_delete",
     "browser_interact",
@@ -36,21 +37,22 @@ TIMEOUT_RESULT = "User did not approve this action in time (auto-declined)."
 
 # trace_id → {call_id → pending dict}
 _pending: dict[str, dict[str, dict[str, Any]]] = {}
-# session_id → set of conversation-scoped allow keys
+# session_id → set of conversation-scoped allow keys (legacy; unused by chat gate)
 _conversation_allow: dict[str, set[str]] = {}
 
 
 def is_risky(name: str | None) -> bool:
+    """True when the tool expects confirm=true on execute (auto-injected when allowed)."""
     return bool(name) and str(name) in RISKY_TOOLS
 
 
 def needs_approval(name: str | None, args: dict | None = None) -> bool:
-    """True when the UI must gate this call (before execution)."""
-    return is_risky(name)
+    """Per-call UI gate — always False; Settings-disabled groups use enable flow instead."""
+    return False
 
 
 def conversation_allow_key(name: str, args: dict | None = None) -> str:
-    """Coarse key for 'Allow for this chat' — tool name + domain.service when present."""
+    """Coarse key for legacy conversation allow (kept for tests / API resolve)."""
     args = args if isinstance(args, dict) else {}
     if name == "ha_call_service":
         domain = str(args.get("domain") or "").strip().lower()
@@ -59,17 +61,6 @@ def conversation_allow_key(name: str, args: dict | None = None) -> str:
             return f"{name}:{domain}.{service}"
     if name == "browser_interact":
         action = str(args.get("action") or "").strip().lower()
-        url = str(args.get("url") or "").strip()
-        host = ""
-        if url:
-            try:
-                from urllib.parse import urlparse
-
-                host = (urlparse(url).hostname or "").lower().removeprefix("www.")
-            except Exception:
-                host = ""
-        if action == "open" and host:
-            return f"{name}:open:{host}"
         return f"{name}:{action or '*'}"
     return str(name or "")
 
@@ -89,7 +80,6 @@ def grant_conversation(session_id: str | None, name: str, args: dict | None = No
         return
     bucket = _conversation_allow.setdefault(sid, set())
     bucket.add(conversation_allow_key(name, args))
-    # Also allow the bare tool name so repeated similar calls are less noisy.
     bucket.add(str(name))
 
 
@@ -100,7 +90,7 @@ def clear_conversation(session_id: str | None) -> None:
 
 
 def inject_confirm(args: dict | None) -> dict:
-    """Satisfy legacy confirm=true handlers after UI approval."""
+    """Satisfy legacy confirm=true handlers when Settings already allow the tool."""
     out = dict(args or {})
     out["confirm"] = True
     return out
@@ -124,10 +114,9 @@ def args_preview(name: str, args: dict | None, *, limit: int = 280) -> str:
         if len(text) > limit:
             return text[: limit - 1] + "…"
         return text
-    # Prefer a few meaningful keys; fall back to compact JSON.
     prefer = (
         "action", "url", "path", "entity_id", "domain", "service", "name",
-        "what", "file_path", "dashboard", "view_path", "area_id", "key",
+        "what", "file_path", "dashboard", "view_path", "area_id", "key", "group",
     )
     bits: list[str] = []
     for key in prefer:
