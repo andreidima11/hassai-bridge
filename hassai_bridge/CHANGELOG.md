@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.6.7
+
+### Fix
+- **Approval card styling** — Approve / Decline / Save in Settings matches the chat chrome (neutral borders and buttons) instead of amber/emerald accents
+
 ## 1.6.6
 
 ### Fix

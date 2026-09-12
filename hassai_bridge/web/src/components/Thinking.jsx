@@ -3,25 +3,25 @@ import { ChevronIcon } from "./Icons.jsx";
 import { activityVerb, formatMs, liveThinkingLabel, tr } from "../lib/i18n.js";
 import { toolSteps } from "../lib/thinking.js";
 
-/** Enable-group Approve / Decline card (Settings-disabled tools only). */
+/** Enable-group Approve / Decline — matches chat chrome (neutral HA dark). */
 export function ApprovalCard({ step, lang, busy, onDecide }) {
   const preview = String(step.args_preview || step.detail || "").trim();
   return (
     <div
-      className="w-full max-w-xl rounded-2xl border border-amber-500/35 bg-amber-500/[0.12] px-4 py-3.5 text-[14px] leading-snug"
+      className="w-full max-w-md rounded-2xl border border-white/10 bg-card px-4 py-3.5 shadow-composer"
       data-approval="true"
       role="group"
       aria-label={tr(lang, "enableTitle")}
     >
-      <div className="font-semibold text-foreground">{tr(lang, "enableTitle")}</div>
+      <div className="text-[15px] font-medium text-foreground">{tr(lang, "enableTitle")}</div>
       {preview ? (
-        <p className="mt-1.5 break-words text-[13px] text-muted-foreground">{preview}</p>
+        <p className="mt-1.5 break-words text-[13px] leading-snug text-muted-foreground">{preview}</p>
       ) : null}
       <div className="mt-3 flex flex-wrap gap-2">
         <button
           type="button"
           disabled={busy}
-          className="rounded-xl bg-emerald-500/90 px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
+          className="rounded-xl bg-white/90 px-3 py-2 text-[13px] font-medium text-black transition hover:bg-white disabled:opacity-50"
           onClick={() => onDecide?.("approve", "once")}
         >
           {tr(lang, "enableApprove")}
@@ -29,7 +29,7 @@ export function ApprovalCard({ step, lang, busy, onDecide }) {
         <button
           type="button"
           disabled={busy}
-          className="rounded-xl bg-white/10 px-3 py-1.5 text-[13px] font-semibold text-foreground disabled:opacity-50"
+          className="rounded-xl border border-white/10 px-3 py-2 text-[13px] text-muted-foreground transition hover:bg-white/5 hover:text-foreground disabled:opacity-50"
           onClick={() => onDecide?.("decline", "once")}
         >
           {tr(lang, "approvalDecline")}
@@ -37,7 +37,7 @@ export function ApprovalCard({ step, lang, busy, onDecide }) {
         <button
           type="button"
           disabled={busy}
-          className="rounded-xl border border-white/15 px-3 py-1.5 text-[13px] font-medium text-muted-foreground disabled:opacity-50"
+          className="rounded-xl bg-white/[0.06] px-3 py-2 text-[13px] text-muted-foreground transition hover:bg-white/[0.1] hover:text-foreground disabled:opacity-50"
           onClick={() => onDecide?.("approve", "settings")}
         >
           {tr(lang, "enableSaveSettings")}
