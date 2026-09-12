@@ -1,5 +1,14 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.6.9
+
+### Fix
+- **Browser Chromium CDP** — connect to a page DevTools target (fixes `Page.enable` / `Emulation.*` missing); per-session user-data-dir; wait for document ready before acting; honor session grants after Approve
+- **Approve bubbles** — Romanian copy for enable + site prompts; Activează / Refuză (and Permite for sites); removed Save in Settings; sites off the allowlist ask Permite / Refuză with optional add-to-allowlist
+
+### Features
+- **Browser allowlist gate** — trusted domains open immediately; other hosts pause in chat (checkbox to remember in Settings)
+
 ## 1.6.8
 
 ### Fix

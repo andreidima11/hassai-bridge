@@ -1,8 +1,9 @@
 """Interactive headless browser for HASSAI (system Chromium + CDP).
 
 Playwright has no musllinux wheels (HA Alpine base), so we drive Chromium
-via the Chrome DevTools Protocol over websockets. Allowlisted domains only.
-Screenshots attach to chat like generated images.
+via the Chrome DevTools Protocol over websockets. Hosts on the Settings
+allowlist (plus HA defaults) open immediately; others pause for Allow /
+Decline in chat. Screenshots attach to chat like generated images.
 """
 
 from __future__ import annotations
@@ -13,7 +14,9 @@ import io
 import json
 import logging
 import os
+import shutil
 import socket
+import tempfile
 import time
 from typing import Any
 from urllib.parse import urlparse
@@ -38,7 +41,7 @@ _SENSITIVE_PATH_PREFIXES = (
 
 _sessions: dict[str, "BrowserSession"] = {}
 _lock = asyncio.Lock()
-# session_id → hosts remembered this chat (optional; not used as an Approve gate)
+# session_id → hosts allowed for this chat (Approve without allowlist persist)
 _session_hosts: dict[str, set[str]] = {}
 
 
@@ -79,6 +82,39 @@ def host_preapproved(url: str, cfg: dict | None = None, session_id: str | None =
         return True
     return host in allowed_hosts(cfg)
 
+
+def persist_host_to_allowlist(host: str) -> str:
+    """Append host to Settings → browser.allowlist. Returns status text."""
+    from config import load_config, save_config
+
+    h = _normalize_domain(host)
+    if not h:
+        return "Error: empty host"
+    cfg = load_config()
+    browser = dict(cfg.get("browser") or {})
+    allow = []
+    seen: set[str] = set()
+    for item in browser.get("allowlist") or []:
+        n = _normalize_domain(item)
+        if n and n not in seen:
+            seen.add(n)
+            allow.append(n)
+    if h not in seen:
+        allow.append(h)
+        browser["allowlist"] = allow
+        cfg["browser"] = browser
+        save_config(cfg)
+        return f"Added {h} to browser allowlist."
+    return f"{h} is already on the browser allowlist."
+
+
+def host_approval_preview(url: str) -> str:
+    host = host_from_url(url) or "site"
+    raw = str(url or "").strip()
+    if len(raw) > 120:
+        raw = raw[:119] + "…"
+    return f"{host} · {raw}" if raw else host
+
 TOOL_SPEC = {
     "type": "function",
     "function": {
@@ -87,7 +123,8 @@ TOOL_SPEC = {
             "Open a web page in a headless browser, take screenshots, click, scroll, or type. "
             "Use to visually verify Home Assistant dashboards and other sites after changes. "
             "Requires Browser ON in Settings (or Approve to enable for this chat). "
-            "Always screenshot after navigate/click."
+            "Hosts not on the browser allowlist pause for Allow / Decline in the chat UI "
+            "(optional: add to allowlist). Always screenshot after navigate/click."
         ),
         "parameters": {
             "type": "object",
@@ -182,7 +219,7 @@ def allowed_hosts(cfg: dict | None = None) -> set[str]:
 
 
 def url_allowed(url: str, cfg: dict | None = None, session_id: str | None = None) -> tuple[bool, str]:
-    """Validate scheme/path. Allowlist is optional pre-trust — not required to open."""
+    """Validate scheme/path. Host trust is separate (``host_preapproved``)."""
     raw = str(url or "").strip()
     if not raw:
         return False, "empty URL"
@@ -199,7 +236,6 @@ def url_allowed(url: str, cfg: dict | None = None, session_id: str | None = None
     for prefix in _SENSITIVE_PATH_PREFIXES:
         if path == prefix or path.startswith(prefix + "/"):
             return False, f"path '{path}' is blocked"
-    # session_id reserved for callers that also check host_preapproved
     _ = session_id
     return True, ""
 
@@ -220,6 +256,33 @@ def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def _page_ws_url_from_targets(payload: Any) -> str | None:
+    """Pick a page-target DevTools WebSocket (not the browser-level one).
+
+    ``/json/version`` returns ``webSocketDebuggerUrl`` for the *browser* target.
+    ``Page.*`` / ``Emulation.*`` only exist on page/tab targets from ``/json/list``.
+    """
+    if not isinstance(payload, list):
+        return None
+    pages: list[dict] = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        ws = item.get("webSocketDebuggerUrl")
+        if not ws:
+            continue
+        if item.get("type") in {"page", "webview"}:
+            pages.append(item)
+    # Prefer about:blank / the first page Chromium opened with our CLI args.
+    for item in pages:
+        url = str(item.get("url") or "")
+        if url.startswith("about:"):
+            return str(item["webSocketDebuggerUrl"])
+    if pages:
+        return str(pages[0]["webSocketDebuggerUrl"])
+    return None
 
 
 class CdpClient:
@@ -293,21 +356,33 @@ class BrowserSession:
         self.authenticated_ha = False
         self._url = "about:blank"
         self._title = ""
+        self._stderr_buf = bytearray()
+        self._stderr_task: asyncio.Task | None = None
+        self._profile_dir: str | None = None
+        self._ensure_lock = asyncio.Lock()
 
     async def ensure(self, cfg: dict | None = None, *, viewport: str = "desktop") -> None:
+        async with self._ensure_lock:
+            await self._ensure_locked(cfg, viewport=viewport)
+
+    async def _ensure_locked(self, cfg: dict | None = None, *, viewport: str = "desktop") -> None:
         self.last_used = time.time()
         self._viewport = dict(_MOBILE_VIEWPORT if viewport == "mobile" else _DEFAULT_VIEWPORT)
         if self._cdp is not None and self._proc and self._proc.returncode is None:
-            await self._cdp.call(
-                "Emulation.setDeviceMetricsOverride",
-                {
-                    "width": self._viewport["width"],
-                    "height": self._viewport["height"],
-                    "deviceScaleFactor": 1,
-                    "mobile": viewport == "mobile",
-                },
-            )
-            return
+            try:
+                await self._cdp.call(
+                    "Emulation.setDeviceMetricsOverride",
+                    {
+                        "width": self._viewport["width"],
+                        "height": self._viewport["height"],
+                        "deviceScaleFactor": 1,
+                        "mobile": viewport == "mobile",
+                    },
+                )
+                return
+            except Exception as exc:
+                log.warning("Existing CDP session unusable (%s) — restarting Chromium", exc)
+                await self.close()
 
         exe = _chromium_path()
         if not exe:
@@ -316,62 +391,124 @@ class BrowserSession:
             )
 
         self._port = _free_port()
-        args = [
-            exe,
-            "--headless=new",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-            "--disable-extensions",
-            "--disable-background-networking",
-            "--hide-scrollbars",
-            "--mute-audio",
-            f"--remote-debugging-address=127.0.0.1",
-            f"--remote-debugging-port={self._port}",
-            "--remote-allow-origins=*",
-            "about:blank",
-        ]
-        self._proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        ws_url = await self._wait_devtools(self._port)
-        ws = await websockets.connect(ws_url, max_size=32 * 1024 * 1024)
-        self._cdp = CdpClient(ws)
-        await self._cdp.start()
-        await self._cdp.call("Page.enable")
-        await self._cdp.call("Runtime.enable")
-        await self._cdp.call("DOM.enable")
-        await self._cdp.call(
-            "Emulation.setDeviceMetricsOverride",
-            {
-                "width": self._viewport["width"],
-                "height": self._viewport["height"],
-                "deviceScaleFactor": 1,
-                "mobile": viewport == "mobile",
-            },
-        )
+        # Prefer modern headless; fall back if the Alpine Chromium build rejects it.
+        headless_flags = ("--headless=new", "--headless")
+        last_launch_err: Exception | None = None
+        for headless in headless_flags:
+            if self._profile_dir:
+                shutil.rmtree(self._profile_dir, ignore_errors=True)
+            self._profile_dir = tempfile.mkdtemp(prefix="hassai-chrome-")
+            args = [
+                exe,
+                headless,
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-extensions",
+                "--disable-background-networking",
+                "--disable-crash-reporter",
+                "--hide-scrollbars",
+                "--mute-audio",
+                f"--user-data-dir={self._profile_dir}",
+                "--remote-debugging-address=127.0.0.1",
+                f"--remote-debugging-port={self._port}",
+                "--remote-allow-origins=*",
+                "about:blank",
+            ]
+            self._stderr_buf = bytearray()
+            self._proc = await asyncio.create_subprocess_exec(
+                *args,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            self._stderr_task = asyncio.create_task(self._drain_stderr())
+            try:
+                ws_url = await self._wait_devtools(self._port)
+                ws = await websockets.connect(ws_url, max_size=32 * 1024 * 1024)
+                self._cdp = CdpClient(ws)
+                await self._cdp.start()
+                await self._cdp.call("Page.enable")
+                await self._cdp.call("Runtime.enable")
+                await self._cdp.call("DOM.enable")
+                await self._cdp.call(
+                    "Emulation.setDeviceMetricsOverride",
+                    {
+                        "width": self._viewport["width"],
+                        "height": self._viewport["height"],
+                        "deviceScaleFactor": 1,
+                        "mobile": viewport == "mobile",
+                    },
+                )
+                last_launch_err = None
+                break
+            except Exception as exc:
+                last_launch_err = exc
+                log.warning("Chromium launch with %s failed: %s", headless, exc)
+                await self.close()
+                self._port = _free_port()
+        if last_launch_err is not None:
+            raise last_launch_err
+
+    async def _drain_stderr(self) -> None:
+        proc = self._proc
+        if not proc or not proc.stderr:
+            return
+        try:
+            while True:
+                chunk = await proc.stderr.read(4096)
+                if not chunk:
+                    break
+                self._stderr_buf.extend(chunk)
+                if len(self._stderr_buf) > 8000:
+                    del self._stderr_buf[:-4000]
+        except Exception:
+            pass
+
+    def _stderr_tail(self) -> str:
+        return bytes(self._stderr_buf).decode("utf-8", "replace")[-400:].strip()
 
     async def _wait_devtools(self, port: int, timeout: float = 20.0) -> str:
         deadline = time.time() + timeout
-        url = f"http://127.0.0.1:{port}/json/version"
         last_err = ""
         async with httpx.AsyncClient(timeout=2.0) as client:
             while time.time() < deadline:
                 if self._proc and self._proc.returncode is not None:
-                    raise RuntimeError(f"Chromium exited early (code {self._proc.returncode})")
+                    err_tail = self._stderr_tail()
+                    raise RuntimeError(
+                        f"Chromium exited early (code {self._proc.returncode})"
+                        + (f": {err_tail}" if err_tail else "")
+                    )
                 try:
-                    resp = await client.get(url)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        ws = data.get("webSocketDebuggerUrl")
+                    # Page/tab targets — required for Page.* / Emulation.*.
+                    for path in ("/json/list", "/json"):
+                        resp = await client.get(f"http://127.0.0.1:{port}{path}")
+                        if resp.status_code != 200:
+                            continue
+                        ws = _page_ws_url_from_targets(resp.json())
                         if ws:
-                            return str(ws)
+                            return ws
+                    # No page yet — ask Chromium to open one.
+                    for method in ("PUT", "GET"):
+                        try:
+                            resp = await client.request(
+                                method,
+                                f"http://127.0.0.1:{port}/json/new?about:blank",
+                            )
+                            if resp.status_code == 200:
+                                data = resp.json()
+                                if isinstance(data, dict) and data.get("webSocketDebuggerUrl"):
+                                    return str(data["webSocketDebuggerUrl"])
+                                ws = _page_ws_url_from_targets(
+                                    data if isinstance(data, list) else [data]
+                                )
+                                if ws:
+                                    return ws
+                        except Exception as exc:
+                            last_err = str(exc)
                 except Exception as exc:
                     last_err = str(exc)
                 await asyncio.sleep(0.15)
-        raise RuntimeError(f"Chromium DevTools not ready: {last_err or 'timeout'}")
+        raise RuntimeError(f"Chromium DevTools page target not ready: {last_err or 'timeout'}")
 
     async def close(self) -> None:
         if self._cdp:
@@ -380,6 +517,13 @@ class BrowserSession:
             except Exception:
                 pass
             self._cdp = None
+        if self._stderr_task:
+            self._stderr_task.cancel()
+            try:
+                await self._stderr_task
+            except Exception:
+                pass
+            self._stderr_task = None
         if self._proc and self._proc.returncode is None:
             try:
                 self._proc.terminate()
@@ -391,7 +535,11 @@ class BrowserSession:
             except Exception:
                 pass
         self._proc = None
+        self._stderr_buf = bytearray()
         self.authenticated_ha = False
+        if self._profile_dir:
+            shutil.rmtree(self._profile_dir, ignore_errors=True)
+            self._profile_dir = None
 
     async def evaluate(self, expression: str) -> Any:
         assert self._cdp
@@ -408,7 +556,16 @@ class BrowserSession:
     async def goto(self, url: str, wait_ms: int = 750) -> None:
         assert self._cdp
         await self._cdp.call("Page.navigate", {"url": url})
-        # Best-effort wait for load event + settle time
+        # Poll readyState — our CDP client ignores events, so no loadEventFired hook.
+        deadline = time.time() + 15.0
+        while time.time() < deadline:
+            try:
+                state = await self.evaluate("document.readyState")
+                if state in {"interactive", "complete"}:
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.2)
         await asyncio.sleep(max(0.2, wait_ms / 1000.0))
         try:
             self._title = str(await self.evaluate("document.title") or "")
@@ -576,7 +733,7 @@ async def run_tool(
     generated_attachments: list | None = None,
     cfg: dict | None = None,
 ) -> str:
-    if not is_enabled(cfg):
+    if not is_enabled(cfg, session_id):
         return "Error: browser_interact is disabled in Settings."
     action = str(args.get("action") or "").strip().lower()
     if action not in {"open", "screenshot", "click", "scroll", "type", "close"}:
@@ -597,12 +754,18 @@ async def run_tool(
     try:
         if action == "open":
             url = str(args.get("url") or "").strip()
-            ok, reason = url_allowed(url, cfg)
+            ok, reason = url_allowed(url, cfg, session_id)
             if not ok:
                 return f"Error: {reason}"
+            if not host_preapproved(url, cfg, session_id):
+                host = host_from_url(url) or "site"
+                return (
+                    f"Error: host “{host}” is not approved. "
+                    "The chat UI should have asked Allow / Decline first."
+                )
             ha_base = _ha_base_url(cfg)
             host = (urlparse(url).hostname or "")
-            if url.rstrip("/").startswith(ha_base.rstrip("/")) or "homeassistant" in host:
+            if url.rstrip("/").startswith(ha_base.rstrip("/")) or "homeassistant" in host.lower():
                 await sess.inject_ha_auth(cfg)
             await sess.goto(url, wait_ms=wait_ms or 750)
             return (

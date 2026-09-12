@@ -26,8 +26,40 @@ const I18N = {
     approvalAllowChat: "Allow for this chat",
     approvalWaiting: "Waiting for approval…",
     enableTitle: "Enable tools?",
-    enableApprove: "Enable for this chat",
+    enableApprove: "Enable",
     enableSaveSettings: "Save in Settings",
+    enablePreview: "Enable “{id}”?",
+    browserHostTitle: "Allow this site?",
+    browserHostAllow: "Allow",
+    browserHostDecline: "Decline",
+    browserHostAddAllowlist: "Add to allowlist",
+    browserHostPreview: "Open {host}?",
+    toolGroup_memory: "Read and write the assistant's long-term memory",
+    toolGroup_status: "Read own version, provider, settings and usage",
+    toolGroup_control: "Change own settings, provider and model",
+    toolGroup_media: "List, read and delete files in /media and /share",
+    toolGroup_browser: "Open pages, click, and screenshot (Chromium)",
+    toolGroup_entities: "Read entities, states, history, services, statistics",
+    toolGroup_ha_control: "Call services, notifications, media players, run scripts and scenes",
+    toolGroup_registry: "Mutate areas, labels, devices, floors, entity registry",
+    toolGroup_automations: "Create/edit automations, scripts, scenes; list/get traces",
+    toolGroup_integrations: "List, reload, disable, remove, configure integrations",
+    toolGroup_calendar: "Calendars, events, todo lists, shopping list",
+    toolGroup_helpers: "Create, update, delete input_*, timer, counter, schedule helpers",
+    toolGroup_dashboards: "Lovelace dashboards, views, cards",
+    toolGroup_config_files: "List, read, write YAML/JSON/txt in /config",
+    toolGroup_custom_code: "Edit custom_components/*.py",
+    toolGroup_diagnostics: "Logs, problems, config check, reload, recorder purge",
+    toolGroup_backups: "Supervisor backup list, create, restore",
+    toolGroup_addons: "Add-on start, stop, restart, list",
+    toolGroup_updates: "Check and install HA Core, OS, Supervisor, add-on updates",
+    toolGroup_restart: "Restart Home Assistant Core or reboot the host",
+    toolGroup_network: "Network info, ping, port checks",
+    toolGroup_upload: "Write binary files to /config, /media, /share",
+    toolGroup_zigbee: "ZHA / Z-Wave / Matter / Thread / Bluetooth diagnostics",
+    toolGroup_hacs: "HACS repository list, install/update, remove",
+    toolGroup_searxng: "Web search (SearXNG)",
+    toolGroup_frigate: "Frigate cameras",
     steps: "{n} steps · {s}s",
     thoughtFor: "Thought for {s}s",
     thoughtBrief: "Finished thinking",
@@ -241,9 +273,41 @@ const I18N = {
     approvalDecline: "Refuză",
     approvalAllowChat: "Permite pe chat",
     approvalWaiting: "Așteaptă aprobarea…",
-    enableTitle: "Activezi tool-urile?",
-    enableApprove: "Activează pe chat",
+    enableTitle: "Activezi uneltele?",
+    enableApprove: "Activează",
     enableSaveSettings: "Salvează în Setări",
+    enablePreview: "Activezi „{id}”?",
+    browserHostTitle: "Permiți site-ul?",
+    browserHostAllow: "Permite",
+    browserHostDecline: "Refuză",
+    browserHostAddAllowlist: "Adaugă la allowlist",
+    browserHostPreview: "Deschizi {host}?",
+    toolGroup_memory: "Citește și scrie memoria pe termen lung a asistentului",
+    toolGroup_status: "Citește versiunea, providerul, setările și utilizarea",
+    toolGroup_control: "Schimbă setările, providerul și modelul",
+    toolGroup_media: "Listează, citește și șterge fișiere din /media și /share",
+    toolGroup_browser: "Deschide pagini, click și screenshot (Chromium)",
+    toolGroup_entities: "Citește entități, stări, istoric, servicii, statistici",
+    toolGroup_ha_control: "Apelează servicii, notificări, media player, scripturi și scene",
+    toolGroup_registry: "Modifică zone, etichete, dispozitive, etaje, registry entități",
+    toolGroup_automations: "Creează/editează automatizări, scripturi, scene; urme",
+    toolGroup_integrations: "Listează, reîncarcă, dezactivează, elimină, configurează integrări",
+    toolGroup_calendar: "Calendare, evenimente, liste de taskuri, shopping list",
+    toolGroup_helpers: "Creează, actualizează, șterge input_*, timer, counter, schedule",
+    toolGroup_dashboards: "Dashboard-uri Lovelace, view-uri, carduri",
+    toolGroup_config_files: "Listează, citește, scrie YAML/JSON/txt în /config",
+    toolGroup_custom_code: "Editează custom_components/*.py",
+    toolGroup_diagnostics: "Loguri, probleme, verificare config, reload, recorder purge",
+    toolGroup_backups: "Backup-uri Supervisor: listă, creare, restaurare",
+    toolGroup_addons: "Add-on start, stop, restart, listă",
+    toolGroup_updates: "Verifică și instalează update-uri HA Core, OS, Supervisor, add-on",
+    toolGroup_restart: "Restart Home Assistant Core sau reboot host",
+    toolGroup_network: "Info rețea, ping, verificări port",
+    toolGroup_upload: "Scrie fișiere binare în /config, /media, /share",
+    toolGroup_zigbee: "ZHA / Z-Wave / Matter / Thread / Bluetooth diagnostice",
+    toolGroup_hacs: "HACS: listă repo, instalare/update, eliminare",
+    toolGroup_searxng: "Căutare web (SearXNG)",
+    toolGroup_frigate: "Camere Frigate",
     steps: "{n} pași · {s}s",
     thoughtFor: "A gândit {s}s",
     thoughtBrief: "Gândire terminată",
@@ -458,6 +522,35 @@ export function tr(lang, key, params = {}) {
   let str = table[key] || I18N.en[key] || key;
   for (const [k, v] of Object.entries(params)) str = str.replaceAll(`{${k}}`, v);
   return str;
+}
+
+/** Localized label for a Settings tool group (`ha:entities`, `bridge:browser`, …). */
+export function toolGroupLabel(lang, groupKey) {
+  const raw = String(groupKey || "").trim();
+  if (!raw) return "";
+  const [ns, id] = raw.includes(":") ? raw.split(":", 2) : ["", raw];
+  const short = id || raw;
+  // HA "control" shares the short id with bridge control — disambiguate.
+  const key =
+    ns === "ha" && short === "control"
+      ? "toolGroup_ha_control"
+      : `toolGroup_${short}`;
+  const translated = tr(lang, key);
+  return translated === key ? short : translated;
+}
+
+/** Localized Approve-card body from enable_group + optional reason. */
+export function enableApprovalPreview(lang, groupKey, reason = "") {
+  const short = String(groupKey || "").includes(":")
+    ? String(groupKey).split(":", 2)[1]
+    : String(groupKey || "").trim();
+  if (!short) return String(reason || "").trim();
+  const bits = [tr(lang, "enablePreview", { id: short })];
+  const label = toolGroupLabel(lang, groupKey);
+  if (label) bits.push(label);
+  const why = String(reason || "").trim();
+  if (why) bits.push(why.slice(0, 160));
+  return bits.join(" · ");
 }
 
 export function activityVerb(lang, name) {

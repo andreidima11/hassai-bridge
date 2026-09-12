@@ -46,6 +46,9 @@ export function applyActivity(thinking, ev, fallbackLabel) {
     detail: ev.detail || ev.args_preview || "",
     args_preview: ev.args_preview || "",
     enable_group: ev.enable_group || "",
+    enable_reason: ev.enable_reason || "",
+    browser_host: ev.browser_host || "",
+    browser_url: ev.browser_url || "",
     ms: ev.ms,
   };
   if (idx >= 0) next.steps[idx] = { ...next.steps[idx], ...row };

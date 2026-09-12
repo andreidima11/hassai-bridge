@@ -1600,6 +1600,7 @@ async def _append_internal_tool_results(
                     "status": "awaiting_approval",
                     "args_preview": preview,
                     "enable_group": enable_group,
+                    "enable_reason": str(reason or "").strip()[:160],
                 })
                 fut = ta.register_pending(
                     trace_id, tc_id, name=fn_name, args=args, detail=preview,
@@ -1676,9 +1677,83 @@ async def _append_internal_tool_results(
                 continue
 
             # Settings ON (or just granted) = trusted. Auto-satisfy legacy confirm=true
-            # handlers; no per-call Approve bubble.
+            # handlers; no per-call Approve bubble — except browser hosts off allowlist.
             if ta.is_risky(fn_name):
                 run_args = ta.inject_confirm(args)
+
+            if (
+                approved
+                and fn_name == "browser_interact"
+                and str((run_args or args).get("action") or "").strip().lower() == "open"
+            ):
+                from services import browser_interact as bi
+
+                open_url = str((run_args or args).get("url") or "").strip()
+                if open_url:
+                    ok_url, url_reason = bi.url_allowed(open_url, cfg_eff, session_id)
+                    if not ok_url:
+                        await _fire_activity(on_event, {
+                            "id": tc_id, "name": fn_name, "detail": detail,
+                            "status": "skip", "ms": int((time.time() - started) * 1000),
+                        })
+                        fingerprints.append(fp)
+                        augmented.append({
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "name": fn_name,
+                            "content": f"Error: {url_reason}",
+                        })
+                        continue
+                    if not bi.host_preapproved(open_url, cfg_eff, session_id):
+                        host = bi.host_from_url(open_url)
+                        preview = bi.host_approval_preview(open_url)
+                        await _fire_activity(on_event, {
+                            "id": tc_id,
+                            "name": fn_name,
+                            "detail": preview,
+                            "status": "awaiting_approval",
+                            "args_preview": preview,
+                            "browser_host": host,
+                            "browser_url": open_url[:240],
+                        })
+                        fut = ta.register_pending(
+                            trace_id, tc_id, name=fn_name, args=run_args or args, detail=preview,
+                        )
+                        decision = await ta.wait_decision(fut)
+                        await _check_trace(trace_id)
+                        dec = str(decision.get("decision") or "decline").lower()
+                        scope = str(decision.get("scope") or "once").lower()
+                        if dec == "approve":
+                            bi.grant_session_host(session_id, host)
+                            if scope == "allowlist":
+                                try:
+                                    bi.persist_host_to_allowlist(host)
+                                except Exception:
+                                    log.exception("Failed to persist browser allowlist host=%s", host)
+                        elif dec == "timeout":
+                            approved = False
+                            content = ta.TIMEOUT_RESULT
+                        elif dec == "cancelled":
+                            raise TraceCancelled(trace_id)
+                        else:
+                            approved = False
+                            content = (
+                                f"User declined opening “{host}”. "
+                                "Do not retry this host unless they ask."
+                            )
+                        if not approved:
+                            await _fire_activity(on_event, {
+                                "id": tc_id, "name": fn_name, "detail": preview,
+                                "status": "skip", "ms": int((time.time() - started) * 1000),
+                            })
+                            fingerprints.append(fp)
+                            augmented.append({
+                                "role": "tool",
+                                "tool_call_id": tc_id,
+                                "name": fn_name,
+                                "content": content,
+                            })
+                            continue
 
             await _fire_activity(on_event, {
                 "id": tc_id, "name": fn_name, "detail": detail, "status": "running",

@@ -1,46 +1,71 @@
 import { useEffect, useState } from "react";
 import { ChevronIcon } from "./Icons.jsx";
-import { activityVerb, formatMs, liveThinkingLabel, tr } from "../lib/i18n.js";
+import { activityVerb, enableApprovalPreview, formatMs, liveThinkingLabel, tr } from "../lib/i18n.js";
 import { toolSteps } from "../lib/thinking.js";
 
-/** Enable-group Approve / Decline — matches chat chrome (neutral HA dark). */
+/** Enable-group / browser-host Approve — matches chat chrome (neutral HA dark). */
 export function ApprovalCard({ step, lang, busy, onDecide }) {
-  const preview = String(step.args_preview || step.detail || "").trim();
+  const isBrowserHost = Boolean(step.browser_host);
+  const [addAllowlist, setAddAllowlist] = useState(true);
+  const preview = isBrowserHost
+    ? (() => {
+        const host = String(step.browser_host || "").trim();
+        const url = String(step.browser_url || step.args_preview || "").trim();
+        const bits = [tr(lang, "browserHostPreview", { host: host || "site" })];
+        if (url && url !== host) bits.push(url);
+        return bits.join(" · ");
+      })()
+    : step.enable_group
+      ? enableApprovalPreview(lang, step.enable_group, step.enable_reason)
+      : String(step.args_preview || step.detail || "").trim();
+  const title = tr(lang, isBrowserHost ? "browserHostTitle" : "enableTitle");
+  const approveLabel = tr(lang, isBrowserHost ? "browserHostAllow" : "enableApprove");
+  const declineLabel = tr(lang, isBrowserHost ? "browserHostDecline" : "approvalDecline");
+
   return (
     <div
       className="w-full max-w-md rounded-2xl border border-white/10 bg-card px-4 py-3.5 shadow-composer"
       data-approval="true"
       role="group"
-      aria-label={tr(lang, "enableTitle")}
+      aria-label={title}
     >
-      <div className="text-[15px] font-medium text-foreground">{tr(lang, "enableTitle")}</div>
+      <div className="text-[15px] font-medium text-foreground">{title}</div>
       {preview ? (
         <p className="mt-1.5 break-words text-[13px] leading-snug text-muted-foreground">{preview}</p>
       ) : null}
-      <div className="mt-3 flex flex-wrap gap-2">
+      {isBrowserHost ? (
+        <label className="mt-3 flex cursor-pointer items-center gap-2 text-[12px] text-muted-foreground">
+          <input
+            type="checkbox"
+            className="size-3.5 rounded border-white/20 bg-white/5 accent-emerald-400"
+            checked={addAllowlist}
+            disabled={busy}
+            onChange={(e) => setAddAllowlist(e.target.checked)}
+          />
+          <span>{tr(lang, "browserHostAddAllowlist")}</span>
+        </label>
+      ) : null}
+      <div className="mt-3 flex items-center justify-between gap-2">
         <button
           type="button"
           disabled={busy}
-          className="rounded-xl bg-white/90 px-3 py-2 text-[13px] font-medium text-black transition hover:bg-white disabled:opacity-50"
-          onClick={() => onDecide?.("approve", "once")}
+          className="rounded-lg border border-emerald-500/35 bg-emerald-500/15 px-2.5 py-1.5 text-[12px] font-medium text-emerald-300 transition hover:bg-emerald-500/25 disabled:opacity-50"
+          onClick={() =>
+            onDecide?.(
+              "approve",
+              isBrowserHost ? (addAllowlist ? "allowlist" : "once") : "once",
+            )
+          }
         >
-          {tr(lang, "enableApprove")}
+          {approveLabel}
         </button>
         <button
           type="button"
           disabled={busy}
-          className="rounded-xl border border-white/10 px-3 py-2 text-[13px] text-muted-foreground transition hover:bg-white/5 hover:text-foreground disabled:opacity-50"
+          className="rounded-lg border border-red-500/35 bg-red-500/15 px-2.5 py-1.5 text-[12px] font-medium text-red-300 transition hover:bg-red-500/25 disabled:opacity-50"
           onClick={() => onDecide?.("decline", "once")}
         >
-          {tr(lang, "approvalDecline")}
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          className="rounded-xl bg-white/[0.06] px-3 py-2 text-[13px] text-muted-foreground transition hover:bg-white/[0.1] hover:text-foreground disabled:opacity-50"
-          onClick={() => onDecide?.("approve", "settings")}
-        >
-          {tr(lang, "enableSaveSettings")}
+          {declineLabel}
         </button>
       </div>
     </div>
