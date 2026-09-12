@@ -1,9 +1,14 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.13
+
+### Fix
+- **gpt-6-astra + HA tools** — uses OpenAI `/v1/responses` with `reasoning.effort` (`low`–`xhigh`/`max`). Chat Completions cannot combine tools with a valid effort for this model (`none` is rejected)
+
 ## 1.5.12
 
 ### Fix
-- **gpt-6-astra + tools** — Chat Completions now forces `reasoning_effort: none` when function tools are present (same OpenAI rule as GPT-5.6+), fixing HTTP 400
+- **gpt-6-astra + tools** — attempted Chat Completions `reasoning_effort: none` (incorrect for GPT-6; superseded by 1.5.13)
 
 ## 1.5.11
 

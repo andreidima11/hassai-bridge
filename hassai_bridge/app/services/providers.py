@@ -482,6 +482,91 @@ def _provider_400_fallback(payload: dict, provider: dict, status: int, body: str
     return _gemini_invalid_argument_fallback(payload, provider, status, body)
 
 
+async def _openai_responses_chat(
+    messages: list[dict],
+    *,
+    provider: dict,
+    model: str | None = None,
+    tools: list | None = None,
+    tool_choice: str | dict | None = None,
+    thinking: dict | None = None,
+    cache_conv_id: str | None = None,
+    max_tokens: int | None = None,
+) -> dict:
+    """GPT-6+ with tools: call /v1/responses and normalize to chat.completion."""
+    from services import openai_api as oai
+    from services import provider_capabilities as pc
+
+    used_model = resolve_provider_chat_model(provider, model)
+    url = _build_url(provider, "/v1/responses")
+    headers = _provider_request_headers(provider, cache_conv_id)
+    timeout = provider.get("timeout", 120)
+
+    shaped = pc.prepare_messages_for_request(
+        provider, messages, tools=tools, thinking=thinking,
+    )
+    shaped_tools = pc.shape_tools_for_provider(provider, tools) if tools else None
+    choice = pc.sanitize_tool_choice(provider, tool_choice) if tool_choice is not None else None
+    limit = max_tokens if max_tokens is not None else provider.get("max_tokens")
+
+    payload = oai.messages_to_responses_payload(
+        shaped,
+        model=used_model,
+        tools=shaped_tools,
+        tool_choice=choice,
+        thinking=thinking,
+        max_tokens=int(limit) if limit else None,
+    )
+    cache_key = oai.prompt_cache_key(cache_conv_id)
+    if cache_key:
+        payload["prompt_cache_key"] = cache_key
+
+    log.info(
+        "OpenAI responses POST model=%s keys=%s",
+        payload.get("model"),
+        sorted(k for k in payload if k not in {"input", "instructions"}),
+    )
+
+    client = _get_client()
+    last_exc = None
+    for attempt in range(_RETRY_COUNT + 1):
+        try:
+            resp = await client.post(url, json=payload, headers=headers, timeout=timeout)
+            if resp.status_code in _RETRYABLE_STATUS and attempt < _RETRY_COUNT:
+                log.warning(
+                    "Provider [%s] responses %s, retrying (%s/%s)",
+                    provider.get("name", "?"),
+                    resp.status_code,
+                    attempt + 1,
+                    _RETRY_COUNT,
+                )
+                await asyncio.sleep(_RETRY_BACKOFF[attempt])
+                continue
+            if resp.status_code >= 400:
+                body = resp.text[:800]
+                from services.provider_errors import friendly_provider_error
+
+                log.error(
+                    "Provider [%s] responses %s: %s",
+                    provider.get("name", "?"),
+                    resp.status_code,
+                    body[:500],
+                )
+                msg = friendly_provider_error(
+                    resp.status_code, body, provider=provider, action="chat",
+                )
+                raise httpx.HTTPStatusError(msg, request=resp.request, response=resp)
+            return oai.responses_result_to_chat_completion(resp.json(), model=used_model)
+        except httpx.TimeoutException as e:
+            last_exc = e
+            if attempt < _RETRY_COUNT:
+                log.warning("Provider responses timeout, retrying (%s/%s)", attempt + 1, _RETRY_COUNT)
+                await asyncio.sleep(_RETRY_BACKOFF[attempt])
+            else:
+                raise
+    raise last_exc
+
+
 async def chat_completion(messages: list[dict], model: str | None = None, stream: bool = False,
                           tools: list | None = None, tool_choice: str | dict | None = None,
                           provider: dict | None = None, thinking: dict | None = None,
@@ -491,11 +576,24 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
     if provider is None:
         provider = get_active_provider()
 
+    from services import openai_api as oai
+
+    used_model = resolve_provider_chat_model(provider, model)
+    if oai.is_openai_provider(provider) and oai.needs_responses_for_tools(used_model, bool(tools)):
+        return await _openai_responses_chat(
+            messages,
+            provider=provider,
+            model=model,
+            tools=tools,
+            tool_choice=tool_choice,
+            thinking=thinking,
+            cache_conv_id=cache_conv_id,
+            max_tokens=max_tokens,
+        )
+
     url = _build_url(provider, "/v1/chat/completions")
     headers = _provider_request_headers(provider, cache_conv_id)
     timeout = provider.get("timeout", 120)
-
-    used_model = resolve_provider_chat_model(provider, model)
 
     from services import chat_content as cc
     from services import provider_capabilities as pc
@@ -527,8 +625,6 @@ async def chat_completion(messages: list[dict], model: str | None = None, stream
         )
 
     _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id, request_url=url)
-
-    from services import openai_api as oai
 
     oai.sanitize_outbound_chat_payload(payload, provider, request_url=url)
     oai.finalize_http_payload(payload, provider, request_url=url)
@@ -590,13 +686,28 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
     if provider is None:
         provider = get_active_provider()
 
+    from services import openai_api as oai
+
+    used_model = resolve_provider_chat_model(provider, model)
+    # GPT-6+ tools: Responses API (non-stream) → synthetic SSE for the agent loop.
+    if oai.is_openai_provider(provider) and oai.needs_responses_for_tools(used_model, bool(tools)):
+        result = await _openai_responses_chat(
+            messages,
+            provider=provider,
+            model=model,
+            tools=tools,
+            tool_choice=tool_choice,
+            thinking=thinking,
+            cache_conv_id=cache_conv_id,
+            max_tokens=max_tokens,
+        )
+        for chunk in oai.chat_completion_to_sse_chunks(result):
+            yield chunk
+        return
+
     url = _build_url(provider, "/v1/chat/completions")
     headers = _provider_request_headers(provider, cache_conv_id)
     timeout = provider.get("timeout", 120)
-
-    cfg_model = provider.get("model", "default")
-    used_model = cfg_model if cfg_model and cfg_model != "default" else (model or "default")
-    used_model = resolve_provider_chat_model(provider, model)
 
     from services import chat_content as cc
     from services import provider_capabilities as pc
@@ -628,8 +739,6 @@ async def chat_completion_stream(messages: list[dict], model: str | None = None,
         )
 
     _finalize_chat_payload(payload, provider, cache_conv_id=cache_conv_id, request_url=url)
-
-    from services import openai_api as oai
 
     oai.sanitize_outbound_chat_payload(payload, provider, request_url=url)
     oai.finalize_http_payload(payload, provider, request_url=url)

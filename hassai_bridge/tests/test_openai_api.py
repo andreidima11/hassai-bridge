@@ -316,7 +316,7 @@ def test_gpt56_with_tools_sets_reasoning_effort_none():
     assert payload["reasoning_effort"] == "none"
 
 
-def test_gpt6_astra_with_tools_sets_reasoning_effort_none():
+def test_gpt6_astra_with_tools_strips_reasoning_effort():
     payload = {
         "model": "gpt-6-astra",
         "tools": [{"type": "function", "function": {"name": "currency_convert"}}],
@@ -328,7 +328,11 @@ def test_gpt6_astra_with_tools_sets_reasoning_effort_none():
         provider,
         request_url="https://api.openai.com/v1/chat/completions",
     )
-    assert payload["reasoning_effort"] == "none"
+    assert "reasoning_effort" not in payload
+    assert oai.needs_responses_for_tools("gpt-6-astra", True)
+    assert not oai.needs_responses_for_tools("gpt-6-astra", False)
+    assert oai.rejects_reasoning_none("gpt-6-astra")
+    assert oai.clamp_reasoning_effort("gpt-6-astra", "none") == "low"
     assert oai.supports_reasoning_effort("gpt-6-astra")
 
 
@@ -361,7 +365,7 @@ def test_wire_hook_sets_reasoning_effort_for_gpt56_tools():
     assert body["reasoning_effort"] == "none"
 
 
-def test_wire_hook_sets_reasoning_effort_for_gpt6_astra_tools():
+def test_wire_hook_strips_reasoning_effort_for_gpt6_astra_tools():
     import httpx
 
     req = httpx.Request(
@@ -372,4 +376,75 @@ def test_wire_hook_sets_reasoning_effort_for_gpt6_astra_tools():
     )
     oai.rewrite_openai_request_body(req)
     body = json.loads(req.content)
-    assert body["reasoning_effort"] == "none"
+    assert "reasoning_effort" not in body
+
+
+def test_messages_to_responses_payload_and_normalize():
+    messages = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": "Convert 10 EUR to USD"},
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "currency_convert", "arguments": '{"amount":10}'},
+            }],
+        },
+        {"role": "tool", "tool_call_id": "call_1", "content": '{"usd": 11}'},
+    ]
+    tools = [{
+        "type": "function",
+        "function": {
+            "name": "currency_convert",
+            "description": "Convert",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    }]
+    payload = oai.messages_to_responses_payload(
+        messages,
+        model="gpt-6-astra",
+        tools=tools,
+        thinking={"enabled": True, "effort": "high"},
+        max_tokens=500,
+    )
+    assert payload["model"] == "gpt-6-astra"
+    assert payload["instructions"] == "You are helpful."
+    assert payload["reasoning"] == {"effort": "high"}
+    assert payload["max_output_tokens"] == 500
+    assert payload["tools"][0]["type"] == "function"
+    assert payload["tools"][0]["name"] == "currency_convert"
+    assert any(i.get("type") == "function_call" for i in payload["input"])
+    assert any(i.get("type") == "function_call_output" for i in payload["input"])
+
+    raw = {
+        "id": "resp_1",
+        "model": "gpt-6-astra",
+        "output": [
+            {
+                "type": "function_call",
+                "call_id": "call_2",
+                "name": "currency_rates",
+                "arguments": '{"base":"EUR"}',
+            },
+        ],
+        "usage": {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+    }
+    chat = oai.responses_result_to_chat_completion(raw, model="gpt-6-astra")
+    assert chat["object"] == "chat.completion"
+    assert chat["choices"][0]["finish_reason"] == "tool_calls"
+    assert chat["choices"][0]["message"]["tool_calls"][0]["function"]["name"] == "currency_rates"
+    chunks = oai.chat_completion_to_sse_chunks(chat)
+    assert chunks[-1].strip() == "data: [DONE]"
+    assert any("tool_calls" in c for c in chunks)
+
+
+def test_gpt6_thinking_off_clamps_to_low():
+    payload = {"model": "gpt-6-astra"}
+    oai.apply_thinking_payload(
+        payload,
+        {"enabled": False, "effort": "none"},
+        provider={"type": "openai", "model": "gpt-6-astra"},
+    )
+    assert payload["reasoning_effort"] == "low"

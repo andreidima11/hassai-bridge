@@ -121,7 +121,8 @@ def provider_chat_capabilities(provider: dict | None) -> dict:
             "default": oai.normalize_thinking_mode(provider.get("thinking_mode")),
             "label": "reasoning",
             "note": "Maps to reasoning_effort (none/low/high/max). "
-                    "GPT-5.6+ with HA tools is forced to none on Chat Completions.",
+                    "GPT-5.6+ with HA tools uses none on Chat Completions; "
+                    "GPT-6+ with tools uses the Responses API (effort low+).",
         }
     if THINKING in caps:
         thinking = dict(caps[THINKING])
