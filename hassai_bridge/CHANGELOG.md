@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.5.12
+
+### Fix
+- **gpt-6-astra + tools** — Chat Completions now forces `reasoning_effort: none` when function tools are present (same OpenAI rule as GPT-5.6+), fixing HTTP 400
+
 ## 1.5.11
 
 ### Features

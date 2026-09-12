@@ -291,6 +291,9 @@ def test_gpt56_plus_detection():
     assert oai.is_gpt56_plus_model("gpt-5.6-sol")
     assert oai.is_gpt56_plus_model("openai/gpt-5.6-terra")
     assert oai.is_gpt56_plus_model("gpt-5.7")
+    assert oai.is_gpt56_plus_model("gpt-6-astra")
+    assert oai.is_gpt56_plus_model("openai/gpt-6-astra")
+    assert oai.is_gpt56_plus_model("gpt-6")
     assert not oai.is_gpt56_plus_model("gpt-5")
     assert not oai.is_gpt56_plus_model("gpt-5.4")
     assert not oai.is_gpt56_plus_model("gpt-4o")
@@ -311,6 +314,22 @@ def test_gpt56_with_tools_sets_reasoning_effort_none():
     assert "max_tokens" not in payload
     assert payload["max_completion_tokens"] == 1000
     assert payload["reasoning_effort"] == "none"
+
+
+def test_gpt6_astra_with_tools_sets_reasoning_effort_none():
+    payload = {
+        "model": "gpt-6-astra",
+        "tools": [{"type": "function", "function": {"name": "currency_convert"}}],
+        "reasoning_effort": "high",
+    }
+    provider = {"type": "openai", "name": "ChatGPT", "model": "gpt-6-astra"}
+    oai.sanitize_outbound_chat_payload(
+        payload,
+        provider,
+        request_url="https://api.openai.com/v1/chat/completions",
+    )
+    assert payload["reasoning_effort"] == "none"
+    assert oai.supports_reasoning_effort("gpt-6-astra")
 
 
 def test_wire_hook_rewrites_max_tokens_in_httpx_request():
@@ -335,6 +354,20 @@ def test_wire_hook_sets_reasoning_effort_for_gpt56_tools():
         "POST",
         "https://api.openai.com/v1/chat/completions",
         content=b'{"model":"gpt-5.6-sol","tools":[{"type":"function"}],"messages":[]}',
+        headers={"Content-Type": "application/json"},
+    )
+    oai.rewrite_openai_request_body(req)
+    body = json.loads(req.content)
+    assert body["reasoning_effort"] == "none"
+
+
+def test_wire_hook_sets_reasoning_effort_for_gpt6_astra_tools():
+    import httpx
+
+    req = httpx.Request(
+        "POST",
+        "https://api.openai.com/v1/chat/completions",
+        content=b'{"model":"gpt-6-astra","tools":[{"type":"function"}],"reasoning_effort":"high","messages":[]}',
         headers={"Content-Type": "application/json"},
     )
     oai.rewrite_openai_request_body(req)

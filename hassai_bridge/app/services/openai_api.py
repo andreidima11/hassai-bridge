@@ -1,9 +1,9 @@
 """OpenAI Chat Completions request quirks and prompt-cache helpers.
 
-Per OpenAI / Azure docs (GPT-5 / o-series / GPT-5.6):
+Per OpenAI / Azure docs (GPT-5 / o-series / GPT-5.6 / GPT-6):
 - Use `max_completion_tokens` — `max_tokens` is rejected (HTTP 400).
 - GPT-5 / o-series reject custom temperature / top_p / penalties.
-- GPT-5.6+ with function tools on /v1/chat/completions requires
+- GPT-5.6+ and GPT-6+ with function tools on /v1/chat/completions require
   `reasoning_effort: "none"` (or migrate to /v1/responses).
 
 Settings UI still stores `max_tokens`; we map it on the way out.
@@ -23,7 +23,7 @@ THINKING_MODES = ds.THINKING_MODES
 
 # Models that reject custom temperature / sampling knobs.
 _RESTRICTED_SAMPLING = re.compile(
-    r"^(o[1-9]([.-]|$)|gpt-5)",
+    r"^(o[1-9]([.-]|$)|gpt-5|gpt-(?:[6-9]|[1-9]\d))",
     re.IGNORECASE,
 )
 
@@ -37,15 +37,15 @@ _OPENAI_CHAT_MODEL_SUFFIX = re.compile(
     re.IGNORECASE,
 )
 
-# GPT-5.6 and later: Chat Completions + function tools need reasoning_effort=none.
+# GPT-5.6+ and GPT-6+: Chat Completions + function tools need reasoning_effort=none.
 _GPT56_PLUS = re.compile(
-    r"(^|/)gpt-5\.(?:[6-9]|[1-9]\d)",
+    r"(^|/)(?:gpt-5\.(?:[6-9]|[1-9]\d)|gpt-(?:[6-9]|[1-9]\d)(?:$|[.-]))",
     re.IGNORECASE,
 )
 
-# o-series and GPT-5+ accept reasoning_effort on Chat Completions (not gpt-4o).
+# o-series, GPT-5+, GPT-6+ accept reasoning_effort on Chat Completions (not gpt-4o).
 _REASONING_EFFORT_MODELS = re.compile(
-    r"(^|/)(o[1-9]([.-]|$)|o[1-9]-|gpt-5)",
+    r"(^|/)(o[1-9]([.-]|$)|o[1-9]-|gpt-5|gpt-(?:[6-9]|[1-9]\d)(?:$|[.-]))",
     re.IGNORECASE,
 )
 
@@ -121,7 +121,10 @@ def looks_like_openai_model(model: str | None) -> bool:
 
 
 def is_gpt56_plus_model(model: str | None) -> bool:
-    """True for gpt-5.6 / gpt-5.6-* / openai/gpt-5.6-sol etc."""
+    """True when Chat Completions + function tools require reasoning_effort=none.
+
+    Covers GPT-5.6+ and GPT-6+ (e.g. gpt-6-astra).
+    """
     return bool(_GPT56_PLUS.search(_norm(model)))
 
 
@@ -275,9 +278,9 @@ def outbound_targets_openai_cloud(
 
 
 def apply_gpt56_tools_compat(payload: dict) -> None:
-    """GPT-5.6+ + function tools on Chat Completions requires reasoning_effort=none.
+    """GPT-5.6+ / GPT-6+ + function tools on Chat Completions requires reasoning_effort=none.
 
-    OpenAI rejects: tools + default/any reasoning on /v1/chat/completions for gpt-5.6+.
+    OpenAI rejects: tools + default/any reasoning on /v1/chat/completions for these models.
     Docs: set reasoning_effort to 'none' or use /v1/responses.
     """
     model = str(payload.get("model") or "")
@@ -388,7 +391,7 @@ def rewrite_openai_request_body(request: httpx.Request) -> None:
         else:
             data.pop("max_tokens", None)
         changed = True
-    # GPT-5.6 + tools without reasoning_effort=none also 400s.
+    # GPT-5.6+ / GPT-6+ + tools without reasoning_effort=none also 400s.
     if is_gpt56_plus_model(data.get("model")) and data.get("tools"):
         if data.get("reasoning_effort") != "none":
             data["reasoning_effort"] = "none"
