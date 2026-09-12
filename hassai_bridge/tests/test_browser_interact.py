@@ -30,5 +30,7 @@ def test_url_allowed_blocks_sensitive_ha_paths():
 
 
 def test_is_enabled_default_false():
-    assert not bi.is_enabled({"browser": {}})
-    assert bi.is_enabled({"browser": {"enabled": True}})
+    assert not bi.is_enabled({"browser": {}, "bridge_tools": {}})
+    assert not bi.is_enabled({"browser": {"enabled": False}, "bridge_tools": {"browser": False}})
+    assert bi.is_enabled({"browser": {}, "bridge_tools": {"browser": True}})
+    assert bi.is_enabled({"browser": {"enabled": True}, "bridge_tools": {"browser": False}})

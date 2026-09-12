@@ -796,7 +796,7 @@ async function loadBridgeToolGroups() {
     const data = await api('GET', '/api/settings/bridge-tool-groups');
     _bridgeToolGroupKeys = Object.keys(data.groups || {});
   } catch {
-    _bridgeToolGroupKeys = ['memory', 'status', 'control', 'media'];
+    _bridgeToolGroupKeys = ['memory', 'status', 'control', 'media', 'browser'];
   }
   return _bridgeToolGroupKeys;
 }
@@ -908,7 +908,6 @@ async function loadSettings() {
     setVal('frigateUrl', fr.base_url || 'http://ccab4aaf-frigate:5000');
     setVal('frigateTimeout', fr.timeout ?? 12);
     const br = cfg.browser || {};
-    setChecked('browserEnabled', br.enabled === true);
     setVal('browserHaUrl', br.ha_url || 'http://homeassistant:8123');
     setVal('browserToken', br.access_token || '');
     setVal('browserAllowlist', Array.isArray(br.allowlist) ? br.allowlist.join('\n') : '');
@@ -1582,7 +1581,11 @@ async function saveSettings() {
         timeout: parseInt(document.getElementById('frigateTimeout')?.value) || 12,
       },
       browser: {
-        enabled: document.getElementById('browserEnabled')?.checked === true,
+        // Keep legacy browser.enabled in sync with Bridge tool permissions → browser
+        enabled: (() => {
+          const el = document.querySelector('[data-bridge-tool="browser"]');
+          return el ? el.checked === true : false;
+        })(),
         ha_url: (document.getElementById('browserHaUrl')?.value || '').trim() || 'http://homeassistant:8123',
         access_token: (document.getElementById('browserToken')?.value || '').trim(),
         allowlist: (document.getElementById('browserAllowlist')?.value || '')

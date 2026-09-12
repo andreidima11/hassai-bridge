@@ -469,8 +469,25 @@
 
       <div class="card">
         <h2 data-i18n="settings.bridgeToolAccess">HASSAI Bridge tool permissions</h2>
-        <p class="card-muted" data-i18n="settings.bridgeToolAccessDesc">Control what the AI may do with the add-on itself — its memory, status, settings, and /media|/share files. All enabled by default.</p>
+        <p class="card-muted" data-i18n="settings.bridgeToolAccessDesc">Control what the AI may do with the add-on itself — memory, status, settings, /media|/share, and browser. Browser is off by default (uses more RAM).</p>
         <div id="bridgeToolAccessList" class="toggle-list"></div>
+      </div>
+
+      <div class="card">
+        <h2 data-i18n="settings.browser">Browser tool options</h2>
+        <p class="card-muted" data-i18n="settings.browserDesc">Turn the tool on above under Bridge permissions. Configure HA URL, optional long-lived token, and extra domains here. Risky actions still need Approve in chat.</p>
+        <label data-i18n="settings.browserHaUrl">Home Assistant URL (for dashboards)</label>
+        <input type="text" id="browserHaUrl" placeholder="http://homeassistant:8123">
+        <label data-i18n="settings.browserToken">Long-lived access token (optional)</label>
+        <input type="password" id="browserToken" placeholder="" autocomplete="off">
+        <p class="card-muted" style="margin-top:4px" data-i18n="settings.browserTokenHint">Recommended for authenticated Lovelace. Create under HA profile → Long-lived access tokens. Left empty, the add-on tries SUPERVISOR_TOKEN (may not log into the UI).</p>
+        <label data-i18n="settings.browserAllowlist">Allowlist (one domain per line)</label>
+        <textarea id="browserAllowlist" rows="4" placeholder="example.com&#10;docs.example.com"></textarea>
+        <p class="card-muted" style="margin-top:4px" data-i18n="settings.browserAllowlistHint">HA host is always allowed. Add other sites you want HASSAI to open (hostname only, no https://).</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.browserKeepWarm">Keep browser warm between chats</span>
+          <label class="toggle"><input type="checkbox" id="browserKeepWarm"><span class="slider"></span></label>
+        </div>
       </div>
 
       <div class="card">
@@ -895,27 +912,6 @@
         <p class="card-muted" style="margin-top:4px" data-i18n="settings.frigateUrlHint">Usually the Frigate add-on hostname on the HA network (e.g. http://ccab4aaf-frigate:5000). Snapshots also fall back to /media/frigate if mounted.</p>
         <label data-i18n="settings.frigateTimeout">Timeout (seconds)</label>
         <input type="number" id="frigateTimeout" value="12" min="3" max="60">
-      </div>
-
-      <div class="card">
-        <h2 data-i18n="settings.browser">Browser — Visual check</h2>
-        <p class="card-muted" data-i18n="settings.browserDesc">Headless Chromium so HASSAI can open allowlisted pages, click, and screenshot dashboards or sites you approve. Uses more RAM when active. Risky actions still need Approve in chat.</p>
-        <div class="toggle-row">
-          <span data-i18n="settings.browserEnabled">Enabled — AI can use browser_interact</span>
-          <label class="toggle"><input type="checkbox" id="browserEnabled"><span class="slider"></span></label>
-        </div>
-        <label data-i18n="settings.browserHaUrl">Home Assistant URL (for dashboards)</label>
-        <input type="text" id="browserHaUrl" placeholder="http://homeassistant:8123">
-        <label data-i18n="settings.browserToken">Long-lived access token (optional)</label>
-        <input type="password" id="browserToken" placeholder="" autocomplete="off">
-        <p class="card-muted" style="margin-top:4px" data-i18n="settings.browserTokenHint">Recommended for authenticated Lovelace. Create under HA profile → Long-lived access tokens. Left empty, the add-on tries SUPERVISOR_TOKEN (may not log into the UI).</p>
-        <label data-i18n="settings.browserAllowlist">Allowlist (one domain per line)</label>
-        <textarea id="browserAllowlist" rows="4" placeholder="example.com&#10;docs.example.com"></textarea>
-        <p class="card-muted" style="margin-top:4px" data-i18n="settings.browserAllowlistHint">HA host is always allowed. Add other sites you want HASSAI to open (hostname only, no https://).</p>
-        <div class="toggle-row">
-          <span data-i18n="settings.browserKeepWarm">Keep browser warm between chats</span>
-          <label class="toggle"><input type="checkbox" id="browserKeepWarm"><span class="slider"></span></label>
-        </div>
       </div>
       <div class="btn-row">
         <button class="btn btn-primary" onclick="saveSettings()" data-i18n="settings.save">Save</button>

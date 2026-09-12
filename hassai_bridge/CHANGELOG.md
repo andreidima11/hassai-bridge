@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.6.2
+
+### Fix
+- **Browser settings** — enable/disable under General → HASSAI Bridge tool permissions (not Cameras); URL/token/allowlist sit next to that list
+
 ## 1.6.1
 
 ### Fix

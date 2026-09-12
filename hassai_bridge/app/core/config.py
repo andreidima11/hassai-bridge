@@ -195,6 +195,7 @@ DEFAULT_CONFIG = {
         "status": True,
         "control": True,
         "media": True,
+        "browser": False,
     },
     "ha_tools": {
         "entities": True,

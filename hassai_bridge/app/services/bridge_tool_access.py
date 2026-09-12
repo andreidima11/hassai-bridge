@@ -12,9 +12,16 @@ GROUP_KEYS: dict[str, str] = {
     "status": "Read own version, provider, settings and usage",
     "control": "Change own settings, provider and model",
     "media": "List, read and delete files in /media and /share",
+    "browser": "Open allowlisted pages, click, and screenshot (Chromium)",
 }
 
-DEFAULT_BRIDGE_TOOLS: dict[str, bool] = {k: True for k in GROUP_KEYS}
+DEFAULT_BRIDGE_TOOLS: dict[str, bool] = {
+    "memory": True,
+    "status": True,
+    "control": True,
+    "media": True,
+    "browser": False,  # opt-in — Chromium uses more RAM
+}
 
 
 def merged_bridge_tools_config(cfg: dict | None) -> dict[str, bool]:

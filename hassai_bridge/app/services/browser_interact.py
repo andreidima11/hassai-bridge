@@ -94,6 +94,12 @@ def is_enabled(cfg: dict | None = None) -> bool:
         from config import load_config
 
         cfg = load_config()
+    from services import bridge_tool_access as bta
+
+    # Primary toggle: Settings → HASSAI Bridge tool permissions → browser.
+    # Legacy: browser.enabled (Cameras card) still honored if set.
+    if bta.group_enabled("browser", cfg):
+        return True
     browser = (cfg or {}).get("browser") or {}
     return bool(browser.get("enabled"))
 
