@@ -34,9 +34,18 @@ def test_disabled_groups_lists_browser_when_off():
     hint = te.system_hint(cfg, None)
     assert "request_enable_tools" in hint
     assert "browser" in hint
+    assert "Never say you cannot find them" in hint
 
 
 def test_canonical_for_tool():
     assert te.canonical_for_tool("browser_interact") == "bridge:browser"
     assert te.canonical_for_tool("ha_create_backup") == "ha:backups"
     assert te.canonical_for_tool("search_web") == "feature:searxng"
+
+
+def test_is_ha_tool_ignores_settings_toggle():
+    from services import homeassistant as ha
+
+    assert ha.is_ha_tool("ha_update_entity") is True
+    assert ha.is_ha_tool("ha_update_entity", {"ha_tools": {"registry": False}}) is True
+    assert ha.is_ha_tool("not_a_tool") is False

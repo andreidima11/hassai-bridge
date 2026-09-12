@@ -370,8 +370,19 @@ def ha_tool_names(cfg: dict | None = None, *, categories: set[str] | None = None
     return names
 
 
+def known_ha_tool_names() -> set[str]:
+    """All HA agent tool names, ignoring Settings toggles."""
+    return set(_TOOL_SPECS) | set(sat.TOOL_SPECS) | set(hlt.TOOL_SPECS)
+
+
 def is_ha_tool(name: str, cfg: dict | None = None) -> bool:
-    return name in ha_tool_names(cfg)
+    """True if ``name`` is a known HA agent tool (Settings OFF still counts).
+
+    Use ``hta.tool_enabled`` / ``ha_tool_names(cfg)`` when you need the
+    Settings-filtered set. ``cfg`` is accepted for call-site compatibility.
+    """
+    _ = cfg
+    return bool(name) and name in known_ha_tool_names()
 
 
 def _tool(name: str, spec: dict) -> dict:

@@ -96,29 +96,31 @@ def _sync_effective_tools(toolkit_state: dict | None, effective_tools: list | No
 
 
 def _assemble_addon_tools(cfg: dict, *, search_enabled: bool | None = None) -> list[dict]:
-    """Build the full add-on tool list for the current (possibly session-overridden) config."""
+    """Build the add-on tool catalog for the LLM.
+
+    Settings-OFF groups stay listed so calling them opens Approve/Decline;
+    execution is gated in the tool loop (and by handlers using cfg_eff).
+    ``search_enabled`` is kept for callers but no longer hides search tools.
+    """
     from services import browser_interact as bi
-    from services import frigate_tools as ft
+    from services import ha_tool_access as hta
     from services import tool_enable as te
 
-    if search_enabled is None:
-        search_enabled = bool((cfg.get("searxng") or {}).get("enabled"))
+    _ = search_enabled  # catalog always includes search; gate is enable-approval + runtime
     out: list[dict] = []
-    if search_enabled:
-        out.append(_search_web_tool(cfg))
-        out.append(_fetch_url_tool(cfg))
+    out.append(_search_web_tool(cfg))
+    out.append(_fetch_url_tool(cfg))
     out.extend(currency_fx.TOOL_SPECS)
     out.append(te.TOOL_SPEC)
-    if bi.is_enabled(cfg):
-        out.append(bi.TOOL_SPEC)
+    out.append(bi.TOOL_SPEC)
     out.extend(_build_skill_tools())
-    if bta.group_enabled("media", cfg):
-        out.extend(_MEDIA_TOOLS)
-    if ft.is_enabled(cfg):
-        out.extend(_FRIGATE_TOOLS)
-    out.extend(mt.build_tools(cfg))
-    out.extend(bt.build_tools(cfg))
-    out.extend(ha_api.build_ha_tools(cfg))
+    out.extend(_MEDIA_TOOLS)
+    out.extend(_FRIGATE_TOOLS)
+    # Memory: respect global memory.enabled kill-switch; bridge_tools.memory is Approve-gated
+    if (cfg.get("memory") or {}).get("enabled", True):
+        out.extend(list(mt.TOOL_SPECS))
+    out.extend(list(bt.TOOL_SPECS))
+    out.extend(ha_api.build_ha_tools(cfg, categories=set(hta.CATEGORY_KEYS)))
     return out
 
 
@@ -146,20 +148,41 @@ def _refresh_tools_after_enable(
 ) -> list[dict]:
     """Rebuild tools with session grants and push into toolkit_state live list."""
     from services import tool_enable as te
+    from services import toolkits as tk
 
     cfg_eff = te.apply_session_overrides(cfg, session_id)
     rebuilt = _assemble_addon_tools(cfg_eff)
     merged = _merge_tool_lists(client_tools, rebuilt)
     if toolkit_state is not None:
         toolkit_state["cfg"] = cfg_eff
-        toolkit_state["all_tools"] = _merge_tool_lists(toolkit_state.get("all_tools"), merged)
-        live = toolkit_state.get("live_tools")
-        if isinstance(live, list):
-            toolkit_state["live_tools"] = _merge_tool_lists(live, merged)
+        toolkit_state["all_tools"] = merged
+        if toolkit_state.get("enabled"):
+            try:
+                effective, active, eligible = tk.resolve_dynamic_tools(
+                    merged,
+                    cfg=cfg_eff,
+                    session_id=session_id or "",
+                    user_id=str(toolkit_state.get("user_id") or ""),
+                    provider=toolkit_state.get("provider"),
+                    user_text=toolkit_state.get("user_text") or "",
+                    route_klass=toolkit_state.get("route_klass") or "simple",
+                    primed_packs=toolkit_state.get("active_packs") or set(),
+                    frigate_available=bool(toolkit_state.get("frigate_available", True)),
+                    image_gen_available=bool(toolkit_state.get("image_gen_available", True)),
+                    skills_available=bool(toolkit_state.get("skills_available", True)),
+                )
+                toolkit_state["effective"] = effective
+                toolkit_state["live_tools"] = list(effective)
+                toolkit_state["active_packs"] = active
+                toolkit_state["eligible"] = eligible
+            except Exception:
+                log.exception("Failed to re-resolve Dynamic tools after enable")
+                toolkit_state["live_tools"] = list(merged)
+                toolkit_state["effective"] = list(merged)
         else:
             toolkit_state["live_tools"] = list(merged)
-        if toolkit_state.get("enabled") and isinstance(toolkit_state.get("effective"), list):
-            toolkit_state["effective"] = _merge_tool_lists(toolkit_state.get("effective"), merged)
+            if isinstance(toolkit_state.get("effective"), list):
+                toolkit_state["effective"] = list(merged)
     return merged
 
 
@@ -184,9 +207,9 @@ def _agentic_instruction() -> str:
         "Never ask \"should I continue?\" or \"want me to proceed?\". "
         "Read-only questions (explain, what does X do, list, show): use 1–3 tool calls, then answer clearly — do not loop tools or expose chain-of-thought. "
         "Tool groups ON in Settings are already approved — call those tools and do the work. "
-        "If a group is OFF, call request_enable_tools (or the real tool) so the user gets "
-        "Approve / Decline in chat to enable it for this chat or Save in Settings — "
-        "do not invent a confirm=false preview loop. If they decline, acknowledge briefly and stop. "
+        "If a group is OFF, call the real tool (or request_enable_tools) so the user gets "
+        "Approve / Decline in chat — never claim the tool is missing or unavailable. "
+        "If they decline, acknowledge briefly and stop. "
         "End with a short summary of what you did."
     )
 
@@ -1406,7 +1429,10 @@ async def _invoke_internal_tool(
         ), False
 
     if fn_name in _MEDIA_TOOL_NAMES:
-        if not bta.group_enabled("media", load_config()):
+        cfg_run = cfg or load_config()
+        from services import tool_enable as te
+
+        if not te.effectively_enabled("bridge:media", cfg_run, session_id):
             return "Error: media tools are disabled in Settings (HASSAI Bridge tool permissions).", False
         return await _run_media_tool(fn_name, args, user_id, generated_attachments), False
 
@@ -1415,11 +1441,11 @@ async def _invoke_internal_tool(
 
     if fn_name in mt.TOOL_NAMES:
         log.info("AI requested memory tool '%s': %s", fn_name, args)
-        return await asyncio.to_thread(mt.run_tool, fn_name, args, user_id), False
+        return await asyncio.to_thread(mt.run_tool, fn_name, args, user_id, cfg or load_config()), False
 
     if bt.is_bridge_tool(fn_name):
         log.info("AI requested bridge tool '%s': %s", fn_name, args)
-        text = await bt.run_tool(fn_name, args, user_id=user_id)
+        text = await bt.run_tool(fn_name, args, user_id=user_id, cfg=cfg or load_config())
         # Enabling a Settings group mid-turn must refresh the live tool list
         # (e.g. bridge_tools.browser → browser_interact on the next LLM call).
         if (
@@ -1468,7 +1494,7 @@ async def _invoke_internal_tool(
 
     if ha_api.is_ha_tool(fn_name):
         log.info("AI requested HA tool '%s': %s", fn_name, args)
-        ha_result = await ha_api.run_ha_tool(fn_name, args)
+        ha_result = await ha_api.run_ha_tool(fn_name, args, cfg=cfg or load_config())
         return f"[Home Assistant — {fn_name}]\n{ha_result}", False
 
     return f"Error: unknown tool '{fn_name}'", False

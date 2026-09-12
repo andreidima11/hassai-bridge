@@ -171,6 +171,13 @@ def all_pack_catalog() -> dict[str, str]:
     return out
 
 
+def _pack_label(catalog: dict[str, str], pack_id: str, *, settings_on: bool) -> str:
+    base = catalog.get(pack_id, pack_id)
+    if settings_on:
+        return base
+    return f"{base} (OFF in Settings — Approve to enable)"
+
+
 def eligible_packs(
     cfg: dict | None,
     all_tools: list[dict],
@@ -179,20 +186,30 @@ def eligible_packs(
     image_gen_available: bool = True,
     skills_available: bool = True,
 ) -> dict[str, str]:
+    """Packs the model may activate.
+
+    Settings-OFF packs stay eligible so ``activate_toolkits`` / the real tool
+    can open the Approve bubble instead of looking “missing”.
+    """
     present = {_tool_name(t) for t in all_tools}
     catalog = all_pack_catalog()
     out: dict[str, str] = {}
 
     enabled_ha = hta.enabled_categories(cfg)
-    for cat in enabled_ha:
+    for cat in hta.CATEGORY_KEYS:
         if any(hta.tool_category(n) == cat for n in present if n.startswith("ha_")):
-            out[cat] = catalog.get(cat, cat)
+            out[cat] = _pack_label(catalog, cat, settings_on=cat in enabled_ha)
 
     if frigate_available and (_FRIGATE_NAMES & present):
-        out[PACK_FRIGATE] = catalog[PACK_FRIGATE]
+        from services import tool_enable as te
 
-    if bta.group_enabled("control", cfg) and (_BRIDGE_WRITE_NAMES & present):
-        out[PACK_BRIDGE_WRITE] = catalog[PACK_BRIDGE_WRITE]
+        on = te.settings_enabled("feature:frigate", cfg)
+        out[PACK_FRIGATE] = _pack_label(catalog, PACK_FRIGATE, settings_on=on)
+
+    if _BRIDGE_WRITE_NAMES & present:
+        out[PACK_BRIDGE_WRITE] = _pack_label(
+            catalog, PACK_BRIDGE_WRITE, settings_on=bta.group_enabled("control", cfg),
+        )
 
     if image_gen_available and "generate_image" in present:
         out[PACK_IMAGE_GEN] = catalog[PACK_IMAGE_GEN]
@@ -200,8 +217,10 @@ def eligible_packs(
     if skills_available and "run_skill" in present:
         out[PACK_SKILLS] = catalog[PACK_SKILLS]
 
-    if bta.group_enabled("media", cfg) and (_MEDIA_WRITE_NAMES & present):
-        out[PACK_MEDIA_WRITE] = catalog[PACK_MEDIA_WRITE]
+    if _MEDIA_WRITE_NAMES & present:
+        out[PACK_MEDIA_WRITE] = _pack_label(
+            catalog, PACK_MEDIA_WRITE, settings_on=bta.group_enabled("media", cfg),
+        )
 
     return out
 

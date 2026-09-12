@@ -127,7 +127,8 @@ def test_primed_packs_from_router_not_regex():
     assert "frigate_events" not in names2
 
 
-def test_eligible_respects_ha_toggles():
+def test_eligible_includes_settings_off_packs():
+    """OFF packs stay eligible so activate/tool call can open Approve."""
     tools = [
         _tool("ha_list_entities"),
         _tool("ha_call_service"),
@@ -140,19 +141,21 @@ def test_eligible_respects_ha_toggles():
     ]
     eligible = tk.eligible_packs(CFG_ALL, tools, frigate_available=True)
     assert "entities" in eligible
-    assert "registry" not in eligible
+    assert "registry" in eligible
+    assert "OFF in Settings" in eligible["registry"]
     assert "media_write" in eligible
     assert "media" not in eligible
 
 
-def test_activate_refuses_disabled_pack():
+def test_activate_allows_settings_off_pack_at_toolkit_layer():
+    """Toolkit layer allows OFF packs; chat.py gates with Approve before expand."""
     tools = [
         _tool("media_list"),
         _tool("ha_list_entities"),
         _tool("ha_update_entity"),
         _tool("hassai_status"),
     ]
-    sid = "tk-test-activate-deny"
+    sid = "tk-test-activate-off"
     tk.clear_sticky(sid)
     effective, active, payload = tk.expand_after_activate(
         tools,
@@ -165,8 +168,8 @@ def test_activate_refuses_disabled_pack():
     import json
     data = json.loads(payload)
     assert "entities" in data["activated"]
-    assert "registry" in data["denied"]
-    assert "ha_update_entity" not in {t["function"]["name"] for t in effective}
+    assert "registry" in data["activated"]
+    assert "ha_update_entity" in {t["function"]["name"] for t in effective}
     tk.clear_sticky(sid)
 
 

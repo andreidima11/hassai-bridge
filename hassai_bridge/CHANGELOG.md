@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.6.8
+
+### Fix
+- **Approve bubble for Settings-OFF tools** — disabled tool groups stay visible to the model; calling them (or activate_toolkits) opens Approve / Decline instead of a silent “cannot find / cannot use” reply. Session grants are passed through to HA, media, memory, and bridge handlers after Approve.
+
 ## 1.6.7
 
 ### Fix

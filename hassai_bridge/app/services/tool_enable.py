@@ -232,9 +232,10 @@ def system_hint(cfg: dict | None, session_id: str | None = None) -> str:
     if not rows:
         return ""
     return (
-        "Tool groups currently OFF in Settings (you know they exist but cannot use them yet). "
-        f"If you need one, call {TOOL_NAME} with group=<id> and a short reason — the user gets "
-        "Approve / Decline in the chat UI. After approval, retry the real tools.\n"
+        "Tool groups currently OFF in Settings — they still exist. "
+        "Never say you cannot find them or that they are unavailable. "
+        f"When you need one, call the real tool or {TOOL_NAME} with group=<id> and a short reason "
+        "so the user gets Approve / Decline in the chat UI. After approval, retry.\n"
         + "\n".join(rows)
     )
 
