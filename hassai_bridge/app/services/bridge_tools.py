@@ -69,7 +69,7 @@ _ALLOWED: dict[str, tuple] = {
     "performance.tool_profile": ("enum", ("auto", "full", "dynamic")),
     "performance.tool_replay_turns": ("int", 0, 12),
 }
-for _grp in ("memory", "status", "control", "media"):
+for _grp in ("memory", "status", "control", "media", "browser"):
     _ALLOWED[f"bridge_tools.{_grp}"] = ("bool",)
 
 

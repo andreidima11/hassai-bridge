@@ -89,19 +89,15 @@ TOOL_SPEC = {
 }
 
 
-def is_enabled(cfg: dict | None = None) -> bool:
+def is_enabled(cfg: dict | None = None, session_id: str | None = None) -> bool:
+    """True when browser tools may run (Settings and/or this-chat grant)."""
     if cfg is None:
         from config import load_config
 
         cfg = load_config()
-    from services import bridge_tool_access as bta
+    from services import tool_enable as te
 
-    # Primary toggle: Settings → HASSAI Bridge tool permissions → browser.
-    # Legacy: browser.enabled (Cameras card) still honored if set.
-    if bta.group_enabled("browser", cfg):
-        return True
-    browser = (cfg or {}).get("browser") or {}
-    return bool(browser.get("enabled"))
+    return te.effectively_enabled("bridge:browser", cfg, session_id)
 
 
 def _browser_cfg(cfg: dict | None = None) -> dict:

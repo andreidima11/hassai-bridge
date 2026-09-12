@@ -5,10 +5,12 @@ import { toolSteps } from "../lib/thinking.js";
 
 function ApprovalCard({ step, lang, busy, onDecide }) {
   const preview = String(step.args_preview || step.detail || "").trim();
+  const enabling = Boolean(step.enable_group);
   return (
     <div className="relative my-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[13px] leading-snug">
       <div className="font-medium text-foreground">
-        {tr(lang, "approvalTitle")} · {activityVerb(lang, step.name)}
+        {enabling ? tr(lang, "enableTitle") : tr(lang, "approvalTitle")}
+        {!enabling ? ` · ${activityVerb(lang, step.name)}` : null}
       </div>
       {preview ? (
         <p className="mt-1 break-words text-[12px] text-muted-foreground/90">{preview}</p>
@@ -18,9 +20,9 @@ function ApprovalCard({ step, lang, busy, onDecide }) {
           type="button"
           disabled={busy}
           className="rounded-lg bg-emerald-500/90 px-2.5 py-1 text-[12px] font-semibold text-white disabled:opacity-50"
-          onClick={() => onDecide?.("approve", "once")}
+          onClick={() => onDecide?.("approve", enabling ? "once" : "once")}
         >
-          {tr(lang, "approvalApprove")}
+          {enabling ? tr(lang, "enableApprove") : tr(lang, "approvalApprove")}
         </button>
         <button
           type="button"
@@ -30,14 +32,25 @@ function ApprovalCard({ step, lang, busy, onDecide }) {
         >
           {tr(lang, "approvalDecline")}
         </button>
-        <button
-          type="button"
-          disabled={busy}
-          className="rounded-lg border border-white/15 px-2.5 py-1 text-[12px] font-medium text-muted-foreground disabled:opacity-50"
-          onClick={() => onDecide?.("approve", "conversation")}
-        >
-          {tr(lang, "approvalAllowChat")}
-        </button>
+        {enabling ? (
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-lg border border-white/15 px-2.5 py-1 text-[12px] font-medium text-muted-foreground disabled:opacity-50"
+            onClick={() => onDecide?.("approve", "settings")}
+          >
+            {tr(lang, "enableSaveSettings")}
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-lg border border-white/15 px-2.5 py-1 text-[12px] font-medium text-muted-foreground disabled:opacity-50"
+            onClick={() => onDecide?.("approve", "conversation")}
+          >
+            {tr(lang, "approvalAllowChat")}
+          </button>
+        )}
       </div>
     </div>
   );

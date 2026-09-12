@@ -150,7 +150,7 @@ def pack_for_tool(name: str) -> str | None:
         return None
     if name in {"currency_convert", "currency_rates"}:
         return None
-    if name == "browser_interact":
+    if name in {"browser_interact", "request_enable_tools"}:
         return None
     if name in _FRIGATE_NAMES:
         return PACK_FRIGATE

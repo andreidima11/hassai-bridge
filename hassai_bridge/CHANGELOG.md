@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.6.3
+
+### Features
+- **Disabled tools awareness** — HASSAI sees which Settings tool groups are OFF and can ask to enable them via Approve / Decline (this chat, or Save in Settings). Meta-tool `request_enable_tools`
+
 ## 1.6.2
 
 ### Fix

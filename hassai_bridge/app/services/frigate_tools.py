@@ -37,12 +37,12 @@ def _cfg() -> dict:
     return dict((load_config().get("frigate") or {}))
 
 
-def is_enabled() -> bool:
-    cfg = _cfg()
-    if cfg.get("enabled") is False:
+def is_enabled(cfg: dict | None = None) -> bool:
+    fr = dict((cfg or {}).get("frigate") or {}) if cfg is not None else _cfg()
+    if fr.get("enabled") is False:
         return False
     # Auto-on when explicitly configured, or when media/frigate exists, or default URL works.
-    if cfg.get("base_url") or cfg.get("enabled") is True:
+    if fr.get("base_url") or fr.get("enabled") is True:
         return True
     return bool(media_frigate_root())
 

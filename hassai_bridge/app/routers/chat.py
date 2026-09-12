@@ -74,6 +74,7 @@ def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
         "currency_convert",
         "currency_rates",
         "browser_interact",
+        "request_enable_tools",
     ):
         return True
     if fn_name in _MEDIA_TOOL_NAMES or fn_name in _FRIGATE_TOOL_NAMES:
@@ -89,7 +90,77 @@ def _sync_effective_tools(toolkit_state: dict | None, effective_tools: list | No
         live = toolkit_state.get("effective")
         if live:
             return live
+    if toolkit_state and isinstance(toolkit_state.get("live_tools"), list) and toolkit_state["live_tools"]:
+        return toolkit_state["live_tools"]
     return effective_tools
+
+
+def _assemble_addon_tools(cfg: dict, *, search_enabled: bool | None = None) -> list[dict]:
+    """Build the full add-on tool list for the current (possibly session-overridden) config."""
+    from services import browser_interact as bi
+    from services import frigate_tools as ft
+    from services import tool_enable as te
+
+    if search_enabled is None:
+        search_enabled = bool((cfg.get("searxng") or {}).get("enabled"))
+    out: list[dict] = []
+    if search_enabled:
+        out.append(_search_web_tool(cfg))
+        out.append(_fetch_url_tool(cfg))
+    out.extend(currency_fx.TOOL_SPECS)
+    out.append(te.TOOL_SPEC)
+    if bi.is_enabled(cfg):
+        out.append(bi.TOOL_SPEC)
+    out.extend(_build_skill_tools())
+    if bta.group_enabled("media", cfg):
+        out.extend(_MEDIA_TOOLS)
+    if ft.is_enabled(cfg):
+        out.extend(_FRIGATE_TOOLS)
+    out.extend(mt.build_tools(cfg))
+    out.extend(bt.build_tools(cfg))
+    out.extend(ha_api.build_ha_tools(cfg))
+    return out
+
+
+def _merge_tool_lists(*lists: list | None) -> list[dict]:
+    seen: set[str] = set()
+    out: list[dict] = []
+    for lst in lists:
+        for t in lst or []:
+            if not isinstance(t, dict):
+                continue
+            name = str((t.get("function") or {}).get("name") or "")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            out.append(t)
+    return out
+
+
+def _refresh_tools_after_enable(
+    toolkit_state: dict | None,
+    *,
+    cfg: dict,
+    session_id: str | None,
+    client_tools: list | None = None,
+) -> list[dict]:
+    """Rebuild tools with session grants and push into toolkit_state live list."""
+    from services import tool_enable as te
+
+    cfg_eff = te.apply_session_overrides(cfg, session_id)
+    rebuilt = _assemble_addon_tools(cfg_eff)
+    merged = _merge_tool_lists(client_tools, rebuilt)
+    if toolkit_state is not None:
+        toolkit_state["all_tools"] = _merge_tool_lists(toolkit_state.get("all_tools"), merged)
+        live = toolkit_state.get("live_tools")
+        if isinstance(live, list):
+            toolkit_state["live_tools"] = _merge_tool_lists(live, merged)
+        else:
+            toolkit_state["live_tools"] = list(merged)
+        if toolkit_state.get("enabled") and isinstance(toolkit_state.get("effective"), list):
+            toolkit_state["effective"] = _merge_tool_lists(toolkit_state.get("effective"), merged)
+    return merged
+
 
 # Identical tool+args this many times → skip and tell the model to move on.
 _AGENT_REPEAT_LIMIT = 2
@@ -388,6 +459,8 @@ def _tool_detail(name: str, args: dict) -> str:
     if name == "browser_interact":
         bits = [args.get("action") or "", args.get("url") or args.get("selector") or ""]
         return _clip_detail(" ".join(str(b) for b in bits if b))
+    if name == "request_enable_tools":
+        return _clip_detail(args.get("group") or args.get("reason") or "")
     if name == "run_skill":
         return _clip_detail(args.get("skill_name"))
     if name in {"media_list", "media_read", "media_delete"}:
@@ -1405,9 +1478,119 @@ async def _append_internal_tool_results(
             })
         else:
             from services import tool_approval as ta
+            from services import tool_enable as te
 
             run_args = args
             approved = True
+            cfg_eff = te.apply_session_overrides(cfg, session_id)
+
+            enable_group = None
+            if fn_name == te.TOOL_NAME:
+                enable_group = te.resolve_group(args.get("group"))
+                if not enable_group:
+                    content = (
+                        "Error: unknown group. Use ids like browser, media, backups, "
+                        "dashboards, searxng, frigate."
+                    )
+                    await _fire_activity(on_event, {
+                        "id": tc_id, "name": fn_name, "detail": detail,
+                        "status": "skip", "ms": int((time.time() - started) * 1000),
+                    })
+                    fingerprints.append(fp)
+                    augmented.append({
+                        "role": "tool", "tool_call_id": tc_id, "name": fn_name, "content": content,
+                    })
+                    continue
+            else:
+                maybe = te.canonical_for_tool(fn_name)
+                if maybe and not te.effectively_enabled(maybe, cfg, session_id):
+                    enable_group = maybe
+
+            if enable_group and not te.effectively_enabled(enable_group, cfg, session_id):
+                reason = str(args.get("reason") or detail or "")
+                preview = te.approval_preview(enable_group, reason)
+                await _fire_activity(on_event, {
+                    "id": tc_id,
+                    "name": fn_name,
+                    "detail": preview,
+                    "status": "awaiting_approval",
+                    "args_preview": preview,
+                    "enable_group": enable_group,
+                })
+                fut = ta.register_pending(
+                    trace_id, tc_id, name=fn_name, args=args, detail=preview,
+                )
+                decision = await ta.wait_decision(fut)
+                await _check_trace(trace_id)
+                dec = str(decision.get("decision") or "decline").lower()
+                scope = str(decision.get("scope") or "once").lower()
+                if dec == "approve":
+                    te.grant_session(session_id, enable_group)
+                    persist_note = ""
+                    if scope == "settings":
+                        persist_note = " " + te.persist_group_to_settings(enable_group)
+                    _refresh_tools_after_enable(
+                        toolkit_state,
+                        cfg=cfg,
+                        session_id=session_id,
+                        client_tools=(toolkit_state or {}).get("client_tools"),
+                    )
+                    cfg_eff = te.apply_session_overrides(cfg, session_id)
+                    if fn_name == te.TOOL_NAME:
+                        content = (
+                            f"Enabled for this chat: {te.group_label(enable_group)} "
+                            f"({enable_group.split(':', 1)[-1]}).{persist_note} "
+                            "Now call the real tools you need."
+                        )
+                        await _fire_activity(on_event, {
+                            "id": tc_id, "name": fn_name, "detail": preview,
+                            "status": "done", "ms": int((time.time() - started) * 1000),
+                        })
+                        fingerprints.append(fp)
+                        augmented.append({
+                            "role": "tool", "tool_call_id": tc_id, "name": fn_name, "content": content,
+                        })
+                        continue
+                    # Fall through to run the original gated tool
+                    run_args = ta.inject_confirm(args) if ta.needs_approval(fn_name, args) else args
+                elif dec == "timeout":
+                    approved = False
+                    content = ta.TIMEOUT_RESULT
+                elif dec == "cancelled":
+                    raise TraceCancelled(trace_id)
+                else:
+                    approved = False
+                    content = (
+                        f"User declined enabling “{enable_group.split(':', 1)[-1]}”. "
+                        "Do not retry this group unless they ask."
+                    )
+                if not approved:
+                    await _fire_activity(on_event, {
+                        "id": tc_id, "name": fn_name, "detail": preview,
+                        "status": "skip", "ms": int((time.time() - started) * 1000),
+                    })
+                    fingerprints.append(fp)
+                    augmented.append({
+                        "role": "tool", "tool_call_id": tc_id, "name": fn_name, "content": content,
+                    })
+                    continue
+
+            if fn_name == te.TOOL_NAME:
+                # Already enabled (session or settings)
+                content = (
+                    f"Group “{enable_group.split(':', 1)[-1]}” is already available. "
+                    "Call the real tools now."
+                )
+                await _fire_activity(on_event, {
+                    "id": tc_id, "name": fn_name, "detail": detail,
+                    "status": "done", "ms": int((time.time() - started) * 1000),
+                })
+                fingerprints.append(fp)
+                augmented.append({
+                    "role": "tool", "tool_call_id": tc_id, "name": fn_name, "content": content,
+                })
+                continue
+
             if ta.needs_approval(fn_name, args):
                 if ta.is_conversation_allowed(session_id, fn_name, args):
                     run_args = ta.inject_confirm(args)
@@ -1458,7 +1641,7 @@ async def _append_internal_tool_results(
             content, used_search = await _invoke_internal_tool(
                 fn_name,
                 run_args,
-                search_enabled=search_enabled,
+                search_enabled=bool((cfg_eff.get("searxng") or {}).get("enabled", search_enabled)),
                 provider=provider,
                 image_gen_provider=image_gen_provider,
                 user_id=user_id,
@@ -1467,7 +1650,7 @@ async def _append_internal_tool_results(
                 toolkit_state=toolkit_state,
                 search_budget=search_budget,
                 fetch_budget=fetch_budget,
-                cfg=cfg,
+                cfg=cfg_eff,
                 collected_sources=sources_bucket,
             )
             search_used = search_used or used_search
@@ -2938,28 +3121,14 @@ async def chat_completions(request: Request):
     trace_id = _sanitize_trace_id(body.get("trace_id"))
     thinking_override = _parse_thinking_override(body.get("thinking"))
     cfg = load_config()
-    search_enabled = cfg["searxng"].get("enabled", False)
+    from services import tool_enable as te
+
+    cfg_runtime = te.apply_session_overrides(cfg, session_id)
+    search_enabled = bool((cfg_runtime.get("searxng") or {}).get("enabled", False))
 
     # Build effective tools list: client tools + search_web + skills + HA
-    all_tools = list(tools or []) if tools else []
-    if search_enabled:
-        all_tools.append(_search_web_tool(cfg))
-        all_tools.append(_fetch_url_tool(cfg))
-    all_tools.extend(currency_fx.TOOL_SPECS)
-    from services import browser_interact as bi
-
-    if bi.is_enabled(cfg):
-        all_tools.append(bi.TOOL_SPEC)
-    all_tools.extend(_build_skill_tools())
-    if bta.group_enabled("media", cfg):
-        all_tools.extend(_MEDIA_TOOLS)
+    all_tools = _merge_tool_lists(tools, _assemble_addon_tools(cfg_runtime, search_enabled=search_enabled))
     from services import frigate_tools as ft
-
-    if ft.is_enabled():
-        all_tools.extend(_FRIGATE_TOOLS)
-    all_tools.extend(mt.build_tools(cfg))
-    all_tools.extend(bt.build_tools(cfg))
-    all_tools.extend(ha_api.build_ha_tools(cfg))
 
     # The last user turn is read before routing: Auto mode classifies the turn
     # to decide which provider answers it.
@@ -3011,7 +3180,13 @@ async def chat_completions(request: Request):
     image_gen_in_tools = any(
         (t.get("function") or {}).get("name") == "generate_image" for t in all_tools
     )
-    toolkit_state: dict = {"enabled": False, "effective": None, "all_tools": all_tools}
+    toolkit_state: dict = {
+        "enabled": False,
+        "effective": None,
+        "all_tools": all_tools,
+        "live_tools": list(all_tools),
+        "client_tools": list(tools or []) if tools else [],
+    }
 
     if tp.tool_profile_mode(cfg) == tp.PROFILE_DYNAMIC:
         from services import pack_router as pr
@@ -3144,6 +3319,9 @@ async def chat_completions(request: Request):
     effective_tools = effective_tools if effective_tools else None
     if toolkit_state.get("enabled") and effective_tools is not None:
         toolkit_state["effective"] = effective_tools
+    if effective_tools is not None:
+        toolkit_state["live_tools"] = list(effective_tools)
+        toolkit_state["effective"] = effective_tools
 
     # Authenticate when an API key is configured
     _validate_api_key(request)
@@ -3246,6 +3424,9 @@ async def chat_completions(request: Request):
     )
     if ha_hint:
         stable_extras.append(ha_hint)
+    enable_hint = te.system_hint(cfg, session_id)
+    if enable_hint:
+        stable_extras.append(enable_hint)
     from services import frigate_tools as ft
 
     frigate_hint = ft.system_hint()
