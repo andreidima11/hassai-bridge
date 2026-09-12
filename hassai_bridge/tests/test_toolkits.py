@@ -63,6 +63,39 @@ def test_browser_and_enable_tools_are_core_in_dynamic():
     assert "request_enable_tools" in names
 
 
+def test_media_delete_not_core_requires_media_write_pack():
+    tools = [
+        _tool("media_list"),
+        _tool("media_read"),
+        _tool("media_delete"),
+        _tool("hassai_status"),
+    ]
+    out, active, eligible = tk.resolve_dynamic_tools(
+        tools,
+        cfg=CFG_ALL,
+        session_id="",
+        provider=CLOUD,
+        primed_packs=set(),
+    )
+    names = {t["function"]["name"] for t in out}
+    assert "media_list" in names
+    assert "media_read" in names
+    assert "media_delete" not in names
+    assert "media_write" in eligible
+    assert tk.pack_for_tool("media_delete") == "media_write"
+
+    out2, active2, _ = tk.resolve_dynamic_tools(
+        tools,
+        cfg=CFG_ALL,
+        session_id="",
+        provider=CLOUD,
+        primed_packs={"media_write"},
+    )
+    names2 = {t["function"]["name"] for t in out2}
+    assert "media_delete" in names2
+    assert "media_write" in active2
+
+
 def test_primed_packs_from_router_not_regex():
     tools = [
         _tool("media_list"),
