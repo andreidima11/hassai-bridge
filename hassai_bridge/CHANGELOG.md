@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.6.1
+
+### Fix
+- **Add-on image build on Alpine** — drive `browser_interact` via Chromium CDP (websockets) instead of Playwright, which has no musllinux wheels
+
 ## 1.6.0
 
 ### Features

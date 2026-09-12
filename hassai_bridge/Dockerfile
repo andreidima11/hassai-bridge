@@ -13,7 +13,7 @@ FROM $BUILD_FROM
 
 # Bumped by scripts/sync_version.sh. Changing this ARG invalidates every
 # layer below so Supervisor cannot reuse a cached COPY of an old app/.
-ARG HASSAI_VERSION=1.6.0
+ARG HASSAI_VERSION=1.6.1
 
 ENV LANG=C.UTF-8
 
@@ -45,8 +45,7 @@ RUN chmod a+x /run.sh \
     && test -d /opt/hassai-bridge/static/assets/chat
 
 ENV HASSAI_CHROMIUM_PATH=/usr/bin/chromium
-# Launch code also probes chromium-browser if this path is missing.
-ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+# Browser uses CDP against system Chromium (Playwright has no musllinux wheels).
 
 WORKDIR /opt/hassai-bridge
 CMD [ "/run.sh" ]
