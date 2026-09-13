@@ -1,5 +1,18 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.5
+
+### Features
+- **Faster HA actions** — short control intents prime `entities` + `control` (skip pack-router round); `ha_call_service` verifies state by default when a target entity is set; same-turn tools run in parallel when no Approve gate; prompts nudge multi-device calls in one turn
+
+### Note
+- Install **1.7.4+** for Thinking timeline copy fixes (JSON / “88 found” / HA wrappers)
+
+## 1.7.4
+
+### Fix
+- **Thinking result previews** — no raw JSON from `activate_toolkits`; strip `[Home Assistant — …]` wrappers; localize counts (e.g. `88 găsite` in Romanian)
+
 ## 1.7.3
 
 ### Fix

@@ -76,6 +76,37 @@ def explain_event_packs() -> set[str]:
     return {"entities", "automations"}
 
 
+_CAMERA_RE = re.compile(
+    r"\b(frigate|camera|camer[aă]|cam(?:era)?s?|nvr|surveillance|recordings?|"
+    r"snapshot|video|clip|înregistr\w*|inregistr\w*)\b",
+    re.I,
+)
+
+_SHORT_CONTROL_MAX = 120
+
+
+def control_action_packs(user_text: str = "") -> set[str]:
+    """Packs for HA device commands (lights, switches, …)."""
+    packs = {"entities", "control"}
+    if _CAMERA_RE.search(user_text or ""):
+        packs.add("frigate")
+    return packs
+
+
+def should_skip_pack_router_for_control(user_text: str) -> bool:
+    """Short, clear control intents can skip the LLM pack router."""
+    from services import deepseek as ds
+
+    text = " ".join(str(user_text or "").split())
+    if not text or len(text) > _SHORT_CONTROL_MAX:
+        return False
+    if ds.looks_like_automation_edit(text):
+        return False
+    if looks_like_explain_event(text):
+        return False
+    return bool(ds.looks_like_control(text))
+
+
 def build_tool_playbook(tool_names: Iterable[str] | None) -> str:
     """Short capability map for tools present this turn. Empty if nothing matches."""
     present = {str(n).strip() for n in (tool_names or []) if str(n).strip()}

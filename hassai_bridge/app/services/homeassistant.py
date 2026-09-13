@@ -532,7 +532,8 @@ _TOOL_SPECS: dict[str, dict] = {
             "Call a Home Assistant service. Use ha_list_services to discover valid domain.service names. "
             "Pass entity_id here or entity_id: [list] inside data for multiple targets. "
             "Match the service domain to the entity (switch.bedroom_light → switch.turn_off, not light.turn_off). "
-            "Set verify=true to read state after the call."
+            "When a target entity is set, state is verified after the call by default "
+            "(omit verify or set verify=true). Set verify=false to skip."
         ),
         "parameters": {
             "type": "object",
@@ -541,7 +542,13 @@ _TOOL_SPECS: dict[str, dict] = {
                 "service": {"type": "string"},
                 "entity_id": {"type": "string", "description": "Single entity or omit and use data.entity_id list"},
                 "data": {"type": "object"},
-                "verify": {"type": "boolean", "description": "Run ha_get_state after a successful call"},
+                "verify": {
+                    "type": "boolean",
+                    "description": (
+                        "Read state after a successful call. Default true when entity_id / "
+                        "data.entity_id is present; set false to skip."
+                    ),
+                },
             },
             "required": ["domain", "service"],
         },
@@ -1692,14 +1699,29 @@ async def _call_service(args: dict) -> str:
             lines.append(f"changed: {preview}")
     elif isinstance(result, dict) and result:
         lines.append(_dump(result, max_chars=4000))
-    verify_id = entity_id or (
-        data.get("entity_id")[0]
-        if isinstance(data.get("entity_id"), list) and data.get("entity_id")
-        else (data.get("entity_id") if isinstance(data.get("entity_id"), str) else "")
-    )
-    if args.get("verify") and verify_id:
+
+    verify_ids: list[str] = []
+    raw_target = entity_id or data.get("entity_id")
+    if isinstance(raw_target, list):
+        verify_ids = [str(x).strip() for x in raw_target if str(x).strip()]
+    elif isinstance(raw_target, str) and raw_target.strip():
+        verify_ids = [raw_target.strip()]
+
+    # Default verify=true when a target entity is present; honor explicit false.
+    if "verify" in args:
+        do_verify = bool(args.get("verify"))
+    else:
+        do_verify = bool(verify_ids)
+
+    if do_verify and verify_ids:
         lines.append("verify:")
-        lines.append(await _get_state({"entity_id": verify_id, "include_capabilities": True}))
+        for vid in verify_ids[:8]:
+            try:
+                lines.append(await _get_state({"entity_id": vid, "include_capabilities": True}))
+            except Exception as exc:
+                lines.append(f"{vid}: Error: {exc}")
+        if len(verify_ids) > 8:
+            lines.append(f"… (+{len(verify_ids) - 8} entities not verified)")
     return "\n".join(lines)
 
 

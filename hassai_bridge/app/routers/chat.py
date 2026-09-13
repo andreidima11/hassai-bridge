@@ -1394,6 +1394,179 @@ async def _invoke_internal_tool(
     return f"Error: unknown tool '{fn_name}'", False
 
 
+def _tool_needs_interactive_gate(
+    fn_name: str,
+    args: dict,
+    cfg: dict,
+    session_id: str | None,
+) -> bool:
+    """True when this tool call may pause for Approve / browser host consent."""
+    from services import tool_enable as te
+    from services import toolkits as tk
+
+    args = args or {}
+    if fn_name == te.TOOL_NAME:
+        group = te.resolve_group(args.get("group"))
+        return bool(group and not te.effectively_enabled(group, cfg, session_id))
+    if fn_name == tk.ACTIVATE_TOOL:
+        packs = args.get("packs") if isinstance(args.get("packs"), list) else []
+        for pack in packs:
+            maybe = te.resolve_group(pack)
+            if maybe and not te.effectively_enabled(maybe, cfg, session_id):
+                return True
+        return False
+    maybe = te.canonical_for_tool(fn_name)
+    if maybe and not te.effectively_enabled(maybe, cfg, session_id):
+        return True
+    if fn_name == "browser_interact" and str(args.get("action") or "").strip().lower() == "open":
+        from services import browser_interact as bi
+
+        open_url = str(args.get("url") or "").strip()
+        if not open_url:
+            return False
+        ok_url, _reason = bi.url_allowed(open_url, cfg, session_id)
+        if not ok_url:
+            return False
+        return not bi.host_preapproved(open_url, cfg, session_id)
+    return False
+
+
+async def _append_parallel_ready_tools(
+    augmented: list,
+    tool_calls: list[dict],
+    *,
+    search_enabled: bool,
+    fingerprints: list[str],
+    on_event=None,
+    trace_id: str = "",
+    provider: dict | None = None,
+    image_gen_provider: dict | None = None,
+    user_id: str = "",
+    session_id: str | None = None,
+    generated_attachments: list | None = None,
+    cfg: dict | None = None,
+    toolkit_state: dict | None = None,
+    search_budget: dict | None = None,
+    fetch_budget: dict | None = None,
+    collected_sources: list | None = None,
+) -> bool:
+    """Run a same-turn tool batch concurrently (no Approve gates in the batch)."""
+    from services import tool_approval as ta
+
+    cfg = cfg or load_config()
+    search_used = False
+    sources_bucket = collected_sources if isinstance(collected_sources, list) else []
+    lang = str((cfg or {}).get("language") or "en")
+
+    prepared: list[dict] = []
+    for tc in tool_calls:
+        await _check_trace(trace_id)
+        fn = tc.get("function") or {}
+        fn_name = fn.get("name") or ""
+        if not _is_internal_tool(fn_name, cfg):
+            continue
+        tc_id = tc.get("id") or f"call_{fn_name}"
+        args = _parse_tool_args(fn.get("arguments"))
+        detail = _tool_detail(fn_name, args)
+        fp = _tool_fingerprint(fn_name, args)
+        if _should_skip_repeated_tool(fn_name, args, fingerprints, fp):
+            log.info("Skipping repeated tool %s", fp[:80])
+            started = time.time()
+            await _fire_activity(on_event, {
+                "id": tc_id, "name": fn_name, "detail": detail, "status": "running",
+            })
+            content = (
+                "Repeated tool call skipped — you already received this result. "
+                "Do not call the same tool with the same arguments again. "
+                "Continue with a different action or give the final answer."
+            )
+            await _fire_activity(on_event, {
+                "id": tc_id, "name": fn_name, "detail": detail,
+                "status": "skip", "ms": int((time.time() - started) * 1000),
+            })
+            fingerprints.append(fp)
+            augmented.append({
+                "role": "tool", "tool_call_id": tc_id, "name": fn_name, "content": content,
+            })
+            continue
+        run_args = ta.inject_confirm(args) if ta.is_risky(fn_name) else args
+        prepared.append({
+            "tc_id": tc_id,
+            "fn_name": fn_name,
+            "args": args,
+            "run_args": run_args,
+            "detail": detail,
+            "fp": fp,
+        })
+
+    if not prepared:
+        return search_used
+
+    for job in prepared:
+        await _fire_activity(on_event, {
+            "id": job["tc_id"], "name": job["fn_name"], "detail": job["detail"], "status": "running",
+        })
+        fingerprints.append(job["fp"])
+
+    started_at = time.time()
+
+    async def _one(job: dict) -> tuple[str, bool]:
+        await _check_trace(trace_id)
+        return await _invoke_internal_tool(
+            job["fn_name"],
+            job["run_args"],
+            search_enabled=bool((cfg.get("searxng") or {}).get("enabled", search_enabled)),
+            provider=provider,
+            image_gen_provider=image_gen_provider,
+            user_id=user_id,
+            session_id=session_id,
+            generated_attachments=generated_attachments,
+            toolkit_state=toolkit_state,
+            search_budget=search_budget,
+            fetch_budget=fetch_budget,
+            cfg=cfg,
+            collected_sources=sources_bucket,
+        )
+
+    results = await asyncio.gather(*[_one(job) for job in prepared], return_exceptions=True)
+    # Wall-clock for the whole parallel batch; per-tool ms approximates share.
+    batch_ms = int((time.time() - started_at) * 1000)
+    per_ms = max(1, batch_ms // max(1, len(prepared)))
+
+    for job, result in zip(prepared, results):
+        if isinstance(result, Exception):
+            content = f"Error: {result}"
+            used_search = False
+        else:
+            content, used_search = result
+        search_used = search_used or used_search
+        result_preview = _tool_result_preview(job["fn_name"], content, lang=lang)
+        await _fire_activity(on_event, {
+            "id": job["tc_id"],
+            "name": job["fn_name"],
+            "detail": job["detail"],
+            "result_preview": result_preview,
+            "status": "done",
+            "ms": per_ms,
+        })
+        augmented.append({
+            "role": "tool",
+            "tool_call_id": job["tc_id"],
+            "name": job["fn_name"],
+            "content": content,
+        })
+
+    if sources_bucket:
+        await _fire_activity(on_event, {
+            "id": "sources",
+            "name": "sources",
+            "status": "done",
+            "detail": f"{len(sources_bucket)} source(s)",
+            "sources": list(sources_bucket),
+        })
+    return search_used
+
+
 async def _append_internal_tool_results(
     augmented: list,
     tool_calls: list[dict],
@@ -1416,6 +1589,38 @@ async def _append_internal_tool_results(
     """Append tool-role messages for internal calls. Returns search_used."""
     if cfg is None:
         cfg = load_config()
+
+    # Fast path: no Approve / host gates → run independent tools concurrently.
+    gate = False
+    for tc in tool_calls or []:
+        fn = tc.get("function") or {}
+        fn_name = fn.get("name") or ""
+        if not _is_internal_tool(fn_name, cfg):
+            continue
+        args = _parse_tool_args(fn.get("arguments"))
+        if _tool_needs_interactive_gate(fn_name, args, cfg, session_id):
+            gate = True
+            break
+    if not gate:
+        return await _append_parallel_ready_tools(
+            augmented,
+            tool_calls,
+            search_enabled=search_enabled,
+            fingerprints=fingerprints,
+            on_event=on_event,
+            trace_id=trace_id,
+            provider=provider,
+            image_gen_provider=image_gen_provider,
+            user_id=user_id,
+            session_id=session_id,
+            generated_attachments=generated_attachments,
+            cfg=cfg,
+            toolkit_state=toolkit_state,
+            search_budget=search_budget,
+            fetch_budget=fetch_budget,
+            collected_sources=collected_sources,
+        )
+
     search_used = False
     sources_bucket = collected_sources if isinstance(collected_sources, list) else []
     for tc in tool_calls:
@@ -3224,42 +3429,63 @@ async def chat_completions(request: Request):
             skills_available=skills_in_tools,
         )
         before_tok = tk.estimate_tools_tokens(all_tools)
-        router_p, router_m = providers.resolve_toolkit_router(
-            active,
-            fallback_provider=active,
-            fallback_model=route.get("model") or active.get("model"),
-        )
-        route_decision = await pr.route_packs(
-            last_user_msg,
-            eligible_preview,
-            provider=router_p,
-            model=router_m,
-        )
-        primed = set(route_decision.get("packs") or ())
         from services import tool_awareness as taw
+        from services import deepseek as ds
+
+        eligible_ids = set(eligible_preview or ())
+        skip_router = taw.should_skip_pack_router_for_control(last_user_msg)
+        route_decision: dict = {
+            "packs": set(),
+            "confidence": 1.0,
+            "reason": "control_heuristic",
+            "usage": {},
+        }
+        if skip_router:
+            primed = taw.control_action_packs(last_user_msg) & eligible_ids
+            log.info(
+                "[%s] Pack router skipped (short control) → packs=%s",
+                user_id,
+                sorted(primed),
+            )
+        else:
+            router_p, router_m = providers.resolve_toolkit_router(
+                active,
+                fallback_provider=active,
+                fallback_model=route.get("model") or active.get("model"),
+            )
+            route_decision = await pr.route_packs(
+                last_user_msg,
+                eligible_preview,
+                provider=router_p,
+                model=router_m,
+            )
+            primed = set(route_decision.get("packs") or ())
+            try:
+                usage = route_decision.get("usage") if isinstance(route_decision.get("usage"), dict) else {}
+                prompt_u = int(usage.get("prompt") or 0)
+                completion_u = int(usage.get("completion") or 0)
+                total_u = int(usage.get("total") or (prompt_u + completion_u))
+                if total_u > 0 and router_p:
+                    add_usage_stat(
+                        user_id=user_id,
+                        provider_id=str(router_p.get("id") or ""),
+                        provider_name=str(router_p.get("name") or ""),
+                        provider_type=str(router_p.get("type") or ""),
+                        model=str(router_m or router_p.get("model") or ""),
+                        tokens_prompt=prompt_u,
+                        tokens_completion=completion_u,
+                        tokens_total=total_u,
+                        stream=False,
+                        route_reason="toolkit_router",
+                    )
+            except Exception:
+                pass
 
         if taw.looks_like_explain_event(last_user_msg):
-            primed |= taw.explain_event_packs() & set(eligible_preview or ())
-        try:
-            usage = route_decision.get("usage") if isinstance(route_decision.get("usage"), dict) else {}
-            prompt_u = int(usage.get("prompt") or 0)
-            completion_u = int(usage.get("completion") or 0)
-            total_u = int(usage.get("total") or (prompt_u + completion_u))
-            if total_u > 0 and router_p:
-                add_usage_stat(
-                    user_id=user_id,
-                    provider_id=str(router_p.get("id") or ""),
-                    provider_name=str(router_p.get("name") or ""),
-                    provider_type=str(router_p.get("type") or ""),
-                    model=str(router_m or router_p.get("model") or ""),
-                    tokens_prompt=prompt_u,
-                    tokens_completion=completion_u,
-                    tokens_total=total_u,
-                    stream=False,
-                    route_reason="toolkit_router",
-                )
-        except Exception:
-            pass
+            primed |= taw.explain_event_packs() & eligible_ids
+        if ds.looks_like_control(last_user_msg):
+            primed |= taw.control_action_packs(last_user_msg) & eligible_ids
+
         try:
             db.add_toolkit_audit(
                 user_id=user_id,
@@ -3269,7 +3495,7 @@ async def chat_completions(request: Request):
                 detail=(
                     f"confidence={route_decision.get('confidence')} "
                     f"reason={route_decision.get('reason')} "
-                    f"router={((router_p or {}).get('name') or ((router_p or {}).get('id')) or '-')}"
+                    f"skip_router={skip_router}"
                 ),
                 tools_tokens_before=before_tok,
             )
