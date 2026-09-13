@@ -33,7 +33,11 @@ def build_router_messages(user_text: str, eligible: dict[str, str]) -> list[dict
         '{"packs":["id",...],"confidence":0.0}. '
         "packs must be a subset of the catalog ids. "
         "Use [] when the user only chats / needs no domain tools. "
-        "confidence is 0..1 how sure you are."
+        "confidence is 0..1 how sure you are. "
+        "Hints: live device on/off/status → entities (+control to change); "
+        "why/who/de ce s-a aprins|stins|schimbat → entities,automations; "
+        "logs/z2m/errors → diagnostics; dashboards → dashboards; "
+        "addons start/stop → addons."
     )
     user = (
         f"Catalog:\n{catalog}\n\n"

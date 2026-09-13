@@ -1,6 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronIcon } from "./Icons.jsx";
-import { activityVerb, enableApprovalPreview, formatMs, liveThinkingLabel, tr } from "../lib/i18n.js";
+import {
+  activityVerb,
+  enableApprovalPreview,
+  formatMs,
+  liveThinkingLabel,
+  stepDisplayDetail,
+  tr,
+} from "../lib/i18n.js";
 import { toolSteps } from "../lib/thinking.js";
 
 /** Enable-group / browser-host Approve — matches chat chrome (neutral HA dark). */
@@ -72,6 +79,40 @@ export function ApprovalCard({ step, lang, busy, onDecide }) {
   );
 }
 
+function ThinkStepRow({ step, lang }) {
+  const running = step.status === "running";
+  const detail = String(step.detail || "").trim();
+  const [expanded, setExpanded] = useState(false);
+  const label = running
+    ? tr(lang, "thinkingLive")
+    : `${tr(lang, "thinking")}${step.ms ? ` · ${formatMs(step.ms)}` : ""}`;
+
+  return (
+    <div className="relative flex min-w-0 items-start gap-2.5 py-1 text-[13px] leading-snug text-muted-foreground/85">
+      <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/35" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={`min-w-0 ${running ? "thinking-shimmer" : ""}`}>{label}</span>
+          {detail ? (
+            <button
+              type="button"
+              className="shrink-0 text-[11px] text-muted-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? tr(lang, "hideThinkingDetail") : tr(lang, "showThinkingDetail")}
+            </button>
+          ) : null}
+        </div>
+        {detail && expanded ? (
+          <p className="mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[12px] font-normal leading-relaxed text-muted-foreground/70">
+            {detail}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function StepRow({ step, lang }) {
   const running = step.status === "running";
   const awaiting = step.status === "awaiting_approval";
@@ -94,24 +135,10 @@ function StepRow({ step, lang }) {
   }
 
   if (isThink) {
-    const label = running
-      ? tr(lang, "thinkingLive")
-      : `${tr(lang, "thinking")}${step.ms ? ` · ${formatMs(step.ms)}` : ""}`;
-    const detail = String(step.detail || "").trim();
-    return (
-      <div className="relative flex min-w-0 items-start gap-2.5 py-1 text-[13px] leading-snug text-muted-foreground/85">
-        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/35" aria-hidden="true" />
-        <div className="min-w-0 flex-1">
-          <span className={`block min-w-0 truncate ${running ? "thinking-shimmer" : ""}`}>{label}</span>
-          {detail ? (
-            <p className="mt-1.5 whitespace-pre-wrap break-words text-[12px] font-normal leading-relaxed text-muted-foreground/70">
-              {detail}
-            </p>
-          ) : null}
-        </div>
-      </div>
-    );
+    return <ThinkStepRow lang={lang} step={step} />;
   }
+
+  const display = stepDisplayDetail(step);
 
   return (
     <div className="relative flex min-w-0 items-start gap-2.5 py-1.5 text-[13px] leading-snug">
@@ -132,17 +159,21 @@ function StepRow({ step, lang }) {
       </span>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
-          <span className={`shrink-0 font-medium ${running ? "text-foreground" : "text-muted-foreground"}`}>
+          <span className={`min-w-0 font-medium ${running ? "text-foreground" : "text-muted-foreground"}`}>
             {activityVerb(lang, step.name)}
           </span>
-          {step.detail ? <span className="min-w-0 truncate text-muted-foreground/85">{step.detail}</span> : null}
           {done && step.ms ? (
-            <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground/55">{formatMs(step.ms)}</span>
+            <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground/55">
+              {formatMs(step.ms)}
+            </span>
           ) : null}
           {skipped ? (
             <span className="ml-auto shrink-0 text-[11px] text-amber-400/90">{tr(lang, "skipped")}</span>
           ) : null}
         </div>
+        {display ? (
+          <p className="mt-0.5 break-words text-[12px] leading-snug text-muted-foreground/85">{display}</p>
+        ) : null}
       </div>
     </div>
   );
@@ -153,29 +184,48 @@ export function Thinking({ thinking, lang, streaming = false }) {
   const tools = toolSteps(steps);
   const hasSteps = steps.length > 0;
   const hasTools = tools.length > 0;
+  const hasActionTrail = tools.length > 0 || steps.some((s) => s.name === "say");
   const awaiting = steps.some((s) => s.status === "awaiting_approval");
   const isLive = Boolean(thinking.active || streaming || awaiting);
   const canToggle = isLive || hasSteps;
   const [open, setOpen] = useState(false);
+  const [userToggled, setUserToggled] = useState(false);
   const [autoClosed, setAutoClosed] = useState(false);
+  const wasLive = useRef(false);
 
   useEffect(() => {
     if (awaiting) setAutoClosed(false);
   }, [awaiting]);
 
+  // Auto-expand when the first real action/say appears while live.
   useEffect(() => {
-    if (!isLive && hasSteps && open && !autoClosed && !awaiting) {
+    if (isLive && hasActionTrail && !userToggled) {
+      setOpen(true);
+      setAutoClosed(false);
+    }
+  }, [isLive, hasActionTrail, userToggled]);
+
+  useEffect(() => {
+    if (isLive) {
+      wasLive.current = true;
+      return undefined;
+    }
+    // After a live turn finishes: keep open briefly, then collapse unless user pinned it open.
+    if (wasLive.current && hasSteps && open && !autoClosed && !awaiting && !userToggled) {
       const timer = window.setTimeout(() => {
         setOpen(false);
         setAutoClosed(true);
-      }, 1000);
+        wasLive.current = false;
+      }, 3500);
       return () => window.clearTimeout(timer);
     }
-  }, [isLive, hasSteps, open, autoClosed, awaiting]);
+    if (!isLive) wasLive.current = false;
+    return undefined;
+  }, [isLive, hasSteps, open, autoClosed, awaiting, userToggled]);
 
   useEffect(() => {
-    if (thinking.collapsed && !isLive && !awaiting) setOpen(false);
-  }, [thinking.collapsed, isLive, awaiting]);
+    if (thinking.collapsed && !isLive && !awaiting && !userToggled) setOpen(false);
+  }, [thinking.collapsed, isLive, awaiting, userToggled]);
 
   if (!thinking.visible && !hasSteps) return null;
 
@@ -188,7 +238,11 @@ export function Thinking({ thinking, lang, streaming = false }) {
       <button
         type="button"
         className="group flex w-fit max-w-full items-center gap-1.5 rounded-md py-0.5 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-default"
-        onClick={() => canToggle && setOpen((value) => !value)}
+        onClick={() => {
+          if (!canToggle) return;
+          setUserToggled(true);
+          setOpen((value) => !value);
+        }}
         disabled={!canToggle}
         aria-expanded={canToggle ? open : undefined}
       >

@@ -166,6 +166,13 @@ def _intent_filter_tools(
         ha_cats = set(ha_cats) | {"helpers"}
     if _TRACE_RE.search(text):
         ha_cats = set(ha_cats) | {"automations", "diagnostics"}
+    try:
+        from services import tool_awareness as taw
+
+        if taw.looks_like_explain_event(text):
+            ha_cats = set(ha_cats) | {"entities", "automations"}
+    except Exception:
+        pass
     if _HACS_RE.search(text):
         ha_cats = set(ha_cats) | {"hacs"}
 

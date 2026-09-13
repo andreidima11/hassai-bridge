@@ -243,6 +243,9 @@ def is_core_tool(name: str) -> bool:
     # pack_for_tool returns None for these — must be core or Dynamic drops them.
     if name in {"browser_interact", "request_enable_tools", "background_tasks"}:
         return True
+    # High-value cause diagnosis — keep visible even when HA packs are not primed yet.
+    if name == "ha_explain_event":
+        return True
     return False
 
 

@@ -209,6 +209,8 @@ def _agentic_instruction() -> str:
         "Keep using tools until the task is actually done — inspect, change, verify, fix, then stop. "
         "Never ask \"should I continue?\" or \"want me to proceed?\". "
         "Read-only questions (explain, what does X do, list, show): use 1–3 tool calls, then answer clearly — do not loop tools or expose chain-of-thought. "
+        "Know your tools: only claim capabilities that appear in your live tool list / Tool playbook this turn. "
+        "When a playbook rule matches the user request, call that tool — do not improvise a weaker path. "
         "Tool groups ON in Settings are already approved — call those tools and do the work. "
         "If a group is OFF, call the real tool (or request_enable_tools) so the user gets "
         "Approve / Decline in chat — never claim the tool is missing or unavailable. "
@@ -465,152 +467,30 @@ def _parse_tool_args(raw) -> dict:
 
 
 def _clip_detail(value, n: int = 56) -> str:
-    text = " ".join(str(value or "").split())
-    if len(text) <= n:
-        return text
-    return text[: n - 1] + "…"
+    from services import activity_labels as al
+
+    return al.clip_detail(value, n)
 
 
 def _tool_detail(name: str, args: dict) -> str:
+    from services import activity_labels as al
+
     args = args or {}
-    if name == "activate_toolkits":
-        packs = args.get("packs")
-        if isinstance(packs, list):
-            return _clip_detail(", ".join(str(p) for p in packs[:6]))
-        return ""
-    if name == "search_web":
-        return _clip_detail(args.get("query"))
-    if name == "fetch_url":
-        return _clip_detail(args.get("url") or args.get("focus") or "")
-    if name == "generate_image":
-        return _clip_detail(args.get("prompt"))
-    if name == "browser_interact":
-        bits = [args.get("action") or "", args.get("url") or args.get("selector") or ""]
-        return _clip_detail(" ".join(str(b) for b in bits if b))
-    if name == "request_enable_tools":
-        return _clip_detail(args.get("group") or args.get("reason") or "")
-    if name == "run_skill":
-        return _clip_detail(args.get("skill_name"))
-    if name in {"media_list", "media_read", "media_delete"}:
-        return _clip_detail(args.get("path") or args.get("search") or "")
-    if name in {"ha_read_file", "ha_write_file", "ha_replace_in_file", "ha_list_files"}:
-        return _clip_detail(args.get("path") or args.get("search") or args.get("subdir") or "")
     if name in _FRIGATE_TOOL_NAMES:
-        return _clip_detail(
+        return al.clip_detail(
             args.get("camera") or args.get("event_id") or args.get("label") or ""
         )
     if name in mt.TOOL_NAMES:
-        return _clip_detail(mt.tool_detail(name, args))
+        return al.clip_detail(mt.tool_detail(name, args))
     if bt.is_bridge_tool(name):
-        return _clip_detail(bt.tool_detail(name, args))
-    if name == "ha_call_service":
-        call = f"{args.get('domain') or ''}.{args.get('service') or ''}".strip(".")
-        entity = str(args.get("entity_id") or "").strip()
-        return _clip_detail(" ".join(p for p in (call, entity) if p))
-    if name == "ha_update_entity":
-        bits = [
-            args.get("entity_id") or "",
-            args.get("name") or args.get("area_name") or args.get("area_id") or "",
-        ]
-        return _clip_detail(" · ".join(str(b) for b in bits if b))
-    if name == "ha_set_state":
-        return _clip_detail(f"{args.get('entity_id') or ''} → {args.get('state') or ''}".strip())
-    if name == "ha_get_entity_registry":
-        return _clip_detail(args.get("entity_id"))
-    if name == "ha_get_device":
-        return _clip_detail(args.get("device_id"))
-    if name == "ha_update_device":
-        bits = [
-            args.get("device_id") or "",
-            args.get("area_name") or args.get("area_id") or args.get("name_by_user") or "",
-        ]
-        return _clip_detail(" · ".join(str(b) for b in bits if b))
-    if name == "ha_create_area":
-        return _clip_detail(args.get("name"))
-    if name == "ha_update_area":
-        return _clip_detail(f"{args.get('area_id') or ''} {args.get('name') or ''}".strip())
-    if name == "ha_create_label":
-        return _clip_detail(args.get("name"))
-    if name == "ha_update_label":
-        return _clip_detail(f"{args.get('label_id') or ''} {args.get('name') or ''}".strip())
-    if name == "ha_get_history":
-        ids = args.get("entity_ids") if isinstance(args.get("entity_ids"), list) else []
-        preview = args.get("entity_id") or (", ".join(str(i) for i in ids[:2]) if ids else "")
-        hours = args.get("hours")
-        return _clip_detail(f"{preview} {hours}h".strip() if hours else preview)
-    if name == "ha_get_logbook":
-        bits = [args.get("entity_id") or "", f"{args.get('hours')}h" if args.get("hours") else ""]
-        return _clip_detail(" · ".join(str(b) for b in bits if b))
-    if name == "ha_get_entity_source":
-        return _clip_detail(args.get("entity_id") or args.get("search") or args.get("domain"))
-    if name == "ha_expose_entity":
-        ids = args.get("entity_ids") if isinstance(args.get("entity_ids"), list) else []
-        preview = args.get("entity_id") or (", ".join(str(i) for i in ids[:2]) if ids else "")
-        flag = "show" if args.get("should_expose") else "hide"
-        return _clip_detail(f"{flag} {preview}".strip())
-    if name in {"ha_trigger_automation", "ha_run_script", "ha_activate_scene"}:
-        return _clip_detail(args.get("entity_id"))
-    if name == "ha_get_automation":
-        return _clip_detail(args.get("entity_id") or args.get("search") or args.get("name"))
-    if name in {"ha_delete_automation", "ha_delete_script", "ha_delete_scene"}:
-        return _clip_detail(args.get("entity_id") or args.get("search") or args.get("name"))
-    if name == "ha_create_floor":
-        return _clip_detail(args.get("name"))
-    if name == "ha_update_floor":
-        return _clip_detail(f"{args.get('floor_id') or ''} {args.get('name') or ''}".strip())
-    if name == "ha_get_config_entry":
-        return _clip_detail(args.get("entry_id"))
-    if name == "ha_reload_config_entry":
-        return _clip_detail(args.get("entry_id"))
-    if name == "ha_get_statistics":
-        sid = args.get("statistic_id") or args.get("entity_id") or ""
-        return _clip_detail(f"{sid} {args.get('period') or 'hour'}".strip())
-    if name == "ha_upsert_card":
-        card = args.get("card") if isinstance(args.get("card"), dict) else {}
-        bits = [
-            args.get("view_path") or args.get("view_title") or "",
-            args.get("section_index") if args.get("section_index") is not None else "",
-            card.get("type") or "",
-            card.get("entity") or "",
-        ]
-        return _clip_detail(" · ".join(str(b) for b in bits if b != ""))
-    if name == "ha_delete_card":
-        bits = [
-            args.get("view_path") or args.get("view_title") or "",
-            args.get("card_path") or "",
-            args.get("card_index") if args.get("card_index") is not None else "",
-        ]
-        return _clip_detail(" · ".join(str(b) for b in bits if b != ""))
-    if name == "ha_upsert_view":
-        return _clip_detail(args.get("title") or args.get("view_path") or args.get("path") or args.get("view_title"))
-    if name == "ha_create_dashboard":
-        return _clip_detail(f"{args.get('title') or ''} {args.get('url_path') or ''}".strip())
-    if name == "ha_delete_view":
-        return _clip_detail(args.get("view_path") or args.get("view_title") or args.get("view_index"))
-    if name == "ha_update_dashboard":
-        return _clip_detail(f"{args.get('url_path') or ''} {args.get('title') or ''}".strip())
-    if name == "ha_delete_dashboard":
-        return _clip_detail(args.get("url_path"))
-    if name == "ha_append_card_yaml":
-        card = args.get("card") if isinstance(args.get("card"), dict) else {}
-        bits = [
-            args.get("dashboard_url") or args.get("url_path") or "Overview",
-            args.get("view_path") or args.get("view_title") or "",
-            card.get("type") or "",
-        ]
-        return _clip_detail(" · ".join(str(b) for b in bits if b))
-    if name == "ha_get_dashboard":
-        bits = [
-            args.get("url_path") or "Overview",
-            args.get("view_path") or args.get("view_title") or "",
-        ]
-        return _clip_detail(" · ".join(str(b) for b in bits if b))
-    for key in ("entity_id", "path", "url_path", "view_path", "suggestion_id", "what", "source", "domain", "search"):
-        val = args.get(key)
-        if val:
-            extra = args.get("search") if key == "domain" else None
-            return _clip_detail(f"{val} {extra}".strip() if extra else val)
-    return ""
+        return al.clip_detail(bt.tool_detail(name, args))
+    return al.tool_detail(name, args)
+
+
+def _tool_result_preview(name: str, content: str | None) -> str:
+    from services import activity_labels as al
+
+    return al.tool_result_preview(name, content)
 
 
 _TRACE_TTL = 600.0
@@ -829,7 +709,7 @@ def _compact_activity(events: list | None) -> list[dict]:
         if eid not in latest:
             order.append(eid)
         row = dict(latest.get(eid) or {"id": eid})
-        for key in ("id", "name", "detail", "status", "ms", "sources"):
+        for key in ("id", "name", "detail", "status", "ms", "sources", "result_preview", "args_preview"):
             val = ev.get(key)
             if val not in (None, ""):
                 row[key] = val
@@ -1789,9 +1669,14 @@ async def _append_internal_tool_results(
                 collected_sources=sources_bucket,
             )
             search_used = search_used or used_search
+            result_preview = _tool_result_preview(fn_name, content)
             await _fire_activity(on_event, {
-                "id": tc_id, "name": fn_name, "detail": detail,
-                "status": "done", "ms": int((time.time() - started) * 1000),
+                "id": tc_id,
+                "name": fn_name,
+                "detail": detail,
+                "result_preview": result_preview,
+                "status": "done",
+                "ms": int((time.time() - started) * 1000),
             })
         # Gemini's OpenAI-compat layer requires `name` on tool results
         # (maps to function_response.name). Other providers tolerate omission.
@@ -3347,6 +3232,10 @@ async def chat_completions(request: Request):
             model=router_m,
         )
         primed = set(route_decision.get("packs") or ())
+        from services import tool_awareness as taw
+
+        if taw.looks_like_explain_event(last_user_msg):
+            primed |= taw.explain_event_packs() & set(eligible_preview or ())
         try:
             usage = route_decision.get("usage") if isinstance(route_decision.get("usage"), dict) else {}
             prompt_u = int(usage.get("prompt") or 0)
@@ -3575,6 +3464,16 @@ async def chat_completions(request: Request):
     )
     if ha_hint:
         stable_extras.append(ha_hint)
+    from services import tool_awareness as taw
+
+    playbook_names = [
+        str(t.get("function", {}).get("name") or "")
+        for t in (effective_tools or [])
+        if str(t.get("function", {}).get("name") or "")
+    ]
+    playbook = taw.build_tool_playbook(playbook_names)
+    if playbook:
+        stable_extras.append(playbook)
     enable_hint = te.system_hint(cfg, session_id)
     if enable_hint:
         stable_extras.append(enable_hint)

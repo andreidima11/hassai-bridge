@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.3
+
+### Fix
+- **Thinking timeline** — clearer tool verbs (EN/RO), richer step details, short result previews when a tool finishes, auto-expand while working, slower collapse, and CoT hidden behind Show thinking
+
+### Features
+- **Tool awareness** — live Tool playbook for tools present this turn; `ha_explain_event` stays in Dynamic core; “de ce s-a aprins / why did X turn on” primes entities + automations packs
+
 ## 1.7.2
 
 ### Features

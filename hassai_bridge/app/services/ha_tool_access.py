@@ -6,7 +6,7 @@ from typing import Any
 
 # Settings keys (ha_tools.<key>) — all default True when missing.
 CATEGORY_KEYS: dict[str, str] = {
-    "entities": "Read entities, states, history, services, statistics",
+    "entities": "Read entities, states, history, statistics; explain why something changed (ha_explain_event)",
     "control": "Call services, notifications, media players, run scripts and scenes",
     "registry": "Mutate areas, labels, devices, floors, entity registry",
     "automations": "Create/edit automations, scripts, scenes; list/get traces",

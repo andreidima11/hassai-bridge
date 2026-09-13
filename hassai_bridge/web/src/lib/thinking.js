@@ -39,17 +39,22 @@ export function applyActivity(thinking, ev, fallbackLabel) {
   next.active = ev.status === "running" || awaiting;
   const id = String(ev.id || `i${ev.i ?? ""}`);
   const idx = next.steps.findIndex((s) => s.id === id);
+  const prev = idx >= 0 ? next.steps[idx] : null;
   const row = {
     id,
     name,
     status: ev.status,
-    detail: ev.detail || ev.args_preview || "",
-    args_preview: ev.args_preview || "",
-    enable_group: ev.enable_group || "",
-    enable_reason: ev.enable_reason || "",
-    browser_host: ev.browser_host || "",
-    browser_url: ev.browser_url || "",
-    ms: ev.ms,
+    detail: ev.detail || ev.args_preview || prev?.detail || "",
+    args_preview: ev.args_preview || prev?.args_preview || "",
+    result_preview:
+      ev.result_preview != null && String(ev.result_preview).length
+        ? String(ev.result_preview)
+        : prev?.result_preview || "",
+    enable_group: ev.enable_group || prev?.enable_group || "",
+    enable_reason: ev.enable_reason || prev?.enable_reason || "",
+    browser_host: ev.browser_host || prev?.browser_host || "",
+    browser_url: ev.browser_url || prev?.browser_url || "",
+    ms: ev.ms ?? prev?.ms,
   };
   if (idx >= 0) next.steps[idx] = { ...next.steps[idx], ...row };
   else next.steps.push(row);
