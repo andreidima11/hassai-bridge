@@ -444,7 +444,11 @@ TOOL_SPECS: dict[str, dict] = {
     },
     # ── Media players ─────────────────────────────────────
     "ha_media_browse": {
-        "description": "Browse a media_player library (optional media_content_type + media_content_id).",
+        "description": (
+            "Browse a media_player library tree (Spotify, YouTube Music, local, …). "
+            "Start with entity_id only, then drill with media_content_type + media_content_id "
+            "from a previous browse/search result."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -456,7 +460,13 @@ TOOL_SPECS: dict[str, dict] = {
         },
     },
     "ha_media_search": {
-        "description": "Search a media_player library (if supported).",
+        "description": (
+            "Search a media_player library for a song/artist/album/playlist "
+            "(e.g. Spotify / Music Assistant). "
+            "For 'play X on the living speaker': ha_list_entities domain=media_player → "
+            "ha_media_search → ha_media_play with media_content_id + media_content_type "
+            "from the best match. confirm=true on play."
+        ),
         "parameters": {
             "type": "object",
             "properties": {
@@ -470,8 +480,9 @@ TOOL_SPECS: dict[str, dict] = {
     },
     "ha_media_play": {
         "description": (
-            "Play media on a media_player (media_content_id + media_content_type, "
-            "optional enqueue). confirm=true required."
+            "Play media on a media_player using media_content_id + media_content_type "
+            "from ha_media_search or ha_media_browse. Optional enqueue=play|next|add|replace. "
+            "confirm=true required."
         ),
         "parameters": {
             "type": "object",
@@ -489,7 +500,8 @@ TOOL_SPECS: dict[str, dict] = {
         "description": (
             "Control media_player: media_play|media_pause|media_stop|media_next_track|"
             "media_previous_track|volume_set|volume_mute|volume_up|volume_down|"
-            "clear_playlist|shuffle_set|repeat_set|seek. confirm=true required."
+            "clear_playlist|shuffle_set|repeat_set|seek. confirm=true required. "
+            "For playing a named song, use ha_media_search → ha_media_play instead."
         ),
         "parameters": {
             "type": "object",
@@ -1324,6 +1336,76 @@ async def _start_options_flow(args: dict) -> str:
 
 # ── Media ───────────────────────────────────────────────────
 
+_MEDIA_RESULT_CAP = 20
+
+
+def _iter_media_items(payload: Any) -> list[dict]:
+    """Normalize browse/search WS payloads into a flat list of media item dicts."""
+    if payload is None:
+        return []
+    if isinstance(payload, list):
+        out: list[dict] = []
+        for row in payload:
+            out.extend(_iter_media_items(row))
+        return out
+    if not isinstance(payload, dict):
+        return []
+
+    for key in ("result", "result_media", "children", "media"):
+        nested = payload.get(key)
+        if nested is not None:
+            items = _iter_media_items(nested)
+            if items:
+                return items
+
+    # Single media item
+    if payload.get("media_content_id") or payload.get("title") or payload.get("name"):
+        return [payload]
+    return []
+
+
+def format_media_library(payload: Any, *, kind: str = "results", query: str = "") -> str:
+    """Compact listing for browse/search — ids the model needs for ha_media_play."""
+    items = _iter_media_items(payload)
+    if not items:
+        head = f"No media {kind}"
+        if query:
+            head += f" for “{query}”"
+        head += "."
+        # Fall back to raw dump snippet so the model still sees errors / shapes.
+        raw = _dump(payload, max_chars=2000)
+        return f"{head}\n{raw}" if raw and raw not in ("{}", "[]", "null") else head
+
+    shown = items[:_MEDIA_RESULT_CAP]
+    lines: list[str] = []
+    if query:
+        lines.append(f"Media search “{query}” — {len(items)} hit(s), showing {len(shown)}:")
+    else:
+        lines.append(f"Media {kind} — {len(items)} item(s), showing {len(shown)}:")
+    lines.append("n|title|meta|media_content_id|media_content_type")
+    for i, item in enumerate(shown, 1):
+        title = str(item.get("title") or item.get("name") or "?").replace("|", "/")
+        mclass = str(item.get("media_class") or "").strip()
+        ctype = str(item.get("media_content_type") or "").strip()
+        cid = str(item.get("media_content_id") or "").strip()
+        artist = ""
+        for key in ("artist", "artists", "album", "subtitle"):
+            raw = item.get(key)
+            if isinstance(raw, list) and raw:
+                artist = ", ".join(str(x) for x in raw[:2] if x)
+                break
+            if isinstance(raw, str) and raw.strip():
+                artist = raw.strip()
+                break
+        label = title + (f" — {artist}" if artist else "")
+        meta = mclass or ctype or ""
+        lines.append(f"{i}|{label}|{meta}|{cid}|{ctype}")
+    if len(items) > _MEDIA_RESULT_CAP:
+        lines.append(f"… +{len(items) - _MEDIA_RESULT_CAP} more")
+    lines.append("Play with ha_media_play using media_content_id + media_content_type from a row.")
+    return "\n".join(lines)
+
+
 async def _media_browse(args: dict) -> str:
     entity_id = (args.get("entity_id") or "").strip()
     if not entity_id:
@@ -1332,7 +1414,8 @@ async def _media_browse(args: dict) -> str:
     if args.get("media_content_type") and args.get("media_content_id") is not None:
         payload["media_content_type"] = args["media_content_type"]
         payload["media_content_id"] = args["media_content_id"]
-    return _dump(await _ws(payload))
+    result = await _ws(payload)
+    return format_media_library(result, kind="browse")
 
 
 async def _media_search(args: dict) -> str:
@@ -1348,7 +1431,8 @@ async def _media_search(args: dict) -> str:
     if args.get("media_content_type") and args.get("media_content_id") is not None:
         payload["media_content_type"] = args["media_content_type"]
         payload["media_content_id"] = args["media_content_id"]
-    return _dump(await _ws(payload))
+    result = await _ws(payload)
+    return format_media_library(result, kind="search", query=query)
 
 
 async def _media_play(args: dict) -> str:
@@ -1367,7 +1451,7 @@ async def _media_play(args: dict) -> str:
     if args.get("enqueue"):
         body["enqueue"] = args["enqueue"]
     await _core("POST", "/services/media_player/play_media", json_body=body)
-    return f"OK: play_media on {entity_id}"
+    return f"OK: play_media on {entity_id} ({content_type})"
 
 
 _MEDIA_ACTIONS = {

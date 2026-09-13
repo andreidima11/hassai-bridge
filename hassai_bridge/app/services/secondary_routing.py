@@ -80,6 +80,8 @@ def tool_use_for_category(name: str) -> str | None:
         return "web_search"
     if n in {"anaf_firma", "anaf_bilant"}:
         return "web_search"
+    if n in {"tell_joke", "joke_types"}:
+        return "web_search"
     if n in _FRIGATE_TOOLS or n.startswith("frigate_"):
         return "frigate"
     if n == "run_skill":

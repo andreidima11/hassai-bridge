@@ -88,6 +88,11 @@ def tool_detail(name: str, args: dict | None) -> str:
     if name == "anaf_bilant":
         bits = [args.get("cui") or args.get("cif") or "", args.get("an") or args.get("year") or ""]
         return clip_detail(" · ".join(str(b) for b in bits if b))
+    if name == "tell_joke":
+        bits = [args.get("type") or "", args.get("count") or ""]
+        return clip_detail(" · ".join(str(b) for b in bits if b))
+    if name == "joke_types":
+        return ""
     if name == "generate_image":
         return clip_detail(args.get("prompt"))
     if name == "browser_interact":

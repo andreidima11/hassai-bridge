@@ -51,6 +51,7 @@ from services import bridge_tool_access as bta
 from services import currency as currency_fx
 from services import stocks as stocks_fx
 from services import anaf as anaf_ro
+from services import jokes as jokes_api
 from services import pricing
 from services import openrouter as ovr
 from services import thinking_text as tt
@@ -79,6 +80,8 @@ def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
         "stock_history",
         "anaf_firma",
         "anaf_bilant",
+        "tell_joke",
+        "joke_types",
         "browser_interact",
         "request_enable_tools",
         "background_tasks",
@@ -121,6 +124,7 @@ def _assemble_addon_tools(cfg: dict, *, search_enabled: bool | None = None) -> l
     out.extend(currency_fx.TOOL_SPECS)
     out.extend(stocks_fx.TOOL_SPECS)
     out.extend(anaf_ro.TOOL_SPECS)
+    out.extend(jokes_api.TOOL_SPECS)
     out.append(te.TOOL_SPEC)
     out.append(BG_TASKS_TOOL_SPEC)
     out.append(bi.TOOL_SPEC)
@@ -1283,6 +1287,16 @@ async def _invoke_internal_tool(
         text = await anaf_ro.bilant(
             str(args.get("cui") or args.get("cif") or ""),
             an=args.get("an") if args.get("an") is not None else args.get("year"),
+        )
+        return text, False
+
+    if fn_name in jokes_api.TOOL_NAMES:
+        if fn_name == "joke_types":
+            text = await jokes_api.list_types()
+            return text, False
+        text = await jokes_api.tell(
+            joke_type=(str(args.get("type") or args.get("joke_type") or "").strip() or None),
+            count=args.get("count") if args.get("count") is not None else 1,
         )
         return text, False
 

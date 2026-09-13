@@ -31,8 +31,8 @@ Entities (live state via REST):
 - Floors: ha_list_floors → ha_create_area with floor_name or ha_update_area
 - Automations/scripts/scenes: ha_list_* (search) → ha_get_* (config + triggers/actions) when the user asks about rules, schedules, triggers, or what an automation does — not when they ask if a device is currently on/running. Explain-only: stop after ha_get_* — do not call delete/mutate tools. Create/edit scenes: ha_create_scene / ha_update_scene.
 - Calendar/todo: ha_list_calendars → ha_list_calendar_events; create/update/delete events; todo lists via ha_list_todo_* / ha_create_todo_list / ha_delete_todo_list / ha_clear_todo_list / ha_add_todo_item; legacy shopping_list via ha_shopping_list (cannot delete the built-in shopping list itself)
+- Media / music ("cântă X", "play song Y on living"): ha_list_entities domain=media_player (area_name if given) → ha_media_search search_query=X → ha_media_play with media_content_id + media_content_type from the best match (confirm=true). Pause/next/volume → ha_media_control. Do not invent Spotify URIs; use search results. If search is unsupported on that player, say so.
 - Notifications: ha_notify (mobile actions/images in data); persistent_notification tools for UI bell
-- Media players: ha_media_browse / ha_media_search → ha_media_play / ha_media_control
 - Integrations: ha_list_config_entries → ha_get_config_entry; reload/disable/delete; install via ha_list_integration_handlers → ha_start_config_flow → ha_continue_config_flow (OAuth may need UI)
 - Matter/Thread/BT: ha_matter / ha_thread / ha_bluetooth_info; Zigbee/Z-Wave: ha_mesh_network
 - Recorder: ha_recorder_info → ha_recorder_purge / ha_recorder_purge_entities (confirm=true)
@@ -57,6 +57,7 @@ COMPACT_HA_AGENT_PROMPT = """Home Assistant copilot. Tools: {tools}.
 
 Cause questions (de ce s-a aprins / who changed X): ha_explain_event first when listed — never invent causes.
 Simple commands (lights, switches, status): ha_list_entities → ha_call_service in the same turn for each target (or data.entity_id list). State is verified in ha_call_service by default — skip a separate ha_get_state round.
+Music ("cântă X" / play song): media_player → ha_media_search → ha_media_play (ids from search).
 Device on/off/running: read entity state — not automations. Lights may be switch.* relays.
 Groups ON in Settings are already approved — mutate freely. Groups OFF need Approve in chat to enable. Stop after the job is done — no narration."""
 

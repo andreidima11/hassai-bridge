@@ -61,6 +61,16 @@ _PLAYBOOK_RULES: tuple[tuple[str, str], ...] = (
         "Is device X on/running now? → ha_list_entities → ha_get_state "
         "(not automations for live status).",
     ),
+    (
+        "ha_media_search",
+        "Play / cântă song or artist on a speaker → ha_list_entities domain=media_player → "
+        "ha_media_search → ha_media_play (use media_content_id + type from search; "
+        "do not invent Spotify URIs).",
+    ),
+    (
+        "ha_media_control",
+        "Pause / next / volume on media_player → ha_media_control.",
+    ),
 )
 
 

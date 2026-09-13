@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.11
+
+### Features
+- **Jokes** — `tell_joke` / `joke_types` via Official Joke API (setup + punchline; types: general, programming, knock-knock, dad)
+- **Music on media_player** — clearer play flow (search → play), compact library results, RO intents (cântă / muzică / boxă)
+
 ## 1.7.10
 
 ### Features
