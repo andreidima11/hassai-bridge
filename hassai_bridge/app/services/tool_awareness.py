@@ -75,6 +75,10 @@ _PLAYBOOK_RULES: tuple[tuple[str, str], ...] = (
         "tell_joke",
         "Joke / glumă / 'spune o glumă' → tell_joke (optional type=programming|dad|knock-knock).",
     ),
+    (
+        "song_lyrics",
+        "Lyrics / versuri for a song → song_lyrics(title, artist?).",
+    ),
 )
 
 

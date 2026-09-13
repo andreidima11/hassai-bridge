@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.13
+
+### Features
+- **Song lyrics** — `song_lyrics(title, artist?)` via lyrics-api (YouTube Music first, Musixmatch fallback); optional translate; Dynamic core
+
 ## 1.7.12
 
 ### Fix

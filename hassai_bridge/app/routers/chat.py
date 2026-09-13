@@ -52,6 +52,7 @@ from services import currency as currency_fx
 from services import stocks as stocks_fx
 from services import anaf as anaf_ro
 from services import jokes as jokes_api
+from services import lyrics as lyrics_api
 from services import pricing
 from services import openrouter as ovr
 from services import thinking_text as tt
@@ -82,6 +83,7 @@ def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
         "anaf_bilant",
         "tell_joke",
         "joke_types",
+        "song_lyrics",
         "browser_interact",
         "request_enable_tools",
         "background_tasks",
@@ -125,6 +127,7 @@ def _assemble_addon_tools(cfg: dict, *, search_enabled: bool | None = None) -> l
     out.extend(stocks_fx.TOOL_SPECS)
     out.extend(anaf_ro.TOOL_SPECS)
     out.extend(jokes_api.TOOL_SPECS)
+    out.extend(lyrics_api.TOOL_SPECS)
     out.append(te.TOOL_SPEC)
     out.append(BG_TASKS_TOOL_SPEC)
     out.append(bi.TOOL_SPEC)
@@ -1297,6 +1300,16 @@ async def _invoke_internal_tool(
         text = await jokes_api.tell(
             joke_type=(str(args.get("type") or args.get("joke_type") or "").strip() or None),
             count=args.get("count") if args.get("count") is not None else 1,
+        )
+        return text, False
+
+    if fn_name in lyrics_api.TOOL_NAMES:
+        text = await lyrics_api.fetch_lyrics(
+            title=str(args.get("title") or args.get("song") or ""),
+            artist=(str(args.get("artist") or "").strip() or None),
+            source=(str(args.get("source") or "").strip() or None),
+            translate=(str(args.get("translate") or "").strip() or None),
+            cfg=cfg,
         )
         return text, False
 

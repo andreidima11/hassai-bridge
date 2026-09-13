@@ -93,6 +93,9 @@ def tool_detail(name: str, args: dict | None) -> str:
         return clip_detail(" · ".join(str(b) for b in bits if b))
     if name == "joke_types":
         return ""
+    if name == "song_lyrics":
+        bits = [args.get("title") or "", args.get("artist") or ""]
+        return clip_detail(" · ".join(str(b) for b in bits if b))
     if name == "generate_image":
         return clip_detail(args.get("prompt"))
     if name == "browser_interact":

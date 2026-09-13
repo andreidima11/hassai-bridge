@@ -156,6 +156,8 @@ def pack_for_tool(name: str) -> str | None:
         return None
     if name in {"tell_joke", "joke_types"}:
         return None
+    if name == "song_lyrics":
+        return None
     if name in {"browser_interact", "request_enable_tools"}:
         return None
     if name in _FRIGATE_NAMES:
@@ -251,6 +253,8 @@ def is_core_tool(name: str) -> bool:
     if name in {"anaf_firma", "anaf_bilant"}:
         return True
     if name in {"tell_joke", "joke_types"}:
+        return True
+    if name == "song_lyrics":
         return True
     # pack_for_tool returns None for these — must be core or Dynamic drops them.
     if name in {"browser_interact", "request_enable_tools", "background_tasks"}:
