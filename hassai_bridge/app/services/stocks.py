@@ -1,7 +1,7 @@
-"""Stock / market quotes via yfinance (Yahoo Finance unofficial API).
+"""Stock / market quotes via Yahoo Finance chart API (httpx).
 
-No API key. Prefer these tools over web search for ticker prices.
-https://github.com/ranaroussi/yfinance
+No API key and no yfinance — Alpine add-on images cannot reliably install
+pandas/curl_cffi. Prefer these tools over web search for ticker prices.
 """
 
 from __future__ import annotations
@@ -9,8 +9,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Any
+from urllib.parse import quote
+
+import httpx
 
 log = logging.getLogger("hassai.stocks")
 
@@ -23,6 +26,12 @@ _VALID_PERIODS = frozenset({
 _VALID_INTERVALS = frozenset({
     "1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo",
 })
+
+_TIMEOUT = httpx.Timeout(12.0, connect=5.0)
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; HASSAI-Bridge/1.0)",
+    "Accept": "application/json",
+}
 
 
 def normalize_ticker(raw: str) -> str:
@@ -92,126 +101,157 @@ def _fmt_cap(n: float | None) -> str:
     return f"{v:,.0f}"
 
 
-def _quote_one_sync(symbol: str) -> str:
+def _num(v: Any) -> float | None:
+    if v is None:
+        return None
     try:
-        import yfinance as yf
-    except ImportError:
-        return "Error: yfinance is not installed."
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != f:  # NaN
+        return None
+    return f
 
-    ticker = yf.Ticker(symbol)
-    name = symbol
-    currency = ""
-    price = None
-    prev = None
+
+async def _fetch_chart(
+    symbol: str,
+    *,
+    interval: str = "1d",
+    range_: str | None = "5d",
+    period1: int | None = None,
+    period2: int | None = None,
+) -> dict[str, Any]:
+    enc = quote(symbol, safe="")
+    params: dict[str, str] = {
+        "interval": interval,
+        "includePrePost": "false",
+        "events": "div,splits",
+    }
+    if period1 is not None:
+        params["period1"] = str(int(period1))
+        params["period2"] = str(int(period2 or datetime.now(tz=timezone.utc).timestamp()))
+    else:
+        params["range"] = range_ or "5d"
+
+    urls = [
+        f"https://query1.finance.yahoo.com/v8/finance/chart/{enc}",
+        f"https://query2.finance.yahoo.com/v8/finance/chart/{enc}",
+    ]
+    last_err: Exception | None = None
+    async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True, headers=_HEADERS) as client:
+        for url in urls:
+            try:
+                resp = await client.get(url, params=params)
+                if resp.status_code != 200:
+                    last_err = RuntimeError(f"HTTP {resp.status_code}")
+                    continue
+                data = resp.json()
+                chart = (data or {}).get("chart") or {}
+                err = chart.get("error")
+                if err:
+                    last_err = RuntimeError(str(err.get("description") or err))
+                    continue
+                results = chart.get("result")
+                if not isinstance(results, list) or not results:
+                    last_err = RuntimeError("empty chart result")
+                    continue
+                row = results[0]
+                if not isinstance(row, dict):
+                    last_err = RuntimeError("bad chart result")
+                    continue
+                return row
+            except Exception as e:
+                last_err = e
+                log.debug("yahoo chart failed %s %s: %s", symbol, url, e)
+                continue
+    raise RuntimeError(f"Yahoo Finance unavailable for {symbol}: {last_err}")
+
+
+def _bars_from_chart(row: dict[str, Any]) -> list[dict[str, Any]]:
+    timestamps = row.get("timestamp") or []
+    indicators = row.get("indicators") or {}
+    quotes = (indicators.get("quote") or [{}])[0] or {}
+    opens = quotes.get("open") or []
+    highs = quotes.get("high") or []
+    lows = quotes.get("low") or []
+    closes = quotes.get("close") or []
+    volumes = quotes.get("volume") or []
+    out: list[dict[str, Any]] = []
+    for i, ts in enumerate(timestamps):
+        close = _num(closes[i] if i < len(closes) else None)
+        if close is None:
+            continue
+        try:
+            d = datetime.fromtimestamp(int(ts), tz=timezone.utc).date().isoformat()
+        except Exception:
+            d = str(ts)
+        out.append({
+            "date": d,
+            "open": _num(opens[i] if i < len(opens) else None),
+            "high": _num(highs[i] if i < len(highs) else None),
+            "low": _num(lows[i] if i < len(lows) else None),
+            "close": close,
+            "volume": _num(volumes[i] if i < len(volumes) else None),
+        })
+    return out
+
+
+async def _quote_one(symbol: str) -> str:
+    try:
+        row = await _fetch_chart(symbol, interval="1d", range_="5d")
+    except Exception as e:
+        return f"Error: could not load quote for '{symbol}': {e}"
+
+    meta = row.get("meta") if isinstance(row.get("meta"), dict) else {}
+    bars = _bars_from_chart(row)
+    name = str(meta.get("shortName") or meta.get("longName") or symbol)
+    currency = str(meta.get("currency") or "")
+    price = _num(meta.get("regularMarketPrice") or meta.get("currentTradingPeriod"))
+    if price is None and bars:
+        price = bars[-1]["close"]
+    prev = _num(meta.get("chartPreviousClose") or meta.get("previousClose"))
+    if prev is None and len(bars) >= 2:
+        prev = bars[-2]["close"]
+    day_high = _num(meta.get("regularMarketDayHigh"))
+    day_low = _num(meta.get("regularMarketDayLow"))
+    if day_high is None and bars:
+        day_high = bars[-1].get("high")
+    if day_low is None and bars:
+        day_low = bars[-1].get("low")
+    volume = _num(meta.get("regularMarketVolume"))
+    if volume is None and bars:
+        volume = bars[-1].get("volume")
+    market_cap = _num(meta.get("marketCap"))
+
+    if price is None:
+        return f"Error: no quote data for '{symbol}'."
+
     change = None
     change_pct = None
-    day_high = None
-    day_low = None
-    volume = None
-    market_cap = None
-
-    try:
-        fi = ticker.fast_info
-        # fast_info may be object or dict depending on yfinance version
-        def _get(key: str):
-            if fi is None:
-                return None
-            if isinstance(fi, dict):
-                return fi.get(key)
-            return getattr(fi, key, None)
-
-        price = _get("last_price") or _get("lastPrice") or _get("regular_market_price")
-        prev = _get("previous_close") or _get("previousClose")
-        currency = str(_get("currency") or "") or ""
-        day_high = _get("day_high") or _get("dayHigh")
-        day_low = _get("day_low") or _get("dayLow")
-        volume = _get("last_volume") or _get("lastVolume") or _get("three_month_average_volume")
-        market_cap = _get("market_cap") or _get("marketCap")
-    except Exception as e:
-        log.debug("fast_info failed for %s: %s", symbol, e)
-
-    if price is None:
-        try:
-            hist = ticker.history(period="5d", interval="1d", auto_adjust=True)
-            if hist is not None and not hist.empty:
-                last = hist.iloc[-1]
-                price = float(last.get("Close"))
-                if len(hist) >= 2:
-                    prev = float(hist.iloc[-2].get("Close"))
-                day_high = float(last.get("High")) if last.get("High") == last.get("High") else day_high
-                day_low = float(last.get("Low")) if last.get("Low") == last.get("Low") else day_low
-                vol = last.get("Volume")
-                if vol == vol:  # not NaN
-                    volume = int(vol)
-        except Exception as e:
-            log.debug("history fallback failed for %s: %s", symbol, e)
-
-    if price is None or (name == symbol and not currency):
-        try:
-            info = ticker.info or {}
-            if isinstance(info, dict) and info:
-                name = str(info.get("shortName") or info.get("longName") or symbol)
-                currency = currency or str(info.get("currency") or "")
-                if price is None:
-                    price = (
-                        info.get("currentPrice")
-                        or info.get("regularMarketPrice")
-                        or info.get("previousClose")
-                    )
-                if prev is None:
-                    prev = info.get("previousClose") or info.get("regularMarketPreviousClose")
-                if change is None:
-                    change = info.get("regularMarketChange")
-                if change_pct is None:
-                    change_pct = info.get("regularMarketChangePercent")
-                day_high = day_high or info.get("dayHigh")
-                day_low = day_low or info.get("dayLow")
-                volume = volume or info.get("regularMarketVolume")
-                market_cap = market_cap or info.get("marketCap")
-        except Exception as e:
-            log.debug("info fallback failed for %s: %s", symbol, e)
-
-    if price is None:
-        return f"Error: no quote data for '{symbol}'."
-
-    try:
-        price_f = float(price)
-    except (TypeError, ValueError):
-        return f"Error: no quote data for '{symbol}'."
-
-    if change is None and prev is not None:
-        try:
-            prev_f = float(prev)
-            change = price_f - prev_f
-            if prev_f:
-                change_pct = (change / prev_f) * 100.0
-        except (TypeError, ValueError):
-            pass
+    if prev is not None and prev:
+        change = price - prev
+        change_pct = (change / prev) * 100.0
 
     cur = f" {currency}" if currency else ""
-    parts = [f"{name} ({symbol}): {_fmt_price(price_f)}{cur}"]
+    parts = [f"{name} ({symbol}): {_fmt_price(price)}{cur}"]
     if change is not None:
-        try:
-            ch = float(change)
-            sign = "+" if ch >= 0 else ""
-            pct = _fmt_pct(change_pct)
-            parts.append(f"change {sign}{_fmt_price(ch)}" + (f" ({pct})" if pct else ""))
-        except (TypeError, ValueError):
-            pass
+        sign = "+" if change >= 0 else ""
+        pct = _fmt_pct(change_pct)
+        parts.append(f"change {sign}{_fmt_price(change)}" + (f" ({pct})" if pct else ""))
     if day_low is not None and day_high is not None:
-        parts.append(f"day {_fmt_price(float(day_low))}–{_fmt_price(float(day_high))}")
+        parts.append(f"day {_fmt_price(day_low)}–{_fmt_price(day_high)}")
     if volume is not None:
         try:
             parts.append(f"vol {int(volume):,}")
         except (TypeError, ValueError):
             pass
-    cap = _fmt_cap(float(market_cap) if market_cap is not None else None)
+    cap = _fmt_cap(market_cap)
     if cap:
         parts.append(f"mkt cap {cap}{cur}")
     return " | ".join(parts)
 
 
-def _history_sync(
+async def _history_one(
     symbol: str,
     *,
     period: str,
@@ -219,53 +259,52 @@ def _history_sync(
     start: str | None,
     end: str | None,
 ) -> str:
-    try:
-        import yfinance as yf
-    except ImportError:
-        return "Error: yfinance is not installed."
-
-    ticker = yf.Ticker(symbol)
-    kwargs: dict[str, Any] = {"interval": interval, "auto_adjust": True}
+    kwargs: dict[str, Any] = {"interval": interval}
     if start:
-        kwargs["start"] = start
+        try:
+            p1 = int(datetime.fromisoformat(start).replace(tzinfo=timezone.utc).timestamp())
+        except ValueError:
+            return "Error: start must be YYYY-MM-DD."
+        p2 = int(datetime.now(tz=timezone.utc).timestamp())
         if end:
-            kwargs["end"] = end
+            try:
+                p2 = int(datetime.fromisoformat(end).replace(tzinfo=timezone.utc).timestamp())
+            except ValueError:
+                return "Error: end must be YYYY-MM-DD."
+        kwargs["period1"] = p1
+        kwargs["period2"] = p2
+        kwargs["range_"] = None
+        label = f"{start}" + (f"→{end}" if end else "→now")
     else:
-        kwargs["period"] = period
+        kwargs["range_"] = period
+        label = period
 
     try:
-        hist = ticker.history(**kwargs)
+        row = await _fetch_chart(symbol, **kwargs)
     except Exception as e:
         return f"Error: could not load history for {symbol}: {e}"
 
-    if hist is None or hist.empty:
-        return f"Error: no history for '{symbol}' ({period or start})."
+    bars = _bars_from_chart(row)
+    if not bars:
+        return f"Error: no history for '{symbol}' ({label})."
 
-    rows = hist.tail(_MAX_HISTORY_ROWS)
+    shown = bars[-_MAX_HISTORY_ROWS:]
     lines = [
-        f"{symbol} history interval={interval} "
-        f"({start or period}" + (f"→{end}" if end else "") + f", {len(rows)} bars):",
+        f"{symbol} history interval={interval} ({label}, {len(shown)} bars):",
         "date|open|high|low|close|volume",
     ]
-    for idx, row in rows.iterrows():
+    for b in shown:
+        vol = b.get("volume")
         try:
-            if hasattr(idx, "date"):
-                d = idx.date().isoformat()
-            else:
-                d = str(idx)[:10]
-        except Exception:
-            d = str(idx)[:10]
-        vol = row.get("Volume")
-        try:
-            vol_s = f"{int(vol):,}" if vol == vol else ""
+            vol_s = f"{int(vol):,}" if vol is not None else ""
         except (TypeError, ValueError):
             vol_s = ""
         lines.append(
-            f"{d}|{_fmt_price(float(row.get('Open')))}|{_fmt_price(float(row.get('High')))}|"
-            f"{_fmt_price(float(row.get('Low')))}|{_fmt_price(float(row.get('Close')))}|{vol_s}"
+            f"{b['date']}|{_fmt_price(b.get('open'))}|{_fmt_price(b.get('high'))}|"
+            f"{_fmt_price(b.get('low'))}|{_fmt_price(b.get('close'))}|{vol_s}"
         )
-    if len(hist) > _MAX_HISTORY_ROWS:
-        lines.append(f"… showing last {_MAX_HISTORY_ROWS} of {len(hist)} bars")
+    if len(bars) > _MAX_HISTORY_ROWS:
+        lines.append(f"… showing last {_MAX_HISTORY_ROWS} of {len(bars)} bars")
     return "\n".join(lines)
 
 
@@ -273,9 +312,7 @@ async def quote(symbols: list[str] | str | None) -> str:
     tickers = parse_symbols_arg(symbols)
     if not tickers:
         return "Error: need at least one ticker (e.g. AAPL, TSLA, BTC-USD)."
-    parts = await asyncio.gather(*[
-        asyncio.to_thread(_quote_one_sync, t) for t in tickers
-    ])
+    parts = await asyncio.gather(*[_quote_one(t) for t in tickers])
     return "\n".join(parts)
 
 
@@ -315,8 +352,7 @@ async def history(
     if interval_s not in _VALID_INTERVALS:
         return f"Error: interval must be one of {', '.join(sorted(_VALID_INTERVALS))}."
 
-    return await asyncio.to_thread(
-        _history_sync,
+    return await _history_one(
         ticker,
         period=period_s or "1mo",
         interval=interval_s,

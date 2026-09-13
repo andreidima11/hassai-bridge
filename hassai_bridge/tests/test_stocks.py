@@ -1,9 +1,9 @@
-"""Native stock_quote / stock_history tools (yfinance)."""
+"""Native stock_quote / stock_history tools (Yahoo chart API via httpx)."""
 
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from services import secondary_routing as sr
 from services import stocks as st
@@ -27,18 +27,40 @@ def test_tools_are_core_and_secondary_web():
     assert sr.tool_use_for_category("stock_history") == "web_search"
 
 
+def _sample_chart(*, price=100.0, prev=95.0):
+    return {
+        "meta": {
+            "symbol": "AAPL",
+            "shortName": "Apple Inc.",
+            "currency": "USD",
+            "regularMarketPrice": price,
+            "chartPreviousClose": prev,
+            "regularMarketDayHigh": 101.0,
+            "regularMarketDayLow": 94.0,
+            "regularMarketVolume": 1_000_000,
+        },
+        "timestamp": [1_700_000_000, 1_700_086_400],
+        "indicators": {
+            "quote": [{
+                "open": [94.0, 96.0],
+                "high": [98.0, 101.0],
+                "low": [93.0, 94.0],
+                "close": [prev, price],
+                "volume": [900_000, 1_000_000],
+            }],
+        },
+    }
+
+
 def test_quote_and_history_mocked():
     async def _run():
-        with patch.object(st, "_quote_one_sync", return_value="Apple (AAPL): 100 USD"):
-            text = await st.quote("AAPL,MSFT")
-            assert "Apple (AAPL)" in text
-        with patch.object(
-            st,
-            "_history_sync",
-            return_value="AAPL history\ndate|open|high|low|close|volume\n2026-01-01|1|2|0.5|1.5|100",
-        ):
+        with patch.object(st, "_fetch_chart", new=AsyncMock(return_value=_sample_chart())):
+            text = await st.quote("AAPL")
+            assert "Apple Inc. (AAPL): 100 USD" in text
+            assert "change +5" in text
             hist = await st.history("AAPL", period="1mo")
             assert "AAPL history" in hist
+            assert "date|open|high|low|close|volume" in hist
 
     asyncio.run(_run())
 

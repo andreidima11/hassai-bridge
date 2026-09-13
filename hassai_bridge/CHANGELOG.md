@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.8
+
+### Fix
+- **Stock tools on Alpine** — drop `yfinance` (pandas/curl_cffi break add-on images); `stock_quote` / `stock_history` use Yahoo’s chart API via `httpx`
+
 ## 1.7.7
 
 ### Features
