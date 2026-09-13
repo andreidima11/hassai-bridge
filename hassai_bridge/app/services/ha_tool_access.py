@@ -46,6 +46,7 @@ _TOOL_CATEGORIES: dict[str, str] = {
     "ha_list_floors": "entities",
     "ha_get_history": "entities",
     "ha_get_logbook": "entities",
+    "ha_explain_event": "entities",
     "ha_get_entity_source": "entities",
     "ha_list_exposed_entities": "entities",
     "ha_list_automations": "entities",

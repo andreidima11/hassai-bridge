@@ -22,7 +22,7 @@ Entities (live state via REST):
 - Act: ha_list_services(domain=…) → ha_call_service → ha_get_state to verify; service domain must match the entity domain (light.* → light.turn_*, switch.* → switch.turn_*)
 - area_id in registry, not state.attributes — use ha_list_areas for room names
 - If state is unavailable or unknown, diagnose before calling services
-- Trace: ha_get_history / ha_get_logbook for recent changes; ha_get_entity_source for integration; failed automations → ha_list_traces → ha_get_trace
+- Trace: ha_explain_event for “why did X turn on/change?” (history+logbook+traces, admits unknown); ha_get_history / ha_get_logbook for raw timelines; ha_get_entity_source for integration; failed automations → ha_list_traces → ha_get_trace
 - Voice/Assist: ha_list_exposed_entities → ha_expose_entity (confirm=true; assistant conversation by default)
 - Floors: ha_list_floors → ha_create_area with floor_name or ha_update_area
 - Automations/scripts/scenes: ha_list_* (search) → ha_get_* (config + triggers/actions) when the user asks about rules, schedules, triggers, or what an automation does — not when they ask if a device is currently on/running. Explain-only: stop after ha_get_* — do not call delete/mutate tools. Create/edit scenes: ha_create_scene / ha_update_scene.
@@ -68,6 +68,7 @@ HA_ENTITY_TOOLS = frozenset({
     "ha_list_labels",
     "ha_get_history",
     "ha_get_logbook",
+    "ha_explain_event",
     "ha_get_entity_source",
     "ha_list_exposed_entities",
     "ha_list_floors",

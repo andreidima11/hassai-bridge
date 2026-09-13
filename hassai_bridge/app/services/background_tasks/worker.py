@@ -100,42 +100,59 @@ def summarize_monitor(task: dict) -> dict:
     }
 
 
-def format_monitor_message(task: dict, result: dict) -> str:
-    title = task.get("title") or "Monitor"
+def format_monitor_message(task: dict, result: dict, *, lang: str | None = None) -> str:
+    from services.background_tasks import i18n as bg_i18n
+
+    lang = lang or bg_i18n.lang_from_cfg()
+    title = task.get("title") or bg_i18n.t(lang, "fallback_title")
     gaps = result.get("total_gap_seconds") or 0
     lines = [
-        f"**{title}** — completed",
-        f"Watched: {', '.join(result.get('entity_ids') or [])}",
-        f"Observed for {result.get('observed_seconds')}s "
-        f"({result.get('observation_count')} state changes).",
-        f"Unavailable intervals: {result.get('unavailable_intervals')} "
-        f"({result.get('total_unavailable_seconds')}s).",
+        bg_i18n.t(lang, "monitor_done", title=title),
+        bg_i18n.t(lang, "monitor_watched", entities=", ".join(result.get("entity_ids") or [])),
+        bg_i18n.t(
+            lang,
+            "monitor_observed",
+            seconds=result.get("observed_seconds"),
+            count=result.get("observation_count"),
+        ),
+        bg_i18n.t(
+            lang,
+            "monitor_unavail",
+            intervals=result.get("unavailable_intervals"),
+            seconds=result.get("total_unavailable_seconds"),
+        ),
     ]
     if gaps:
-        lines.append(
-            f"Coverage gaps (add-on offline / HA disconnect): {gaps}s total. "
-            "Missing data is not the same as ‘all good’."
-        )
+        lines.append(bg_i18n.t(lang, "monitor_gaps", gaps=gaps))
     last = result.get("last_observed_state") or {}
     if last:
         bits = [f"{k}={v}" for k, v in list(last.items())[:8]]
-        lines.append("Last states: " + ", ".join(bits))
+        lines.append(bg_i18n.t(lang, "monitor_last", states=", ".join(bits)))
     return "\n".join(lines)
 
 
-def format_wait_message(task: dict, result: dict) -> str:
-    title = task.get("title") or "Wait for state"
+def format_wait_message(task: dict, result: dict, *, lang: str | None = None) -> str:
+    from services.background_tasks import i18n as bg_i18n
+
+    lang = lang or bg_i18n.lang_from_cfg()
+    title = task.get("title") or bg_i18n.t(lang, "fallback_title")
     if result.get("matched"):
-        return (
-            f"**{title}** — condition met\n"
-            f"{result.get('entity_id')} is `{result.get('state')}` "
-            f"(after {result.get('waited_seconds')}s)."
+        return bg_i18n.t(
+            lang,
+            "wait_matched",
+            title=title,
+            entity_id=result.get("entity_id"),
+            state=result.get("state"),
+            seconds=result.get("waited_seconds"),
         )
-    return (
-        f"**{title}** — timed out\n"
-        f"Waited {result.get('waited_seconds')}s for "
-        f"{result.get('entity_id')}=`{result.get('state')}`. "
-        f"Last seen: `{result.get('last_state') or '—'}`."
+    return bg_i18n.t(
+        lang,
+        "wait_timeout",
+        title=title,
+        seconds=result.get("waited_seconds"),
+        entity_id=result.get("entity_id"),
+        state=result.get("state"),
+        last=result.get("last_state") or "—",
     )
 
 

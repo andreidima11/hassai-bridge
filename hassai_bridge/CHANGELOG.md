@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.1
+
+### Features
+- **ha_explain_event** — explain why an entity changed state using history context, logbook, and automation/script traces; returns confirmed/possible/unknown with explicit missing evidence (no invented causes)
+
+### Fix
+- **Background task chat messages** — delivery and status copy follow Settings language (Romanian / English)
+
 ## 1.7.0
 
 ### Features

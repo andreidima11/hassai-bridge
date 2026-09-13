@@ -674,6 +674,27 @@ _TOOL_SPECS: dict[str, dict] = {
             },
         },
     },
+    "ha_explain_event": {
+        "description": (
+            "Explain why an entity changed state (turned on/off, etc.). "
+            "Correlates history context, logbook, and automation/script traces. "
+            "Returns confidence + evidence; says unknown instead of inventing causes. "
+            "Prefer for 'de ce s-a aprins / who changed X'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "entity_id": {"type": "string", "description": "e.g. light.bedroom"},
+                "event": {
+                    "type": "string",
+                    "description": "turned_on | turned_off | state_changed | target state; default last change",
+                },
+                "start_time": {"type": "string", "description": "Optional ISO window start"},
+                "end_time": {"type": "string", "description": "Optional ISO window end"},
+            },
+            "required": ["entity_id"],
+        },
+    },
     "ha_get_entity_source": {
         "description": (
             "Which integration owns an entity (entity/source WebSocket). "
@@ -1409,6 +1430,10 @@ async def run_ha_tool(name: str, args: dict, cfg: dict | None = None) -> str:
     if handler is None:
         return f"Error: unknown HA tool '{name}'"
     try:
+        if name == "ha_explain_event":
+            from services import ha_explain_event as hexp
+
+            return await hexp.run_tool(args or {}, cfg=cfg)
         return await handler(args or {})
     except Exception as e:
         log.error("HA tool %s failed: %s", name, e)
@@ -2897,6 +2922,12 @@ async def _commit_file_content(
     return f"OK: wrote {rel} ({len(content)} chars).{bak_msg}{summary_msg} {hint}"
 
 
+async def _explain_event(args: dict) -> str:
+    from services import ha_explain_event as hexp
+
+    return await hexp.run_tool(args)
+
+
 _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_list_entities": _list_entities,
     "ha_get_state": _get_state,
@@ -2917,6 +2948,7 @@ _HANDLERS: dict[str, Callable[[dict], Awaitable[str]]] = {
     "ha_set_state": _set_state,
     "ha_get_history": _get_history,
     "ha_get_logbook": _get_logbook,
+    "ha_explain_event": _explain_event,
     "ha_get_entity_source": _get_entity_source,
     "ha_list_exposed_entities": _list_exposed_entities,
     "ha_expose_entity": _expose_entity,

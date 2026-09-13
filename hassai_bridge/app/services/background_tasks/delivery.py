@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import time
 
+from core.config import load_config
 from core.database import add_conversation_message
+from services.background_tasks import i18n as bg_i18n
 from services.background_tasks import store
 
 log = logging.getLogger("hassai.bg_delivery")
@@ -27,36 +29,42 @@ def _public_card(task: dict) -> dict:
     }
 
 
-def _message_body(task: dict) -> str:
+def _message_body(task: dict, *, lang: str | None = None) -> str:
     from services.background_tasks import worker as worker_mod
 
+    lang = lang or bg_i18n.lang_from_cfg()
     kind = task.get("kind")
     result = task.get("result") or {}
+    title = task.get("title") or bg_i18n.t(lang, "fallback_title")
     if task.get("status") == "cancelled":
-        title = task.get("title") or "Background task"
-        extra = ""
-        if result:
-            extra = "\nPartial results were kept."
-        return f"**{title}** — stopped.{extra}"
+        extra = bg_i18n.t(lang, "cancelled_extra") if result else ""
+        return bg_i18n.t(lang, "cancelled", title=title, extra=extra)
     if task.get("status") == "failed":
         err = task.get("error") or {}
-        return (
-            f"**{task.get('title') or 'Background task'}** — failed\n"
-            f"{err.get('code') or 'error'}: {err.get('reason') or 'unknown'}"
+        return bg_i18n.t(
+            lang,
+            "failed",
+            title=title,
+            code=err.get("code") or "error",
+            reason=err.get("reason") or bg_i18n.t(lang, "unknown"),
         )
     if task.get("status") == "blocked":
         err = task.get("error") or {}
-        return (
-            f"**{task.get('title') or 'Background task'}** — blocked\n"
-            f"{err.get('reason') or 'permission required'}. "
-            "Re-enable Home Assistant Entities in Settings (or Approve for this chat), "
-            "then the task can continue."
+        return bg_i18n.t(
+            lang,
+            "blocked",
+            title=title,
+            reason=err.get("reason") or bg_i18n.t(lang, "permission_required"),
         )
     if kind == "monitor_entities":
-        return worker_mod.format_monitor_message(task, result if isinstance(result, dict) else {})
+        return worker_mod.format_monitor_message(
+            task, result if isinstance(result, dict) else {}, lang=lang,
+        )
     if kind == "wait_for_state":
-        return worker_mod.format_wait_message(task, result if isinstance(result, dict) else {})
-    return f"**{task.get('title') or 'Task'}** — {task.get('status')}"
+        return worker_mod.format_wait_message(
+            task, result if isinstance(result, dict) else {}, lang=lang,
+        )
+    return bg_i18n.t(lang, "status_line", title=title, status=task.get("status"))
 
 
 def _post_message(task: dict, body: str, *, meta_extra: dict | None = None) -> None:
@@ -84,24 +92,24 @@ def post_created_card(task: dict) -> None:
     existing = store.get_delivery(delivery_id)
     if existing and existing.get("status") == "delivered":
         return
-    title = task.get("title") or "Background task"
+    lang = bg_i18n.lang_from_cfg(load_config())
+    title = task.get("title") or bg_i18n.t(lang, "fallback_title")
     kind = task.get("kind") or "task"
     spec = task.get("spec") or {}
     if kind == "monitor_entities":
-        detail = ", ".join(spec.get("entity_ids") or []) or "entities"
+        detail = ", ".join(spec.get("entity_ids") or []) or bg_i18n.t(lang, "entities_fallback")
         dur = int(float(spec.get("duration_seconds") or 0))
-        body = (
-            f"**{title}** — scheduled\n"
-            f"Monitoring `{detail}` for ~{dur}s. Continues even if you close this chat."
-        )
+        body = bg_i18n.t(lang, "created_monitor", title=title, detail=detail, dur=dur)
     elif kind == "wait_for_state":
-        body = (
-            f"**{title}** — scheduled\n"
-            f"Waiting for `{spec.get('entity_id')}` = `{spec.get('state')}`. "
-            "Continues even if you close this chat."
+        body = bg_i18n.t(
+            lang,
+            "created_wait",
+            title=title,
+            entity_id=spec.get("entity_id"),
+            state=spec.get("state"),
         )
     else:
-        body = f"**{title}** — scheduled"
+        body = bg_i18n.t(lang, "created_generic", title=title)
     try:
         store.upsert_delivery(
             delivery_id=delivery_id,
@@ -148,7 +156,8 @@ async def notify_blocked(task_id: str) -> None:
         message_meta={"task_id": task_id},
     )
     try:
-        _post_message(task, _message_body(task))
+        lang = bg_i18n.lang_from_cfg(load_config())
+        _post_message(task, _message_body(task, lang=lang))
         store.upsert_delivery(
             delivery_id=delivery_id,
             task_id=task_id,
@@ -205,7 +214,8 @@ async def try_deliver(delivery_id: str) -> bool:
             attempts=int(row.get("attempts") or 0) + 1,
         )
         return False
-    body = _message_body(task)
+    lang = bg_i18n.lang_from_cfg(load_config())
+    body = _message_body(task, lang=lang)
     meta = {
         "background_task_id": task["task_id"],
         "background_task": _public_card(task),
