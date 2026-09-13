@@ -467,7 +467,7 @@ def test_delivery_notifies_ha_when_configured(bg_db, monkeypatch):
         status="completed",
         result={"kind": "remind_me", "message": "Call mom", "delay_seconds": 5},
     )
-    assert asyncio.run(delivery.enqueue_result(tid)) is None or True
+    asyncio.run(delivery.enqueue_result(tid))
     assert posts
     assert notify_calls
     assert notify_calls[0]["path"] == "/services/notify/sm_s938b"
@@ -497,6 +497,7 @@ def test_delivery_skips_notify_without_service(bg_db, monkeypatch):
         "services.background_tasks.delivery.add_conversation_message",
         lambda *a, **k: None,
     )
+    monkeypatch.setattr("services.homeassistant.is_available", lambda: False)
     monkeypatch.setattr("services.homeassistant._core", fake_core)
 
     created = manager.create_task(
@@ -514,3 +515,117 @@ def test_delivery_skips_notify_without_service(bg_db, monkeypatch):
     )
     asyncio.run(delivery.enqueue_result(tid))
     assert notify_calls == []
+
+
+def test_resolve_notify_from_person_tracker(monkeypatch):
+    from services.background_tasks import notify_resolve as nr
+
+    monkeypatch.setattr(
+        nr,
+        "get_profile",
+        lambda username: {"username": username, "ha_id": "abc-123", "display_name": "Andrei"},
+    )
+    monkeypatch.setattr(nr, "load_config", lambda: _cfg())
+    monkeypatch.setattr(manager, "load_config", lambda: _cfg())
+    monkeypatch.setattr("services.homeassistant.is_available", lambda: True)
+
+    async def fake_core(method, path, **kwargs):
+        if path == "/states":
+            return [
+                {
+                    "entity_id": "person.andrei",
+                    "attributes": {
+                        "friendly_name": "Andrei",
+                        "user_id": "abc-123",
+                        "device_trackers": ["device_tracker.sm_s938b"],
+                    },
+                }
+            ]
+        if path == "/services":
+            return [
+                {
+                    "domain": "notify",
+                    "services": {
+                        "mobile_app_sm_s938b": {},
+                        "persistent_notification": {},
+                    },
+                }
+            ]
+        return {}
+
+    monkeypatch.setattr("services.homeassistant._core", fake_core)
+    out = asyncio.run(nr.resolve_notify_service("andrei", cfg=_cfg()))
+    assert out == "notify.mobile_app_sm_s938b"
+
+
+def test_resolve_notify_settings_override_wins(monkeypatch):
+    from services.background_tasks import notify_resolve as nr
+
+    cfg = _cfg()
+    cfg["background_tasks"]["notify_service"] = "notify.forced_phone"
+    monkeypatch.setattr(nr, "load_config", lambda: cfg)
+    monkeypatch.setattr(manager, "load_config", lambda: cfg)
+    out = asyncio.run(nr.resolve_notify_service("andrei", cfg=cfg))
+    assert out == "notify.forced_phone"
+
+
+def test_delivery_auto_notifies_logged_in_user(bg_db, monkeypatch):
+    monkeypatch.setattr(
+        "services.tool_enable.effectively_enabled",
+        lambda *a, **k: True,
+    )
+    monkeypatch.setattr(
+        "services.background_tasks.delivery.post_created_card",
+        lambda *a, **k: None,
+    )
+    notify_calls = []
+
+    async def fake_core(method, path, **kwargs):
+        if method == "GET" and path == "/states":
+            return [
+                {
+                    "entity_id": "person.andrei",
+                    "attributes": {
+                        "friendly_name": "Andrei",
+                        "user_id": "ha-1",
+                        "device_trackers": ["device_tracker.sm_s938b"],
+                    },
+                }
+            ]
+        if method == "GET" and path == "/services":
+            return [{"domain": "notify", "services": {"mobile_app_sm_s938b": {}}}]
+        if method == "POST":
+            notify_calls.append(path)
+            return {}
+        return {}
+
+    cfg = _cfg()
+    cfg["background_tasks"]["notify_service"] = ""
+    monkeypatch.setattr(delivery, "load_config", lambda: cfg)
+    monkeypatch.setattr(manager, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "services.background_tasks.notify_resolve.get_profile",
+        lambda username: {"username": username, "ha_id": "ha-1", "display_name": "Andrei"},
+    )
+    monkeypatch.setattr("services.homeassistant.is_available", lambda: True)
+    monkeypatch.setattr("services.homeassistant._core", fake_core)
+    monkeypatch.setattr(
+        "services.background_tasks.delivery.add_conversation_message",
+        lambda *a, **k: None,
+    )
+
+    created = manager.create_task(
+        owner_id="andrei",
+        session_id="s1",
+        kind="remind_me",
+        spec={"delay_seconds": 5, "message": "auto"},
+        cfg=cfg,
+    )
+    tid = created["task"]["task_id"]
+    store.update_task(
+        tid,
+        status="completed",
+        result={"kind": "remind_me", "message": "auto", "delay_seconds": 5},
+    )
+    asyncio.run(delivery.enqueue_result(tid))
+    assert notify_calls == ["/services/notify/mobile_app_sm_s938b"]

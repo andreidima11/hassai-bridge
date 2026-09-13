@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.15
+
+### Fix
+- **Auto phone notify** — when `notify_service` is empty, resolve Companion `notify.mobile_app_*` from the logged-in HA user (`person` → `device_tracker`); Settings field is now an optional override
+
 ## 1.7.14
 
 ### Features

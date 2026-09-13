@@ -91,16 +91,21 @@ def _notify_body(body: str) -> str:
 async def _maybe_ha_notify(task: dict, body: str, *, cfg: dict | None = None) -> None:
     """Best-effort phone notify after a result is posted to chat."""
     from services.background_tasks import manager
+    from services.background_tasks.notify_resolve import normalize_notify_service, resolve_notify_service
 
     cfg = cfg or load_config()
     bg = manager._bg_cfg(cfg)
     if not bg.get("notify_on_complete", True):
         return
-    service = str(bg.get("notify_service") or "").strip()
+    service = await resolve_notify_service(str(task.get("owner_id") or ""), cfg=cfg)
+    service = normalize_notify_service(service)
     if not service:
+        log.debug(
+            "bg notify skipped for task %s (no service for user %s)",
+            task.get("task_id"),
+            task.get("owner_id"),
+        )
         return
-    if "." not in service:
-        service = f"notify.{service}"
     domain, svc = service.split(".", 1)
     title = _notify_title(task)
     message = _notify_body(body)

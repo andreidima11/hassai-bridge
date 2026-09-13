@@ -25,9 +25,13 @@ def system_hint(cfg: dict | None = None) -> str:
         return ""
     notify = str(bg.get("notify_service") or "").strip()
     notify_bit = (
-        f" When a task finishes, results are also sent to HA notify `{notify}`."
+        f" When a task finishes, results are also sent to HA notify `{notify}` (Settings override)."
         if notify
-        else " Configure background_tasks.notify_service in Settings to also ping the phone on completion."
+        else (
+            " When a task finishes, results are also pushed to the logged-in user's "
+            "Companion phone notify when Home Assistant can resolve it "
+            "(person → device_tracker → notify.mobile_app_*)."
+        )
     )
     return (
         "Background tasks: use background_tasks for remind_me / wait_for_state / monitor_entities "

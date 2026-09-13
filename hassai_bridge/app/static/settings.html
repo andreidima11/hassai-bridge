@@ -497,9 +497,9 @@
           <span data-i18n="settings.backgroundTasksEnabled">Enabled — AI can create background monitors</span>
           <label class="toggle"><input type="checkbox" id="bgTasksEnabled"><span class="slider"></span></label>
         </div>
-        <label data-i18n="settings.backgroundTasksNotifyService">Phone notify service (optional)</label>
+        <label data-i18n="settings.backgroundTasksNotifyService">Phone notify override (optional)</label>
         <input type="text" id="bgTasksNotifyService" placeholder="notify.mobile_app_phone">
-        <p class="card-muted" style="margin-top:4px" data-i18n="settings.backgroundTasksNotifyHint">When a background task finishes (reminder, monitor, or wait), also call this Home Assistant notify service. Leave empty to only post in chat.</p>
+        <p class="card-muted" style="margin-top:4px" data-i18n="settings.backgroundTasksNotifyHint">Leave empty to auto-detect the Companion app notify for the logged-in Home Assistant user (via their person → phone). Set a service only to force one device for everyone.</p>
         <div class="toggle-row">
           <span data-i18n="settings.backgroundTasksNotifyOnComplete">Notify phone when a task completes</span>
           <label class="toggle"><input type="checkbox" id="bgTasksNotifyOnComplete" checked><span class="slider"></span></label>
