@@ -148,6 +148,10 @@ async def _http(
         return resp.text
 
 
+# Large entity/device registries easily exceed the websockets default (1 MiB).
+_WS_MAX_SIZE = 32 * 1024 * 1024
+
+
 async def _ws_call(payload: dict, timeout: float = 20.0) -> Any:
     """Home Assistant WebSocket command (Lovelace has no REST API anymore)."""
     token = os.environ.get("SUPERVISOR_TOKEN", "").strip()
@@ -159,7 +163,9 @@ async def _ws_call(payload: dict, timeout: float = 20.0) -> Any:
     except ImportError:
         from websockets import connect as ws_connect  # type: ignore
 
-    async with ws_connect(url, open_timeout=8, close_timeout=4) as ws:
+    async with ws_connect(
+        url, open_timeout=8, close_timeout=4, max_size=_WS_MAX_SIZE,
+    ) as ws:
         hello = json.loads(await ws.recv())
         if hello.get("type") != "auth_required":
             raise RuntimeError(f"unexpected HA websocket hello: {hello.get('type')}")
@@ -1781,7 +1787,10 @@ async def _update_entity(args: dict) -> str:
 
 
 async def _list_areas(_args: dict) -> str:
-    _entities, areas, _devices, _labels, *_ = await _fetch_registry_bundle()
+    # Areas only — do not pull entity/device registries (can exceed WS frame limits).
+    areas = await _ws_call({"type": "config/area_registry/list"})
+    if not isinstance(areas, list):
+        areas = []
     return et.format_area_list(areas)
 
 

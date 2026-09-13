@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.6
+
+### Fix
+- **HA WebSocket registry** — raise frame size limit to 32 MiB (busy homes exceeded the 1 MiB default on `entity_registry/list`); `ha_list_areas` fetches areas only instead of the full registry bundle
+
 ## 1.7.5
 
 ### Features
