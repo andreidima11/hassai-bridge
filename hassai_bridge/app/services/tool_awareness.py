@@ -71,6 +71,10 @@ _PLAYBOOK_RULES: tuple[tuple[str, str], ...] = (
         "ha_media_control",
         "Pause / next / volume on media_player → ha_media_control.",
     ),
+    (
+        "tell_joke",
+        "Joke / glumă / 'spune o glumă' → tell_joke (optional type=programming|dad|knock-knock).",
+    ),
 )
 
 

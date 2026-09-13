@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.12
+
+### Fix
+- **Joke playbook** — live Tool playbook nudges `tell_joke` for „spune o glumă”
+
 ## 1.7.11
 
 ### Features
