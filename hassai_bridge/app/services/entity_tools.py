@@ -44,7 +44,7 @@ Dashboards (WebSocket, storage mode):
 - Nested stack/grid cards: card_path like 2.1
 - YAML dashboards: ha_append_card_yaml or ha_read_file / ha_write_file, then ha_reload what=lovelace confirm=true
 
-Diagnose: ha_list_problems + ha_get_logs.
+Diagnose: ha_list_problems + ha_get_logs (core/supervisor/host, or source=addon + slug e.g. zigbee2mqtt / z2m).
 Config files: ha_read_file / ha_write_file → ha_check_config → ha_reload if needed.
 Custom integration .py: only if Settings → HA tools → Custom component Python (custom_code) is ON. List with ha_list_files subdir=custom_components search=<domain>, then ha_read_file. For bugfixes use ha_replace_in_file (unique old_text → new_text) with confirm=false (show diff, ask user) then confirm=true + change_summary (.bak first). Do NOT rewrite entire large .py files with ha_write_file — tool JSON truncates and fails. Never edit .py outside custom_components.
 Mutating tools: if the HA tool group is ON in Settings, just do the change (confirm is handled automatically). If a group is OFF, enable via Approve in chat first."""

@@ -16,7 +16,7 @@ CATEGORY_KEYS: dict[str, str] = {
     "dashboards": "Lovelace dashboards, views, cards",
     "config_files": "List, read, write YAML/JSON/txt in /config",
     "custom_code": "Edit custom_components/*.py (preview diff, .bak backup; off by default)",
-    "diagnostics": "Logs, problems, config check, reload, recorder purge",
+    "diagnostics": "Logs (Core/Supervisor/host/add-ons e.g. Zigbee2MQTT), problems, config check, reload, recorder purge",
     "backups": "Supervisor backup list, create, restore",
     "addons": "Add-on start, stop, restart, list",
     "updates": "Check and install HA Core, OS, Supervisor, add-on updates",

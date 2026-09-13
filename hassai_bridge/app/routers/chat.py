@@ -3060,14 +3060,14 @@ def _build_skill_tools() -> list[dict]:
     }]
 
 
-def _build_search_instruction(cfg: dict) -> str:
+def _build_search_instruction(cfg: dict, *, today: str | None = None) -> str:
     """Compact search context hint."""
     cutoff = cfg.get("knowledge_cutoff", "2024-01")
-    today = date.today().strftime("%Y-%m-%d")
+    day = today or date.today().strftime("%Y-%m-%d")
     lim = _max_searches_per_prompt(cfg)
     flim = _max_fetches_per_prompt(cfg)
     return (
-        f"Date: {today}. Knowledge cutoff: {cutoff}. "
+        f"Date: {day}. Knowledge cutoff: {cutoff}. "
         "Use search_web for anything after your cutoff when you have no URL. "
         "Priority: Instant answers → Best result → Search hit snippets → Opened pages. "
         "State facts from the tool text; do not invent beyond it. "
@@ -3548,10 +3548,21 @@ async def chat_completions(request: Request):
     stable_extras = []
     if user_ctx:
         stable_extras.append(user_ctx)
+    try:
+        clock_hint = await ha_api.clock_context_for_prompt()
+        if clock_hint:
+            stable_extras.append(clock_hint)
+    except Exception:
+        log.debug("HA clock context failed", exc_info=True)
     if bg_hint:
         stable_extras.append(bg_hint)
     if search_enabled:
-        stable_extras.append(_build_search_instruction(cfg))
+        try:
+            tz_name = await ha_api.get_ha_timezone()
+            ha_day = ha_api.ha_local_now(tz_name).strftime("%Y-%m-%d")
+        except Exception:
+            ha_day = None
+        stable_extras.append(_build_search_instruction(cfg, today=ha_day))
     ha_tool_names_for_hint = [
         str(t.get("function", {}).get("name") or "")
         for t in (effective_tools or [])

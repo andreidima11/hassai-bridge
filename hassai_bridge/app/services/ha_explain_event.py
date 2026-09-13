@@ -414,6 +414,13 @@ def build_report(
     change = f"{old_s} → {new_s}"
     when_dt = _state_ts(cur)
     when = when_dt.isoformat() if when_dt else str(cur.get("last_changed") or "")
+    when_local = ""
+    try:
+        from services import homeassistant as ha
+
+        when_local = ha.format_ha_local(when_dt) if when_dt else ""
+    except Exception:
+        when_local = ""
     ctx = _ctx(cur)
     context_id = str(ctx.get("id") or "")
     parent_id = str(ctx.get("parent_id") or "")
@@ -518,6 +525,7 @@ def build_report(
         "entity_id": entity_id,
         "change": change,
         "when": when,
+        "when_local": when_local or when,
         "cause_type": cause_type,
         "confidence": confidence,
         "chain": chain,

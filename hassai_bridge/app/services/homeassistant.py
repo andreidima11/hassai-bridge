@@ -43,6 +43,10 @@ _MAX_JSON = 14_000
 # /homeassistant and the add-on's own folder at /config — never assume /config.
 _HA_CONFIG_OVERRIDE: Path | None = None
 
+# Cached Core /config.time_zone (IANA), refreshed periodically.
+_TZ_CACHE: dict[str, Any] = {"tz": "", "ts": 0.0}
+_TZ_TTL_SEC = 600.0
+
 
 def _ha_config_dir() -> Path:
     """Resolved Home Assistant config directory inside this container."""
@@ -192,6 +196,81 @@ async def ping() -> tuple[bool, str]:
     except Exception as e:
         log.warning("HA Core ping failed: %s", e)
         return False, str(e)
+
+
+def _zoneinfo(name: str):
+    try:
+        from zoneinfo import ZoneInfo
+
+        return ZoneInfo(str(name or "").strip())
+    except Exception:
+        return None
+
+
+async def get_ha_timezone(*, force: bool = False) -> str:
+    """IANA timezone from Home Assistant Core config (e.g. Europe/Bucharest).
+
+    Falls back to the host local zone name, then UTC.
+    """
+    now = time.time()
+    cached = str(_TZ_CACHE.get("tz") or "")
+    if not force and cached and (now - float(_TZ_CACHE.get("ts") or 0)) < _TZ_TTL_SEC:
+        return cached
+    tz_name = ""
+    if is_available():
+        try:
+            cfg = await _core("GET", "/config", timeout=8.0)
+            if isinstance(cfg, dict):
+                tz_name = str(cfg.get("time_zone") or cfg.get("timezone") or "").strip()
+        except Exception as exc:
+            log.debug("HA timezone fetch failed: %s", exc)
+    if not tz_name or _zoneinfo(tz_name) is None:
+        try:
+            local = datetime.now().astimezone().tzinfo
+            tz_name = str(getattr(local, "key", None) or local or "UTC")
+        except Exception:
+            tz_name = "UTC"
+    if _zoneinfo(tz_name) is None:
+        tz_name = "UTC"
+    _TZ_CACHE["tz"] = tz_name
+    _TZ_CACHE["ts"] = now
+    return tz_name
+
+
+def ha_local_now(tz_name: str | None = None) -> datetime:
+    """Current instant expressed in the Home Assistant timezone."""
+    name = str(tz_name or _TZ_CACHE.get("tz") or "").strip() or "UTC"
+    zi = _zoneinfo(name)
+    if zi is None:
+        return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).astimezone(zi)
+
+
+def format_ha_local(dt: datetime | None = None, *, tz_name: str | None = None) -> str:
+    """Human-readable local HA timestamp, e.g. 2026-09-13 07:30 Europe/Bucharest."""
+    name = str(tz_name or _TZ_CACHE.get("tz") or "").strip() or "UTC"
+    zi = _zoneinfo(name)
+    when = dt or datetime.now(timezone.utc)
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    if zi is not None:
+        when = when.astimezone(zi)
+        name = str(getattr(zi, "key", None) or name)
+    else:
+        when = when.astimezone(timezone.utc)
+        name = "UTC"
+    return f"{when.strftime('%Y-%m-%d %H:%M')} {name}"
+
+
+async def clock_context_for_prompt() -> str:
+    """Stable system hint so the model answers with the household's local clock."""
+    tz_name = await get_ha_timezone()
+    now = ha_local_now(tz_name)
+    return (
+        f"Home clock: {now.strftime('%Y-%m-%d %H:%M')} ({tz_name}). "
+        "When you mention times of day, schedules, or 'now/today/tonight', "
+        "use this Home Assistant timezone — not UTC and not the server's default zone."
+    )
 
 
 async def list_ha_people() -> list[dict]:
@@ -1005,7 +1084,9 @@ _TOOL_SPECS: dict[str, dict] = {
     },
     "ha_get_logs": {
         "description": (
-            "Read recent logs. source=core (HA error log), supervisor, or host. "
+            "Read recent logs. source=core (HA error log), supervisor, host, or addon. "
+            "For add-ons (e.g. Zigbee2MQTT), set source=addon and slug "
+            "(Supervisor slug from ha_list_addons, or a short name like zigbee2mqtt / z2m). "
             "Use search to filter lines."
         ),
         "parameters": {
@@ -1013,8 +1094,15 @@ _TOOL_SPECS: dict[str, dict] = {
             "properties": {
                 "source": {
                     "type": "string",
-                    "enum": ["core", "supervisor", "host"],
-                    "description": "Default core",
+                    "enum": ["core", "supervisor", "host", "addon"],
+                    "description": "Default core. Use addon for Zigbee2MQTT and other add-ons.",
+                },
+                "slug": {
+                    "type": "string",
+                    "description": (
+                        "Add-on slug or short name (required when source=addon). "
+                        "Examples: 45df7312_zigbee2mqtt, zigbee2mqtt, z2m."
+                    ),
                 },
                 "search": {"type": "string", "description": "Case-insensitive filter"},
                 "lines": {"type": "integer", "description": "Last N lines (default 80, max 200)"},
@@ -2182,8 +2270,72 @@ async def _system_info(_args: dict) -> str:
     return _dump(out)
 
 
+async def _resolve_addon_slug(query: str) -> tuple[str | None, str | None]:
+    """Resolve an add-on slug from a Supervisor slug or short name (e.g. z2m).
+
+    Returns (slug, error_message). Exactly one is set.
+    """
+    raw = (query or "").strip()
+    if not raw:
+        return None, "Error: slug is required for source=addon (use ha_list_addons to find it)"
+    needle = raw.lower()
+    aliases = {
+        "z2m": "zigbee2mqtt",
+        "zigbee": "zigbee2mqtt",
+        "zigbee2mqtt": "zigbee2mqtt",
+    }
+    prefer = aliases.get(needle, needle)
+    try:
+        data = await _supervisor("GET", "/addons")
+    except Exception as exc:
+        return None, f"Error: could not list add-ons: {exc}"
+    rows = sat._addon_rows(data)
+    if not rows:
+        return None, "Error: no installed add-ons found"
+
+    # Exact slug match first
+    for row in rows:
+        slug = str(row.get("slug") or "").strip()
+        if slug.lower() == needle:
+            return slug, None
+
+    scored: list[tuple[int, str, str]] = []
+    for row in rows:
+        slug = str(row.get("slug") or "").strip()
+        name = str(row.get("name") or slug)
+        slug_l = slug.lower()
+        name_l = name.lower()
+        score = 0
+        if prefer in slug_l or prefer in name_l.replace(" ", ""):
+            score = 3
+        elif needle in slug_l or needle in name_l:
+            score = 2
+        elif slug_l.endswith("_" + prefer) or slug_l.endswith("-" + prefer):
+            score = 3
+        if score:
+            scored.append((score, slug, name))
+    if not scored:
+        sample = ", ".join(
+            str(r.get("slug") or "") for r in rows[:12] if r.get("slug")
+        )
+        return None, (
+            f"Error: no add-on matched '{raw}'. "
+            f"Try ha_list_addons with search=zigbee. Installed sample: {sample}"
+        )
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    best_score = scored[0][0]
+    top = [s for s in scored if s[0] == best_score]
+    if len(top) > 1 and best_score < 3:
+        opts = ", ".join(f"{s} ({n})" for _, s, n in top[:8])
+        return None, f"Error: ambiguous add-on '{raw}'. Candidates: {opts}"
+    return top[0][1], None
+
+
 async def _get_logs(args: dict) -> str:
-    source = (args.get("source") or "core").strip().lower()
+    source = (args.get("source") or "").strip().lower()
+    slug_arg = (args.get("slug") or args.get("addon") or "").strip()
+    if not source:
+        source = "addon" if slug_arg else "core"
     search = (args.get("search") or "").strip().lower()
     try:
         lines_n = int(args.get("lines") or 80)
@@ -2200,8 +2352,20 @@ async def _get_logs(args: dict) -> str:
         text = await _supervisor("GET", "/supervisor/logs", text=True, timeout=_LOG_TIMEOUT)
     elif source == "host":
         text = await _supervisor("GET", "/host/logs", text=True, timeout=_LOG_TIMEOUT)
+    elif source in {"addon", "add-on", "addons", "add-ons"}:
+        slug, err = await _resolve_addon_slug(slug_arg)
+        if err:
+            return err
+        assert slug is not None
+        try:
+            text = await _supervisor(
+                "GET", f"/addons/{slug}/logs", text=True, timeout=_LOG_TIMEOUT
+            )
+        except Exception as exc:
+            return f"Error: failed to read logs for add-on '{slug}': {exc}"
+        header = f"# add-on logs: {slug}\n"
     else:
-        return "Error: source must be core, supervisor, or host"
+        return "Error: source must be core, supervisor, host, or addon"
 
     rows = str(text).splitlines()
     if search:
@@ -2210,6 +2374,8 @@ async def _get_logs(args: dict) -> str:
     if not rows:
         return "No matching log lines."
     body = "\n".join(rows)
+    if source in {"addon", "add-on", "addons", "add-ons"}:
+        body = header + body
     if len(body) > 12_000:
         body = body[-12_000:]
     return body

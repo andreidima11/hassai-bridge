@@ -1,5 +1,12 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.2
+
+### Features
+- **Home Assistant timezone** — chat clock context and web-search “today” use the HA Core `time_zone` (e.g. Europe/Bucharest) so answers about time of day match the household
+- **Settings → Permissions** — tool permission toggles (web search, Bridge tools, background tasks, browser options, HA tools) moved out of General into a dedicated tab
+- **Add-on logs** — `ha_get_logs` supports `source=addon` with slug aliases (`z2m`, `zigbee2mqtt`, …) so the AI can read Zigbee2MQTT and other add-on logs via Supervisor
+
 ## 1.7.1
 
 ### Features
