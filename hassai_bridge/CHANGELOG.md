@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.10
+
+### Features
+- **ANAF company tools** — `anaf_firma` (lookup by CUI: TVA, addresses, e-Factura, inactive) and `anaf_bilant` (turnover, profit, employees); Dynamic core like currency/stocks. Name → CUI via `search_web`, then these tools
+
 ## 1.7.9
 
 ### Fix

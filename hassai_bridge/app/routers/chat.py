@@ -50,6 +50,7 @@ from services import bridge_tools as bt
 from services import bridge_tool_access as bta
 from services import currency as currency_fx
 from services import stocks as stocks_fx
+from services import anaf as anaf_ro
 from services import pricing
 from services import openrouter as ovr
 from services import thinking_text as tt
@@ -76,6 +77,8 @@ def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
         "currency_rates",
         "stock_quote",
         "stock_history",
+        "anaf_firma",
+        "anaf_bilant",
         "browser_interact",
         "request_enable_tools",
         "background_tasks",
@@ -117,6 +120,7 @@ def _assemble_addon_tools(cfg: dict, *, search_enabled: bool | None = None) -> l
     out.append(_fetch_url_tool(cfg))
     out.extend(currency_fx.TOOL_SPECS)
     out.extend(stocks_fx.TOOL_SPECS)
+    out.extend(anaf_ro.TOOL_SPECS)
     out.append(te.TOOL_SPEC)
     out.append(BG_TASKS_TOOL_SPEC)
     out.append(bi.TOOL_SPEC)
@@ -1266,6 +1270,19 @@ async def _invoke_internal_tool(
             interval=str(args.get("interval") or "1d"),
             start=(str(args.get("start") or "").strip() or None),
             end=(str(args.get("end") or "").strip() or None),
+        )
+        return text, False
+
+    if fn_name in anaf_ro.TOOL_NAMES:
+        if fn_name == "anaf_firma":
+            text = await anaf_ro.firma(
+                args.get("cui") or args.get("cif"),
+                day=(str(args.get("data") or args.get("date") or "").strip() or None),
+            )
+            return text, False
+        text = await anaf_ro.bilant(
+            str(args.get("cui") or args.get("cif") or ""),
+            an=args.get("an") if args.get("an") is not None else args.get("year"),
         )
         return text, False
 
