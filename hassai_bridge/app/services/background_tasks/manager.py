@@ -13,7 +13,8 @@ from services.background_tasks import store
 
 log = logging.getLogger("hassai.bg_tasks")
 
-KINDS = frozenset({"monitor_entities", "wait_for_state"})
+KINDS = frozenset({"monitor_entities", "wait_for_state", "remind_me"})
+MAX_REMIND_SECONDS = 7 * 24 * 3600  # 7 days
 
 
 def _bg_cfg(cfg: dict | None = None) -> dict:
@@ -25,6 +26,12 @@ def _bg_cfg(cfg: dict | None = None) -> dict:
         "max_monitor_hours": max(0.05, min(float(raw.get("max_monitor_hours") or 24), 168)),
         "max_result_days": max(1, min(int(raw.get("max_result_days") or 30), 365)),
         "worker_lease_seconds": max(10, min(int(raw.get("worker_lease_seconds") or 30), 300)),
+        "notify_service": str(raw.get("notify_service") or "").strip(),
+        "notify_on_complete": bool(raw.get("notify_on_complete", True)),
+        "max_remind_seconds": max(
+            60,
+            min(int(raw.get("max_remind_seconds") or MAX_REMIND_SECONDS), MAX_REMIND_SECONDS),
+        ),
     }
 
 
@@ -38,7 +45,15 @@ def snapshot_permissions(cfg: dict | None, session_id: str | None) -> dict:
     }
 
 
-def permissions_still_ok(scope: dict | None, cfg: dict | None, session_id: str | None) -> tuple[bool, str]:
+def permissions_still_ok(
+    scope: dict | None,
+    cfg: dict | None,
+    session_id: str | None,
+    *,
+    kind: str | None = None,
+) -> tuple[bool, str]:
+    if kind == "remind_me":
+        return True, ""
     scope = scope or {}
     if not scope.get("ha_entities", True):
         return False, "entities permission was not granted at create time"
@@ -47,8 +62,31 @@ def permissions_still_ok(scope: dict | None, cfg: dict | None, session_id: str |
     return True, ""
 
 
-def _validate_spec(kind: str, spec: dict, *, max_hours: float) -> tuple[dict, str | None]:
+def _validate_spec(
+    kind: str,
+    spec: dict,
+    *,
+    max_hours: float,
+    max_remind_seconds: int = MAX_REMIND_SECONDS,
+) -> tuple[dict, str | None]:
     spec = dict(spec or {})
+    if kind == "remind_me":
+        message = str(spec.get("message") or "").strip()
+        if not message:
+            return {}, "remind_me requires message"
+        if len(message) > 500:
+            message = message[:500].rstrip()
+        delay = float(spec.get("delay_seconds") or spec.get("delay") or 0)
+        if delay <= 0 and spec.get("delay_minutes"):
+            delay = float(spec.get("delay_minutes")) * 60.0
+        if delay <= 0:
+            return {}, "remind_me requires delay_seconds or delay_minutes (> 0)"
+        delay = max(1.0, min(delay, float(max_remind_seconds)))
+        return {
+            "delay_seconds": delay,
+            "message": message,
+        }, None
+
     if kind == "monitor_entities":
         entities = spec.get("entity_ids") or spec.get("entities") or []
         if isinstance(entities, str):
@@ -142,18 +180,31 @@ def create_task(
             "error": f"active task limit reached ({bg['max_active_per_user']} per user)",
         }
 
-    ok_perm, reason = permissions_still_ok({"ha_entities": True}, cfg, session_id)
-    if not ok_perm:
-        return {"ok": False, "error": reason}
+    if kind != "remind_me":
+        ok_perm, reason = permissions_still_ok({"ha_entities": True}, cfg, session_id, kind=kind)
+        if not ok_perm:
+            return {"ok": False, "error": reason}
 
-    cleaned, err = _validate_spec(kind, spec or {}, max_hours=bg["max_monitor_hours"])
+    cleaned, err = _validate_spec(
+        kind,
+        spec or {},
+        max_hours=bg["max_monitor_hours"],
+        max_remind_seconds=bg["max_remind_seconds"],
+    )
     if err:
         return {"ok": False, "error": err}
 
-    duration = cleaned.get("duration_seconds") or cleaned.get("timeout_seconds") or 1800
+    if kind == "remind_me":
+        duration = float(cleaned.get("delay_seconds") or 60)
+    else:
+        duration = cleaned.get("duration_seconds") or cleaned.get("timeout_seconds") or 1800
     now = time.time()
     deadline = now + float(duration)
+    # Reminders sleep until due; monitors/waits start immediately.
+    next_run = deadline if kind == "remind_me" else now
     scope = snapshot_permissions(cfg, session_id)
+    if kind == "remind_me":
+        scope = {**scope, "ha_entities": False}
     task_id = store.new_task_id()
     title = str(title or "").strip() or _default_title(kind, cleaned)
     try:
@@ -166,7 +217,7 @@ def create_task(
             spec=cleaned,
             status="scheduled",
             deadline_at=deadline,
-            next_run_at=now,
+            next_run_at=next_run,
             permission_scope=scope,
             idempotency_key=key or None,
         )
@@ -211,6 +262,13 @@ def _default_title(kind: str, spec: dict) -> str:
         return f"Monitor {', '.join(ids[:3])}{'…' if len(ids) > 3 else ''}"
     if kind == "wait_for_state":
         return f"Wait {spec.get('entity_id')}={spec.get('state')}"
+    if kind == "remind_me":
+        msg = str(spec.get("message") or "").strip()
+        delay = int(float(spec.get("delay_seconds") or 0))
+        if msg:
+            short = msg if len(msg) <= 40 else msg[:37].rstrip() + "…"
+            return f"Remind in {delay}s: {short}"
+        return f"Remind in {delay}s"
     return kind
 
 

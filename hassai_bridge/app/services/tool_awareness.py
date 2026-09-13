@@ -41,7 +41,8 @@ _PLAYBOOK_RULES: tuple[tuple[str, str], ...] = (
     ),
     (
         "background_tasks",
-        "Watch / wait until a state changes after chat closes → background_tasks.",
+        "Remind me in X minutes / watch or wait until a state changes after chat closes → background_tasks "
+        "(kind=remind_me for timers; do not invent HA timer+automation unless asked).",
     ),
     (
         "browser_interact",

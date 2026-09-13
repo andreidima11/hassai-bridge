@@ -914,6 +914,8 @@ async function loadSettings() {
     setChecked('browserKeepWarm', br.keep_warm === true);
     const bg = cfg.background_tasks || {};
     setChecked('bgTasksEnabled', bg.enabled !== false);
+    setVal('bgTasksNotifyService', bg.notify_service || '');
+    setChecked('bgTasksNotifyOnComplete', bg.notify_on_complete !== false);
 
     // Voice
     const voice = cfg.voice || {};
@@ -1598,6 +1600,8 @@ async function saveSettings() {
       },
       background_tasks: {
         enabled: document.getElementById('bgTasksEnabled')?.checked !== false,
+        notify_service: (document.getElementById('bgTasksNotifyService')?.value || '').trim(),
+        notify_on_complete: document.getElementById('bgTasksNotifyOnComplete')?.checked !== false,
       },
       memory: {
         enabled: document.getElementById('memEnabled').checked,

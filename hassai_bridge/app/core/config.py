@@ -100,6 +100,8 @@ DEFAULT_CONFIG = {
         "max_result_days": 30,
         "worker_lease_seconds": 30,
         "feed_poll_seconds": 3,
+        "notify_service": "",
+        "notify_on_complete": True,
     },
     "voice": {
         "enabled": False,

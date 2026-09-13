@@ -23,10 +23,20 @@ def system_hint(cfg: dict | None = None) -> str:
     bg = (cfg.get("background_tasks") or {})
     if bg.get("enabled", True) is False:
         return ""
+    notify = str(bg.get("notify_service") or "").strip()
+    notify_bit = (
+        f" When a task finishes, results are also sent to HA notify `{notify}`."
+        if notify
+        else " Configure background_tasks.notify_service in Settings to also ping the phone on completion."
+    )
     return (
-        "Background tasks: use background_tasks for wait_for_state / monitor_entities when the "
-        "user needs waiting or monitoring that outlives this turn. Results are posted back to "
-        "this chat by the backend. Do not invent entity_id values."
+        "Background tasks: use background_tasks for remind_me / wait_for_state / monitor_entities "
+        "when the user needs a timed reminder, waiting, or monitoring that outlives this turn. "
+        "For “remind me in X minutes…”, create kind=remind_me (delay_seconds + message) — "
+        "do not invent HA timer+automation unless the user asks for Core-native persistence outside the add-on. "
+        "Results are posted back to this chat by the backend."
+        + notify_bit
+        + " Do not invent entity_id values."
     )
 
 
@@ -36,11 +46,12 @@ TOOL_SPEC = {
         "name": TOOL_NAME,
         "description": (
             "Create, inspect, list, or cancel persistent background tasks run by HASSAI Bridge. "
-            "Use when the request needs waiting for a condition, monitoring over a period, or "
-            "long-running observation without blocking the current chat. "
-            "Kinds (v1): monitor_entities, wait_for_state. "
+            "Use when the request needs a timed reminder, waiting for a condition, monitoring over a "
+            "period, or long-running observation without blocking the current chat. "
+            "Kinds (v1): remind_me, monitor_entities, wait_for_state. "
             "Do not promise the task started until create returns ok. "
-            "Results are posted back to this conversation by the backend even if the chat is closed. "
+            "Results are posted back to this conversation by the backend even if the chat is closed "
+            "(and to the configured HA notify service when set). "
             "Identity and destination conversation are set by the backend."
         ),
         "parameters": {
@@ -57,7 +68,7 @@ TOOL_SPEC = {
                 },
                 "kind": {
                     "type": "string",
-                    "enum": ["monitor_entities", "wait_for_state"],
+                    "enum": ["remind_me", "monitor_entities", "wait_for_state"],
                     "description": "Required for create",
                 },
                 "title": {
@@ -67,7 +78,8 @@ TOOL_SPEC = {
                 "spec": {
                     "type": "object",
                     "description": (
-                        "Kind-specific config. monitor_entities: entity_ids[], duration_seconds, "
+                        "Kind-specific config. remind_me: message, delay_seconds (or delay_minutes; "
+                        "max 7 days). monitor_entities: entity_ids[], duration_seconds, "
                         "optional states_of_interest[]. wait_for_state: entity_id, state, "
                         "timeout_seconds, optional stable_for_seconds, accept_already_true."
                     ),

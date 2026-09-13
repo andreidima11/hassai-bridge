@@ -285,6 +285,10 @@ async def update_settings(data: SettingsUpdate):
             merged["max_active_per_user"] = max(1, min(int(incoming.get("max_active_per_user") or 5), 50))
         if "max_monitor_hours" in incoming:
             merged["max_monitor_hours"] = max(0.05, min(float(incoming.get("max_monitor_hours") or 24), 168))
+        if "notify_service" in incoming:
+            merged["notify_service"] = str(incoming.get("notify_service") or "").strip()
+        if "notify_on_complete" in incoming:
+            merged["notify_on_complete"] = bool(incoming.get("notify_on_complete"))
         cfg["background_tasks"] = merged
     if data.memory is not None:
         incoming = dict(data.memory)

@@ -41,6 +41,10 @@ _EN = {
         "**{title}** — scheduled\n"
         "Waiting for `{entity_id}` = `{state}`. Continues even if you close this chat."
     ),
+    "created_remind": (
+        "**{title}** — reminder scheduled\n"
+        "In ~{delay}s: {message}\nContinues even if you close this chat."
+    ),
     "created_generic": "**{title}** — scheduled",
     "monitor_done": "**{title}** — completed",
     "monitor_watched": "Watched: {entities}",
@@ -59,6 +63,8 @@ _EN = {
         "**{title}** — timed out\n"
         "Waited {seconds}s for {entity_id}=`{state}`. Last seen: `{last}`."
     ),
+    "remind_done": "**{title}** — reminder\n{message}",
+    "notify_remind_prefix": "Reminder",
     "status_line": "**{title}** — {status}",
     "permission_required": "permission required",
     "unknown": "unknown",
@@ -84,6 +90,10 @@ _RO = {
         "**{title}** — programat\n"
         "Aștept `{entity_id}` = `{state}`. Continuă chiar dacă închizi chatul."
     ),
+    "created_remind": (
+        "**{title}** — reminder programat\n"
+        "Peste ~{delay}s: {message}\nContinuă chiar dacă închizi chatul."
+    ),
     "created_generic": "**{title}** — programat",
     "monitor_done": "**{title}** — finalizat",
     "monitor_watched": "Urmărit: {entities}",
@@ -102,6 +112,8 @@ _RO = {
         "**{title}** — timp expirat\n"
         "Am așteptat {seconds}s pentru {entity_id}=`{state}`. Ultima stare: `{last}`."
     ),
+    "remind_done": "**{title}** — reminder\n{message}",
+    "notify_remind_prefix": "Reminder",
     "status_line": "**{title}** — {status}",
     "permission_required": "este nevoie de permisiune",
     "unknown": "necunoscut",

@@ -64,7 +64,64 @@ def _message_body(task: dict, *, lang: str | None = None) -> str:
         return worker_mod.format_wait_message(
             task, result if isinstance(result, dict) else {}, lang=lang,
         )
+    if kind == "remind_me":
+        return worker_mod.format_remind_message(
+            task, result if isinstance(result, dict) else {}, lang=lang,
+        )
     return bg_i18n.t(lang, "status_line", title=title, status=task.get("status"))
+
+
+def _notify_title(task: dict, *, lang: str | None = None) -> str:
+    lang = lang or bg_i18n.lang_from_cfg()
+    title = str(task.get("title") or bg_i18n.t(lang, "fallback_title")).strip()
+    prefix = "HASSAI"
+    if task.get("kind") == "remind_me":
+        prefix = bg_i18n.t(lang, "notify_remind_prefix")
+    raw = f"{prefix}: {title}"
+    return raw if len(raw) <= 80 else raw[:77].rstrip() + "…"
+
+
+def _notify_body(body: str) -> str:
+    text = " ".join(str(body or "").replace("**", "").split())
+    if len(text) <= 220:
+        return text
+    return text[:217].rstrip() + "…"
+
+
+async def _maybe_ha_notify(task: dict, body: str, *, cfg: dict | None = None) -> None:
+    """Best-effort phone notify after a result is posted to chat."""
+    from services.background_tasks import manager
+
+    cfg = cfg or load_config()
+    bg = manager._bg_cfg(cfg)
+    if not bg.get("notify_on_complete", True):
+        return
+    service = str(bg.get("notify_service") or "").strip()
+    if not service:
+        return
+    if "." not in service:
+        service = f"notify.{service}"
+    domain, svc = service.split(".", 1)
+    title = _notify_title(task)
+    message = _notify_body(body)
+    if not message:
+        return
+    try:
+        from services import homeassistant as ha
+
+        await ha._core(
+            "POST",
+            f"/services/{domain}/{svc}",
+            json_body={"message": message, "title": title},
+        )
+        log.info("bg notify sent via %s for task %s", service, task.get("task_id"))
+    except Exception as exc:
+        log.warning(
+            "bg notify failed for task %s via %s: %s",
+            task.get("task_id"),
+            service,
+            exc,
+        )
 
 
 def _post_message(task: dict, body: str, *, meta_extra: dict | None = None) -> None:
@@ -108,6 +165,10 @@ def post_created_card(task: dict) -> None:
             entity_id=spec.get("entity_id"),
             state=spec.get("state"),
         )
+    elif kind == "remind_me":
+        delay = int(float(spec.get("delay_seconds") or 0))
+        msg = str(spec.get("message") or "").strip() or "—"
+        body = bg_i18n.t(lang, "created_remind", title=title, delay=delay, message=msg)
     else:
         body = bg_i18n.t(lang, "created_generic", title=title)
     try:
@@ -238,6 +299,11 @@ async def try_deliver(delivery_id: str) -> bool:
             last_error="",
         )
         store.touch_feed(task["task_id"])
+        if (row.get("kind") or "result") == "result":
+            try:
+                await _maybe_ha_notify(task, body)
+            except Exception:
+                log.exception("unexpected notify error for %s", task.get("task_id"))
         return True
     except Exception as exc:
         log.exception("delivery failed %s", delivery_id)

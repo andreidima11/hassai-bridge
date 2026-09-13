@@ -492,10 +492,17 @@
 
       <div class="card">
         <h2 data-i18n="settings.backgroundTasks">Background tasks</h2>
-        <p class="card-muted" data-i18n="settings.backgroundTasksDesc">Lets the assistant schedule read-only monitors and wait-for-state jobs that keep running after you close the chat. Results are posted back into the same conversation. Requires Home Assistant Entities permission.</p>
+        <p class="card-muted" data-i18n="settings.backgroundTasksDesc">Lets the assistant schedule reminders, read-only monitors, and wait-for-state jobs that keep running after you close the chat. Results are posted back into the same conversation (and optionally your phone). Monitors/waits require Home Assistant Entities permission; reminders do not.</p>
         <div class="toggle-row">
           <span data-i18n="settings.backgroundTasksEnabled">Enabled — AI can create background monitors</span>
           <label class="toggle"><input type="checkbox" id="bgTasksEnabled"><span class="slider"></span></label>
+        </div>
+        <label data-i18n="settings.backgroundTasksNotifyService">Phone notify service (optional)</label>
+        <input type="text" id="bgTasksNotifyService" placeholder="notify.mobile_app_phone">
+        <p class="card-muted" style="margin-top:4px" data-i18n="settings.backgroundTasksNotifyHint">When a background task finishes (reminder, monitor, or wait), also call this Home Assistant notify service. Leave empty to only post in chat.</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.backgroundTasksNotifyOnComplete">Notify phone when a task completes</span>
+          <label class="toggle"><input type="checkbox" id="bgTasksNotifyOnComplete" checked><span class="slider"></span></label>
         </div>
       </div>
 

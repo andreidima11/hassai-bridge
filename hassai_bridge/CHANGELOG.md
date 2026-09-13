@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.14
+
+### Features
+- **Background reminders** — `background_tasks` kind `remind_me` (delay + message); results post to chat
+- **Phone notify on complete** — optional `background_tasks.notify_service` (Settings) sends HA `notify.*` when any background task finishes
+
 ## 1.7.13
 
 ### Features

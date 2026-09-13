@@ -49,13 +49,26 @@ async def recover_on_boot() -> None:
                 store.update_task(tid, status="completed", result=result)
                 store.add_event(tid, "completed", {"timed_out": True, "reason": "deadline_after_restart"})
                 await delivery.enqueue_result(tid)
+            elif task.get("kind") == "remind_me":
+                result = worker.remind_result(task)
+                store.update_task(tid, status="completed", result=result)
+                store.add_event(tid, "completed", {"remind": True, "reason": "deadline_after_restart"})
+                await delivery.enqueue_result(tid)
             continue
         # Resume — keep blocked as blocked; otherwise ensure runnable
         status = task.get("status") or "scheduled"
         if status == "blocked":
             store.update_task(tid, next_run_at=now)
         else:
-            store.update_task(tid, status="scheduled" if status not in ("running",) else status, next_run_at=now)
+            # Reminders wake at deadline; others resume immediately.
+            wake = now
+            if task.get("kind") == "remind_me" and deadline and deadline > now:
+                wake = deadline
+            store.update_task(
+                tid,
+                status="scheduled" if status not in ("running",) else status,
+                next_run_at=wake,
+            )
 
     # Single gap marker for reconnect (avoids duplicate gap_start events)
     ha_events._gap_open_at = None

@@ -156,6 +156,16 @@ def format_wait_message(task: dict, result: dict, *, lang: str | None = None) ->
     )
 
 
+def format_remind_message(task: dict, result: dict | None = None, *, lang: str | None = None) -> str:
+    from services.background_tasks import i18n as bg_i18n
+
+    lang = lang or bg_i18n.lang_from_cfg()
+    title = task.get("title") or bg_i18n.t(lang, "fallback_title")
+    result = result if isinstance(result, dict) else {}
+    message = str(result.get("message") or (task.get("spec") or {}).get("message") or "").strip()
+    return bg_i18n.t(lang, "remind_done", title=title, message=message or "—")
+
+
 async def _current_state(entity_id: str) -> str | None:
     try:
         from services import homeassistant as ha
@@ -182,7 +192,10 @@ async def process_task(task: dict) -> None:
             return
 
         ok, reason = manager.permissions_still_ok(
-            task.get("permission_scope") or {}, cfg, task.get("session_id"),
+            task.get("permission_scope") or {},
+            cfg,
+            task.get("session_id"),
+            kind=task.get("kind"),
         )
         if not ok:
             store.update_task(
@@ -211,6 +224,8 @@ async def process_task(task: dict) -> None:
             await _step_wait(task, now, deadline)
         elif kind == "monitor_entities":
             await _step_monitor(task, now, deadline)
+        elif kind == "remind_me":
+            await _step_remind(task, now, deadline)
         else:
             store.update_task(
                 tid,
@@ -362,4 +377,33 @@ async def _step_monitor(task: dict, now: float, deadline: float) -> None:
     result = summarize_monitor(task)
     store.update_task(tid, status="completed", result=result, progress={"phase": "done"})
     store.add_event(tid, "completed", {"observation_count": result.get("observation_count")})
+    await delivery.enqueue_result(tid)
+
+
+def remind_result(task: dict) -> dict:
+    spec = task.get("spec") or {}
+    return {
+        "kind": "remind_me",
+        "message": str(spec.get("message") or "").strip(),
+        "delay_seconds": float(spec.get("delay_seconds") or 0),
+    }
+
+
+async def _step_remind(task: dict, now: float, deadline: float) -> None:
+    from services.background_tasks import delivery
+
+    tid = task["task_id"]
+    if now < deadline:
+        store.update_task(
+            tid,
+            progress={
+                "phase": "waiting",
+                "seconds_left": max(0.0, deadline - now),
+            },
+            next_run_at=deadline,
+        )
+        return
+    result = remind_result(task)
+    store.update_task(tid, status="completed", result=result, progress={"phase": "done"})
+    store.add_event(tid, "completed", {"remind": True})
     await delivery.enqueue_result(tid)

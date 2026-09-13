@@ -359,3 +359,158 @@ def test_is_core_tool():
     from services import toolkits as tk
 
     assert tk.is_core_tool("background_tasks")
+
+
+def test_remind_me_becomes_due(bg_db, quiet_delivery, monkeypatch):
+    monkeypatch.setattr(
+        "services.tool_enable.effectively_enabled",
+        lambda *a, **k: False,  # entities OFF must not block reminders
+    )
+    monkeypatch.setattr(manager, "load_config", lambda: _cfg())
+    monkeypatch.setattr(worker, "load_config", lambda: _cfg())
+
+    created = manager.create_task(
+        owner_id="u1",
+        session_id="s1",
+        kind="remind_me",
+        title="Tea",
+        spec={"delay_seconds": 30, "message": "Check the kettle"},
+        cfg=_cfg(),
+    )
+    assert created["ok"]
+    tid = created["task"]["task_id"]
+    task = store.get_task(tid)
+    assert task["kind"] == "remind_me"
+    assert task["spec"]["message"] == "Check the kettle"
+    assert float(task["next_run_at"]) >= float(task["deadline_at"]) - 1
+
+    # Not due yet — stays running/scheduled with next_run at deadline
+    asyncio.run(worker.process_task(store.get_task(tid)))
+    mid = store.get_task(tid)
+    assert mid["status"] in ("running", "scheduled")
+    assert mid["status"] != "completed"
+
+    store.update_task(tid, deadline_at=time.time() - 1, next_run_at=time.time())
+    delivered = {"n": 0}
+
+    async def capture_enqueue(task_id):
+        delivered["n"] += 1
+        task = store.get_task(task_id)
+        assert task["status"] == "completed"
+        assert (task.get("result") or {}).get("message") == "Check the kettle"
+
+    monkeypatch.setattr("services.background_tasks.delivery.enqueue_result", capture_enqueue)
+    asyncio.run(worker.process_task(store.get_task(tid)))
+    done = store.get_task(tid)
+    assert done["status"] == "completed"
+    assert delivered["n"] == 1
+
+
+def test_remind_me_caps_delay(bg_db, quiet_delivery, monkeypatch):
+    monkeypatch.setattr(
+        "services.tool_enable.effectively_enabled",
+        lambda *a, **k: True,
+    )
+    out = manager.create_task(
+        owner_id="u1",
+        session_id="s1",
+        kind="remind_me",
+        spec={"delay_days": 999, "delay_seconds": 99999999, "message": "far future"},
+        cfg=_cfg(),
+    )
+    assert out["ok"]
+    delay = float(out["task"]["spec"]["delay_seconds"])
+    assert delay <= manager.MAX_REMIND_SECONDS
+
+
+def test_delivery_notifies_ha_when_configured(bg_db, monkeypatch):
+    monkeypatch.setattr(
+        "services.tool_enable.effectively_enabled",
+        lambda *a, **k: True,
+    )
+    monkeypatch.setattr(
+        "services.background_tasks.delivery.post_created_card",
+        lambda *a, **k: None,
+    )
+    posts = []
+    notify_calls = []
+
+    def capture_post(*a, **k):
+        posts.append(True)
+
+    async def fake_core(method, path, **kwargs):
+        notify_calls.append({"method": method, "path": path, "body": kwargs.get("json_body")})
+        return {}
+
+    cfg = _cfg()
+    cfg["background_tasks"]["notify_service"] = "notify.sm_s938b"
+    cfg["background_tasks"]["notify_on_complete"] = True
+    monkeypatch.setattr(delivery, "load_config", lambda: cfg)
+    monkeypatch.setattr(manager, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "services.background_tasks.delivery.add_conversation_message",
+        capture_post,
+    )
+    monkeypatch.setattr("services.homeassistant._core", fake_core)
+
+    created = manager.create_task(
+        owner_id="u1",
+        session_id="s1",
+        kind="remind_me",
+        title="Call mom",
+        spec={"delay_seconds": 5, "message": "Call mom"},
+        cfg=cfg,
+    )
+    tid = created["task"]["task_id"]
+    store.update_task(
+        tid,
+        status="completed",
+        result={"kind": "remind_me", "message": "Call mom", "delay_seconds": 5},
+    )
+    assert asyncio.run(delivery.enqueue_result(tid)) is None or True
+    assert posts
+    assert notify_calls
+    assert notify_calls[0]["path"] == "/services/notify/sm_s938b"
+    assert "Call mom" in (notify_calls[0]["body"] or {}).get("message", "")
+
+
+def test_delivery_skips_notify_without_service(bg_db, monkeypatch):
+    monkeypatch.setattr(
+        "services.tool_enable.effectively_enabled",
+        lambda *a, **k: True,
+    )
+    monkeypatch.setattr(
+        "services.background_tasks.delivery.post_created_card",
+        lambda *a, **k: None,
+    )
+    notify_calls = []
+
+    async def fake_core(*a, **k):
+        notify_calls.append(1)
+        return {}
+
+    cfg = _cfg()
+    cfg["background_tasks"]["notify_service"] = ""
+    monkeypatch.setattr(delivery, "load_config", lambda: cfg)
+    monkeypatch.setattr(manager, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        "services.background_tasks.delivery.add_conversation_message",
+        lambda *a, **k: None,
+    )
+    monkeypatch.setattr("services.homeassistant._core", fake_core)
+
+    created = manager.create_task(
+        owner_id="u1",
+        session_id="s1",
+        kind="remind_me",
+        spec={"delay_minutes": 1, "message": "ping"},
+        cfg=cfg,
+    )
+    tid = created["task"]["task_id"]
+    store.update_task(
+        tid,
+        status="completed",
+        result={"kind": "remind_me", "message": "ping", "delay_seconds": 60},
+    )
+    asyncio.run(delivery.enqueue_result(tid))
+    assert notify_calls == []
