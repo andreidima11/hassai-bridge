@@ -55,6 +55,7 @@ class SettingsUpdate(BaseModel):
     searxng: dict | None = None
     frigate: dict | None = None
     browser: dict | None = None
+    background_tasks: dict | None = None
     memory: dict | None = None
     voice: dict | None = None
     performance: dict | None = None
@@ -274,6 +275,17 @@ async def update_settings(data: SettingsUpdate):
                 p.strip() for p in incoming["allowlist"].replace(",", "\n").splitlines() if p.strip()
             ]
         cfg.setdefault("browser", {}).update(incoming)
+    if data.background_tasks is not None:
+        incoming = dict(data.background_tasks)
+        prev = cfg.get("background_tasks") if isinstance(cfg.get("background_tasks"), dict) else {}
+        merged = dict(prev)
+        if "enabled" in incoming:
+            merged["enabled"] = bool(incoming.get("enabled"))
+        if "max_active_per_user" in incoming:
+            merged["max_active_per_user"] = max(1, min(int(incoming.get("max_active_per_user") or 5), 50))
+        if "max_monitor_hours" in incoming:
+            merged["max_monitor_hours"] = max(0.05, min(float(incoming.get("max_monitor_hours") or 24), 168))
+        cfg["background_tasks"] = merged
     if data.memory is not None:
         incoming = dict(data.memory)
         if isinstance(incoming.get("auto_consolidation"), dict):

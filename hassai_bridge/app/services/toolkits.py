@@ -241,7 +241,7 @@ def is_core_tool(name: str) -> bool:
     if name in {"currency_convert", "currency_rates"}:
         return True
     # pack_for_tool returns None for these — must be core or Dynamic drops them.
-    if name in {"browser_interact", "request_enable_tools"}:
+    if name in {"browser_interact", "request_enable_tools", "background_tasks"}:
         return True
     return False
 

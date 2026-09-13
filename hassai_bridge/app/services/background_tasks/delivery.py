@@ -1,0 +1,261 @@
+"""Deliver completed task results into the original conversation."""
+
+from __future__ import annotations
+
+import logging
+import time
+
+from core.database import add_conversation_message
+from services.background_tasks import store
+
+log = logging.getLogger("hassai.bg_delivery")
+
+
+def _public_card(task: dict) -> dict:
+    return {
+        "task_id": task.get("task_id"),
+        "kind": task.get("kind"),
+        "title": task.get("title"),
+        "status": task.get("status"),
+        "cancel_requested_at": task.get("cancel_requested_at"),
+        "progress": task.get("progress") or {},
+        "result": task.get("result"),
+        "error": task.get("error"),
+        "spec": task.get("spec") or {},
+        "deadline_at": task.get("deadline_at"),
+        "feed_seq": task.get("feed_seq") or 0,
+    }
+
+
+def _message_body(task: dict) -> str:
+    from services.background_tasks import worker as worker_mod
+
+    kind = task.get("kind")
+    result = task.get("result") or {}
+    if task.get("status") == "cancelled":
+        title = task.get("title") or "Background task"
+        extra = ""
+        if result:
+            extra = "\nPartial results were kept."
+        return f"**{title}** — stopped.{extra}"
+    if task.get("status") == "failed":
+        err = task.get("error") or {}
+        return (
+            f"**{task.get('title') or 'Background task'}** — failed\n"
+            f"{err.get('code') or 'error'}: {err.get('reason') or 'unknown'}"
+        )
+    if task.get("status") == "blocked":
+        err = task.get("error") or {}
+        return (
+            f"**{task.get('title') or 'Background task'}** — blocked\n"
+            f"{err.get('reason') or 'permission required'}. "
+            "Re-enable Home Assistant Entities in Settings (or Approve for this chat), "
+            "then the task can continue."
+        )
+    if kind == "monitor_entities":
+        return worker_mod.format_monitor_message(task, result if isinstance(result, dict) else {})
+    if kind == "wait_for_state":
+        return worker_mod.format_wait_message(task, result if isinstance(result, dict) else {})
+    return f"**{task.get('title') or 'Task'}** — {task.get('status')}"
+
+
+def _post_message(task: dict, body: str, *, meta_extra: dict | None = None) -> None:
+    meta = {
+        "background_task_id": task["task_id"],
+        "background_task": _public_card(task),
+    }
+    if meta_extra:
+        meta.update(meta_extra)
+    add_conversation_message(
+        task["owner_id"],
+        "assistant",
+        body,
+        session_id=task.get("session_id") or None,
+        meta=meta,
+    )
+    store.touch_feed(task["task_id"])
+
+
+def post_created_card(task: dict) -> None:
+    """Persist a chat card as soon as the task is scheduled."""
+    if not task or not task.get("task_id"):
+        return
+    delivery_id = store.new_delivery_id(task["task_id"], "created")
+    existing = store.get_delivery(delivery_id)
+    if existing and existing.get("status") == "delivered":
+        return
+    title = task.get("title") or "Background task"
+    kind = task.get("kind") or "task"
+    spec = task.get("spec") or {}
+    if kind == "monitor_entities":
+        detail = ", ".join(spec.get("entity_ids") or []) or "entities"
+        dur = int(float(spec.get("duration_seconds") or 0))
+        body = (
+            f"**{title}** — scheduled\n"
+            f"Monitoring `{detail}` for ~{dur}s. Continues even if you close this chat."
+        )
+    elif kind == "wait_for_state":
+        body = (
+            f"**{title}** — scheduled\n"
+            f"Waiting for `{spec.get('entity_id')}` = `{spec.get('state')}`. "
+            "Continues even if you close this chat."
+        )
+    else:
+        body = f"**{title}** — scheduled"
+    try:
+        store.upsert_delivery(
+            delivery_id=delivery_id,
+            task_id=task["task_id"],
+            kind="created",
+            status="pending",
+            message_meta={"task_id": task["task_id"]},
+        )
+        _post_message(task, body)
+        store.upsert_delivery(
+            delivery_id=delivery_id,
+            task_id=task["task_id"],
+            kind="created",
+            status="delivered",
+            attempts=1,
+            last_error="",
+        )
+    except Exception as exc:
+        log.exception("post_created_card failed")
+        store.upsert_delivery(
+            delivery_id=delivery_id,
+            task_id=task["task_id"],
+            kind="created",
+            status="failed",
+            last_error=str(exc),
+            attempts=1,
+        )
+
+
+async def notify_blocked(task_id: str) -> None:
+    """One-shot chat notice when a task becomes blocked on permissions."""
+    task = store.get_task(task_id)
+    if not task:
+        return
+    delivery_id = store.new_delivery_id(task_id, "blocked")
+    existing = store.get_delivery(delivery_id)
+    if existing and existing.get("status") == "delivered":
+        return
+    store.upsert_delivery(
+        delivery_id=delivery_id,
+        task_id=task_id,
+        kind="blocked",
+        status="pending",
+        message_meta={"task_id": task_id},
+    )
+    try:
+        _post_message(task, _message_body(task))
+        store.upsert_delivery(
+            delivery_id=delivery_id,
+            task_id=task_id,
+            kind="blocked",
+            status="delivered",
+            attempts=1,
+            last_error="",
+        )
+    except Exception as exc:
+        log.exception("notify_blocked failed")
+        store.upsert_delivery(
+            delivery_id=delivery_id,
+            task_id=task_id,
+            kind="blocked",
+            status="failed",
+            last_error=str(exc),
+            attempts=1,
+        )
+
+
+async def enqueue_result(task_id: str) -> None:
+    task = store.get_task(task_id)
+    if not task:
+        return
+    delivery_id = store.new_delivery_id(task_id, "result")
+    existing = store.get_delivery(delivery_id)
+    if existing and existing.get("status") == "delivered":
+        return
+    store.upsert_delivery(
+        delivery_id=delivery_id,
+        task_id=task_id,
+        kind="result",
+        status="pending",
+        message_meta={"task_id": task_id},
+        attempts=int((existing or {}).get("attempts") or 0),
+    )
+    await try_deliver(delivery_id)
+
+
+async def try_deliver(delivery_id: str) -> bool:
+    row = store.get_delivery(delivery_id)
+    if not row:
+        return False
+    if row.get("status") == "delivered":
+        return True
+    task = store.get_task(row["task_id"])
+    if not task:
+        store.upsert_delivery(
+            delivery_id=delivery_id,
+            task_id=row["task_id"],
+            kind=row.get("kind") or "result",
+            status="failed",
+            last_error="task missing",
+            attempts=int(row.get("attempts") or 0) + 1,
+        )
+        return False
+    body = _message_body(task)
+    meta = {
+        "background_task_id": task["task_id"],
+        "background_task": _public_card(task),
+    }
+    try:
+        add_conversation_message(
+            task["owner_id"],
+            "assistant",
+            body,
+            session_id=task.get("session_id") or None,
+            meta=meta,
+        )
+        store.upsert_delivery(
+            delivery_id=delivery_id,
+            task_id=task["task_id"],
+            kind=row.get("kind") or "result",
+            status="delivered",
+            message_meta=meta,
+            attempts=int(row.get("attempts") or 0) + 1,
+            last_error="",
+        )
+        store.touch_feed(task["task_id"])
+        return True
+    except Exception as exc:
+        log.exception("delivery failed %s", delivery_id)
+        store.upsert_delivery(
+            delivery_id=delivery_id,
+            task_id=row["task_id"],
+            kind=row.get("kind") or "result",
+            status="failed",
+            last_error=str(exc),
+            attempts=int(row.get("attempts") or 0) + 1,
+            message_meta=meta,
+        )
+        return False
+
+
+async def retry_pending(limit: int = 10) -> None:
+    for row in store.list_pending_deliveries(limit=limit):
+        if int(row.get("attempts") or 0) > 20:
+            continue
+        if row.get("status") == "failed" and (time.time() - float(row.get("updated_at") or 0)) < 5:
+            continue
+        kind = row.get("kind") or "result"
+        if kind == "created":
+            task = store.get_task(row["task_id"])
+            if task:
+                post_created_card(task)
+            continue
+        if kind == "blocked":
+            await notify_blocked(row["task_id"])
+            continue
+        await try_deliver(row["delivery_id"])

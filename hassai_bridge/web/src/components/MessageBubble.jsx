@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { BackgroundTaskCard } from "./BackgroundTaskCard.jsx";
 import { ChatImage } from "./ChatImage.jsx";
 import { MessageActions } from "./MessageActions.jsx";
 import { DocumentIcon, SparklesIcon, SpeakerIcon } from "./Icons.jsx";
@@ -158,6 +159,7 @@ export function MessageBubble({
   onPickFollowup,
   onManageFollowup,
   onApproveTool = null,
+  onBgTaskCancelled = null,
   showFollowups = false,
   userLabel = "",
   modelLabel = "",
@@ -254,6 +256,13 @@ export function MessageBubble({
               onDecide={(decision, scope) => handleApprove(step.id, decision, scope)}
             />
           ))}
+          {message.backgroundTask ? (
+            <BackgroundTaskCard
+              task={message.backgroundTask}
+              lang={lang}
+              onCancelled={(next) => onBgTaskCancelled?.(next)}
+            />
+          ) : null}
           <AttachmentGallery attachments={attachments} align="start" lang={lang} />
           {content ? (
             <MarkdownBody

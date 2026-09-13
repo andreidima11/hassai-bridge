@@ -75,6 +75,7 @@ def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
         "currency_rates",
         "browser_interact",
         "request_enable_tools",
+        "background_tasks",
     ):
         return True
     if fn_name in _MEDIA_TOOL_NAMES or fn_name in _FRIGATE_TOOL_NAMES:
@@ -105,6 +106,7 @@ def _assemble_addon_tools(cfg: dict, *, search_enabled: bool | None = None) -> l
     from services import browser_interact as bi
     from services import ha_tool_access as hta
     from services import tool_enable as te
+    from services.background_tasks import TOOL_SPEC as BG_TASKS_TOOL_SPEC
 
     _ = search_enabled  # catalog always includes search; gate is enable-approval + runtime
     out: list[dict] = []
@@ -112,6 +114,7 @@ def _assemble_addon_tools(cfg: dict, *, search_enabled: bool | None = None) -> l
     out.append(_fetch_url_tool(cfg))
     out.extend(currency_fx.TOOL_SPECS)
     out.append(te.TOOL_SPEC)
+    out.append(BG_TASKS_TOOL_SPEC)
     out.append(bi.TOOL_SPEC)
     out.extend(_build_skill_tools())
     out.extend(_MEDIA_TOOLS)
@@ -1425,6 +1428,17 @@ async def _invoke_internal_tool(
             user_id=user_id,
             session_id=session_id,
             generated_attachments=generated_attachments,
+            cfg=cfg or load_config(),
+        ), False
+
+    if fn_name == "background_tasks":
+        from services.background_tasks import tool as bg_tool
+
+        log.info("AI requested background_tasks: %s", args.get("action"))
+        return await bg_tool.run_tool_async(
+            args,
+            user_id=user_id,
+            session_id=session_id,
             cfg=cfg or load_config(),
         ), False
 
@@ -3521,6 +3535,9 @@ async def chat_completions(request: Request):
     # 3) System prompt: stable prefix (KV-cache friendly); memory goes on last user turn
     bridge_hint = bt.system_hint(cfg)
     memory_hint = mt.system_hint(cfg)
+    from services.background_tasks import tool as bg_tool
+
+    bg_hint = bg_tool.system_hint(cfg)
     stable_parts = build_stable_system_parts(
         global_prompt=global_prompt,
         provider_personality=provider_personality,
@@ -3531,6 +3548,8 @@ async def chat_completions(request: Request):
     stable_extras = []
     if user_ctx:
         stable_extras.append(user_ctx)
+    if bg_hint:
+        stable_extras.append(bg_hint)
     if search_enabled:
         stable_extras.append(_build_search_instruction(cfg))
     ha_tool_names_for_hint = [

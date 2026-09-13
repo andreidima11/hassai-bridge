@@ -103,6 +103,8 @@ export default function App() {
     id: "", name: "", model: "", auto: false, activePacks: [], toolProfile: "auto",
   });
   const [thinkingMode, setThinkingMode] = useState(() => readStoredThinkingMode());
+  const [activeBgTasks, setActiveBgTasks] = useState([]);
+  const bgFeedAfterRef = useRef(0);
   const sessionIdRef = useRef("");
   const bootDone = useRef(false);
   const hiddenAt = useRef(0);
@@ -119,6 +121,102 @@ export default function App() {
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  // Poll background-task feed while this session has (or may get) running tasks.
+  useEffect(() => {
+    if (!sessionId) return undefined;
+    let cancelled = false;
+    let timer = null;
+    let seeded = false;
+    const tick = async () => {
+      const sid = sessionIdRef.current;
+      if (!sid || cancelled) return;
+      try {
+        if (!seeded) {
+          seeded = true;
+          try {
+            const listed = await apiJson(
+              `/api/background-tasks?session_id=${encodeURIComponent(sid)}&limit=20`,
+            );
+            if (cancelled || sessionIdRef.current !== sid) return;
+            const rows = (listed.tasks || []).filter((t) =>
+              ["scheduled", "running", "blocked"].includes(t.status),
+            );
+            setActiveBgTasks(rows);
+            const maxSeq = rows.reduce((m, t) => Math.max(m, Number(t.feed_seq) || 0), 0);
+            if (maxSeq > bgFeedAfterRef.current) bgFeedAfterRef.current = maxSeq;
+          } catch {
+            /* ignore */
+          }
+        }
+        const after = bgFeedAfterRef.current || 0;
+        const data = await apiJson(
+          `/api/background-tasks/feed?session_id=${encodeURIComponent(sid)}&after=${after}`,
+        );
+        if (cancelled || sessionIdRef.current !== sid) return;
+        if (typeof data.after === "number") bgFeedAfterRef.current = data.after;
+        const updates = Array.isArray(data.tasks) ? data.tasks : [];
+        if (updates.length) {
+          setActiveBgTasks((prev) => {
+            const map = new Map(prev.map((t) => [t.task_id, t]));
+            for (const t of updates) {
+              if (!t?.task_id) continue;
+              map.set(t.task_id, t);
+            }
+            return [...map.values()].filter((t) =>
+              ["scheduled", "running", "blocked"].includes(t.status),
+            );
+          });
+          setMessages((prev) =>
+            prev.map((m) => {
+              const tid = m.backgroundTask?.task_id;
+              if (!tid) return m;
+              const next = updates.find((t) => t.task_id === tid);
+              return next ? { ...m, backgroundTask: next } : m;
+            }),
+          );
+          const delivered = updates.some((t) =>
+            ["completed", "failed", "cancelled"].includes(t.status),
+          );
+          if (delivered) {
+            try {
+              const hist = await apiJson(`/api/conversations/${encodeURIComponent(sid)}`);
+              if (cancelled || sessionIdRef.current !== sid) return;
+              const known = new Set(messagesRef.current.map((m) => `${m.role}|${m.content}`));
+              const extras = [];
+              for (const row of hist.messages || []) {
+                if (row.role !== "assistant") continue;
+                if (!(row.background_task || row.background_task_id)) continue;
+                const key = `${row.role}|${row.content || ""}`;
+                if (known.has(key)) continue;
+                extras.push({
+                  id: newId(),
+                  role: "assistant",
+                  content: row.content || "",
+                  createdAt: row.created_at || null,
+                  backgroundTask: row.background_task || { task_id: row.background_task_id },
+                });
+              }
+              if (extras.length) {
+                setMessages((prev) => [...prev, ...extras]);
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        const pollMs = Math.max(1, Number(data.poll_seconds) || 3) * 1000;
+        timer = window.setTimeout(tick, pollMs);
+      } catch {
+        timer = window.setTimeout(tick, 5000);
+      }
+    };
+    timer = window.setTimeout(tick, 800);
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
   }, [sessionId]);
 
   useEffect(() => {
@@ -177,6 +275,8 @@ export default function App() {
         }
       }
       setMessages([]);
+      setActiveBgTasks([]);
+      bgFeedAfterRef.current = 0;
       setAttachments([]);
       clearDraftAttachments();
       setSidebarOpen(false);
@@ -265,6 +365,9 @@ export default function App() {
               : {}),
             ...(sources.length ? { sources } : {}),
             ...(followups.length ? { followups } : {}),
+            ...(m.background_task || m.background_task_id
+              ? { backgroundTask: m.background_task || { task_id: m.background_task_id } }
+              : {}),
           });
         } else {
           const content = m.content === "(image)" ? "" : m.content || "";
@@ -284,10 +387,15 @@ export default function App() {
           if (m.role === "assistant" && Array.isArray(m.followups) && m.followups.length) {
             row.followups = m.followups;
           }
+          if (m.role === "assistant" && (m.background_task || m.background_task_id)) {
+            row.backgroundTask = m.background_task || { task_id: m.background_task_id };
+          }
           msgs.push(row);
         }
       }
       setMessages(msgs);
+      setActiveBgTasks([]);
+      bgFeedAfterRef.current = 0;
       setAttachments([]);
       setSidebarOpen(false);
       if (msgs.length) setEmptyRecommendations([]);
@@ -1142,11 +1250,25 @@ export default function App() {
             }
             lang={lang}
             messages={messages}
+            activeBgTasks={activeBgTasks}
             modelLabel={providerInfo.auto ? "" : (providerInfo.model || "")}
             userLabel={user.display_name || user.username || ""}
             onReuseMessage={reuseMessage}
             onPickFollowup={pickRecommendation}
             onManageFollowup={manageRecommendation}
+            onBgTaskCancelled={(task) => {
+              if (!task?.task_id) return;
+              setActiveBgTasks((prev) =>
+                prev.map((t) => (t.task_id === task.task_id ? { ...t, ...task } : t)),
+              );
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.backgroundTask?.task_id === task.task_id
+                    ? { ...m, backgroundTask: { ...m.backgroundTask, ...task } }
+                    : m,
+                ),
+              );
+            }}
             onApproveTool={async (callId, decision, scope) => {
               const tid = traceIdRef.current;
               if (!tid || !callId) return;

@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.0
+
+### Features
+- **Background tasks** — persistent `background_tasks` tool (`monitor_entities`, `wait_for_state`) with SQLite storage, HA `state_changed` listener, leased workers, restart recovery with coverage gaps, chat delivery + retries, status card with Stop, and Settings toggle
+
 ## 1.6.9
 
 ### Fix

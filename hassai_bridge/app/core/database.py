@@ -258,6 +258,7 @@ def init_db():
             # v7: session_state + toolkit_audit created via CREATE IF NOT EXISTS below
             # v8: chat_habits (+ meta) created via CREATE IF NOT EXISTS below
             # v9: chip_overrides created via CREATE IF NOT EXISTS below
+            # v10: bg_tasks / observations / events / deliveries below
             conn.execute(
                 "UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1",
                 (DB_SCHEMA_VERSION, time.time()),
@@ -331,6 +332,94 @@ def init_db():
         """)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_toolkit_audit_ts ON toolkit_audit(ts DESC)"
+        )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bg_tasks (
+                task_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                session_id TEXT NOT NULL DEFAULT '',
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                spec_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'scheduled',
+                created_at REAL NOT NULL,
+                started_at REAL,
+                deadline_at REAL,
+                next_run_at REAL,
+                updated_at REAL NOT NULL,
+                progress_json TEXT NOT NULL DEFAULT '{}',
+                result_json TEXT NOT NULL DEFAULT '',
+                error_json TEXT NOT NULL DEFAULT '',
+                permission_scope_json TEXT NOT NULL DEFAULT '{}',
+                idempotency_key TEXT,
+                lease_owner TEXT NOT NULL DEFAULT '',
+                lease_until REAL,
+                cancel_requested_at REAL,
+                feed_seq INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bg_tasks_owner_status ON bg_tasks(owner_id, status)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_bg_tasks_idempotency "
+            "ON bg_tasks(owner_id, idempotency_key) "
+            "WHERE idempotency_key IS NOT NULL AND idempotency_key != ''"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bg_tasks_next_run ON bg_tasks(next_run_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bg_tasks_lease ON bg_tasks(lease_until)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bg_tasks_session ON bg_tasks(session_id, feed_seq)"
+        )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bg_observations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                ts REAL NOT NULL,
+                entity_id TEXT NOT NULL DEFAULT '',
+                old_state TEXT NOT NULL DEFAULT '',
+                new_state TEXT NOT NULL DEFAULT '',
+                payload_json TEXT NOT NULL DEFAULT '{}'
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bg_obs_task_ts ON bg_observations(task_id, ts)"
+        )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bg_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                ts REAL NOT NULL,
+                event_type TEXT NOT NULL,
+                detail_json TEXT NOT NULL DEFAULT '{}'
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bg_events_task_ts ON bg_events(task_id, ts)"
+        )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS bg_deliveries (
+                delivery_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'result',
+                status TEXT NOT NULL DEFAULT 'pending',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NOT NULL DEFAULT '',
+                message_meta TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bg_deliveries_task ON bg_deliveries(task_id, status)"
         )
 
 
@@ -768,6 +857,9 @@ def get_session_messages(user_id, session_id, limit=100):
         followups = meta.get("followups")
         if isinstance(followups, list) and followups:
             item["followups"] = followups
+        if meta.get("background_task_id") or meta.get("background_task"):
+            item["background_task_id"] = meta.get("background_task_id")
+            item["background_task"] = meta.get("background_task")
         out.append(item)
     return out
 

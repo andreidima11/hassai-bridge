@@ -1,15 +1,18 @@
 import { useEffect, useState } from "react";
 import { useScrollToBottom } from "../hooks/useScrollToBottom.js";
+import { BackgroundTaskCard, isActiveBgTask } from "./BackgroundTaskCard.jsx";
 import { MessageBubble } from "./MessageBubble.jsx";
 
 export function Messages({
   messages,
   lang,
   greeting,
+  activeBgTasks = [],
   onReuseMessage,
   onPickFollowup,
   onManageFollowup,
   onApproveTool = null,
+  onBgTaskCancelled = null,
   userLabel = "",
   modelLabel = "",
 }) {
@@ -17,6 +20,12 @@ export function Messages({
   const [selectedId, setSelectedId] = useState(null);
   const empty = messages.length === 0;
   const lastId = messages.length ? messages[messages.length - 1]?.id : null;
+  const shownIds = new Set(
+    messages.map((m) => m.backgroundTask?.task_id).filter(Boolean),
+  );
+  const floating = (activeBgTasks || []).filter(
+    (t) => isActiveBgTask(t) && !shownIds.has(t.task_id),
+  );
 
   useEffect(() => {
     if (!selectedId) return undefined;
@@ -30,7 +39,7 @@ export function Messages({
     };
     const onPointer = (event) => {
       const node = event.target;
-      if (node?.closest?.("[data-role='user'], [data-role='assistant'], [role='toolbar']")) return;
+      if (node?.closest?.("[data-role='user'], [data-role='assistant'], [role='toolbar'], [data-bg-task]")) return;
       setSelectedId(null);
     };
     window.addEventListener("keydown", onKey);
@@ -67,9 +76,22 @@ export function Messages({
               onPickFollowup={onPickFollowup}
               onManageFollowup={onManageFollowup}
               onApproveTool={onApproveTool}
+              onBgTaskCancelled={onBgTaskCancelled}
               onSelect={setSelectedId}
             />
           ))}
+          {floating.length ? (
+            <div className="flex flex-col gap-2 pl-10">
+              {floating.map((task) => (
+                <BackgroundTaskCard
+                  key={task.task_id}
+                  task={task}
+                  lang={lang}
+                  onCancelled={onBgTaskCancelled}
+                />
+              ))}
+            </div>
+          ) : null}
           <div ref={endRef} className="min-h-6 min-w-6 shrink-0" />
         </div>
       </div>

@@ -912,6 +912,8 @@ async function loadSettings() {
     setVal('browserToken', br.access_token || '');
     setVal('browserAllowlist', Array.isArray(br.allowlist) ? br.allowlist.join('\n') : '');
     setChecked('browserKeepWarm', br.keep_warm === true);
+    const bg = cfg.background_tasks || {};
+    setChecked('bgTasksEnabled', bg.enabled !== false);
 
     // Voice
     const voice = cfg.voice || {};
@@ -1593,6 +1595,9 @@ async function saveSettings() {
           .map((s) => s.trim())
           .filter(Boolean),
         keep_warm: document.getElementById('browserKeepWarm')?.checked === true,
+      },
+      background_tasks: {
+        enabled: document.getElementById('bgTasksEnabled')?.checked !== false,
       },
       memory: {
         enabled: document.getElementById('memEnabled').checked,

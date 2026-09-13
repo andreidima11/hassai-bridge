@@ -474,6 +474,15 @@
       </div>
 
       <div class="card">
+        <h2 data-i18n="settings.backgroundTasks">Background tasks</h2>
+        <p class="card-muted" data-i18n="settings.backgroundTasksDesc">Lets the assistant schedule read-only monitors and wait-for-state jobs that keep running after you close the chat. Results are posted back into the same conversation. Requires Home Assistant Entities permission.</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.backgroundTasksEnabled">Enabled — AI can create background monitors</span>
+          <label class="toggle"><input type="checkbox" id="bgTasksEnabled"><span class="slider"></span></label>
+        </div>
+      </div>
+
+      <div class="card">
         <h2 data-i18n="settings.browser">Browser tool options</h2>
         <p class="card-muted" data-i18n="settings.browserDesc">Turn the tool on above under Bridge permissions. Optional: HA URL and long-lived token (HA pages). Sites on the allowlist open immediately; other hosts ask Allow / Decline in chat (optional: add to allowlist).</p>
         <label data-i18n="settings.browserHaUrl">Home Assistant URL (for dashboards)</label>

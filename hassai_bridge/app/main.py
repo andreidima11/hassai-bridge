@@ -25,7 +25,7 @@ from services.knowledge_graph import init_graph_tables
 from services.memory_engine import consolidate_memories
 from services.consolidation_schedule import normalize_auto_consolidation, should_run_now
 from services.providers import get_active_provider
-from routers import chat, memory, settings, skills, conversations
+from routers import chat, memory, settings, skills, conversations, background_tasks
 
 # ── In-memory ring buffer for logs ──
 _LOG_BUFFER_SIZE = 2000
@@ -104,6 +104,9 @@ async def lifespan(app: FastAPI):
     consolidation_task = asyncio.create_task(_auto_consolidation_loop())
     greetings_task = asyncio.create_task(_greeting_pool_loop())
     habits_task = asyncio.create_task(_habit_watcher_loop())
+    from services.background_tasks import scheduler as bg_scheduler
+
+    bg_scheduler.start()
 
     print("╔══════════════════════════════════════════════╗")
     print(f"║       HASSAI Bridge {VERSION} Started        ║")
@@ -116,6 +119,10 @@ async def lifespan(app: FastAPI):
     consolidation_task.cancel()
     greetings_task.cancel()
     habits_task.cancel()
+    try:
+        await bg_scheduler.stop()
+    except Exception:
+        pass
 
 
 async def _greeting_pool_loop():
@@ -203,6 +210,7 @@ app.include_router(memory.router)
 app.include_router(settings.router)
 app.include_router(skills.router)
 app.include_router(conversations.router)
+app.include_router(background_tasks.router)
 
 # ── CORS middleware — allow cross-origin API access (API-key auth, no cookies) ──
 app.add_middleware(

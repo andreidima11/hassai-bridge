@@ -49,6 +49,7 @@ CONFIG_SECTIONS = (
     "security",
     "ha_tools",
     "bridge_tools",
+    "background_tasks",
     "skills_disabled",
     "lmstudio",
 )
