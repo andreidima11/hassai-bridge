@@ -487,10 +487,10 @@ def _tool_detail(name: str, args: dict) -> str:
     return al.tool_detail(name, args)
 
 
-def _tool_result_preview(name: str, content: str | None) -> str:
+def _tool_result_preview(name: str, content: str | None, *, lang: str | None = None) -> str:
     from services import activity_labels as al
 
-    return al.tool_result_preview(name, content)
+    return al.tool_result_preview(name, content, lang=lang)
 
 
 _TRACE_TTL = 600.0
@@ -1669,7 +1669,11 @@ async def _append_internal_tool_results(
                 collected_sources=sources_bucket,
             )
             search_used = search_used or used_search
-            result_preview = _tool_result_preview(fn_name, content)
+            result_preview = _tool_result_preview(
+                fn_name,
+                content,
+                lang=str((cfg_eff or cfg or {}).get("language") or "en"),
+            )
             await _fire_activity(on_event, {
                 "id": tc_id,
                 "name": fn_name,

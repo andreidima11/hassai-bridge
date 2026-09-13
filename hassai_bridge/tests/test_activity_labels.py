@@ -53,9 +53,35 @@ def test_result_preview_explain_json():
     assert "confirmed" in preview
 
 
-def test_result_preview_list_showing():
-    text = "showing 1-2 of 12\nlight.a\ton\nlight.b\toff"
-    assert "12 found" in al.tool_result_preview("ha_list_entities", text)
+def test_result_preview_list_showing_ro():
+    text = "showing 1-2 of 88\nlight.a\ton\nlight.b\toff"
+    assert al.tool_result_preview("ha_list_entities", text, lang="ro") == "88 găsite"
+    assert al.tool_result_preview("ha_list_entities", text, lang="en") == "88 found"
+
+
+def test_result_preview_activate_toolkits_no_json():
+    payload = json.dumps({
+        "activated": ["control", "entities"],
+        "denied": [],
+        "active_packs": ["control", "entities"],
+        "tool_count": 40,
+        "hint": "Domain tools for the activated packs are now available.",
+    })
+    out = al.tool_result_preview("activate_toolkits", payload, lang="ro")
+    assert "{" not in out
+    assert "control" in out and "entities" in out
+    assert "Încărcat" in out
+
+
+def test_result_preview_ha_call_service_strips_header():
+    text = (
+        "[Home Assistant — ha_call_service]\n"
+        "OK: called switch.turn_off on switch.lampa_flori_etaj"
+    )
+    out = al.tool_result_preview("ha_call_service", text, lang="ro")
+    assert "Home Assistant" not in out
+    assert "switch.turn_off" in out
+    assert "Apelat" in out
 
 
 def test_result_preview_error():
