@@ -76,6 +76,8 @@ def tool_use_for_category(name: str) -> str | None:
         return "web_search"
     if n in {"currency_convert", "currency_rates"}:
         return "web_search"
+    if n in {"stock_quote", "stock_history"}:
+        return "web_search"
     if n in _FRIGATE_TOOLS or n.startswith("frigate_"):
         return "frigate"
     if n == "run_skill":

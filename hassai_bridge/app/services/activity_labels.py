@@ -73,6 +73,16 @@ def tool_detail(name: str, args: dict | None) -> str:
         return clip_detail(args.get("query"))
     if name == "fetch_url":
         return clip_detail(args.get("url") or args.get("focus") or "")
+    if name == "stock_quote":
+        return clip_detail(args.get("symbols") or args.get("symbol") or "")
+    if name == "stock_history":
+        bits = [
+            args.get("symbol") or "",
+            args.get("period") or "",
+            args.get("interval") or "",
+            args.get("start") or "",
+        ]
+        return clip_detail(" · ".join(str(b) for b in bits if b))
     if name == "generate_image":
         return clip_detail(args.get("prompt"))
     if name == "browser_interact":

@@ -1,5 +1,13 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.7
+
+### Features
+- **Stock tools** — native `stock_quote` and `stock_history` (Yahoo Finance via yfinance), always available like currency; prefer over web search for prices
+
+### Note
+- Bundled `yahoo_finance` skill removed — use the native tools instead
+
 ## 1.7.6
 
 ### Fix

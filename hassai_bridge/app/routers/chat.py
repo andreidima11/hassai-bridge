@@ -49,6 +49,7 @@ from services import memory_tools as mt
 from services import bridge_tools as bt
 from services import bridge_tool_access as bta
 from services import currency as currency_fx
+from services import stocks as stocks_fx
 from services import pricing
 from services import openrouter as ovr
 from services import thinking_text as tt
@@ -73,6 +74,8 @@ def _is_internal_tool(fn_name: str, cfg: dict) -> bool:
         "activate_toolkits",
         "currency_convert",
         "currency_rates",
+        "stock_quote",
+        "stock_history",
         "browser_interact",
         "request_enable_tools",
         "background_tasks",
@@ -113,6 +116,7 @@ def _assemble_addon_tools(cfg: dict, *, search_enabled: bool | None = None) -> l
     out.append(_search_web_tool(cfg))
     out.append(_fetch_url_tool(cfg))
     out.extend(currency_fx.TOOL_SPECS)
+    out.extend(stocks_fx.TOOL_SPECS)
     out.append(te.TOOL_SPEC)
     out.append(BG_TASKS_TOOL_SPEC)
     out.append(bi.TOOL_SPEC)
@@ -1249,6 +1253,19 @@ async def _invoke_internal_tool(
             str(args.get("base") or ""),
             currency_fx.parse_quotes_arg(args.get("quotes")),
             day=str(args.get("date") or "latest"),
+        )
+        return text, False
+
+    if fn_name in stocks_fx.TOOL_NAMES:
+        if fn_name == "stock_quote":
+            text = await stocks_fx.quote(args.get("symbols") or args.get("symbol"))
+            return text, False
+        text = await stocks_fx.history(
+            str(args.get("symbol") or ""),
+            period=str(args.get("period") or "1mo"),
+            interval=str(args.get("interval") or "1d"),
+            start=(str(args.get("start") or "").strip() or None),
+            end=(str(args.get("end") or "").strip() or None),
         )
         return text, False
 
