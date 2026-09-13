@@ -11,7 +11,7 @@ import logging
 import re
 from datetime import date, datetime, timezone
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote as url_quote
 
 import httpx
 
@@ -121,7 +121,7 @@ async def _fetch_chart(
     period1: int | None = None,
     period2: int | None = None,
 ) -> dict[str, Any]:
-    enc = quote(symbol, safe="")
+    enc = url_quote(symbol, safe="")
     params: dict[str, str] = {
         "interval": interval,
         "includePrePost": "false",

@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.9
+
+### Fix
+- **stock_quote crash** — URL-encoding helper was shadowed by the tool function name
+
 ## 1.7.8
 
 ### Fix
