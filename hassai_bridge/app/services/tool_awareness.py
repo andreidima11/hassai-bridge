@@ -58,9 +58,14 @@ _PLAYBOOK_RULES: tuple[tuple[str, str], ...] = (
         "(answer from tools you actually have, do not guess).",
     ),
     (
+        "ha_call_service",
+        "Turn off / stinge / oprește / turn on / stop → ha_list_entities then ha_call_service "
+        "immediately (same turn). Do NOT ha_get_state first for imperative actions.",
+    ),
+    (
         "ha_get_state",
         "Is device X on/running now? → ha_list_entities → ha_get_state "
-        "(not automations for live status).",
+        "(not automations for live status; not needed before turn_off/turn_on).",
     ),
     (
         "ha_media_search",

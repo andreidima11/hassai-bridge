@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.7.16
+
+### Fix
+- **Direct on/off/stop** — imperative commands skip pre-check `ha_get_state` / `ha_list_services`; list entity then call service in the same turn
+- **Reminder phone notify** — broader resolve (`notify.mobile_app_*` and `notify.<device>`), pin target at task create, sole-phone fallback, louder skip logs
+
 ## 1.7.15
 
 ### Fix

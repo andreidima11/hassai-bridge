@@ -546,11 +546,35 @@ def test_resolve_notify_from_person_tracker(monkeypatch):
                 {
                     "domain": "notify",
                     "services": {
-                        "mobile_app_sm_s938b": {},
+                        "sm_s938b": {},
                         "persistent_notification": {},
                     },
                 }
             ]
+        return {}
+
+    monkeypatch.setattr("services.homeassistant._core", fake_core)
+    out = asyncio.run(nr.resolve_notify_service("andrei", cfg=_cfg()))
+    assert out == "notify.sm_s938b"
+
+
+def test_resolve_notify_sole_phone_fallback(monkeypatch):
+    from services.background_tasks import notify_resolve as nr
+
+    monkeypatch.setattr(
+        nr,
+        "get_profile",
+        lambda username: {"username": username, "ha_id": "", "display_name": "Andrei"},
+    )
+    monkeypatch.setattr(nr, "load_config", lambda: _cfg())
+    monkeypatch.setattr(manager, "load_config", lambda: _cfg())
+    monkeypatch.setattr("services.homeassistant.is_available", lambda: True)
+
+    async def fake_core(method, path, **kwargs):
+        if path == "/states":
+            return []
+        if path == "/services":
+            return [{"domain": "notify", "services": {"mobile_app_sm_s938b": {}}}]
         return {}
 
     monkeypatch.setattr("services.homeassistant._core", fake_core)
@@ -622,6 +646,10 @@ def test_delivery_auto_notifies_logged_in_user(bg_db, monkeypatch):
         cfg=cfg,
     )
     tid = created["task"]["task_id"]
+    # Simulate pin at create
+    scope = dict(store.get_task(tid).get("permission_scope") or {})
+    scope["notify_service"] = "notify.mobile_app_sm_s938b"
+    store.update_task(tid, permission_scope=scope)
     store.update_task(
         tid,
         status="completed",

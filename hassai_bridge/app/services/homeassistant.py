@@ -535,7 +535,9 @@ _TOOL_SPECS: dict[str, dict] = {
     },
     "ha_call_service": {
         "description": (
-            "Call a Home Assistant service. Use ha_list_services to discover valid domain.service names. "
+            "Call a Home Assistant service for an action the user asked for. "
+            "For turn_on / turn_off / toggle / stop / pause: after you know entity_id, call this "
+            "immediately — do not ha_get_state or ha_list_services first. "
             "Pass entity_id here or entity_id: [list] inside data for multiple targets. "
             "Match the service domain to the entity (switch.bedroom_light → switch.turn_off, not light.turn_off). "
             "When a target entity is set, state is verified after the call by default "

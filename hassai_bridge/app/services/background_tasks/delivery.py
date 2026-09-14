@@ -96,11 +96,18 @@ async def _maybe_ha_notify(task: dict, body: str, *, cfg: dict | None = None) ->
     cfg = cfg or load_config()
     bg = manager._bg_cfg(cfg)
     if not bg.get("notify_on_complete", True):
+        log.info("bg notify disabled in Settings for task %s", task.get("task_id"))
         return
-    service = await resolve_notify_service(str(task.get("owner_id") or ""), cfg=cfg)
+    scope = task.get("permission_scope") if isinstance(task.get("permission_scope"), dict) else {}
+    preferred = str((scope or {}).get("notify_service") or "").strip()
+    service = await resolve_notify_service(
+        str(task.get("owner_id") or ""),
+        cfg=cfg,
+        preferred=preferred,
+    )
     service = normalize_notify_service(service)
     if not service:
-        log.debug(
+        log.warning(
             "bg notify skipped for task %s (no service for user %s)",
             task.get("task_id"),
             task.get("owner_id"),

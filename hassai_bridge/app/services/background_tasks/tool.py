@@ -233,4 +233,26 @@ async def run_tool_async(
                 return json.dumps({"ok": False, "error": err}, ensure_ascii=False)
             if err and not _missing:
                 return json.dumps({"ok": False, "error": err}, ensure_ascii=False)
-    return run_tool(args, user_id=user_id, session_id=session_id, cfg=cfg)
+    out = run_tool(args, user_id=user_id, session_id=session_id, cfg=cfg)
+    if action == "create":
+        try:
+            data = json.loads(out)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            data = None
+        if isinstance(data, dict) and data.get("ok") and isinstance(data.get("task"), dict):
+            tid = str(data["task"].get("task_id") or "").strip()
+            if tid:
+                try:
+                    from services.background_tasks import store
+                    from services.background_tasks.notify_resolve import resolve_notify_service
+
+                    service = await resolve_notify_service(user_id, cfg=cfg)
+                    if service:
+                        task = store.get_task(tid) or {}
+                        scope = dict(task.get("permission_scope") or {})
+                        scope["notify_service"] = service
+                        store.update_task(tid, permission_scope=scope)
+                        log.info("bg task %s notify target pinned to %s", tid, service)
+                except Exception:
+                    log.exception("pin notify service failed for task create")
+    return out
