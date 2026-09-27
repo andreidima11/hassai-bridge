@@ -82,13 +82,20 @@ def _handle_state_changed(event: dict) -> None:
     entity_id = str(data.get("entity_id") or "").strip()
     if not entity_id:
         return
-    task_ids = _watched.get(entity_id) or set()
-    if not task_ids:
-        return
     old = data.get("old_state") or {}
     new = data.get("new_state") or {}
     old_state = str((old.get("state") if isinstance(old, dict) else "") or "")
     new_state = str((new.get("state") if isinstance(new, dict) else "") or "")
+    # Feed Cognitive OS world model + opportunity engine (all entities).
+    try:
+        from services import opportunity_engine as opp
+
+        opp.observe_state(entity_id, new_state, old_state=old_state)
+    except Exception:
+        log.debug("opportunity observe failed", exc_info=True)
+    task_ids = _watched.get(entity_id) or set()
+    if not task_ids:
+        return
     ts = time.time()
     try:
         # HA event time is usually ms epoch in context, but we use local receive time

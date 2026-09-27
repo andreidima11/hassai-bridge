@@ -117,6 +117,16 @@ def control_action_packs(user_text: str = "") -> set[str]:
     return packs
 
 
+_PAUSE_STOP_STATUS_RE = re.compile(
+    r"\b(?:"
+    r"pause|pauz[aă]|stop|opre[sș]te|"
+    r"e\s+pornit|este\s+pornit|is\s+(?:it\s+)?on|status|stare|"
+    r"volume|volum"
+    r")\b",
+    re.I,
+)
+
+
 def should_skip_pack_router_for_control(user_text: str) -> bool:
     """Short, clear control intents can skip the LLM pack router."""
     from services import deepseek as ds
@@ -128,7 +138,10 @@ def should_skip_pack_router_for_control(user_text: str) -> bool:
         return False
     if looks_like_explain_event(text):
         return False
-    return bool(ds.looks_like_control(text))
+    if ds.looks_like_control(text):
+        return True
+    # Short pause / stop / status / volume without a strong control noun
+    return bool(_PAUSE_STOP_STATUS_RE.search(text) and len(text) <= _SHORT_CONTROL_MAX)
 
 
 def build_tool_playbook(tool_names: Iterable[str] | None) -> str:

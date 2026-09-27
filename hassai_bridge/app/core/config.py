@@ -10,7 +10,7 @@ _VERSION_FILE = Path(__file__).parent.parent / "VERSION"
 _raw = _VERSION_FILE.read_text(encoding="utf-8").strip() if _VERSION_FILE.exists() else "0.0.0-dev"
 VERSION = _raw if _raw.startswith("v") else f"v{_raw}"
 ADDON_VERSION = _raw.lstrip("v")  # HA add-on config.yaml version field
-DB_SCHEMA_VERSION = 10
+DB_SCHEMA_VERSION = 11
 
 
 def _static_build_id() -> str:
@@ -143,6 +143,22 @@ DEFAULT_CONFIG = {
         "agent_max_rounds": 16,
         "tool_profile": "auto",
         "tool_replay_turns": 0,
+        "cognitive_os": True,
+        "action_compiler": True,
+        "cognitive_shadow": False,
+    },
+    "autonomy_policy": {
+        "proactive_suggestions": True,
+        "proactive_enabled": False,
+        "covers_ask": True,
+        "surprise_budget_per_hour": 3,
+        "quiet_hours": {"start": 22, "end": 7},
+        "allow_domains": [],
+        "ask_domains": [],
+        "deny_domains": [],
+        "deny_entities": [],
+        "ask_tools": [],
+        "deny_tools": [],
     },
     "skills_disabled": [],
     "routing": {

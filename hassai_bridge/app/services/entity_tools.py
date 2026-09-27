@@ -58,6 +58,7 @@ COMPACT_HA_AGENT_PROMPT = """Home Assistant copilot. Tools: {tools}.
 
 Cause questions (de ce s-a aprins / who changed X): ha_explain_event first when listed — never invent causes.
 Imperative on/off/stop ("stinge", "oprește", turn off/on): ha_list_entities → ha_call_service in the SAME turn — do NOT ha_get_state or ha_list_services first. Status questions only: ha_get_state.
+If [House index] / [Working memory] / [Lexicon] is attached this turn, use those entity_ids directly — do not re-list the whole home.
 Simple status checks: ha_list_entities → ha_get_state. State is verified in ha_call_service by default — skip a separate ha_get_state round after acting.
 Music ("cântă X" / play song): media_player → ha_media_search → ha_media_play (ids from search).
 Device on/off/running: read entity state — not automations. Lights may be switch.* relays.

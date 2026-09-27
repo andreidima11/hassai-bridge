@@ -172,6 +172,7 @@ function sleep(ms, signal) {
 export async function waitForChatJob(traceId, { onActivity, onDelta, signal } = {}) {
   let after = -1;
   let full = "";
+  let lastNonEmpty = "";
   const seen = new Set();
   while (true) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -194,6 +195,7 @@ export async function waitForChatJob(traceId, { onActivity, onDelta, signal } = 
       // out to precede a tool call, so the reply has to shrink back.
       if (ev?.name === "assistant" && typeof ev.detail === "string") {
         full = ev.detail;
+        if (full.trim()) lastNonEmpty = full;
         onDelta?.(full);
         continue;
       }
@@ -203,7 +205,8 @@ export async function waitForChatJob(traceId, { onActivity, onDelta, signal } = 
     if (data.cancelled) throw new DOMException("Aborted", "AbortError");
     if (data.done) {
       if (data.error) throw new Error(data.error);
-      return full;
+      // Prefer the last non-empty snapshot if done races with a retract.
+      return full.trim() ? full : lastNonEmpty;
     }
     if (data.status === "error" && data.error) throw new Error(data.error);
     await sleep(ON_INGRESS ? 140 : 180, signal);

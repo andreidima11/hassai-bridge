@@ -259,6 +259,8 @@ def init_db():
             # v8: chat_habits (+ meta) created via CREATE IF NOT EXISTS below
             # v9: chip_overrides created via CREATE IF NOT EXISTS below
             # v10: bg_tasks / observations / events / deliveries below
+            # v11: cognitive_traces / entity_aliases / mutation_ledger /
+            #      experience_skills / opportunities below
             conn.execute(
                 "UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1",
                 (DB_SCHEMA_VERSION, time.time()),
@@ -420,6 +422,103 @@ def init_db():
         """)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_bg_deliveries_task ON bg_deliveries(task_id, status)"
+        )
+
+        # ── Cognitive OS tables (v11) ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS cognitive_traces (
+                turn_id TEXT PRIMARY KEY,
+                ts REAL NOT NULL,
+                user_id TEXT NOT NULL DEFAULT '',
+                session_id TEXT NOT NULL DEFAULT '',
+                path TEXT NOT NULL DEFAULT '',
+                confidence REAL NOT NULL DEFAULT 0,
+                route_klass TEXT NOT NULL DEFAULT '',
+                user_text TEXT NOT NULL DEFAULT '',
+                goal_json TEXT NOT NULL DEFAULT '{}',
+                hypotheses_json TEXT NOT NULL DEFAULT '[]',
+                outcome_json TEXT NOT NULL DEFAULT '{}',
+                metrics_json TEXT NOT NULL DEFAULT '{}'
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cog_traces_ts ON cognitive_traces(ts DESC)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cog_traces_user ON cognitive_traces(user_id, ts DESC)"
+        )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS entity_aliases (
+                user_id TEXT NOT NULL,
+                surface TEXT NOT NULL,
+                resolves_to TEXT NOT NULL,
+                confidence REAL NOT NULL DEFAULT 0.7,
+                source TEXT NOT NULL DEFAULT 'manual',
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (user_id, surface)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_aliases_user ON entity_aliases(user_id, active)"
+        )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS mutation_ledger (
+                ledger_id TEXT PRIMARY KEY,
+                ts REAL NOT NULL,
+                user_id TEXT NOT NULL DEFAULT '',
+                session_id TEXT NOT NULL DEFAULT '',
+                turn_id TEXT NOT NULL DEFAULT '',
+                action_json TEXT NOT NULL DEFAULT '{}',
+                snapshots_json TEXT NOT NULL DEFAULT '{}',
+                undone_at REAL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_mutation_session ON mutation_ledger(session_id, ts DESC)"
+        )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS experience_skills (
+                skill_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                trigger_text TEXT NOT NULL DEFAULT '',
+                trigger_fold TEXT NOT NULL DEFAULT '',
+                recipe_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'shadow',
+                entity_ids_json TEXT NOT NULL DEFAULT '[]',
+                area TEXT NOT NULL DEFAULT '',
+                success_count INTEGER NOT NULL DEFAULT 0,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skills_user ON experience_skills(user_id, status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_skills_fold ON experience_skills(user_id, trigger_fold)"
+        )
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS opportunities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT '',
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                status TEXT NOT NULL DEFAULT 'open',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                UNIQUE(user_id, key)
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_opp_user ON opportunities(user_id, status)"
         )
 
 
@@ -1147,6 +1246,9 @@ def rebuild_fts_index():
 
 KIND_CHAT_OVERRIDE = "chat_override"
 KIND_TOOLKIT_STICKY = "toolkit_sticky"
+KIND_WORKING_SET = "working_set"
+KIND_DISCOURSE = "discourse"
+KIND_GOAL = "goal"
 
 
 def upsert_session_state(user_id: str, session_id: str, kind: str, data: dict) -> None:
@@ -1260,3 +1362,407 @@ def get_toolkit_audit(limit: int = 20) -> list[dict]:
             "tools_tokens_after": r["tools_tokens_after"],
         })
     return out
+
+
+# ── Cognitive OS persistence ───────────────────────
+
+def add_cognitive_trace(
+    *,
+    turn_id: str,
+    user_id: str = "",
+    session_id: str = "",
+    path: str = "",
+    confidence: float = 0.0,
+    route_klass: str = "",
+    user_text: str = "",
+    goal: dict | None = None,
+    hypotheses: list | None = None,
+    outcome: dict | None = None,
+    metrics: dict | None = None,
+) -> None:
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO cognitive_traces
+               (turn_id, ts, user_id, session_id, path, confidence, route_klass,
+                user_text, goal_json, hypotheses_json, outcome_json, metrics_json)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                str(turn_id or ""),
+                time.time(),
+                str(user_id or ""),
+                str(session_id or ""),
+                str(path or ""),
+                float(confidence or 0),
+                str(route_klass or ""),
+                str(user_text or "")[:2000],
+                json.dumps(goal or {}, ensure_ascii=False),
+                json.dumps(hypotheses or [], ensure_ascii=False),
+                json.dumps(outcome or {}, ensure_ascii=False),
+                json.dumps(metrics or {}, ensure_ascii=False),
+            ),
+        )
+
+
+def list_cognitive_traces(
+    *,
+    user_id: str = "",
+    since_hours: float = 24.0,
+    limit: int = 200,
+) -> list[dict]:
+    since = time.time() - max(0.1, float(since_hours)) * 3600
+    lim = max(1, min(int(limit), 1000))
+    with get_db() as conn:
+        if user_id:
+            rows = conn.execute(
+                """SELECT * FROM cognitive_traces
+                   WHERE user_id = ? AND ts >= ?
+                   ORDER BY ts DESC LIMIT ?""",
+                (str(user_id), since, lim),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT * FROM cognitive_traces
+                   WHERE ts >= ?
+                   ORDER BY ts DESC LIMIT ?""",
+                (since, lim),
+            ).fetchall()
+    out = []
+    for r in rows:
+        def _j(key, default):
+            try:
+                return json.loads(r[key] or ("{}" if isinstance(default, dict) else "[]"))
+            except (json.JSONDecodeError, TypeError):
+                return default
+        out.append({
+            "turn_id": r["turn_id"],
+            "ts": r["ts"],
+            "user_id": r["user_id"],
+            "session_id": r["session_id"],
+            "path": r["path"],
+            "confidence": r["confidence"],
+            "route_klass": r["route_klass"],
+            "user_text": r["user_text"],
+            "goal": _j("goal_json", {}),
+            "hypotheses": _j("hypotheses_json", []),
+            "outcome": _j("outcome_json", {}),
+            "metrics": _j("metrics_json", {}),
+        })
+    return out
+
+
+def list_entity_aliases(user_id: str, *, active_only: bool = True) -> list[dict]:
+    with get_db() as conn:
+        if active_only:
+            rows = conn.execute(
+                """SELECT surface, resolves_to, confidence, source, active,
+                          created_at, updated_at
+                   FROM entity_aliases WHERE user_id = ? AND active = 1
+                   ORDER BY updated_at DESC""",
+                (str(user_id or ""),),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT surface, resolves_to, confidence, source, active,
+                          created_at, updated_at
+                   FROM entity_aliases WHERE user_id = ?
+                   ORDER BY updated_at DESC""",
+                (str(user_id or ""),),
+            ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def upsert_entity_alias(
+    *,
+    user_id: str,
+    surface: str,
+    resolves_to: str,
+    source: str = "manual",
+    confidence: float = 0.7,
+) -> dict:
+    now = time.time()
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO entity_aliases
+               (user_id, surface, resolves_to, confidence, source, active, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+               ON CONFLICT(user_id, surface) DO UPDATE SET
+                 resolves_to = excluded.resolves_to,
+                 confidence = excluded.confidence,
+                 source = excluded.source,
+                 active = 1,
+                 updated_at = excluded.updated_at""",
+            (
+                str(user_id or ""),
+                str(surface or "").strip()[:80],
+                str(resolves_to or "").strip()[:120],
+                float(confidence),
+                str(source or "manual")[:40],
+                now,
+                now,
+            ),
+        )
+    return {
+        "ok": True,
+        "surface": str(surface or "").strip()[:80],
+        "resolves_to": str(resolves_to or "").strip()[:120],
+        "confidence": float(confidence),
+        "source": source,
+    }
+
+
+def add_mutation_ledger(
+    *,
+    ledger_id: str,
+    user_id: str = "",
+    session_id: str = "",
+    turn_id: str = "",
+    action: dict | None = None,
+    snapshots: dict | None = None,
+) -> None:
+    with get_db() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO mutation_ledger
+               (ledger_id, ts, user_id, session_id, turn_id, action_json, snapshots_json, undone_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, NULL)""",
+            (
+                str(ledger_id),
+                time.time(),
+                str(user_id or ""),
+                str(session_id or ""),
+                str(turn_id or ""),
+                json.dumps(action or {}, ensure_ascii=False),
+                json.dumps(snapshots or {}, ensure_ascii=False),
+            ),
+        )
+
+
+def get_mutation_ledger(ledger_id: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM mutation_ledger WHERE ledger_id = ?",
+            (str(ledger_id),),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        action = json.loads(row["action_json"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        action = {}
+    try:
+        snapshots = json.loads(row["snapshots_json"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        snapshots = {}
+    return {
+        "ledger_id": row["ledger_id"],
+        "ts": row["ts"],
+        "user_id": row["user_id"],
+        "session_id": row["session_id"],
+        "turn_id": row["turn_id"],
+        "action": action,
+        "snapshots": snapshots,
+        "undone_at": row["undone_at"],
+    }
+
+
+def mark_mutation_undone(ledger_id: str) -> None:
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE mutation_ledger SET undone_at = ? WHERE ledger_id = ?",
+            (time.time(), str(ledger_id)),
+        )
+
+
+def insert_experience_skill(
+    *,
+    skill_id: str,
+    user_id: str,
+    trigger: str,
+    recipe: dict,
+    status: str = "shadow",
+    entity_ids: list | None = None,
+    area: str = "",
+) -> dict:
+    now = time.time()
+    from services import world_model as wm
+
+    fold = wm.fold(trigger)
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO experience_skills
+               (skill_id, user_id, trigger_text, trigger_fold, recipe_json, status,
+                entity_ids_json, area, success_count, attempt_count, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?)""",
+            (
+                skill_id,
+                str(user_id or ""),
+                str(trigger or "")[:200],
+                fold[:200],
+                json.dumps(recipe or {}, ensure_ascii=False),
+                status,
+                json.dumps(list(entity_ids or []), ensure_ascii=False),
+                str(area or "")[:80],
+                now,
+                now,
+            ),
+        )
+    return get_experience_skill(skill_id) or {"skill_id": skill_id}
+
+
+def get_experience_skill(skill_id: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM experience_skills WHERE skill_id = ?",
+            (str(skill_id),),
+        ).fetchone()
+    return _skill_row(row) if row else None
+
+
+def find_experience_skill(user_id: str, trigger: str) -> dict | None:
+    from services import world_model as wm
+
+    fold = wm.fold(trigger)
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT * FROM experience_skills
+               WHERE user_id = ? AND trigger_fold = ? AND status != 'retired'
+               ORDER BY updated_at DESC LIMIT 1""",
+            (str(user_id or ""), fold),
+        ).fetchone()
+    return _skill_row(row) if row else None
+
+
+def list_experience_skills(user_id: str, *, statuses: list[str] | None = None) -> list[dict]:
+    statuses = statuses or ["active", "shadow"]
+    placeholders = ",".join("?" for _ in statuses)
+    with get_db() as conn:
+        rows = conn.execute(
+            f"""SELECT * FROM experience_skills
+                WHERE user_id = ? AND status IN ({placeholders})
+                ORDER BY updated_at DESC LIMIT 100""",
+            (str(user_id or ""), *statuses),
+        ).fetchall()
+    return [_skill_row(r) for r in rows if r]
+
+
+def touch_experience_skill(
+    skill_id: str,
+    *,
+    success: bool,
+    steps: list | None = None,
+    entity_ids: list | None = None,
+) -> dict | None:
+    row = get_experience_skill(skill_id)
+    if not row:
+        return None
+    recipe = row.get("recipe") or {}
+    if steps is not None:
+        recipe = {**recipe, "steps": steps}
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE experience_skills SET
+                 attempt_count = attempt_count + 1,
+                 success_count = success_count + ?,
+                 recipe_json = ?,
+                 entity_ids_json = ?,
+                 updated_at = ?
+               WHERE skill_id = ?""",
+            (
+                1 if success else 0,
+                json.dumps(recipe, ensure_ascii=False),
+                json.dumps(list(entity_ids if entity_ids is not None else row.get("entity_ids") or []), ensure_ascii=False),
+                time.time(),
+                skill_id,
+            ),
+        )
+    return get_experience_skill(skill_id)
+
+
+def set_experience_skill_status(skill_id: str, status: str) -> dict | None:
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE experience_skills SET status = ?, updated_at = ? WHERE skill_id = ?",
+            (str(status), time.time(), skill_id),
+        )
+    return get_experience_skill(skill_id)
+
+
+def _skill_row(row) -> dict:
+    try:
+        recipe = json.loads(row["recipe_json"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        recipe = {}
+    try:
+        entity_ids = json.loads(row["entity_ids_json"] or "[]")
+    except (json.JSONDecodeError, TypeError):
+        entity_ids = []
+    return {
+        "skill_id": row["skill_id"],
+        "user_id": row["user_id"],
+        "trigger": row["trigger_text"],
+        "trigger_fold": row["trigger_fold"],
+        "recipe": recipe if isinstance(recipe, dict) else {},
+        "status": row["status"],
+        "entity_ids": entity_ids if isinstance(entity_ids, list) else [],
+        "area": row["area"],
+        "success_count": row["success_count"],
+        "attempt_count": row["attempt_count"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def add_opportunity(*, user_id: str, key: str, kind: str, payload: dict | None = None) -> None:
+    now = time.time()
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO opportunities
+               (user_id, key, kind, payload_json, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, 'open', ?, ?)
+               ON CONFLICT(user_id, key) DO UPDATE SET
+                 payload_json = excluded.payload_json,
+                 kind = excluded.kind,
+                 updated_at = excluded.updated_at,
+                 status = CASE WHEN opportunities.status = 'muted' THEN 'muted' ELSE 'open' END""",
+            (
+                str(user_id or ""),
+                str(key or "")[:200],
+                str(kind or "")[:40],
+                json.dumps(payload or {}, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+
+
+def is_opportunity_suppressed(user_id: str, key: str) -> bool:
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT status FROM opportunities WHERE user_id = ? AND key = ?""",
+            (str(user_id or ""), str(key or "")),
+        ).fetchone()
+    if not row:
+        return False
+    return row["status"] in {"muted", "dismissed"}
+
+
+def suppress_opportunity(user_id: str, key: str, *, mute: bool = False) -> None:
+    status = "muted" if mute else "dismissed"
+    now = time.time()
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO opportunities
+               (user_id, key, kind, payload_json, status, created_at, updated_at)
+               VALUES (?, ?, '', '{}', ?, ?, ?)
+               ON CONFLICT(user_id, key) DO UPDATE SET
+                 status = excluded.status, updated_at = excluded.updated_at""",
+            (str(user_id or ""), str(key or "")[:200], status, now, now),
+        )
+
+
+def mark_opportunity_accepted(user_id: str, key: str) -> None:
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE opportunities SET status = 'accepted', updated_at = ?
+               WHERE user_id = ? AND key = ?""",
+            (time.time(), str(user_id or ""), str(key or "")),
+        )

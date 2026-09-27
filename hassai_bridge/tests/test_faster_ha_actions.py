@@ -20,6 +20,8 @@ def test_control_action_packs_entities_and_control():
 def test_skip_pack_router_for_short_clear_control():
     assert taw.should_skip_pack_router_for_control("sting 2 lumini")
     assert taw.should_skip_pack_router_for_control("turn on kitchen light")
+    assert taw.should_skip_pack_router_for_control("pause the music")
+    assert taw.should_skip_pack_router_for_control("e pornit pompa?")
     # Long / ambiguous keep the router
     long = "please turn on the kitchen light and also check why " + ("x " * 40)
     assert not taw.should_skip_pack_router_for_control(long)

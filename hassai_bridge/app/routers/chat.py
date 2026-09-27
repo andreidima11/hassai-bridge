@@ -864,7 +864,7 @@ def _activity_meta(
         meta["sources"] = merged_sources
     if isinstance(followups, list) and followups:
         clean = []
-        for row in followups[:3]:
+        for row in followups[:5]:
             if not isinstance(row, dict):
                 continue
             label = str(row.get("label") or "").strip()
@@ -1625,6 +1625,32 @@ async def _append_parallel_ready_tools(
             "detail": f"{len(sources_bucket)} source(s)",
             "sources": list(sources_bucket),
         })
+
+    # Cognitive OS: refresh discourse working set from successful HA mutations
+    try:
+        from services import cognitive_runtime as cogrt
+
+        acted: list[str] = []
+        action = ""
+        for job in prepared:
+            if job["fn_name"] != "ha_call_service":
+                continue
+            args = job.get("args") or {}
+            eid = str(args.get("entity_id") or "").strip()
+            data = args.get("data") if isinstance(args.get("data"), dict) else {}
+            raw = eid or data.get("entity_id")
+            if isinstance(raw, list):
+                acted.extend(str(x).strip() for x in raw if str(x).strip())
+            elif isinstance(raw, str) and raw.strip():
+                acted.append(raw.strip())
+            action = str(args.get("service") or action)
+        if acted and user_id and session_id:
+            cogrt.note_agent_entities(
+                user_id, session_id, entity_ids=acted, action=action,
+            )
+    except Exception:
+        log.debug("working set update failed", exc_info=True)
+
     return search_used
 
 
@@ -2243,6 +2269,54 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
                    "setmodel", "setprovider", "set2nd",
                    "stats", "consolidation", "lang", "version", "help"):
             lines.append(T(f"help.{k}"))
+        lines.append("/undo [id] — undo last reversible HA action")
+        lines.append("/scorecard — Cognitive OS metrics (24h)")
+        return "\n".join(lines)
+
+    elif command == "/undo":
+        from services import plan_engine as pe
+        from core import database as db
+
+        ledger_id = arg.strip()
+        if not ledger_id:
+            # Latest ledger for this user
+            try:
+                with db.get_db() as conn:
+                    row = conn.execute(
+                        """SELECT ledger_id FROM mutation_ledger
+                           WHERE user_id = ? AND undone_at IS NULL
+                           ORDER BY ts DESC LIMIT 1""",
+                        (str(user_id or ""),),
+                    ).fetchone()
+                ledger_id = row["ledger_id"] if row else ""
+            except Exception:
+                ledger_id = ""
+        if not ledger_id:
+            return "Nothing to undo." if (cfg.get("language") or "en") != "ro" else "Nimic de anulat."
+        result = await pe.undo_ledger(ledger_id, cfg=cfg)
+        if result.get("ok"):
+            restored = ", ".join(result.get("restored") or []) or ledger_id
+            return (
+                f"Anulat: {restored}."
+                if (cfg.get("language") or "en") == "ro"
+                else f"Undone: {restored}."
+            )
+        err = result.get("error") or ", ".join(result.get("errors") or [])
+        return f"Undo failed: {err}"
+
+    elif command == "/scorecard":
+        from services import cognitive_metrics as cmet
+
+        card = cmet.scorecard(user_id=user_id, since_hours=24)
+        lines = ["**Cognitive OS scorecard (24h)**", ""]
+        lines.append(f"• turns: {card.get('turns', 0)}")
+        lines.append(f"• paths: {card.get('paths') or {}}")
+        sr = card.get("success_rate")
+        lines.append(f"• success_rate: {sr if sr is not None else 'n/a'}")
+        lines.append(f"• avg_elapsed_ms: {card.get('avg_elapsed_ms')}")
+        lines.append(f"• clarify_rate: {card.get('clarify_rate')}")
+        lines.append(f"• shadow_turns: {card.get('shadow_turns')}")
+        lines.append(f"• verify_failures: {card.get('verify_failures')}")
         return "\n".join(lines)
 
     elif command == "/health":
@@ -3688,6 +3762,77 @@ async def chat_completions(request: Request):
             return StreamingResponse(cmd_stream(), media_type="text/event-stream")
         return JSONResponse(content=_command_response_openai(cmd_result, model))
 
+    # ── Cognitive OS: reflex / clarify / late context ──
+    cognitive_late = ""
+    cognitive_ctx_dict: dict | None = None
+    try:
+        from services import cognitive_runtime as cogrt
+
+        cog = await cogrt.prepare_turn(
+            user_text=last_user_msg,
+            user_id=user_id,
+            session_id=session_id or "",
+            lang=str(cfg.get("language") or "en"),
+            route_klass=str(route_klass or "simple"),
+            cfg=cfg_runtime,
+        )
+        cognitive_ctx_dict = cog.get("ctx") if isinstance(cog, dict) else None
+        cognitive_late = str((cog or {}).get("late_context") or "")
+        if cog and cog.get("handled"):
+            msg = str(cog.get("message") or "").strip()
+            followups = list(cog.get("followups") or [])
+            if last_user_msg:
+                add_conversation_message(
+                    user_id, "user", last_user_msg, session_id=session_id,
+                )
+            if msg:
+                meta = _activity_meta(None, followups=followups) if followups else None
+                add_conversation_message(
+                    user_id, "assistant", msg, session_id=session_id, meta=meta,
+                )
+            log.info(
+                "[%s] Cognitive path=%s handled confidence=%s",
+                user_id,
+                (cognitive_ctx_dict or {}).get("path"),
+                (cognitive_ctx_dict or {}).get("confidence"),
+            )
+            if stream:
+                chunk_data = json.dumps({
+                    "id": f"cog-{int(time.time())}",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": model or "hassai-bridge",
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": msg},
+                        "finish_reason": "stop",
+                    }],
+                })
+
+                async def cog_stream():
+                    if followups:
+                        act = json.dumps({
+                            "hassai": "activity",
+                            "event": {
+                                "id": "followups",
+                                "name": "followups",
+                                "status": "done",
+                                "followups": followups,
+                            },
+                        })
+                        yield f"data: {act}\n\n"
+                    yield f"data: {chunk_data}\n\n"
+                    yield "data: [DONE]\n\n"
+
+                return StreamingResponse(cog_stream(), media_type="text/event-stream")
+            payload = _command_response_openai(msg, model)
+            if followups:
+                payload["hassai"] = {"followups": followups}
+            return JSONResponse(content=payload)
+    except Exception:
+        log.debug("Cognitive OS prepare_turn failed", exc_info=True)
+        cognitive_late = ""
+
     # ── Build augmented message list ──
     log.info(
         f"[{user_id}] Request: \"{last_user_msg[:80]}\" "
@@ -3814,6 +3959,8 @@ async def chat_completions(request: Request):
 
     if mem_ctx:
         _inject_late_user_context(augmented, mem_ctx)
+    if cognitive_late:
+        _inject_late_user_context(augmented, cognitive_late)
 
     user_attachments: list[dict] = []
     if last_user_message is not None:
@@ -4301,6 +4448,13 @@ async def chat_completions(request: Request):
                 ),
             )
             if assistant_content:
+                # So activity poll clients see the final reply before done=true.
+                await on_activity({
+                    "id": "assistant-out",
+                    "name": "assistant",
+                    "detail": assistant_content,
+                    "status": "done",
+                })
                 all_msgs = messages + [{"role": "assistant", "content": assistant_content}]
                 asyncio.create_task(_safe_extract(user_id, all_msgs, provider=active, active=active))
 
@@ -4384,25 +4538,36 @@ async def chat_completions(request: Request):
             while sse_buf:
                 yield sse_buf.pop(0)
 
-        async def push_assistant_preview(force: bool = False):
+        # Track whether the UI currently shows assistant text, so we only push
+        # an empty retract when there is something to clear (avoids wiping a
+        # finished reply if a late force-push races with tool setup).
+        assistant_preview_visible = False
+
+        async def push_assistant_preview(force: bool = False, *, retract: bool = False):
             """Ingress often buffers SSE; activity poll carries live token text."""
-            nonlocal last_content_push
-            if not full_response and not force:
+            nonlocal last_content_push, assistant_preview_visible
+            if not full_response and not force and not retract:
+                return
+            # Empty force-push is only for retracting mid-round narration.
+            if not full_response and force and not retract:
+                return
+            if retract and not full_response and not assistant_preview_visible:
                 return
             now = time.time()
-            if not force and (now - last_content_push) < 0.05:
+            if not force and not retract and (now - last_content_push) < 0.05:
                 return
             last_content_push = now
             from services import vision_handoff as vh
 
             preview = cc.strip_photo_notes(vh.split_photo_context(full_response)[0])
+            assistant_preview_visible = bool(str(preview or "").strip())
             await on_stream_activity({
                 "id": "assistant-out",
                 "name": "assistant",
                 # The Web UI renders this, not the raw SSE chunks, so the photo
                 # marker / vision handoff block has to be filtered here.
                 "detail": preview,
-                "status": "running",
+                "status": "running" if preview else "done",
             })
 
         current_gen = providers.chat_completion_stream(
@@ -4663,8 +4828,10 @@ async def chat_completions(request: Request):
                     if say:
                         await on_stream_activity(say)
                     round_text = ""
-
-                await push_assistant_preview(force=True)
+                    # Retract only when the chat bubble still shows that narration.
+                    await push_assistant_preview(force=True, retract=True)
+                else:
+                    await push_assistant_preview(force=True)
                 async for part in flush_activity():
                     yield part
 
@@ -4872,7 +5039,13 @@ async def chat_completions(request: Request):
                         followups=followups,
                     ),
                 )
+                # Final activity snapshot so poll clients that missed SSE still
+                # receive the persisted reply before done=true.
                 if clean_response:
+                    full_response = clean_response
+                    await push_assistant_preview(force=True)
+                    async for part in flush_activity():
+                        yield part
                     all_msgs = messages + [{"role": "assistant", "content": clean_response}]
                     asyncio.create_task(_safe_extract(user_id, all_msgs, provider=active, active=active))
 

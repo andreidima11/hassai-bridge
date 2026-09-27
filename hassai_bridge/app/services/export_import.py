@@ -46,6 +46,7 @@ CONFIG_SECTIONS = (
     "frigate",
     "searxng",
     "performance",
+    "autonomy_policy",
     "security",
     "ha_tools",
     "bridge_tools",

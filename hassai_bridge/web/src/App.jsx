@@ -531,13 +531,19 @@ export default function App() {
           signal,
         });
         if (signal?.aborted) return;
-        finishAssistantMessage(assistantId, full);
+        const live =
+          messagesRef.current.find((m) => m.id === assistantId)?.content || "";
+        const finalText = String(full || "").trim() ? full : live;
+        finishAssistantMessage(assistantId, finalText);
         if (spokenTurnRef.current) {
           spokenTurnRef.current = false;
-          speakReply(assistantId, full);
+          speakReply(assistantId, finalText);
         }
         clearPendingTrace(username);
-        if (sid) {
+        // Avoid openSession after a successful reply — a full reload races the
+        // DB write and can briefly (or permanently) drop the assistant bubble.
+        // Only reload when we have no local text and need to recover from history.
+        if (sid && !String(finalText || "").trim()) {
           try {
             await openSession(sid, username);
           } catch {
@@ -738,18 +744,22 @@ export default function App() {
       if (busy || !bootDone.current) return;
       const pending = readPendingTrace(user.username);
       const sid = sessionIdRef.current;
-      if (pending?.traceId) {
+        if (pending?.traceId) {
         try {
           const job = await apiJson(`/v1/chat/jobs/${encodeURIComponent(pending.traceId)}`);
           if (job?.done || job?.cancelled || job?.status === "error") {
             clearPendingTrace(user.username);
-            if (sid) await openSession(sid, user.username);
+            // Only reload when we are not mid-stream locally — otherwise we
+            // wipe the live assistant bubble and orphan activity updates.
+            const streaming = messagesRef.current.some((m) => m.streaming);
+            if (sid && !streaming && !busy) await openSession(sid, user.username);
             refreshSessions().catch(() => {});
           }
         } catch {
-          /* job expired — reload session anyway */
+          /* job expired — reload session only if idle */
           clearPendingTrace(user.username);
-          if (sid) {
+          const streaming = messagesRef.current.some((m) => m.streaming);
+          if (sid && !streaming && !busy) {
             try {
               await openSession(sid, user.username);
             } catch {
@@ -759,13 +769,8 @@ export default function App() {
         }
         return;
       }
-      if (sid && messagesRef.current.some((m) => m.streaming)) {
-        try {
-          await openSession(sid, user.username);
-        } catch {
-          /* ignore */
-        }
-      }
+      // Never openSession while a reply is streaming — that replaces messages
+      // with DB history (user saved, assistant not yet) and the text vanishes.
     };
     const onVis = () => {
       if (document.visibilityState === "hidden") {

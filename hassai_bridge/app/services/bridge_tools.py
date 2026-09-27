@@ -68,6 +68,13 @@ _ALLOWED: dict[str, tuple] = {
     "performance.parallel_page_fetch": ("bool",),
     "performance.tool_profile": ("enum", ("auto", "full", "dynamic")),
     "performance.tool_replay_turns": ("int", 0, 12),
+    "performance.cognitive_os": ("bool",),
+    "performance.action_compiler": ("bool",),
+    "performance.cognitive_shadow": ("bool",),
+    "autonomy_policy.proactive_suggestions": ("bool",),
+    "autonomy_policy.proactive_enabled": ("bool",),
+    "autonomy_policy.covers_ask": ("bool",),
+    "autonomy_policy.surprise_budget_per_hour": ("int", 0, 20),
 }
 for _grp in ("memory", "status", "control", "media", "browser"):
     _ALLOWED[f"bridge_tools.{_grp}"] = ("bool",)

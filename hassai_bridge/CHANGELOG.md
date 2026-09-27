@@ -1,5 +1,17 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.8.0
+
+### Features
+- **Cognitive OS** — hybrid cognition stack: local reflex compiler for short HA commands, Intent Beam (1–3 scored hypotheses), World Model house index, working memory + alias lexicon, Plan DAG with mutation ledger / `/undo`, Experience Compiler (shadow→active skills), autonomy policy layer, opportunity suggestions from HA events, cognitive traces + `/scorecard`
+- **Faster pack-router skip** — short pause / stop / status / volume intents also skip the LLM pack router
+
+### Fix
+- **Reply text vanishing** — stop reloading the session while a reply is streaming (tab focus used to wipe the assistant bubble); don’t push empty retracts unless narration was visible; keep last non-empty activity snapshot when the job ends; skip post-job `openSession` when the live reply is already on screen
+
+### Note
+- Flags: `performance.cognitive_os`, `performance.action_compiler`, `performance.cognitive_shadow`; policy under `autonomy_policy.*` (proactive execute stays opt-in)
+
 ## 1.7.16
 
 ### Fix

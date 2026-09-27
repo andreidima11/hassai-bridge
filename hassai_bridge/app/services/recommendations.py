@@ -697,6 +697,20 @@ async def build_empty_recs(
         if len(out) >= limit:
             break
 
+    # Cognitive OS: evidence-based opportunity chips (stuck open / degraded)
+    if len(out) < limit and user_id:
+        try:
+            from services import opportunity_engine as opp
+
+            for chip in opp.process_opportunities(
+                user_id=user_id, lang=lang, cfg=cfg, limit=max(0, limit - len(out)),
+            ):
+                add(chip)
+                if len(out) >= limit:
+                    break
+        except Exception:
+            pass
+
     # Soft fill from LLM asks only if we still have slots (never overrides actions).
     mode = rl.recs_mode(cfg)
     if len(out) < limit and mode in {"medium", "high"}:

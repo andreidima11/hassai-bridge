@@ -1,0 +1,35 @@
+[
+  {
+    "utterance": "turn on kitchen light",
+    "expected_path": "reflex",
+    "expected_targets": ["light.kitchen"],
+    "lang": "en"
+  },
+  {
+    "utterance": "stinge light.kitchen",
+    "expected_path": "reflex",
+    "expected_targets": ["light.kitchen"],
+    "lang": "ro"
+  },
+  {
+    "utterance": "hello",
+    "expected_path": "agent",
+    "lang": "en"
+  },
+  {
+    "utterance": "De ce s-a aprins lumina?",
+    "expected_path": "agent",
+    "lang": "ro"
+  },
+  {
+    "utterance": "creează o automatizare la apus",
+    "expected_path": "agent",
+    "lang": "ro"
+  },
+  {
+    "utterance": "pause the music",
+    "expected_path": "agent",
+    "note": "no media_player in tiny fixture → agent/clarify ok",
+    "lang": "en"
+  }
+]
