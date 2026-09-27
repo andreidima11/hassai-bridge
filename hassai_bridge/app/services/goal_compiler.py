@@ -285,7 +285,7 @@ def compile_hypotheses(
         targets: list[str] = []
         pick_mode = "weak"
         if hits:
-            targets, pick_mode = wm.pick_targets(hits)
+            targets, pick_mode = wm.pick_targets(hits, query=query)
             if pick_mode == "weak":
                 targets = []
         top_score = hits[0][1] if hits else 0.0

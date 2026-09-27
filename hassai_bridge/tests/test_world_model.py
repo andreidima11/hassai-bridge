@@ -80,16 +80,32 @@ def test_dormitor_1_beats_dormitor_2():
     hits = wm.search(nodes, "lampa dormitor 1", limit=5)
     assert hits
     assert hits[0][0].entity_id == "light.lampa_dormitor_1"
-    targets, mode = wm.pick_targets(hits)
+    # Wrong number must not even appear as a near candidate
+    assert all(n.entity_id != "light.lampa_dormitor_2" for n, _ in hits)
+    targets, mode = wm.pick_targets(hits, query="lampa dormitor 1")
     assert mode == "unique"
     assert targets == ["light.lampa_dormitor_1"]
+
+
+def test_aprinde_lampa_dormitor_1_never_clarifies():
+    """User regression: numbered lamp must execute, not ask which one."""
+    from services import action_compiler as ac
+    from services import cognitive_kernel as ck
+
+    nodes = _sample_entities()
+    ctx = ck.build_turn_context(user_text="aprinde lampa dormitor 1", lang="ro")
+    ctx = ac.compile_reflex(ctx, entities=nodes)
+    assert ctx.path in {ck.PATH_REFLEX, ck.PATH_SHADOW}
+    assert ctx.hypotheses[0].targets == ["light.lampa_dormitor_1"]
+    assert not ctx.clarification_chips
 
 
 def test_dormitor_2_unique():
     nodes = _sample_entities()
     hits = wm.search(nodes, "stinge lampa dormitor 2", limit=5)
     assert hits[0][0].entity_id == "light.lampa_dormitor_2"
-    targets, mode = wm.pick_targets(hits)
+    assert all(n.entity_id != "light.lampa_dormitor_1" for n, _ in hits)
+    targets, mode = wm.pick_targets(hits, query="stinge lampa dormitor 2")
     assert mode == "unique"
     assert targets == ["light.lampa_dormitor_2"]
 
@@ -100,7 +116,7 @@ def test_friendly_name_beats_entity_id_slug():
     hits = wm.search(nodes, "bec living", domains=["light"], limit=5)
     assert hits
     assert hits[0][0].entity_id == "light.releu_living_l3"
-    targets, mode = wm.pick_targets(hits)
+    targets, mode = wm.pick_targets(hits, query="bec living")
     assert mode == "unique"
     assert targets == ["light.releu_living_l3"]
 
@@ -109,7 +125,7 @@ def test_duplicate_friendly_names_clarify():
     nodes = _sample_entities()
     hits = wm.search(nodes, "lampa pat", limit=5)
     assert len(hits) >= 2
-    targets, mode = wm.pick_targets(hits)
+    targets, mode = wm.pick_targets(hits, query="lampa pat")
     assert mode == "clarify"
     assert set(targets) >= {"light.lamp_pat_a", "light.lamp_pat_b"}
 

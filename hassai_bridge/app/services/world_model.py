@@ -50,19 +50,38 @@ def fold(text: str) -> str:
 
 
 def tokenize(text: str) -> list[str]:
-    """Split into match tokens. Keeps digits (1, 2) and short alphanumerics (l1)."""
+    """Split into match tokens. Keeps digits (1, 2) and expands glued forms (dormitor1 → dormitor, 1)."""
     out: list[str] = []
     for t in re.split(r"[^\w]+", fold(text)):
         if not t:
             continue
         if t.isdigit() or any(ch.isdigit() for ch in t) or len(t) >= 2:
             out.append(t)
+        # Expand "dormitor1" / "l1" into letter stem + digit parts for matching
+        if any(ch.isdigit() for ch in t) and any(ch.isalpha() for ch in t):
+            for part in re.findall(r"[a-z]+|\d+", t):
+                if part and part not in out:
+                    out.append(part)
     return out
 
 
 def distinctive_tokens(tokens: list[str]) -> list[str]:
     """Tokens that actually discriminate entities (drop generic light words)."""
     return [t for t in tokens if t not in GENERIC_TOKENS]
+
+
+def number_tokens(tokens: list[str]) -> list[str]:
+    """Standalone numeric discriminators from a token list (1, 2, 12)."""
+    nums: list[str] = []
+    for t in tokens or []:
+        if t.isdigit():
+            if t not in nums:
+                nums.append(t)
+        else:
+            for part in re.findall(r"\d+", t):
+                if part not in nums:
+                    nums.append(part)
+    return nums
 
 
 @dataclass
@@ -91,6 +110,21 @@ class EntityNode:
             bits.append(f"@{self.area}")
         bits.append(f"[{self.state or '?'}]")
         return " ".join(bits)
+
+    def number_tokens(self) -> list[str]:
+        bag = (
+            list(self.name_tokens or [])
+            + list(self.area_tokens or [])
+            + list(self.slug_tokens or [])
+            + list(self.device_tokens or [])
+        )
+        return number_tokens(bag)
+
+    def carries_numbers(self, query_nums: list[str]) -> bool:
+        if not query_nums:
+            return True
+        have = set(self.number_tokens())
+        return all(n in have for n in query_nums)
 
 
 def invalidate() -> None:
@@ -295,13 +329,19 @@ def score_entity(node: EntityNode, query_tokens: list[str], *, area_hint: str = 
         ah = fold(area_hint)
         area_f = fold(node.area)
         if ah and area_f:
-            if ah == area_f or ah in area_f or area_f in ah:
+            ah_nums = number_tokens(tokenize(ah))
+            area_nums = number_tokens(tokenize(area_f))
+            # Numbered areas: "Dormitor 1" must not soft-match "Dormitor 2"
+            if ah_nums and area_nums and ah_nums != area_nums:
+                score -= 2.5
+            elif ah == area_f or ah in area_f or area_f in ah:
                 score += 2.5
             else:
                 score -= 1.5
 
     if not numeric_ok:
-        score *= 0.35
+        # Hard reject for ranking: wrong room/lamp number must not stay near the winner
+        score *= 0.08
 
     if not node.available:
         score *= 0.4
@@ -310,6 +350,11 @@ def score_entity(node: EntityNode, query_tokens: list[str], *, area_hint: str = 
     if any(t in {"light", "lights", "lumina", "lumini", "bec", "lampa", "lamp"} for t in query_tokens):
         if node.domain == "light":
             score += 0.3
+
+    # Bonus when entity carries every query number in name/area
+    q_nums = number_tokens(query_tokens)
+    if q_nums and node.carries_numbers(q_nums):
+        score += 4.0 * len(q_nums)
 
     return max(0.0, score)
 
@@ -324,6 +369,7 @@ def search(
     hard_area: bool = False,
 ) -> list[tuple[EntityNode, float]]:
     q_tokens = tokenize(query)
+    q_nums = number_tokens(q_tokens)
     allow = frozenset(domains) if domains else None
     area_f = fold(area) if area else ""
     ranked: list[tuple[EntityNode, float]] = []
@@ -334,6 +380,9 @@ def search(
             na = fold(node.area)
             if not na or (area_f not in na and na not in area_f):
                 continue
+        # If the user said a number, drop entities that don't carry it (name/area/slug)
+        if q_nums and not node.carries_numbers(q_nums):
+            continue
         s = score_entity(node, q_tokens, area_hint=area)
         if s > 0:
             ranked.append((node, s))
@@ -349,6 +398,7 @@ def search(
 def pick_targets(
     hits: list[tuple[EntityNode, float]],
     *,
+    query: str = "",
     min_score: float = 3.5,
     gap_min: float = 1.5,
     ratio_max: float = 0.85,
@@ -359,6 +409,15 @@ def pick_targets(
     """
     if not hits:
         return [], "weak"
+
+    q_nums = number_tokens(tokenize(query)) if query else []
+    if q_nums:
+        numbered = [(n, s) for n, s in hits if n.carries_numbers(q_nums)]
+        if len(numbered) == 1:
+            return [numbered[0][0].entity_id], "unique"
+        if numbered:
+            hits = numbered
+
     top_n, top_s = hits[0]
     if top_s < min_score:
         # Keep weak candidates for agent context but don't auto-act / false-clarify

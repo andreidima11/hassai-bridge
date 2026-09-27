@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.10.1
+
+### Fix
+- **Numbered lamps** — „aprinde lampa dormitor 1” executes Dormitor 1 directly; entities that only carry „2” are dropped before clarification, so the chat no longer asks „Care dintre acestea?” with both lamps
+
 ## 1.10.0
 
 ### Features
