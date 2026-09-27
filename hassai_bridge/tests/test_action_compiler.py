@@ -148,6 +148,30 @@ def test_pronoun_uses_working_memory():
     assert "light.kitchen" in (ctx.hypotheses[0].targets or [])
 
 
+def test_topic_shift_ignores_previous_lights():
+    """After talking about lights, a new subject must not reuse last_entities."""
+    ctx = ck.build_turn_context(user_text="ce glumă știi?", lang="ro")
+    ctx.working_memory = {
+        "last_entities": ["light.kitchen"],
+        "last_area": "Kitchen",
+        "last_action": "turn_on",
+    }
+    # Full compile path via hypotheses — WM must not pin kitchen light
+    hyps = gc.compile_hypotheses(
+        "ce glumă știi?",
+        entities=_entities(),
+        working_memory=ctx.working_memory,
+    )
+    assert not any(
+        "light.kitchen" in (h.targets or [])
+        for h in hyps
+        if h.intent not in {"chat", "complex"}
+    )
+    assert gc.is_topic_shift("ce glumă știi?")
+    assert not gc.is_discourse_followup("aprinde lampa dormitor 1")
+    assert gc.is_discourse_followup("stinge și pe aia")
+
+
 def test_direct_entity_id_from_chip():
     ctx = ck.build_turn_context(user_text="stinge light.kitchen", lang="ro")
     ctx = ac.compile_reflex(ctx, entities=_entities())

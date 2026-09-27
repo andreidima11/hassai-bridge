@@ -170,7 +170,7 @@ def test_pick_dominant_hypothesis():
 
 
 def test_late_context_block():
-    ctx = ck.build_turn_context(user_text="x")
+    ctx = ck.build_turn_context(user_text="stinge și pe aia")
     ctx.working_memory = {"last_entities": ["light.a"], "last_area": "Living"}
     ctx.world_snippet = "candidates:\n- light.a"
     ctx.goal = ck.GoalContract(goal="turn_off light.a", success_criteria="state=off")
@@ -178,6 +178,13 @@ def test_late_context_block():
     assert "[Working memory]" in block
     assert "[House index]" in block
     assert "[Goal]" in block
+
+
+def test_late_context_skips_wm_on_topic_shift():
+    ctx = ck.build_turn_context(user_text="ce vreme e mâine?")
+    ctx.working_memory = {"last_entities": ["light.a"], "last_area": "Living"}
+    block = ck.late_context_block(ctx)
+    assert "[Working memory]" not in block
 
 
 def test_skip_pack_router_pause_status():

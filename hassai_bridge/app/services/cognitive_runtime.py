@@ -51,6 +51,18 @@ async def prepare_turn(
     ctx.working_memory = wmem.load_working_set(user_id, session_id)
     aliases = wmem.list_aliases(user_id)
 
+    # Topic shift: drop sticky lights/areas so the agent doesn't keep controlling them
+    if gc.is_topic_shift(user_text):
+        wmem.clear_working_set(user_id, session_id)
+        ctx.working_memory = wmem.empty_working_set()
+
+    # Only reuse last_entities / last_area for short discourse follow-ups
+    wm_for_compile = (
+        ctx.working_memory
+        if gc.is_discourse_followup(user_text)
+        else wmem.empty_working_set()
+    )
+
     # Correction fast-path: learn alias, then let agent/reflex continue next turn
     correction = gc.detect_correction(user_text)
     entities: list[wm.EntityNode] = []
@@ -143,7 +155,7 @@ async def prepare_turn(
             ctx.hypotheses = gc.compile_hypotheses(
                 user_text,
                 entities=entities,
-                working_memory=ctx.working_memory,
+                working_memory=wm_for_compile,
                 aliases=aliases,
             )
             if ctx.hypotheses:
@@ -154,6 +166,8 @@ async def prepare_turn(
             {"surface": a.get("surface"), "resolves_to": a.get("resolves_to")}
             for a in aliases[:8]
         ]
+        # Don't leak previous light entities into non-follow-up agent turns
+        ctx.working_memory = wm_for_compile
         late = ck.late_context_block(ctx)
         cm.record_turn(ctx, outcome={"ok": None, "path": "agent"})
         return {
@@ -164,6 +178,7 @@ async def prepare_turn(
             "message": "",
         }
 
+    ctx.working_memory = wm_for_compile
     ctx = ac.compile_reflex(ctx, entities=entities, aliases=aliases)
     ctx.aliases_used = [
         {"surface": a.get("surface"), "resolves_to": a.get("resolves_to")}

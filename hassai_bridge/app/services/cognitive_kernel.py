@@ -175,10 +175,21 @@ def pick_dominant_hypothesis(
     return top
 
 
-def late_context_block(ctx: TurnContext) -> str:
-    """Compact block injected on the last user turn (KV-cache friendly)."""
+def late_context_block(ctx: TurnContext, *, include_working_memory: bool | None = None) -> str:
+    """Compact block injected on the last user turn (KV-cache friendly).
+
+    Working memory (last light entities, etc.) is included only for discourse
+    follow-ups — otherwise a topic shift would keep forcing the previous device.
+    """
     parts: list[str] = []
-    if ctx.working_memory:
+    use_wm = include_working_memory
+    if use_wm is None:
+        try:
+            from services import goal_compiler as gc
+            use_wm = gc.is_discourse_followup(ctx.user_text or "")
+        except Exception:
+            use_wm = False
+    if use_wm and ctx.working_memory:
         refs = []
         if ctx.working_memory.get("last_entities"):
             refs.append("entities=" + ", ".join(ctx.working_memory["last_entities"][:6]))

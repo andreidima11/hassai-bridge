@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.10.2
+
+### Fix
+- **Sticky context** — after talking about lights, a sudden topic change no longer keeps injecting previous entities; working memory is only reused for real follow-ups («stinge și pe aia»), not for new questions
+
 ## 1.10.1
 
 ### Fix

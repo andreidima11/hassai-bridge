@@ -42,7 +42,18 @@ _SET_TEMP = re.compile(
 )
 _ALL = re.compile(r"\b(?:toate|to[tț]i|all|every)\b", re.I)
 _PRONOUN = re.compile(
-    r"\b(?:aia|asta|acea|acel|la\s+fel|the\s+same|it|that\s+one|și\s+pe\s+aia)\b",
+    r"\b(?:aia|asta|acea|acel|la\s+fel|the\s+same|it|that\s+one|și\s+pe\s+aia|"
+    r"pe\s+aia|pe\s+asta|și\s+aia|and\s+that|same\s+one)\b",
+    re.I,
+)
+_ELLIPTICAL_CONTROL = re.compile(
+    r"^\s*(?:"
+    r"stinge[- ]?o|aprinde[- ]?o|opre[sș]te[- ]?o|închide[- ]?o|inchide[- ]?o|deschide[- ]?o|"
+    r"turn\s+it\s+(?:on|off)|switch\s+it\s+(?:on|off)|"
+    r"stinge|aprinde|opre[sș]te|închide|inchide|"
+    r"on|off|stop|go|"
+    r"și\s+(?:pe\s+)?(?:aia|asta)|and\s+(?:that|the\s+same)"
+    r")\s*[.!?]*\s*$",
     re.I,
 )
 _AREA_PREP = re.compile(
@@ -115,6 +126,46 @@ def extract_target_phrase(text: str) -> str:
 
 def looks_like_pronoun_followup(text: str) -> bool:
     return bool(_PRONOUN.search(text or ""))
+
+
+def is_discourse_followup(text: str) -> bool:
+    """True only for short continuations that may refer to the previous HA target.
+
+    Full commands with their own target («aprinde lampa dormitor 1») are NOT
+    follow-ups — they resolve on their own. Topic shifts must not inherit lights.
+    """
+    t = _strip_noise(text)
+    if not t:
+        return False
+    if looks_like_pronoun_followup(t):
+        # Pronoun alone or with a short verb — but not a long new question
+        if len(t) <= 48 or _ELLIPTICAL_CONTROL.search(t):
+            return True
+        # "stinge și pe aia" style
+        if _base_action(t)[0] and len(t) <= 64:
+            return True
+        return False
+    if _ELLIPTICAL_CONTROL.search(t):
+        return True
+    return False
+
+
+def is_topic_shift(text: str) -> bool:
+    """User moved away from the previous HA control thread."""
+    t = _strip_noise(text)
+    if not t:
+        return False
+    if is_discourse_followup(t):
+        return False
+    if detect_correction(t):
+        return False
+    # Explicit new control with its own wording — not a shift away from HA,
+    # but also must not reuse previous entities (handled separately).
+    from services import deepseek as ds
+
+    if ds.looks_like_control(t) or _base_action(t)[0]:
+        return False
+    return True
 
 
 def detect_correction(text: str) -> dict | None:
@@ -232,7 +283,8 @@ def compile_hypotheses(
 
     area = extract_area(text, known_areas)
     wm_mem = working_memory or {}
-    if not area and looks_like_pronoun_followup(text):
+    use_wm = is_discourse_followup(text)
+    if not area and use_wm and looks_like_pronoun_followup(text):
         area = str(wm_mem.get("last_area") or "")
 
     domains = _domain_hints(text, intent)
@@ -276,7 +328,7 @@ def compile_hypotheses(
             for n in alias_nodes:
                 hits = [(n, 12.0)] + [(x, s) for x, s in hits if x.entity_id != n.entity_id]
 
-        if looks_like_pronoun_followup(text) and wm_mem.get("last_entities"):
+        if use_wm and looks_like_pronoun_followup(text) and wm_mem.get("last_entities"):
             last = [str(e) for e in wm_mem["last_entities"][:4]]
             pronoun_nodes = [n for n in entities if n.entity_id in last]
             if pronoun_nodes:

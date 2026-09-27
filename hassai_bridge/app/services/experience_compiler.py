@@ -108,6 +108,9 @@ def match_skill(user_id: str, user_text: str, *, include_shadow: bool = False) -
     folded = wm.fold(user_text)
     if not folded:
         return None
+    from services import goal_compiler as gc
+
+    topic_shift = gc.is_topic_shift(user_text)
     statuses = [STATUS_ACTIVE]
     if include_shadow:
         statuses.append(STATUS_SHADOW)
@@ -119,7 +122,13 @@ def match_skill(user_id: str, user_text: str, *, include_shadow: bool = False) -
             continue
         if trig == folded:
             score = 1.0
+        elif topic_shift:
+            # After a subject change, only exact skill triggers may fire
+            continue
         elif trig in folded or folded in trig:
+            # Require near-full containment, not a short trigger inside a long chat message
+            if min(len(trig), len(folded)) < 8:
+                continue
             score = 0.85
         else:
             # token overlap
@@ -128,12 +137,12 @@ def match_skill(user_id: str, user_text: str, *, include_shadow: bool = False) -
             if not tt or not ut:
                 continue
             score = len(tt & ut) / max(len(tt), len(ut))
-            if score < 0.7:
+            if score < 0.85:
                 continue
         if score > best_score:
             best_score = score
             best = row
-    return best if best_score >= 0.7 else None
+    return best if best_score >= 0.85 else None
 
 
 async def run_skill_shadow(skill: dict, *, user_text: str) -> dict:

@@ -76,6 +76,31 @@ def set_pending_clarification(user_id: str, session_id: str, chips: list[dict], 
     save_working_set(user_id, session_id, cur)
 
 
+def clear_working_set(user_id: str, session_id: str, *, keep_aliases: bool = True) -> dict:
+    """Drop sticky HA discourse when the user changes subject."""
+    cur = {
+        "last_entities": [],
+        "last_area": "",
+        "last_action": "",
+        "open_goal": "",
+        "pending_clarification": None,
+        "updated_at": time.time(),
+    }
+    save_working_set(user_id, session_id, cur)
+    return cur
+
+
+def empty_working_set() -> dict:
+    return {
+        "last_entities": [],
+        "last_area": "",
+        "last_action": "",
+        "open_goal": "",
+        "pending_clarification": None,
+        "updated_at": 0.0,
+    }
+
+
 # ── Aliases ─────────────────────────────────────────
 
 def list_aliases(user_id: str, *, active_only: bool = True) -> list[dict]:
