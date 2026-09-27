@@ -593,6 +593,22 @@ def _trace_cancel(trace_id: str) -> bool:
 async def _check_trace(trace_id: str) -> None:
     if _trace_cancelled(trace_id):
         raise TraceCancelled(trace_id)
+    # Durable cancel flag (UI closed / another device)
+    try:
+        from services.chat_jobs import store as cj_store
+
+        job = cj_store.get_job(trace_id) if trace_id else None
+        if job and (job.get("cancel_requested_at") or job.get("status") == "cancelled"):
+            _trace_cancel(trace_id)
+            raise TraceCancelled(trace_id)
+        deadline = float((job or {}).get("deadline_at") or 0)
+        if job and deadline and time.time() >= deadline:
+            _trace_cancel(trace_id)
+            raise TraceCancelled(trace_id)
+    except TraceCancelled:
+        raise
+    except Exception:
+        pass
 
 
 def _trace_push(trace_id: str, event: dict) -> dict:
@@ -602,26 +618,54 @@ def _trace_push(trace_id: str, event: dict) -> dict:
         payload["i"] = len(bucket["events"])
         bucket["events"].append(payload)
         bucket["ts"] = time.time()
+    # Mirror into durable job events (panel-close / cross-device resume)
+    if trace_id:
+        try:
+            from services.chat_jobs import activity as cj_activity
+            from services.chat_jobs import store as cj_store
+
+            if cj_store.get_job(trace_id):
+                durable = cj_activity.push_event(trace_id, payload)
+                if "i" in durable and "i" not in payload:
+                    payload["i"] = durable["i"]
+        except Exception:
+            pass
     return payload
 
 
 def _trace_done(trace_id: str, *, error: str = "") -> None:
-    if not trace_id or trace_id not in _traces:
+    if not trace_id:
         return
-    bucket = _traces[trace_id]
-    bucket["done"] = True
-    bucket["ts"] = time.time()
-    if error:
-        bucket["error"] = str(error)[:500]
-        if not bucket.get("cancelled"):
-            bucket["status"] = "error"
-    elif bucket.get("cancelled"):
-        bucket["status"] = "cancelled"
-    else:
-        bucket["status"] = "done"
-    sid = str(bucket.get("session_id") or "")
-    if sid and _session_jobs.get(sid) == trace_id:
-        _session_jobs.pop(sid, None)
+    if trace_id in _traces:
+        bucket = _traces[trace_id]
+        bucket["done"] = True
+        bucket["ts"] = time.time()
+        if error:
+            bucket["error"] = str(error)[:500]
+            if not bucket.get("cancelled"):
+                bucket["status"] = "error"
+        elif bucket.get("cancelled"):
+            bucket["status"] = "cancelled"
+        else:
+            bucket["status"] = "done"
+        sid = str(bucket.get("session_id") or "")
+        if sid and _session_jobs.get(sid) == trace_id:
+            _session_jobs.pop(sid, None)
+    # Durable job terminal state (best-effort; delivery may already have run)
+    try:
+        from services.chat_jobs import manager as cj_manager
+        from services.chat_jobs import store as cj_store
+
+        job = cj_store.get_job(trace_id)
+        if job and job.get("status") in cj_store.ACTIVE_STATUSES:
+            if error:
+                cj_manager.mark_failed(trace_id, message=error)
+            elif job.get("cancel_requested_at") or (trace_id in _traces and _traces[trace_id].get("cancelled")):
+                cj_manager.mark_cancelled(trace_id)
+            else:
+                cj_manager.mark_completed(trace_id)
+    except Exception:
+        pass
 
 
 def _session_job_running(session_id: str | None) -> str | None:
@@ -630,13 +674,30 @@ def _session_job_running(session_id: str | None) -> str | None:
     if not sid:
         return None
     tid = _session_jobs.get(sid)
-    if not tid:
-        return None
-    bucket = _traces.get(tid)
-    if not bucket or bucket.get("done"):
+    if tid:
+        bucket = _traces.get(tid)
+        if bucket and not bucket.get("done"):
+            return tid
         _session_jobs.pop(sid, None)
-        return None
-    return tid
+    # Durable fallback (after restart memory is empty)
+    try:
+        from services.chat_jobs import store as cj_store
+
+        # owner unknown here — scan by session only among active
+        from core.database import get_db
+
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT job_id FROM chat_jobs
+                   WHERE session_id = ? AND status IN ('queued', 'running', 'blocked')
+                   ORDER BY created_at DESC LIMIT 1""",
+                (sid,),
+            ).fetchone()
+        if row:
+            return str(row["job_id"])
+    except Exception:
+        pass
+    return None
 
 
 def _register_session_job(session_id: str | None, trace_id: str) -> None:
@@ -2719,6 +2780,114 @@ def _command_response_openai(content: str, model: str) -> dict:
     }
 
 
+def _background_job_accepted(
+    *,
+    trace_id: str,
+    session_id: str | None,
+    model: str | None,
+) -> JSONResponse:
+    """202 Accepted payload the chat UI polls via /v1/chat/activity/{trace_id}."""
+    return JSONResponse(
+        status_code=202,
+        content={
+            "id": f"hassai-job-{trace_id}",
+            "object": "hassai.chat.job",
+            "created": int(time.time()),
+            "model": model or "",
+            "status": "running",
+            "session_id": session_id,
+            "trace_id": trace_id,
+            "choices": [],
+        },
+    )
+
+
+def _complete_background_fast_path(
+    *,
+    trace_id: str,
+    session_id: str | None,
+    user_id: str,
+    model: str | None,
+    content: str,
+    followups: list | None = None,
+    route: dict | None = None,
+    provider_name: str | None = None,
+) -> JSONResponse:
+    """Publish a finished assistant reply onto the activity poll used by background chat.
+
+    Slash commands and Cognitive OS reflexes return before `_trace_start` in the
+    normal LLM path. The UI always polls `waitForChatJob(trace_id)`, so without
+    this the overlay stays stuck on «Gândește» forever.
+    """
+    tid = str(trace_id or "").strip()
+    if not tid:
+        payload = _command_response_openai(content, model or "")
+        if followups:
+            payload["hassai"] = {"followups": list(followups)}
+        return JSONResponse(content=payload)
+
+    _trace_start(
+        tid,
+        session_id=session_id,
+        user_id=user_id,
+        model=model or "hassai-bridge",
+        provider_name=provider_name or "hassai-bridge",
+        route=route,
+    )
+    try:
+        from services.chat_jobs import delivery as cj_delivery
+        from services.chat_jobs import manager as cj_manager
+        from services.chat_jobs import store as cj_store
+
+        if not cj_store.get_job(tid):
+            cj_manager.create_job(
+                job_id=tid,
+                owner_id=user_id,
+                session_id=session_id or "",
+                spec={
+                    "model": model or "hassai-bridge",
+                    "provider": provider_name or "hassai-bridge",
+                    "route": route or {},
+                    "fast_path": True,
+                },
+            )
+        cj_manager.mark_running(tid)
+    except Exception:
+        log.debug("durable fast-path job create failed", exc_info=True)
+    if content:
+        _trace_push(tid, {
+            "id": "assistant-out",
+            "name": "assistant",
+            "detail": content,
+            "status": "done",
+        })
+    if followups:
+        _trace_push(tid, {
+            "id": "followups",
+            "name": "followups",
+            "status": "done",
+            "followups": list(followups),
+        })
+    _trace_done(tid)
+    try:
+        from services.chat_jobs import manager as cj_manager
+
+        # Fast paths already persist the assistant row before calling here —
+        # only mark the durable job done so polls complete (no second insert).
+        cj_manager.mark_completed(
+            tid,
+            result={"fast_path": True},
+            progress={"assistant_preview": content, "phase": "done"},
+        )
+    except Exception:
+        log.debug("durable fast-path finalize failed", exc_info=True)
+    return _background_job_accepted(
+        trace_id=tid,
+        session_id=session_id,
+        model=model or "hassai-bridge",
+    )
+
+
 def _estimate_tokens(text) -> int:
     """Estimate token count using word-based heuristic."""
     return cc.estimate_tokens(text)
@@ -3395,7 +3564,18 @@ async def chat_activity(trace_id: str, request: Request, after: int = -1):
     _trace_gc()
     safe_id = _sanitize_trace_id(trace_id)
     bucket = _traces.get(safe_id) if safe_id else None
-    return _activity_status_payload(bucket, after)
+    if bucket:
+        return _activity_status_payload(bucket, after)
+    try:
+        from services.chat_jobs import manager as cj_manager
+
+        user_id = _extract_user_id(request, {})
+        payload = cj_manager.activity_payload(safe_id, owner_id=user_id, after=after)
+        if payload:
+            return payload
+    except Exception:
+        log.debug("durable activity fallback failed", exc_info=True)
+    return _activity_status_payload(None, after)
 
 
 @router.get("/v1/chat/jobs/{trace_id}")
@@ -3405,15 +3585,31 @@ async def chat_job_status(trace_id: str, request: Request):
     _trace_gc()
     safe_id = _sanitize_trace_id(trace_id)
     bucket = _traces.get(safe_id) if safe_id else None
-    payload = _activity_status_payload(bucket, -1)
-    payload.pop("events", None)
-    payload.pop("after", None)
-    if not bucket:
-        return JSONResponse(
-            status_code=404,
-            content={"error": {"message": "Job not found", "type": "not_found"}, **payload},
-        )
-    return payload
+    if bucket:
+        payload = _activity_status_payload(bucket, -1)
+        payload.pop("events", None)
+        payload.pop("after", None)
+        return payload
+    try:
+        from services.chat_jobs import manager as cj_manager
+
+        user_id = _extract_user_id(request, {})
+        payload = cj_manager.activity_payload(safe_id, owner_id=user_id, after=-1)
+        if payload:
+            payload.pop("events", None)
+            payload.pop("after", None)
+            return payload
+    except Exception:
+        log.debug("durable job status fallback failed", exc_info=True)
+    return JSONResponse(
+        status_code=404,
+        content={
+            "error": {"message": "Job not found", "type": "not_found"},
+            "done": False,
+            "cancelled": False,
+            "status": "unknown",
+        },
+    )
 
 
 @router.post("/v1/chat/cancel/{trace_id}")
@@ -3428,6 +3624,16 @@ async def chat_cancel(trace_id: str, request: Request):
             content={"error": {"message": "Invalid trace_id", "type": "invalid_request_error"}},
         )
     cancelled = _trace_cancel(safe_id)
+    try:
+        from services.chat_jobs import store as cj_store
+
+        user_id = _extract_user_id(request, {})
+        job = cj_store.get_job_for_owner(safe_id, user_id)
+        if job:
+            cj_store.request_cancel(safe_id)
+            cancelled = True
+    except Exception:
+        pass
     return {"ok": True, "cancelled": cancelled}
 
 
@@ -3747,6 +3953,14 @@ async def chat_completions(request: Request):
     if cmd_result is not None:
         log.info(f"[{user_id}] Slash command: {last_user_msg[:50]}")
         # Slash commands: save only user msg, not polluting history with /health etc. (#18)
+        if background:
+            return _complete_background_fast_path(
+                trace_id=trace_id,
+                session_id=session_id,
+                user_id=user_id,
+                model=model or "hassai-bridge",
+                content=cmd_result,
+            )
         if stream:
             # Stream the command response as a single chunk
             chunk_data = json.dumps({
@@ -3796,6 +4010,22 @@ async def chat_completions(request: Request):
                 (cognitive_ctx_dict or {}).get("path"),
                 (cognitive_ctx_dict or {}).get("confidence"),
             )
+            if background:
+                return _complete_background_fast_path(
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    user_id=user_id,
+                    model=model or "hassai-bridge",
+                    content=msg,
+                    followups=followups,
+                    route={
+                        "role": "cognitive",
+                        "reason": (cognitive_ctx_dict or {}).get("path") or "reflex",
+                        "klass": route_klass,
+                        "auto": bool(route.get("auto")),
+                    },
+                    provider_name="hassai-reflex",
+                )
             if stream:
                 chunk_data = json.dumps({
                     "id": f"cog-{int(time.time())}",
@@ -5023,22 +5253,44 @@ async def chat_completions(request: Request):
                         "status": "done",
                         "followups": followups,
                     })
-                add_conversation_message(
-                    user_id, "assistant", clean_response,
-                    session_id=session_id,
-                    meta=_activity_meta(
-                        trace_id,
-                        attachments=generated_attachments,
-                        reasoning_content=_store_reasoning(last_think_reasoning),
-                        tool_calls=turn_tools,
-                        model=model_label,
-                        provider_name=chat_provider.get("name", ""),
-                        route=route,
-                        photo_context=photo_context or None,
-                        sources=collected_sources,
-                        followups=followups,
-                    ),
+                _asst_meta = _activity_meta(
+                    trace_id,
+                    attachments=generated_attachments,
+                    reasoning_content=_store_reasoning(last_think_reasoning),
+                    tool_calls=turn_tools,
+                    model=model_label,
+                    provider_name=chat_provider.get("name", ""),
+                    route=route,
+                    photo_context=photo_context or None,
+                    sources=collected_sources,
+                    followups=followups,
                 )
+                _saved_via_job = False
+                if background and trace_id:
+                    try:
+                        from services.chat_jobs import delivery as cj_delivery
+                        from services.chat_jobs import manager as cj_manager
+                        from services.chat_jobs import store as cj_store
+
+                        job = cj_store.get_job(trace_id)
+                        if job:
+                            cj_manager.mark_completed(
+                                trace_id,
+                                result={"chars": len(clean_response or "")},
+                                progress={"assistant_preview": clean_response, "phase": "done"},
+                            )
+                            await cj_delivery.enqueue_result(
+                                trace_id, content=clean_response, meta=_asst_meta,
+                            )
+                            _saved_via_job = True
+                    except Exception:
+                        log.debug("durable assistant finalize failed", exc_info=True)
+                if not _saved_via_job:
+                    add_conversation_message(
+                        user_id, "assistant", clean_response,
+                        session_id=session_id,
+                        meta=_asst_meta,
+                    )
                 # Final activity snapshot so poll clients that missed SSE still
                 # receive the persisted reply before done=true.
                 if clean_response:
@@ -5127,6 +5379,17 @@ async def chat_completions(request: Request):
                 pass
         except TraceCancelled:
             log.info("[%s] Stream cancelled trace=%s", user_id, trace_id)
+            if background and trace_id:
+                try:
+                    from services.chat_jobs import delivery as cj_delivery
+                    from services.chat_jobs import manager as cj_manager
+                    from services.chat_jobs import store as cj_store
+
+                    preview = str((cj_store.get_job(trace_id) or {}).get("progress", {}).get("assistant_preview") or full_response or "")
+                    cj_manager.mark_cancelled(trace_id)
+                    await cj_delivery.enqueue_result(trace_id, content=preview, meta={})
+                except Exception:
+                    log.debug("durable cancel finalize failed", exc_info=True)
             async for part in flush_activity():
                 yield part
             yield "data: [DONE]\n\n"
@@ -5163,6 +5426,58 @@ async def chat_completions(request: Request):
             )
         _register_session_job(session_id, trace_id)
 
+        # Durable job + placeholder so leave-and-return / restart never strand UI
+        try:
+            from services.chat_jobs import delivery as cj_delivery
+            from services.chat_jobs import manager as cj_manager
+            from services.chat_jobs import store as cj_store
+            from services.chat_jobs.store import JobConflictError
+
+            existing = cj_store.get_job(trace_id)
+            if existing and existing.get("status") in cj_store.TERMINAL_STATUSES:
+                return _background_job_accepted(
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    model=model or chat_provider.get("model", ""),
+                )
+            if not existing:
+                try:
+                    cj_manager.create_job(
+                        job_id=trace_id,
+                        owner_id=user_id,
+                        session_id=session_id or "",
+                        spec={
+                            "model": chat_provider.get("model", "") or model or "",
+                            "provider": chat_provider.get("name", ""),
+                            "route": {
+                                "role": route.get("role") or "",
+                                "reason": route.get("reason") or "",
+                                "klass": route.get("klass") or "",
+                                "auto": bool(route.get("auto")),
+                            },
+                        },
+                        cfg=cfg,
+                    )
+                except JobConflictError as conflict:
+                    return JSONResponse(
+                        status_code=409,
+                        content={
+                            "error": {
+                                "message": "A reply is already generating for this chat. Wait or press Stop.",
+                                "type": "conflict",
+                                "trace_id": conflict.busy_job_id,
+                            },
+                        },
+                    )
+                cj_delivery.ensure_placeholder(
+                    owner_id=user_id,
+                    session_id=session_id or "",
+                    job_id=trace_id,
+                )
+            cj_manager.mark_running(trace_id)
+        except Exception:
+            log.exception("[%s] durable chat job setup failed trace=%s", user_id, trace_id)
+
         async def _background_job():
             try:
                 async for _chunk in stream_wrapper():
@@ -5171,24 +5486,24 @@ async def chat_completions(request: Request):
                 log.error("[%s] Background chat job crashed: %s", user_id, e)
                 if trace_id in _traces and not _traces[trace_id].get("done"):
                     _trace_done(trace_id, error=str(e)[:500])
+                try:
+                    from services.chat_jobs import delivery as cj_delivery
+                    from services.chat_jobs import manager as cj_manager
+
+                    cj_manager.mark_failed(trace_id, message=str(e)[:500])
+                    await cj_delivery.enqueue_result(trace_id, content=str(e)[:500], meta={})
+                except Exception:
+                    pass
             finally:
                 if session_id and _session_jobs.get(session_id) == trace_id:
                     _session_jobs.pop(session_id, None)
 
         asyncio.create_task(_background_job())
         log.info("[%s] Background chat job started trace=%s session=%s", user_id, trace_id, session_id)
-        return JSONResponse(
-            status_code=202,
-            content={
-                "id": f"hassai-job-{trace_id}",
-                "object": "hassai.chat.job",
-                "created": int(time.time()),
-                "model": model or chat_provider.get("model", ""),
-                "status": "running",
-                "session_id": session_id,
-                "trace_id": trace_id,
-                "choices": [],
-            },
+        return _background_job_accepted(
+            trace_id=trace_id,
+            session_id=session_id,
+            model=model or chat_provider.get("model", ""),
         )
 
     async def _guarded_stream():
@@ -5289,3 +5604,16 @@ async def list_models():
         # still connect; chat will surface a clearer error later.
         log.warning(f"Could not list models from provider: {e}")
         return {"object": "list", "data": []}
+
+
+# Register chat turn boundary for durable runners / tests.
+try:
+    from services.chat_turn.engine import register_turn_runner
+
+    async def _chat_turn_runner(**kwargs):
+        """Placeholder — live turns still run via chat_completions stream_wrapper."""
+        raise RuntimeError("use chat_completions background path for live turns")
+
+    register_turn_runner(_chat_turn_runner)
+except Exception:
+    pass

@@ -155,6 +155,7 @@ def list_profiles() -> list[dict]:
             "ha_id": prof.get("ha_id") or row.get("ha_id", ""),
             "display_name": prof.get("display_name") or row.get("display_name") or name,
             "source": prof.get("source") or row.get("source") or "manual",
+            "notify_service": prof.get("notify_service") or row.get("notify_service", "") or "",
         })
     return sorted(by_name.values(), key=lambda r: r["username"].lower())
 
@@ -167,6 +168,34 @@ def get_profile(username: str) -> dict | None:
         if row.get("username") == username:
             return row
     return None
+
+
+def set_profile_notify_service(username: str, notify_service: str) -> dict | None:
+    """Persist per-user Companion notify service (empty clears)."""
+    from services.background_tasks.notify_resolve import normalize_notify_service
+
+    username = (username or "").strip()
+    if not username:
+        return None
+    cfg = load_config()
+    users = cfg.setdefault("users", {"default_user": "", "api_keys": {}, "profiles": {}})
+    profiles = users.setdefault("profiles", {})
+    prof = dict(profiles.get(username)) if isinstance(profiles.get(username), dict) else {}
+    if not prof and username not in (users.get("api_keys") or {}).values():
+        # Ensure profile exists
+        ensure_user(username)
+        cfg = load_config()
+        users = cfg.setdefault("users", {"default_user": "", "api_keys": {}, "profiles": {}})
+        profiles = users.setdefault("profiles", {})
+        prof = dict(profiles.get(username)) if isinstance(profiles.get(username), dict) else {}
+    cleaned = normalize_notify_service(notify_service)
+    if cleaned:
+        prof["notify_service"] = cleaned
+    else:
+        prof.pop("notify_service", None)
+    profiles[username] = prof
+    save_config(cfg)
+    return get_profile(username)
 
 
 def resolve_display_name(username: str, request: Request | None = None) -> str:

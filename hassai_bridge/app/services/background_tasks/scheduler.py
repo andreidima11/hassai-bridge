@@ -76,6 +76,14 @@ async def recover_on_boot() -> None:
     ha_events.refresh_watch_index()
     log.info("background tasks recovery done")
 
+    # Durable chat jobs (LLM turns) — fail orphaned running jobs cleanly
+    try:
+        from services.chat_jobs import runner as chat_runner
+
+        await chat_runner.recover_on_boot()
+    except Exception:
+        log.exception("chat jobs recovery failed")
+
 
 async def _tick() -> None:
     global _last_cleanup_at
@@ -94,6 +102,26 @@ async def _tick() -> None:
         await delivery.retry_pending(limit=5)
     except Exception:
         log.exception("delivery retry failed")
+
+    # Chat jobs: cancel/timeout + delivery retry
+    try:
+        from services.chat_jobs import delivery as chat_delivery
+        from services.chat_jobs import manager as chat_manager
+        from services.chat_jobs import runner as chat_runner
+        from services.chat_jobs import store as chat_store
+
+        cj = chat_manager._cj_cfg(cfg)
+        if cj["enabled"]:
+            await chat_runner.process_due_jobs()
+            await chat_delivery.retry_pending(limit=5)
+            now = time.time()
+            if now - _last_cleanup_at > 3600:
+                n = chat_store.cleanup_old_jobs(cj["max_result_days"])
+                if n:
+                    log.info("cleaned %s old chat jobs", n)
+    except Exception:
+        log.exception("chat jobs tick failed")
+
     now = time.time()
     if now - _last_cleanup_at > 3600:
         try:

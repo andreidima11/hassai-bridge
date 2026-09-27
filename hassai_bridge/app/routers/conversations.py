@@ -228,6 +228,23 @@ async def recommendations_chip_override(request: Request):
 async def list_mine(request: Request, limit: int = 50):
     user_id = _current_username(request)
     sessions = get_conversation_sessions(user_id, limit)
+    try:
+        from services.chat_jobs import store as cj_store
+
+        active = cj_store.list_active_by_sessions(
+            user_id, [str(s.get("session_id") or "") for s in sessions],
+        )
+        for row in sessions:
+            sid = str(row.get("session_id") or "")
+            job = active.get(sid)
+            if job:
+                row["chat_job"] = {
+                    "job_id": job.get("job_id"),
+                    "status": job.get("status"),
+                    "generating": True,
+                }
+    except Exception:
+        pass
     return {"user_id": user_id, "sessions": sessions}
 
 

@@ -368,6 +368,18 @@ export default function App() {
             ...(m.background_task || m.background_task_id
               ? { backgroundTask: m.background_task || { task_id: m.background_task_id } }
               : {}),
+            ...(m.chat_job_id || m.chat_job
+              ? {
+                  chatJob: m.chat_job || { job_id: m.chat_job_id },
+                  ...(["queued", "running", "blocked"].includes(String((m.chat_job || {}).status || "")) &&
+                  !String(m.content || "").trim()
+                    ? {
+                        streaming: true,
+                        thinking: { ...emptyThinking(t("thinking")), visible: true, active: true },
+                      }
+                    : {}),
+                }
+              : {}),
           });
         } else {
           const content = m.content === "(image)" ? "" : m.content || "";
@@ -389,6 +401,16 @@ export default function App() {
           }
           if (m.role === "assistant" && (m.background_task || m.background_task_id)) {
             row.backgroundTask = m.background_task || { task_id: m.background_task_id };
+          }
+          if (m.role === "assistant" && (m.chat_job_id || m.chat_job)) {
+            const cj = m.chat_job || { job_id: m.chat_job_id };
+            row.chatJob = cj;
+            const st = String(cj.status || "");
+            if (["queued", "running", "blocked"].includes(st) && !String(m.content || "").trim()) {
+              row.streaming = true;
+              row.content = "";
+              row.thinking = { ...emptyThinking(t("thinking")), visible: true, active: true };
+            }
           }
           msgs.push(row);
         }
@@ -575,6 +597,69 @@ export default function App() {
 
   const openSessionRef = useRef(openSession);
   const watchJobRef = useRef(watchBackgroundJob);
+  const resumeActiveJob = useCallback(
+    async (sid, usernameOverride) => {
+      const uname = usernameOverride || user.username;
+      const session = String(sid || sessionIdRef.current || "").trim();
+      if (!session || busy || traceIdRef.current) return;
+      try {
+        const active = await apiJson(
+          `/api/chat-jobs/active?session_id=${encodeURIComponent(session)}`,
+        );
+        const job = active?.job;
+        const tid = job?.trace_id || job?.job_id;
+        if (!tid || job.done || job.cancelled) return;
+        if (!["queued", "running", "blocked"].includes(String(job.status || ""))) return;
+        persistPendingTrace(uname, tid, session);
+        let assistantId = newId();
+        const existing = messagesRef.current[messagesRef.current.length - 1];
+        if (existing?.role === "assistant") {
+          assistantId = existing.id;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    streaming: true,
+                    thinking: {
+                      ...(m.thinking || emptyThinking(t("thinking"))),
+                      visible: true,
+                      active: true,
+                    },
+                  }
+                : m,
+            ),
+          );
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: assistantId,
+              role: "assistant",
+              content: "",
+              streaming: true,
+              thinking: { ...emptyThinking(t("thinking")), visible: true, active: true },
+            },
+          ]);
+        }
+        traceIdRef.current = tid;
+        setBusy(true);
+        abortRef.current?.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
+        watchJobRef.current({
+          traceId: tid,
+          sessionId: session,
+          assistantId,
+          signal: controller.signal,
+          username: uname,
+        });
+      } catch {
+        /* ignore */
+      }
+    },
+    [busy, t, user.username],
+  );
   useEffect(() => {
     openSessionRef.current = openSession;
   }, [openSession]);
@@ -637,6 +722,22 @@ export default function App() {
       } catch {
         sid = "";
       }
+      // Deep link from HA Companion notify: ?session=&job=
+      try {
+        const params = new URLSearchParams(window.location.search || "");
+        const deepSid = String(params.get("session") || "").trim();
+        const deepJob = String(params.get("job") || "").trim();
+        if (deepSid) {
+          sid = deepSid;
+          if (deepJob) persistPendingTrace(username, deepJob, deepSid);
+          params.delete("session");
+          params.delete("job");
+          const next = `${window.location.pathname}${params.toString() ? `?${params}` : ""}${window.location.hash || ""}`;
+          window.history.replaceState({}, "", next);
+        }
+      } catch {
+        /* ignore */
+      }
       const pending = readPendingTrace(username);
 
       if (sid) {
@@ -664,7 +765,7 @@ export default function App() {
         } catch {
           job = null;
         }
-        if (job && !job.done && !job.cancelled && job.status === "running") {
+        if (job && !job.done && !job.cancelled && (job.status === "running" || job.status === "queued" || job.status === "blocked")) {
           const resumeSid = pending.sessionId || job.session_id || sid;
           if (resumeSid && resumeSid !== sessionIdRef.current) {
             try {
@@ -728,6 +829,66 @@ export default function App() {
               /* ignore */
             }
           }
+        }
+      } else if (sid) {
+        // No localStorage pending — still attach if server has an active durable job
+        try {
+          const active = await apiJson(
+            `/api/chat-jobs/active?session_id=${encodeURIComponent(sid)}`,
+          );
+          const job = active?.job;
+          const tid = job?.trace_id || job?.job_id;
+          if (tid && !job.done && !job.cancelled && ["queued", "running", "blocked"].includes(job.status)) {
+            persistPendingTrace(username, tid, sid);
+            let assistantId = newId();
+            const existing = messagesRef.current[messagesRef.current.length - 1];
+            if (existing?.role === "assistant") {
+              assistantId = existing.id;
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? {
+                        ...m,
+                        streaming: true,
+                        thinking: {
+                          ...(m.thinking || emptyThinking(tr(readStoredLang(), "thinking"))),
+                          visible: true,
+                          active: true,
+                        },
+                      }
+                    : m,
+                ),
+              );
+            } else {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: assistantId,
+                  role: "assistant",
+                  content: "",
+                  streaming: true,
+                  thinking: {
+                    ...emptyThinking(tr(readStoredLang(), "thinking")),
+                    visible: true,
+                    active: true,
+                  },
+                },
+              ]);
+            }
+            traceIdRef.current = tid;
+            setBusy(true);
+            const controller = new AbortController();
+            abortRef.current = controller;
+            watchJobRef.current({
+              traceId: tid,
+              sessionId: sid,
+              assistantId,
+              signal: controller.signal,
+              username,
+            });
+          }
+        } catch {
+          /* ignore */
         }
       }
 
@@ -945,7 +1106,26 @@ export default function App() {
         background: true,
       });
       if (!resp.ok) throw new Error(await readError(resp));
-      await resp.json().catch(() => ({}));
+      const start = await resp.json().catch(() => ({}));
+      // Fast paths (reflex / slash) may return a finished completion instead of a job.
+      const immediate = String(start?.choices?.[0]?.message?.content || "").trim();
+      if (start?.object === "chat.completion" && (immediate || Array.isArray(start?.hassai?.followups))) {
+        if (Array.isArray(start?.hassai?.followups)) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === assistantId ? { ...m, followups: start.hassai.followups } : m)),
+          );
+        }
+        finishAssistantMessage(assistantId, immediate);
+        clearPendingTrace(user.username);
+        setBusy(false);
+        if (traceIdRef.current === traceId) traceIdRef.current = "";
+        if (spokenTurnRef.current) {
+          spokenTurnRef.current = false;
+          speakReply(assistantId, immediate);
+        }
+        refreshSessions().catch(() => {});
+        return true;
+      }
     } catch (err) {
       const aborted = err?.name === "AbortError" || signal.aborted;
       if (!aborted) {
@@ -1208,6 +1388,7 @@ export default function App() {
       <Sidebar
         deleteAllLabel={t("deleteAllChats")}
         emptyLabel={t("noChats")}
+        generatingLabel={t("generating")}
         newLabel={t("newChat")}
         open={sidebarOpen}
         sessionId={sessionId}
@@ -1218,7 +1399,10 @@ export default function App() {
         onDelete={deleteSession}
         onDeleteAll={deleteAllSessions}
         onNew={() => startNewChat()}
-        onOpen={openSession}
+        onOpen={async (id) => {
+          await openSession(id);
+          await resumeActiveJob(id);
+        }}
       />
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background">

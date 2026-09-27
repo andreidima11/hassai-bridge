@@ -25,7 +25,8 @@ from services.knowledge_graph import init_graph_tables
 from services.memory_engine import consolidate_memories
 from services.consolidation_schedule import normalize_auto_consolidation, should_run_now
 from services.providers import get_active_provider
-from routers import chat, memory, settings, skills, conversations, background_tasks
+from routers import chat, memory, settings, skills, conversations, background_tasks, chat_jobs
+
 
 # ── In-memory ring buffer for logs ──
 _LOG_BUFFER_SIZE = 2000
@@ -211,6 +212,7 @@ app.include_router(settings.router)
 app.include_router(skills.router)
 app.include_router(conversations.router)
 app.include_router(background_tasks.router)
+app.include_router(chat_jobs.router)
 
 # ── CORS middleware — allow cross-origin API access (API-key auth, no cookies) ──
 app.add_middleware(

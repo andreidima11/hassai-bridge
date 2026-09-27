@@ -1,5 +1,18 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.9.0
+
+### Features
+- **Durable async chat** — long replies keep running after you close the panel; SQLite `chat_jobs` is the source of truth so reopen / another device / add-on restart no longer leave the UI stuck on «Gândește»
+- **Private Companion notify** — optional per-user push when a chat reply finishes (`person` → `device_tracker` → `notify.mobile_app_*`, or explicit profile `notify_service`); no sole-phone household fallback; deep link `?session=&job=`
+- **Session badges** — generating chats show «Working / În lucru» in the sidebar
+
+### Fix
+- **Reflex / slash + background UI** — fast paths publish onto the activity poll and mark the job done so light commands don’t hang forever
+
+### Note
+- Settings → Chat replies (async) + per-user notify; recovery after restart marks orphaned LLM jobs failed cleanly (no unsafe tool replay)
+
 ## 1.8.0
 
 ### Features

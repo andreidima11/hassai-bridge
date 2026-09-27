@@ -507,6 +507,24 @@
       </div>
 
       <div class="card">
+        <h2 data-i18n="settings.chatJobs">Chat replies (async)</h2>
+        <p class="card-muted" data-i18n="settings.chatJobsDesc">When a chat reply runs as a durable background job, notify the user's Companion app when it finishes. Deep links use the public base URL below.</p>
+        <div class="toggle-row">
+          <span data-i18n="settings.chatJobsEnabled">Enabled — durable async chat jobs</span>
+          <label class="toggle"><input type="checkbox" id="chatJobsEnabled" checked><span class="slider"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span data-i18n="settings.chatJobsNotifyOnComplete">Notify phone when a chat reply completes</span>
+          <label class="toggle"><input type="checkbox" id="chatJobsNotifyOnComplete" checked><span class="slider"></span></label>
+        </div>
+        <label data-i18n="settings.chatJobsPublicBaseUrl">Public base URL (Companion deep link)</label>
+        <input type="text" id="chatJobsPublicBaseUrl" placeholder="https://hassai.example.com">
+        <p class="card-muted" style="margin-top:4px" data-i18n="settings.chatJobsPublicBaseUrlHint">Base URL used in Companion notification deep links (e.g. https://your-host/hassai). Leave empty to use a relative path.</p>
+        <label data-i18n="settings.chatJobsMaxJobSeconds">Max job seconds (optional)</label>
+        <input type="number" id="chatJobsMaxJobSeconds" min="60" max="7200" placeholder="1800">
+      </div>
+
+      <div class="card">
         <h2 data-i18n="settings.browser">Browser tool options</h2>
         <p class="card-muted" data-i18n="settings.browserDesc">Turn the tool on above under Bridge permissions. Optional: HA URL and long-lived token (HA pages). Sites on the allowlist open immediately; other hosts ask Allow / Decline in chat (optional: add to allowlist).</p>
         <label data-i18n="settings.browserHaUrl">Home Assistant URL (for dashboards)</label>
@@ -1185,6 +1203,16 @@
             <code id="userModalApiKey" class="api-key-blur">••••••••</code>
             <button class="btn btn-sm" onclick="toggleUserModalKey()" id="btnToggleUserKey" data-i18n="info.show">Show</button>
             <button class="btn btn-sm btn-primary" onclick="copyUserModalKey()" data-i18n="info.copy">Copy</button>
+          </div>
+        </div>
+
+        <div class="modal-section" id="userNotifySection">
+          <h3 data-i18n="users.notifyService">Private notify service</h3>
+          <p class="card-muted" data-i18n="users.notifyServiceDesc">Companion notify target for this user’s async chat replies (e.g. notify.mobile_app_phone). Leave empty to auto-detect from their HA person.</p>
+          <input type="text" id="userNotifyService" placeholder="notify.mobile_app_phone">
+          <div class="btn-row" style="margin-top:8px">
+            <button class="btn btn-sm btn-primary" onclick="saveUserNotify()" data-i18n="users.save">Save</button>
+            <button class="btn btn-sm" onclick="testUserNotify()" data-i18n="users.notifyTest">Test</button>
           </div>
         </div>
 

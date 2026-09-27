@@ -8,6 +8,7 @@ export function Sidebar({
   emptyLabel,
   userLabel,
   deleteAllLabel,
+  generatingLabel,
   sessions,
   sessionId,
   onNew,
@@ -53,6 +54,14 @@ export function Sidebar({
                 onClick={() => onOpen(s.session_id)}
               >
                 <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                {s.chat_job?.generating || s.chat_job?.status === "running" || s.chat_job?.status === "queued" ? (
+                  <span
+                    className="shrink-0 rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-sidebar-foreground/70"
+                    title={generatingLabel || "Generating"}
+                  >
+                    {generatingLabel || "…"}
+                  </span>
+                ) : null}
                 <button
                   className="rounded-md px-1 text-lg leading-none opacity-40 hover:text-destructive hover:opacity-100"
                   type="button"

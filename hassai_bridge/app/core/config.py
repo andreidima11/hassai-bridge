@@ -10,7 +10,7 @@ _VERSION_FILE = Path(__file__).parent.parent / "VERSION"
 _raw = _VERSION_FILE.read_text(encoding="utf-8").strip() if _VERSION_FILE.exists() else "0.0.0-dev"
 VERSION = _raw if _raw.startswith("v") else f"v{_raw}"
 ADDON_VERSION = _raw.lstrip("v")  # HA add-on config.yaml version field
-DB_SCHEMA_VERSION = 11
+DB_SCHEMA_VERSION = 12
 
 
 def _static_build_id() -> str:
@@ -102,6 +102,16 @@ DEFAULT_CONFIG = {
         "feed_poll_seconds": 3,
         "notify_service": "",
         "notify_on_complete": True,
+    },
+    "chat_jobs": {
+        "enabled": True,
+        "max_job_seconds": 1800,
+        "worker_lease_seconds": 60,
+        "max_concurrent": 3,
+        "max_result_days": 30,
+        "notify_on_complete": True,
+        "public_base_url": "",
+        "feed_poll_seconds": 2,
     },
     "voice": {
         "enabled": False,

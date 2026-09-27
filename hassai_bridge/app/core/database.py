@@ -261,6 +261,7 @@ def init_db():
             # v10: bg_tasks / observations / events / deliveries below
             # v11: cognitive_traces / entity_aliases / mutation_ledger /
             #      experience_skills / opportunities below
+            # v12: chat_jobs / chat_job_events / chat_deliveries below
             conn.execute(
                 "UPDATE schema_version SET version = ?, updated_at = ? WHERE id = 1",
                 (DB_SCHEMA_VERSION, time.time()),
@@ -519,6 +520,82 @@ def init_db():
         """)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_opp_user ON opportunities(user_id, status)"
+        )
+
+        # ── Durable chat jobs (v12) ──
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_jobs (
+                job_id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                session_id TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'queued',
+                created_at REAL NOT NULL,
+                started_at REAL,
+                deadline_at REAL,
+                next_run_at REAL,
+                updated_at REAL NOT NULL,
+                spec_json TEXT NOT NULL DEFAULT '{}',
+                progress_json TEXT NOT NULL DEFAULT '{}',
+                result_json TEXT NOT NULL DEFAULT '',
+                error_json TEXT NOT NULL DEFAULT '',
+                permission_scope_json TEXT NOT NULL DEFAULT '{}',
+                idempotency_key TEXT,
+                lease_owner TEXT NOT NULL DEFAULT '',
+                lease_until REAL,
+                cancel_requested_at REAL,
+                feed_seq INTEGER NOT NULL DEFAULT 0,
+                assistant_message_id INTEGER
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_jobs_owner_status ON chat_jobs(owner_id, status)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_jobs_idempotency "
+            "ON chat_jobs(owner_id, idempotency_key) "
+            "WHERE idempotency_key IS NOT NULL"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_jobs_session ON chat_jobs(session_id, feed_seq)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_jobs_next_run ON chat_jobs(next_run_at)"
+        )
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_jobs_one_active "
+                "ON chat_jobs(owner_id, session_id) "
+                "WHERE status IN ('queued', 'running', 'blocked')"
+            )
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_job_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_id TEXT NOT NULL,
+                seq INTEGER NOT NULL,
+                ts REAL NOT NULL,
+                event_json TEXT NOT NULL DEFAULT '{}'
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_job_events_job ON chat_job_events(job_id, seq)"
+        )
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_deliveries (
+                delivery_id TEXT PRIMARY KEY,
+                job_id TEXT NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'result',
+                status TEXT NOT NULL DEFAULT 'pending',
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_deliveries_job ON chat_deliveries(job_id, status)"
         )
 
 
@@ -835,7 +912,7 @@ def _get_or_create_session(conn, user_id: str) -> str:
     return create_conversation_session()
 
 
-def add_conversation_message(user_id, role, content, session_id=None, meta=None):
+def add_conversation_message(user_id, role, content, session_id=None, meta=None, *, return_id: bool = False):
     meta_json = ""
     if meta:
         meta_json = json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
@@ -845,10 +922,42 @@ def add_conversation_message(user_id, role, content, session_id=None, meta=None)
     with get_db() as conn:
         if session_id is None:
             session_id = _get_or_create_session(conn, user_id)
-        conn.execute(
+        cur = conn.execute(
             "INSERT INTO conversations (user_id, role, content, created_at, session_id, meta) VALUES (?, ?, ?, ?, ?, ?)",
             (user_id, role, content, time.time(), session_id, meta_json),
         )
+        if return_id:
+            return int(cur.lastrowid)
+    return None
+
+
+def update_conversation_message(message_id: int, *, content: str | None = None, meta: dict | None = None) -> bool:
+    """Update an existing conversation row (used for durable chat job placeholders)."""
+    cols: list[str] = []
+    args: list = []
+    if content is not None:
+        cols.append("content = ?")
+        args.append(content)
+    if meta is not None:
+        meta_json = json.dumps(meta, ensure_ascii=False, separators=(",", ":"))
+        if len(meta_json) > 48_000:
+            activity = list((meta.get("activity") or [])[:80])
+            meta_json = json.dumps(
+                {**{k: v for k, v in meta.items() if k != "activity"}, "activity": activity},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+        cols.append("meta = ?")
+        args.append(meta_json)
+    if not cols:
+        return False
+    args.append(int(message_id))
+    with get_db() as conn:
+        cur = conn.execute(
+            f"UPDATE conversations SET {', '.join(cols)} WHERE id = ?",
+            args,
+        )
+        return cur.rowcount > 0
 
 
 def get_conversation_history(user_id, limit=20, session_id: str | None = None):
@@ -959,6 +1068,9 @@ def get_session_messages(user_id, session_id, limit=100):
         if meta.get("background_task_id") or meta.get("background_task"):
             item["background_task_id"] = meta.get("background_task_id")
             item["background_task"] = meta.get("background_task")
+        if meta.get("chat_job_id") or meta.get("chat_job"):
+            item["chat_job_id"] = meta.get("chat_job_id")
+            item["chat_job"] = meta.get("chat_job")
         out.append(item)
     return out
 
