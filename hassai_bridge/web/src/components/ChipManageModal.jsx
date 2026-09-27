@@ -4,14 +4,26 @@ import { XIcon } from "./Icons.jsx";
 import { tr } from "../lib/i18n.js";
 
 export function ChipManageModal({ chip, lang, onClose, onSave, onSuppress }) {
-  const [label, setLabel] = useState(String(chip?.label || ""));
-  const [prompt, setPrompt] = useState(String(chip?.prompt || ""));
+  const isStructured = Boolean(chip?.action?.type) || ["undo", "clarify"].includes(String(chip?.kind || chip?.topic || ""));
+  const [label, setLabel] = useState(String(chip?.label || chip?.display_text || ""));
+  const [prompt, setPrompt] = useState(
+    isStructured
+      ? String(chip?.display_text || chip?.label || "")
+      : String(chip?.prompt || ""),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    setLabel(String(chip?.label || ""));
-    setPrompt(String(chip?.prompt || ""));
+    const structured =
+      Boolean(chip?.action?.type) ||
+      ["undo", "clarify"].includes(String(chip?.kind || chip?.topic || ""));
+    setLabel(String(chip?.label || chip?.display_text || ""));
+    setPrompt(
+      structured
+        ? String(chip?.display_text || chip?.label || "")
+        : String(chip?.prompt || ""),
+    );
     setError("");
   }, [chip]);
 
@@ -32,7 +44,9 @@ export function ChipManageModal({ chip, lang, onClose, onSave, onSuppress }) {
 
   const save = async () => {
     const nextLabel = label.trim();
-    const nextPrompt = prompt.trim() || nextLabel;
+    const nextPrompt = isStructured
+      ? (nextLabel || String(chip?.display_text || chip?.label || "").trim())
+      : (prompt.trim() || nextLabel);
     if (!nextLabel || !nextPrompt) {
       setError(tr(lang, "chipManageNeedText"));
       return;
@@ -40,7 +54,17 @@ export function ChipManageModal({ chip, lang, onClose, onSave, onSuppress }) {
     setBusy(true);
     setError("");
     try {
-      await onSave?.({ ...chip, label: nextLabel, prompt: nextPrompt });
+      const next = {
+        ...chip,
+        label: nextLabel,
+        prompt: nextPrompt,
+        display_text: nextLabel,
+      };
+      // Never let the manage modal overwrite internal action payloads with raw IDs.
+      if (chip?.action && typeof chip.action === "object") {
+        next.action = chip.action;
+      }
+      await onSave?.(next);
       onClose?.();
     } catch (e) {
       setError(e?.message || String(e));
@@ -98,17 +122,18 @@ export function ChipManageModal({ chip, lang, onClose, onSave, onSuppress }) {
               onChange={(e) => setLabel(e.target.value)}
             />
           </label>
-          <label className="block text-[12px] text-muted-foreground">
-            {tr(lang, "chipManagePrompt")}
-            <textarea
-              className="mt-1 min-h-[4.5rem] w-full resize-y rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[14px] text-foreground outline-none focus:border-white/25"
-              value={prompt}
-              maxLength={240}
-              disabled={busy}
-              onChange={(e) => setPrompt(e.target.value)}
-            />
-          </label>
-          {error ? <p className="text-[13px] text-red-400">{error}</p> : null}
+          {!isStructured ? (
+            <label className="block text-[12px] text-muted-foreground">
+              {tr(lang, "chipManagePrompt")}
+              <textarea
+                className="mt-1 min-h-[4.5rem] w-full resize-y rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-[14px] text-foreground outline-none focus:border-white/25"
+                value={prompt}
+                maxLength={240}
+                disabled={busy}
+                onChange={(e) => setPrompt(e.target.value)}
+              />
+            </label>
+          ) : null}          {error ? <p className="text-[13px] text-red-400">{error}</p> : null}
           <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:justify-between">
             <button
               type="button"

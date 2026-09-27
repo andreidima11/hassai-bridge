@@ -1033,6 +1033,7 @@ export default function App() {
     event?.preventDefault?.();
     const text = (options.text ?? input).trim();
     const images = options.text ? [] : attachments;
+    const hassaiAction = options.hassai_action || null;
     // Returns false when the turn did not start, so hands-free can recover.
     if (!canSendMessage(text, images) || busy) return false;
     setEmptyRecommendations([]);
@@ -1052,7 +1053,11 @@ export default function App() {
     }
 
     const now = Date.now() / 1000;
-    const payload = { text, images };
+    const payload = {
+      text,
+      images,
+      ...(hassaiAction ? { hassai_action: hassaiAction, display_text: text } : {}),
+    };
     const userMsg = {
       id: newId(),
       role: "user",
@@ -1162,8 +1167,10 @@ export default function App() {
 
   const pickRecommendation = useCallback(
     (chip) => {
-      const prompt = String(chip?.prompt || chip?.label || "").trim();
-      if (!prompt || busy) return;
+      const display = String(
+        chip?.display_text || chip?.label || chip?.prompt || "",
+      ).trim();
+      if (!display || busy) return;
       const context = messages.length ? "followup" : "empty";
       apiJson("/api/recommendations/feedback", {
         method: "POST",
@@ -1171,12 +1178,22 @@ export default function App() {
         body: JSON.stringify({
           id: chip?.id || "",
           label: chip?.label || "",
-          prompt,
+          prompt: display,
           kind: chip?.kind || "ask",
           context,
         }),
       }).catch(() => {});
-      sendRef.current?.(null, { text: prompt });
+      const action =
+        chip?.action && typeof chip.action === "object"
+          ? {
+              ...chip.action,
+              display_text: display,
+            }
+          : null;
+      sendRef.current?.(null, {
+        text: display,
+        ...(action ? { hassai_action: action } : {}),
+      });
     },
     [busy, messages.length],
   );

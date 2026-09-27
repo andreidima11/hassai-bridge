@@ -245,16 +245,28 @@ async def record_mutation_snapshot(
     return ledger_id
 
 
-async def undo_ledger(ledger_id: str, *, cfg: dict | None = None) -> dict:
-    """Best-effort undo: restore previous states via domain.turn_on/off / set."""
+async def undo_ledger(
+    ledger_id: str,
+    *,
+    cfg: dict | None = None,
+    user_id: str | None = None,
+) -> dict:
+    """Best-effort undo: restore previous states via domain.turn_on/off / set.
+
+    Ownership: when user_id is provided, the ledger must belong to that user.
+    Idempotent: a second undo on an already-undone ledger returns ok without
+    re-calling HA.
+    """
     from core import database as db
     from services import homeassistant as ha
 
     row = db.get_mutation_ledger(ledger_id)
     if not row:
         return {"ok": False, "error": "ledger_not_found"}
+    if user_id is not None and str(row.get("user_id") or "") != str(user_id):
+        return {"ok": False, "error": "forbidden"}
     if row.get("undone_at"):
-        return {"ok": False, "error": "already_undone"}
+        return {"ok": True, "restored": [], "errors": [], "already_undone": True}
     snapshots = row.get("snapshots") or {}
     restored: list[str] = []
     errors: list[str] = []

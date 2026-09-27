@@ -73,17 +73,44 @@ def _strip_noise(text: str) -> str:
 
 
 def extract_area(text: str, known_areas: Iterable[str] | None = None) -> str:
-    """Best-effort room/area extraction."""
+    """Best-effort room/area extraction — longest valid match wins (Dormitor 1 > Dormitor)."""
     folded = wm.fold(text)
     known = list(known_areas or [])
+    best = ""
+    best_len = 0
     for area in known:
         af = wm.fold(area)
-        if af and af in folded:
-            return area
+        if not af or af not in folded:
+            continue
+        # Require token boundary-ish: avoid matching "dorm" inside unrelated words via short stubs
+        if len(af) >= best_len:
+            best = area
+            best_len = len(af)
+    if best:
+        return best
     m = _AREA_PREP.search(text.strip())
     if m:
         return m.group(1).strip(" .!?,")
     return ""
+
+
+_VERB_STRIP = re.compile(
+    r"^(?:aprinde|stinge|porne[sș]te|opre[sș]te|deschide|închide|inchide|"
+    r"turn\s+on|turn\s+off|switch\s+on|switch\s+off|open|close|toggle|"
+    r"enable|disable|activeaz[aă]|dezactiveaz[aă]|comut[aă]|seteaz[aă]|set)\s+",
+    re.I,
+)
+
+
+def extract_target_phrase(text: str) -> str:
+    """Strip action verbs; keep the rest (including generic light words that appear in names)."""
+    t = _strip_noise(text)
+    t = _VERB_STRIP.sub("", t).strip()
+    # Drop leading prepositions leftover
+    t = re.sub(r"^(?:din|în|in|la|pe|the|a|an)\s+", "", t, flags=re.I).strip()
+    # Preserve original token order after fold/tokenize so numbers stay
+    tokens = wm.tokenize(t)
+    return " ".join(tokens) if tokens else wm.fold(t)
 
 
 def looks_like_pronoun_followup(text: str) -> bool:
@@ -232,39 +259,45 @@ def compile_hypotheses(
     hypotheses: list[Hypothesis] = []
     entities = entities or []
 
+    target_phrase = extract_target_phrase(text)
+
     for domain_set in beam_domains:
-        query = text
+        # Search with normalized target first; fall back to full text
+        query = target_phrase or text
         hits = wm.search(
             entities, query, domains=domain_set, area=area, limit=8,
-            hard_area=bool(area),
+            hard_area=False,
         )
+        if not hits and query != text:
+            hits = wm.search(entities, text, domains=domain_set, area=area, limit=8)
+
         if alias_hits:
             alias_nodes = [n for n in entities if n.entity_id in alias_hits and n.domain in domain_set]
             for n in alias_nodes:
-                hits = [(n, 10.0)] + [(x, s) for x, s in hits if x.entity_id != n.entity_id]
+                hits = [(n, 12.0)] + [(x, s) for x, s in hits if x.entity_id != n.entity_id]
 
         if looks_like_pronoun_followup(text) and wm_mem.get("last_entities"):
             last = [str(e) for e in wm_mem["last_entities"][:4]]
             pronoun_nodes = [n for n in entities if n.entity_id in last]
             if pronoun_nodes:
-                hits = [(n, 9.0) for n in pronoun_nodes] + hits
+                hits = [(n, 11.0) for n in pronoun_nodes] + hits
 
-        # Clear winner → single target; near-ties kept for clarify
         targets: list[str] = []
+        pick_mode = "weak"
         if hits:
-            top_score_raw = hits[0][1]
-            close = [(n, s) for n, s in hits if top_score_raw - s < 1.2]
-            if len(close) == 1 or (len(close) > 1 and top_score_raw - close[1][1] >= 1.2):
-                targets = [hits[0][0].entity_id]
-            else:
-                targets = [n.entity_id for n, _ in close[:5]]
+            targets, pick_mode = wm.pick_targets(hits)
+            if pick_mode == "weak":
+                targets = []
         top_score = hits[0][1] if hits else 0.0
         # Normalize roughly to 0..1
-        score = min(0.98, 0.45 + top_score / 12.0)
+        score = min(0.98, 0.45 + top_score / 14.0)
+        if pick_mode == "unique":
+            score = max(score, 0.88)
+        elif pick_mode == "clarify":
+            score = min(score, 0.72)
         if not targets and intent not in {"chat", "complex", "correction"}:
             score = 0.35
         if _ALL.search(text) and area:
-            # Prefer all matches in area
             area_hits = [
                 n.entity_id for n, _ in wm.search(
                     entities, area, domains=domain_set, area=area, limit=20, hard_area=True,
@@ -273,6 +306,7 @@ def compile_hypotheses(
             if area_hits:
                 targets = area_hits
                 score = max(score, 0.85)
+                pick_mode = "unique"
 
         hyp_intent = intent
         hyp_service = service
@@ -294,10 +328,9 @@ def compile_hypotheses(
             area=area or (hits[0][0].area if hits else ""),
             service=hyp_service,
             domain=domain_set[0] if domain_set else "",
-            reason=f"domains={','.join(domain_set)}",
+            reason=f"domains={','.join(domain_set)};pick={pick_mode}",
             expected_state=expected_local,
         ))
-
     # Collapse identical target sets
     unique: list[Hypothesis] = []
     seen_keys: set[str] = set()

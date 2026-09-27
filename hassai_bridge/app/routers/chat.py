@@ -928,16 +928,38 @@ def _activity_meta(
         for row in followups[:5]:
             if not isinstance(row, dict):
                 continue
-            label = str(row.get("label") or "").strip()
-            prompt = str(row.get("prompt") or "").strip()
-            if not label or not prompt:
+            label = str(row.get("label") or row.get("display_text") or "").strip()
+            prompt = str(row.get("prompt") or row.get("display_text") or label).strip()
+            if not label:
                 continue
-            clean.append({
+            if not prompt:
+                prompt = label
+            item = {
                 "id": str(row.get("id") or label)[:64],
                 "label": label[:80],
                 "prompt": prompt[:240],
-                "kind": str(row.get("kind") or "ask")[:16],
-            })
+                "kind": str(row.get("kind") or row.get("topic") or "ask")[:16],
+            }
+            display = str(row.get("display_text") or "").strip()
+            if display:
+                item["display_text"] = display[:80]
+            topic = str(row.get("topic") or "").strip()
+            if topic:
+                item["topic"] = topic[:32]
+            eid = str(row.get("entity_id") or "").strip()
+            if eid:
+                item["entity_id"] = eid[:120]
+            action = row.get("action")
+            if isinstance(action, dict) and action.get("type"):
+                safe_action: dict = {"type": str(action.get("type"))[:32]}
+                if action.get("ledger_id"):
+                    safe_action["ledger_id"] = str(action["ledger_id"])[:64]
+                if action.get("entity_id"):
+                    safe_action["entity_id"] = str(action["entity_id"])[:120]
+                if action.get("intent"):
+                    safe_action["intent"] = str(action["intent"])[:32]
+                item["action"] = safe_action
+            clean.append(item)
         if clean:
             meta["followups"] = clean
     return meta or None
@@ -2354,8 +2376,14 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
                 ledger_id = ""
         if not ledger_id:
             return "Nothing to undo." if (cfg.get("language") or "en") != "ro" else "Nimic de anulat."
-        result = await pe.undo_ledger(ledger_id, cfg=cfg)
+        result = await pe.undo_ledger(ledger_id, cfg=cfg, user_id=str(user_id or ""))
         if result.get("ok"):
+            if result.get("already_undone"):
+                return (
+                    "Deja anulat."
+                    if (cfg.get("language") or "en") == "ro"
+                    else "Already undone."
+                )
             restored = ", ".join(result.get("restored") or []) or ledger_id
             return (
                 f"Anulat: {restored}."
@@ -3713,6 +3741,93 @@ async def chat_completions(request: Request):
     request_has_images = cc.current_turn_has_images(messages)
     from services import session_chat as sc
 
+    # Visible text saved to history (may differ from internal rewrite for chips).
+    history_user_text = last_user_msg
+
+    # Structured chip actions (Undo / clarify) — separate from the visible user text.
+    hassai_action = body.get("hassai_action") if isinstance(body.get("hassai_action"), dict) else None
+    if hassai_action:
+        action_type = str(hassai_action.get("type") or "").strip().lower()
+        display_override = str(
+            hassai_action.get("display_text") or body.get("display_text") or ""
+        ).strip()
+        if display_override:
+            history_user_text = display_override
+        if action_type == "undo":
+            from services import plan_engine as pe
+
+            ledger_id = str(hassai_action.get("ledger_id") or "").strip()
+            lang_code = str(cfg.get("language") or "en")
+            if not ledger_id:
+                undo_msg = "Nothing to undo." if lang_code != "ro" else "Nimic de anulat."
+            else:
+                result = await pe.undo_ledger(ledger_id, cfg=cfg, user_id=str(user_id or ""))
+                if result.get("ok"):
+                    if result.get("already_undone"):
+                        undo_msg = "Deja anulat." if lang_code == "ro" else "Already undone."
+                    else:
+                        restored = ", ".join(result.get("restored") or []) or ledger_id
+                        undo_msg = (
+                            f"Anulat."
+                            if lang_code == "ro"
+                            else "Undone."
+                        )
+                        if restored and restored != ledger_id:
+                            undo_msg = (
+                                f"Anulat: {restored}."
+                                if lang_code == "ro"
+                                else f"Undone: {restored}."
+                            )
+                else:
+                    err = result.get("error") or "failed"
+                    undo_msg = f"Undo failed: {err}"
+            display_user = history_user_text or ("Anulează" if lang_code == "ro" else "Undo")
+            if display_user:
+                add_conversation_message(
+                    user_id, "user", display_user, session_id=session_id,
+                )
+            add_conversation_message(
+                user_id, "assistant", undo_msg, session_id=session_id,
+            )
+            if background:
+                return _complete_background_fast_path(
+                    trace_id=trace_id,
+                    session_id=session_id,
+                    user_id=user_id,
+                    model=model or "hassai-bridge",
+                    content=undo_msg,
+                    route={"role": "cognitive", "reason": "undo", "klass": "simple", "auto": False},
+                    provider_name="hassai-reflex",
+                )
+            return JSONResponse(content=_command_response_openai(undo_msg, model))
+
+        if action_type == "clarify":
+            eid = str(hassai_action.get("entity_id") or "").strip()
+            intent = str(hassai_action.get("intent") or "turn_off").strip()
+            lang_code = str(cfg.get("language") or "en")
+            if eid:
+                # Rewrite the cognitive input to a direct entity_id command;
+                # the visible bubble stays as display_text / last_user_msg.
+                verb_map_ro = {
+                    "turn_on": "aprinde",
+                    "turn_off": "stinge",
+                    "open": "deschide",
+                    "close": "închide",
+                    "toggle": "comută",
+                }
+                verb_map_en = {
+                    "turn_on": "turn on",
+                    "turn_off": "turn off",
+                    "open": "open",
+                    "close": "close",
+                    "toggle": "toggle",
+                }
+                verb = (verb_map_ro if lang_code == "ro" else verb_map_en).get(intent, intent)
+                last_user_msg = f"{verb} {eid}"
+                # Patch the last user message content so downstream uses the rewrite
+                if last_user_message is not None:
+                    last_user_message["content"] = last_user_msg
+
     route = sc.resolve_route_for_session(
         cfg,
         session_id=session_id or "",
@@ -3995,9 +4110,9 @@ async def chat_completions(request: Request):
         if cog and cog.get("handled"):
             msg = str(cog.get("message") or "").strip()
             followups = list(cog.get("followups") or [])
-            if last_user_msg:
+            if history_user_text:
                 add_conversation_message(
-                    user_id, "user", last_user_msg, session_id=session_id,
+                    user_id, "user", history_user_text, session_id=session_id,
                 )
             if msg:
                 meta = _activity_meta(None, followups=followups) if followups else None
@@ -4199,7 +4314,7 @@ async def chat_completions(request: Request):
     # Save only the latest user turn. Clients (Web UI / Assist) may send a
     # full transcript; re-inserting every message would duplicate the thread.
     if last_user_message is not None:
-        stored_text = last_user_msg or (
+        stored_text = history_user_text or last_user_msg or (
             "(image)" if user_attachments and any(
                 (a.get("kind") or "image") != "document" for a in user_attachments
             ) else "(document)" if user_attachments else ""

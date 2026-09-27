@@ -103,40 +103,127 @@ def extract_temperature(text: str) -> float | None:
     return None
 
 
-def clarification_chips(hypotheses: list[Hypothesis], *, lang: str = "en") -> list[dict]:
-    """Build UI chips for ambiguous targets."""
+_INTENT_LABELS_RO = {
+    "turn_on": "Aprinde",
+    "turn_off": "Stinge",
+    "toggle": "Comută",
+    "open": "Deschide",
+    "close": "Închide",
+    "lock": "Încuie",
+    "unlock": "Descuie",
+    "pause": "Pauză",
+    "stop": "Oprește",
+}
+_INTENT_LABELS_EN = {
+    "turn_on": "Turn on",
+    "turn_off": "Turn off",
+    "toggle": "Toggle",
+    "open": "Open",
+    "close": "Close",
+    "lock": "Lock",
+    "unlock": "Unlock",
+    "pause": "Pause",
+    "stop": "Stop",
+}
+
+
+def _friendly_chip_label(node: wm.EntityNode | None, eid: str, *, intent: str, lang: str) -> str:
+    verb = (_INTENT_LABELS_RO if lang == "ro" else _INTENT_LABELS_EN).get(
+        intent, intent.replace("_", " ").title()
+    )
+    if node:
+        name = node.name or eid.split(".", 1)[-1].replace("_", " ")
+        if node.area:
+            return f"{verb} — {name} ({node.area})"[:64]
+        return f"{verb} — {name}"[:64]
+    short = eid.split(".", 1)[-1].replace("_", " ")
+    return f"{verb} — {short}"[:64]
+
+
+def clarification_chips(
+    hypotheses: list[Hypothesis],
+    *,
+    lang: str = "en",
+    entities: list[wm.EntityNode] | None = None,
+    candidate_ids: list[str] | None = None,
+) -> list[dict]:
+    """Build UI chips for ambiguous targets — friendly name + area, structured action."""
+    by_id = {n.entity_id: n for n in (entities or [])}
     chips: list[dict] = []
     seen: set[str] = set()
-    for hyp in hypotheses:
-        for eid in hyp.targets[:4]:
-            if eid in seen:
-                continue
-            seen.add(eid)
-            short = eid.split(".", 1)[-1].replace("_", " ")
-            if lang == "ro":
-                label = f"{hyp.intent.replace('_', ' ')} — {short}"
-                prompt = f"{hyp.intent} {eid}"
-            else:
-                label = f"{hyp.intent.replace('_', ' ')} — {short}"
-                prompt = f"{hyp.intent} {eid}"
-            # Prefer natural prompts with entity_id for reliable re-compile
+    # Prefer an explicit near-tie band if provided
+    ordered: list[tuple[str, Hypothesis]] = []
+    if candidate_ids:
+        hyp0 = hypotheses[0] if hypotheses else None
+        for eid in candidate_ids:
+            if hyp0:
+                ordered.append((eid, hyp0))
+    else:
+        for hyp in hypotheses:
+            for eid in hyp.targets[:4]:
+                ordered.append((eid, hyp))
+
+    # Disambiguate duplicate friendly names with area / device / short id
+    name_counts: dict[str, int] = {}
+    for eid, _ in ordered:
+        node = by_id.get(eid)
+        key = wm.fold(node.name if node else eid)
+        name_counts[key] = name_counts.get(key, 0) + 1
+
+    for eid, hyp in ordered:
+        if eid in seen:
+            continue
+        seen.add(eid)
+        node = by_id.get(eid)
+        label = _friendly_chip_label(node, eid, intent=hyp.intent, lang=lang)
+        # If duplicate names, ensure area/device appear
+        if node and name_counts.get(wm.fold(node.name), 0) > 1:
+            extra = node.area or node.device_name or eid.split(".", 1)[-1][-8:]
+            verb = (_INTENT_LABELS_RO if lang == "ro" else _INTENT_LABELS_EN).get(
+                hyp.intent, hyp.intent
+            )
+            label = f"{verb} — {node.name} ({extra})"[:64]
+
+        display = label
+        # Natural re-prompt text (no raw entity_id in the bubble)
+        if lang == "ro":
             if hyp.intent == "turn_off":
-                prompt = f"turn off {eid}" if lang != "ro" else f"stinge {eid}"
+                prompt = f"stinge {node.name}" if node else f"stinge {eid}"
             elif hyp.intent == "turn_on":
-                prompt = f"turn on {eid}" if lang != "ro" else f"aprinde {eid}"
+                prompt = f"aprinde {node.name}" if node else f"aprinde {eid}"
             elif hyp.intent == "close":
-                prompt = f"close {eid}" if lang != "ro" else f"închide {eid}"
+                prompt = f"închide {node.name}" if node else f"închide {eid}"
             elif hyp.intent == "open":
-                prompt = f"open {eid}" if lang != "ro" else f"deschide {eid}"
-            chips.append({
-                "id": f"clarify_{eid}",
-                "label": label[:48],
-                "prompt": prompt,
-                "topic": "clarify",
+                prompt = f"deschide {node.name}" if node else f"deschide {eid}"
+            else:
+                prompt = f"{hyp.intent} {node.name if node else eid}"
+        else:
+            if hyp.intent == "turn_off":
+                prompt = f"turn off {node.name}" if node else f"turn off {eid}"
+            elif hyp.intent == "turn_on":
+                prompt = f"turn on {node.name}" if node else f"turn on {eid}"
+            else:
+                prompt = f"{hyp.intent.replace('_', ' ')} {node.name if node else eid}"
+
+        if node and node.area and node.name and name_counts.get(wm.fold(node.name), 0) > 1:
+            prompt = f"{prompt} {node.area}".strip()
+
+        chips.append({
+            "id": f"clarify_{eid}",
+            "label": label,
+            "display_text": display,
+            "prompt": prompt,
+            "topic": "clarify",
+            "kind": "clarify",
+            "entity_id": eid,
+            "action": {
+                "type": "clarify",
+                "intent": hyp.intent,
                 "entity_id": eid,
-            })
-            if len(chips) >= 5:
-                return chips
+            },
+        })
+        if len(chips) >= 5:
+            return chips
     return chips
 
 
@@ -251,11 +338,22 @@ def compile_reflex(
 
     dominant = pick_dominant_hypothesis(hypotheses)
     # Unique target with high score
-    if dominant and len(dominant.targets) == 1:
+    if dominant and len(dominant.targets) == 1 and "pick=unique" in (dominant.reason or ""):
         ctx.confidence = dominant.score
         ctx.goal = gc.goal_from_hypothesis(dominant, text)
         if ctx.goal.needs_approval and ctx.goal.risk_class == "high":
             ctx.path = PATH_AGENT  # locks go through agent/policy
+            ctx.world_snippet = wm.snippet_for_query(entities, text, limit=6)
+            return ctx
+        ctx.path = PATH_SHADOW if ctx.shadow else PATH_REFLEX
+        return ctx
+
+    # Unique by target count even if reason missing (alias / pronoun)
+    if dominant and len(dominant.targets) == 1 and dominant.score >= 0.85:
+        ctx.confidence = dominant.score
+        ctx.goal = gc.goal_from_hypothesis(dominant, text)
+        if ctx.goal.needs_approval and ctx.goal.risk_class == "high":
+            ctx.path = PATH_AGENT
             ctx.world_snippet = wm.snippet_for_query(entities, text, limit=6)
             return ctx
         ctx.path = PATH_SHADOW if ctx.shadow else PATH_REFLEX
@@ -268,16 +366,30 @@ def compile_reflex(
         ctx.path = PATH_SHADOW if ctx.shadow else PATH_REFLEX
         return ctx
 
-    # Ambiguous: collect targets across beam
-    all_targets: list[str] = []
+    # Ambiguous: only candidates marked clarify (near-tie band), not every beam hit
+    clarify_ids: list[str] = []
+    clarify_hyps: list[Hypothesis] = []
     for h in hypotheses:
-        for t in h.targets:
-            if t not in all_targets:
-                all_targets.append(t)
-    if 2 <= len(all_targets) <= 5:
+        if "pick=clarify" in (h.reason or "") and len(h.targets) >= 2:
+            for t in h.targets:
+                if t not in clarify_ids:
+                    clarify_ids.append(t)
+            clarify_hyps.append(h)
+    if not clarify_ids and dominant and len(dominant.targets) >= 2:
+        # Fallback: multi-target without unique pick
+        if "pick=unique" not in (dominant.reason or ""):
+            clarify_ids = list(dominant.targets)[:5]
+            clarify_hyps = [dominant]
+
+    if 2 <= len(clarify_ids) <= 5:
         ctx.confidence = top.score
         ctx.goal = gc.goal_from_hypothesis(top, text)
-        ctx.clarification_chips = clarification_chips(hypotheses, lang=ctx.lang)
+        ctx.clarification_chips = clarification_chips(
+            clarify_hyps or hypotheses,
+            lang=ctx.lang,
+            entities=entities,
+            candidate_ids=clarify_ids,
+        )
         ctx.path = PATH_CLARIFY
         return ctx
 

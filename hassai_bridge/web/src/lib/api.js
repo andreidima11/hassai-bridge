@@ -141,6 +141,13 @@ export function postChat(stream, payload, sessionId, traceId, signal, thinkingMo
   };
   if (options.background) body.background = true;
   if (thinkingMode) body.thinking = thinkingMode;
+  const action = payload?.hassai_action || options.hassai_action;
+  if (action && typeof action === "object") {
+    body.hassai_action = {
+      ...action,
+      display_text: action.display_text || payload?.display_text || payload?.text || "",
+    };
+  }
   return fetch(API + "/v1/chat/completions", {
     method: "POST",
     credentials: "same-origin",

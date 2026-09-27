@@ -246,11 +246,18 @@ async def prepare_turn(
                 log.debug("experience compile failed", exc_info=True)
             undo_chip = []
             if result.get("ledger_id"):
+                undo_label = "Anulează" if lang == "ro" else "Undo"
                 undo_chip = [{
                     "id": f"undo_{result['ledger_id']}",
-                    "label": "Anulează" if lang == "ro" else "Undo",
-                    "prompt": f"/undo {result['ledger_id']}",
+                    "label": undo_label,
+                    "display_text": undo_label,
+                    "prompt": undo_label,  # visible bubble only — never /undo mut_…
                     "topic": "undo",
+                    "kind": "undo",
+                    "action": {
+                        "type": "undo",
+                        "ledger_id": result["ledger_id"],
+                    },
                 }]
             return {
                 "handled": True,

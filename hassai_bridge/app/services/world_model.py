@@ -2,6 +2,12 @@
 
 Built from HA states + registry caches. The LLM sees only a relevant snippet,
 never the full dump.
+
+Matching priority (name-first):
+  1. friendly name (exact / token coverage, including numbers)
+  2. area
+  3. device name
+  4. entity_id slug (weak fallback only)
 """
 
 from __future__ import annotations
@@ -28,17 +34,35 @@ _DIACRITICS = str.maketrans({
     "Ă": "a", "Â": "a", "Î": "i", "Ș": "s", "Ş": "s", "Ț": "t", "Ţ": "t",
 })
 
+# Generic filler words — domain hints, not distinctive name tokens.
+GENERIC_TOKENS = frozenset({
+    "lumina", "lumini", "lumin", "bec", "becuri", "lampa", "lampe", "lamp",
+    "light", "lights", "led", "switch", "switches", "releu", "releu",
+    "the", "a", "an", "din", "in", "la", "pe", "cu", "and", "or",
+})
+
 
 def fold(text: str) -> str:
     """Lowercase + strip diacritics for fuzzy matching."""
     raw = (text or "").translate(_DIACRITICS).lower()
-    # Also NFD-strip any remaining combining marks
     raw = "".join(c for c in unicodedata.normalize("NFD", raw) if unicodedata.category(c) != "Mn")
     return re.sub(r"\s+", " ", raw).strip()
 
 
 def tokenize(text: str) -> list[str]:
-    return [t for t in re.split(r"[^\w]+", fold(text)) if len(t) >= 2]
+    """Split into match tokens. Keeps digits (1, 2) and short alphanumerics (l1)."""
+    out: list[str] = []
+    for t in re.split(r"[^\w]+", fold(text)):
+        if not t:
+            continue
+        if t.isdigit() or any(ch.isdigit() for ch in t) or len(t) >= 2:
+            out.append(t)
+    return out
+
+
+def distinctive_tokens(tokens: list[str]) -> list[str]:
+    """Tokens that actually discriminate entities (drop generic light words)."""
+    return [t for t in tokens if t not in GENERIC_TOKENS]
 
 
 @dataclass
@@ -50,7 +74,11 @@ class EntityNode:
     area_id: str = ""
     state: str = ""
     device_name: str = ""
-    tokens: list[str] = field(default_factory=list)
+    tokens: list[str] = field(default_factory=list)  # legacy: name+area(+weak slug)
+    name_tokens: list[str] = field(default_factory=list)
+    area_tokens: list[str] = field(default_factory=list)
+    device_tokens: list[str] = field(default_factory=list)
+    slug_tokens: list[str] = field(default_factory=list)
     available: bool = True
     updated_at: float = 0.0
 
@@ -112,8 +140,13 @@ def build_from_rows(
         device_name = device_labels.get(device_id, "") if device_id else ""
         state_val = str(st.get("state") or "")
         available = state_val.lower() not in {"unavailable", "unknown", ""}
-        tok_src = " ".join([eid, name, area, device_name, domain])
-        tokens = tokenize(tok_src)
+        slug = eid.split(".", 1)[-1].replace("_", " ")
+        name_tokens = tokenize(name)
+        area_tokens = tokenize(area)
+        device_tokens = tokenize(device_name)
+        slug_tokens = tokenize(slug)
+        # Legacy bag: name + area + device (NOT slug) so old callers stay sensible
+        tokens = list(dict.fromkeys(name_tokens + area_tokens + device_tokens + [domain]))
         out.append(EntityNode(
             entity_id=eid,
             domain=domain,
@@ -123,6 +156,10 @@ def build_from_rows(
             state=state_val,
             device_name=device_name,
             tokens=tokens,
+            name_tokens=name_tokens,
+            area_tokens=area_tokens,
+            device_tokens=device_tokens,
+            slug_tokens=slug_tokens,
             available=available,
             updated_at=now,
         ))
@@ -168,44 +205,113 @@ async def load_entities(*, force: bool = False) -> list[EntityNode]:
         return list(cached or [])
 
 
+def _token_in_list(tok: str, bag: list[str]) -> bool:
+    if not tok:
+        return False
+    if tok in bag:
+        return True
+    # Allow "dormitor1" ≈ "dormitor"+"1" already tokenized separately
+    return False
+
+
 def score_entity(node: EntityNode, query_tokens: list[str], *, area_hint: str = "") -> float:
+    """Name-first score. entity_id slug is a weak signal only."""
     if not query_tokens:
         return 0.0
+
     name_f = fold(node.name)
-    eid_f = fold(node.entity_id)
-    area_f = fold(node.area)
+    name_toks = node.name_tokens or tokenize(node.name)
+    area_toks = node.area_tokens or tokenize(node.area)
+    device_toks = node.device_tokens or tokenize(node.device_name)
+    slug_toks = node.slug_tokens or tokenize(node.entity_id.split(".", 1)[-1])
+
+    # Exact / near-exact friendly name (all distinctive query tokens in name)
+    dist = distinctive_tokens(query_tokens)
+    name_hits = 0
+    area_hits = 0
+    device_hits = 0
+    slug_hits = 0
+    numeric_ok = True
     score = 0.0
-    hits = 0
+
     for tok in query_tokens:
-        if tok in name_f:
-            score += 3.0
-            hits += 1
-        elif tok in eid_f:
+        is_digit = tok.isdigit() or (len(tok) <= 3 and any(c.isdigit() for c in tok))
+        if _token_in_list(tok, name_toks) or tok in name_f.split():
+            score += 4.0 if not is_digit else 5.0
+            name_hits += 1
+        elif _token_in_list(tok, area_toks):
             score += 2.0
-            hits += 1
-        elif tok in node.tokens:
+            area_hits += 1
+        elif _token_in_list(tok, device_toks):
             score += 1.5
-            hits += 1
-        elif tok in area_f:
-            score += 1.0
-            hits += 1
-    if hits == 0:
+            device_hits += 1
+        elif _token_in_list(tok, slug_toks):
+            # Weak: technical id must not beat a real friendly-name match
+            score += 0.4
+            slug_hits += 1
+        elif is_digit:
+            # Query asked for a number that this entity doesn't carry → hard penalty
+            numeric_ok = False
+            score -= 3.0
+
+    if name_hits == 0 and area_hits == 0 and device_hits == 0 and slug_hits == 0:
         return 0.0
-    coverage = hits / max(1, len(query_tokens))
-    score *= 0.5 + 0.5 * coverage
+
+    # Cap total slug contribution so releu_living_* can't outrank "Bec living"
+    if slug_hits and name_hits == 0:
+        score = min(score, 1.2 + 0.4 * max(0, slug_hits - 1))
+
+    # Phrase / full-name bonuses
+    q_phrase = " ".join(query_tokens)
+    q_dist_phrase = " ".join(distinctive_tokens(query_tokens) or query_tokens)
+    if q_phrase and q_phrase == name_f:
+        score += 6.0
+    elif q_dist_phrase and q_dist_phrase == name_f:
+        score += 4.0
+    elif q_phrase and q_phrase in name_f and len(q_phrase) >= 4:
+        score += 3.0
+    elif q_dist_phrase and q_dist_phrase in name_f and len(q_dist_phrase) >= 4:
+        score += 2.0
+
+    # Prefer entities whose friendly name covers every query token (incl. bec/lamp)
+    all_in_name = all(
+        _token_in_list(t, name_toks) or t in name_f.split()
+        for t in query_tokens
+    )
+    if all_in_name and query_tokens:
+        score += 3.0 + 0.5 * len(query_tokens)
+
+    if dist:
+        covered = sum(1 for t in dist if _token_in_list(t, name_toks) or t in name_f.split())
+        coverage = covered / len(dist)
+        score *= 0.55 + 0.45 * coverage
+        if coverage >= 1.0 and name_hits >= len(dist):
+            score += 2.0
+    else:
+        # Only generics in query — weak match
+        score *= 0.5
+
     if area_hint:
         ah = fold(area_hint)
-        if ah and ah in area_f:
-            score += 2.5
-        elif ah and area_f and ah not in area_f:
-            score -= 1.0
+        area_f = fold(node.area)
+        if ah and area_f:
+            if ah == area_f or ah in area_f or area_f in ah:
+                score += 2.5
+            else:
+                score -= 1.5
+
+    if not numeric_ok:
+        score *= 0.35
+
     if not node.available:
         score *= 0.4
-    # Prefer light over switch when both match equally and query says light
-    if "light" in query_tokens or "lumin" in " ".join(query_tokens) or "bec" in query_tokens:
+
+    # Prefer light domain when query mentions light words
+    if any(t in {"light", "lights", "lumina", "lumini", "bec", "lampa", "lamp"} for t in query_tokens):
         if node.domain == "light":
             score += 0.3
-    return score
+
+    return max(0.0, score)
 
 
 def search(
@@ -224,18 +330,51 @@ def search(
     for node in entities:
         if allow and node.domain not in allow:
             continue
-        if hard_area and area_f and area_f not in fold(node.area):
-            continue
+        if hard_area and area_f:
+            na = fold(node.area)
+            if not na or (area_f not in na and na not in area_f):
+                continue
         s = score_entity(node, q_tokens, area_hint=area)
         if s > 0:
             ranked.append((node, s))
     ranked.sort(key=lambda x: (-x[1], x[0].entity_id))
-    # Keep only near-top matches so a clear kitchen hit doesn't drag living along
     if ranked:
         top = ranked[0][1]
-        margin = max(1.5, top * 0.25)
+        # Tighter margin: keep near-ties only
+        margin = max(1.2, top * 0.22)
         ranked = [(n, s) for n, s in ranked if top - s <= margin]
     return ranked[: max(1, limit)]
+
+
+def pick_targets(
+    hits: list[tuple[EntityNode, float]],
+    *,
+    min_score: float = 3.5,
+    gap_min: float = 1.5,
+    ratio_max: float = 0.85,
+) -> tuple[list[str], str]:
+    """Decide unique vs ambiguous targets from ranked hits.
+
+    Returns (entity_ids, mode) where mode is 'unique' | 'clarify' | 'weak'.
+    """
+    if not hits:
+        return [], "weak"
+    top_n, top_s = hits[0]
+    if top_s < min_score:
+        # Keep weak candidates for agent context but don't auto-act / false-clarify
+        return [top_n.entity_id], "weak"
+
+    close = [(n, s) for n, s in hits if top_s - s < gap_min]
+    if len(close) == 1:
+        return [top_n.entity_id], "unique"
+
+    second_s = close[1][1] if len(close) > 1 else 0.0
+    ratio = (second_s / top_s) if top_s > 0 else 1.0
+    if top_s - second_s >= gap_min or ratio < ratio_max:
+        return [top_n.entity_id], "unique"
+
+    # Real ambiguity — only near peers
+    return [n.entity_id for n, _ in close[:5]], "clarify"
 
 
 def areas_summary(entities: list[EntityNode], *, limit: int = 24) -> list[str]:
@@ -263,7 +402,9 @@ def snippet_for_query(
     if hits:
         lines.append("candidates:")
         for node, score in hits:
-            lines.append(f"- {node.entity_id} | {node.name} | {node.area or '-'} | {node.state} | score={score:.1f}")
+            lines.append(
+                f"- {node.entity_id} | {node.name} | {node.area or '-'} | {node.state} | score={score:.1f}"
+            )
     areas = areas_summary(entities, limit=12)
     if areas:
         lines.append("areas: " + ", ".join(areas))

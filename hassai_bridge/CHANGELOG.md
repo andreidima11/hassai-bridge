@@ -1,5 +1,15 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.10.0
+
+### Features
+- **Precise entity matching** — friendly name is the primary signal; numeric tokens (`dormitor 1` / `2`) stay discriminative; technical `entity_id` slugs no longer outrank names like „Bec living”
+- **Smarter clarifications** — „Care dintre acestea?” only for real near-ties; chips show friendly name + area (not raw slugs)
+- **Natural Undo** — chip shows «Anulează» / «Undo»; structured `hassai_action` carries `ledger_id` internally (no `/undo mut_…` in the chat bubble)
+
+### Fix
+- **Undo safety** — ledger restore is user-scoped and idempotent (repeat / wrong user does not re-run HA)
+
 ## 1.9.0
 
 ### Features
