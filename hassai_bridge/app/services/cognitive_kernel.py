@@ -84,6 +84,9 @@ class TurnContext:
     plan: dict | None = None
     policy_decision: str = "allow"
     shadow: bool = False
+    # Deterministic "which one?" from the reflex layer. Off by default: when
+    # the reflex is not sure it hands off to the agent instead of asking.
+    clarify_allowed: bool = False
     metrics: dict = field(default_factory=dict)
     started_at: float = field(default_factory=time.time)
 
@@ -133,6 +136,12 @@ def shadow_mode(cfg: dict | None) -> bool:
     return bool(perf.get("cognitive_shadow", False))
 
 
+def reflex_clarify_enabled(cfg: dict | None) -> bool:
+    """Opt-in: let the reflex layer ask "which one?" instead of deferring to the agent."""
+    perf = (cfg or {}).get("performance") or {}
+    return bool(perf.get("reflex_clarify", False))
+
+
 def build_turn_context(
     *,
     user_text: str,
@@ -151,6 +160,7 @@ def build_turn_context(
         lang="ro" if str(lang or "").lower().startswith("ro") else "en",
         route_klass=str(route_klass or "simple"),
         shadow=shadow_mode(cfg),
+        clarify_allowed=reflex_clarify_enabled(cfg),
         metrics={"t0": time.time()},
     )
 

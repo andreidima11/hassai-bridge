@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.10.3
+
+### Fix
+- **No more „Care dintre acestea?” from the reflex** — the deterministic layer only executes when the target is unique and certain; anything less is handed to the agent (LLM + HA tools) with the full candidate list, which resolves names the way it did before. Deterministic clarification chips are now opt-in via `performance.reflex_clarify: true`
+
 ## 1.10.2
 
 ### Fix

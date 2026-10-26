@@ -95,8 +95,23 @@ def test_bec_living_ignores_slug_on_l1():
     assert ctx.hypotheses[0].targets == ["light.releu_living_l3"]
 
 
-def test_duplicate_names_clarify_with_areas():
+def test_duplicate_names_defer_to_agent_by_default():
+    """Reflex never asks 'which one?' unless opted in — the agent resolves it."""
     ctx = ck.build_turn_context(user_text="stinge lampa pat", lang="ro")
+    ctx = ac.compile_reflex(ctx, entities=_entities())
+    assert ctx.path == ck.PATH_AGENT
+    assert not ctx.clarification_chips
+    # Agent gets both candidates with friendly names + areas
+    assert "light.lamp_pat_a" in ctx.world_snippet
+    assert "light.lamp_pat_b" in ctx.world_snippet
+    assert "Dormitor 1" in ctx.world_snippet and "Dormitor 2" in ctx.world_snippet
+
+
+def test_duplicate_names_clarify_with_areas():
+    ctx = ck.build_turn_context(
+        user_text="stinge lampa pat", lang="ro",
+        cfg={"performance": {"reflex_clarify": True}},
+    )
     ctx = ac.compile_reflex(ctx, entities=_entities())
     assert ctx.path == ck.PATH_CLARIFY
     assert len(ctx.clarification_chips) >= 2
@@ -120,14 +135,27 @@ def test_extract_area_longest_match():
     assert gc.extract_area("stinge lampa din Dormitor 2", areas) == "Dormitor 2"
 
 
-def test_ambiguous_bath_clarify():
+def test_ambiguous_bath_never_clarifies_by_default():
     ctx = ck.build_turn_context(user_text="stinge lumina din baie", lang="ro")
     ctx = ac.compile_reflex(ctx, entities=_entities())
-    # Two bath lights → clarify or multi
-    assert ctx.path in {ck.PATH_CLARIFY, ck.PATH_REFLEX, ck.PATH_AGENT, ck.PATH_SHADOW}
-    if ctx.path == ck.PATH_CLARIFY:
-        assert len(ctx.clarification_chips) >= 2
-        assert all(c.get("action", {}).get("type") == "clarify" for c in ctx.clarification_chips)
+    assert ctx.path != ck.PATH_CLARIFY
+    assert not ctx.clarification_chips
+
+
+def test_named_light_executes_not_asks():
+    """'stinge lumina X' with a clear name must execute, not ask."""
+    for text, target in [
+        ("stinge lumina living", "light.living_main"),
+        ("stinge bec balcon", "light.releu_living_l1"),
+        ("stinge oglinda baie", "light.bath_mirror"),
+    ]:
+        ctx = ck.build_turn_context(user_text=text, lang="ro")
+        ctx = ac.compile_reflex(ctx, entities=_entities())
+        assert ctx.path != ck.PATH_CLARIFY, text
+        if ctx.path in {ck.PATH_REFLEX, ck.PATH_SHADOW}:
+            assert ctx.hypotheses[0].targets == [target], text
+        else:
+            assert target in ctx.world_snippet, text
 
 
 def test_close_living_beams_cover_and_lights():

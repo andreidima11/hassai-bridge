@@ -367,7 +367,10 @@ def search(
     area: str = "",
     limit: int = 12,
     hard_area: bool = False,
+    wide: bool = False,
 ) -> list[tuple[EntityNode, float]]:
+    """Ranked candidates. ``wide=True`` keeps every scored hit (agent snippet)
+    instead of trimming to the near-tie band used for reflex decisions."""
     q_tokens = tokenize(query)
     q_nums = number_tokens(q_tokens)
     allow = frozenset(domains) if domains else None
@@ -387,7 +390,7 @@ def search(
         if s > 0:
             ranked.append((node, s))
     ranked.sort(key=lambda x: (-x[1], x[0].entity_id))
-    if ranked:
+    if ranked and not wide:
         top = ranked[0][1]
         # Tighter margin: keep near-ties only
         margin = max(1.2, top * 0.22)
@@ -453,10 +456,10 @@ def snippet_for_query(
     domains: Iterable[str] | None = None,
     limit: int = 10,
 ) -> str:
-    """Compact house fragment for prompt injection."""
-    hits = search(entities, query, domains=domains, area=area, limit=limit)
+    """Compact house fragment for prompt injection (wide: all plausible candidates)."""
+    hits = search(entities, query, domains=domains, area=area, limit=limit, wide=True)
     if not hits and area:
-        hits = search(entities, area, domains=domains, limit=limit)
+        hits = search(entities, area, domains=domains, limit=limit, wide=True)
     lines: list[str] = []
     if hits:
         lines.append("candidates:")

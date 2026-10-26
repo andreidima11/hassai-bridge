@@ -366,37 +366,36 @@ def compile_reflex(
         ctx.path = PATH_SHADOW if ctx.shadow else PATH_REFLEX
         return ctx
 
-    # Ambiguous: only candidates marked clarify (near-tie band), not every beam hit
-    clarify_ids: list[str] = []
-    clarify_hyps: list[Hypothesis] = []
-    for h in hypotheses:
-        if "pick=clarify" in (h.reason or "") and len(h.targets) >= 2:
-            for t in h.targets:
-                if t not in clarify_ids:
-                    clarify_ids.append(t)
-            clarify_hyps.append(h)
-    if not clarify_ids and dominant and len(dominant.targets) >= 2:
-        # Fallback: multi-target without unique pick
-        if "pick=unique" not in (dominant.reason or ""):
-            clarify_ids = list(dominant.targets)[:5]
-            clarify_hyps = [dominant]
-
-    if 2 <= len(clarify_ids) <= 5:
-        ctx.confidence = top.score
-        ctx.goal = gc.goal_from_hypothesis(top, text)
-        ctx.clarification_chips = clarification_chips(
-            clarify_hyps or hypotheses,
-            lang=ctx.lang,
-            entities=entities,
-            candidate_ids=clarify_ids,
-        )
-        ctx.path = PATH_CLARIFY
-        return ctx
+    # Not a confident unique target → hand off to the agent (LLM + HA tools).
+    # The reflex layer never asks "which one?": the agent reads the full house
+    # index and resolves the name the way it did before the reflex existed.
+    # Deterministic clarification is opt-in via performance.reflex_clarify.
+    if ctx.clarify_allowed:
+        clarify_ids: list[str] = []
+        clarify_hyps: list[Hypothesis] = []
+        for h in hypotheses:
+            if "pick=clarify" in (h.reason or "") and len(h.targets) >= 2:
+                for t in h.targets:
+                    if t not in clarify_ids:
+                        clarify_ids.append(t)
+                clarify_hyps.append(h)
+        if 2 <= len(clarify_ids) <= 5:
+            ctx.confidence = top.score
+            ctx.goal = gc.goal_from_hypothesis(top, text)
+            ctx.clarification_chips = clarification_chips(
+                clarify_hyps or hypotheses,
+                lang=ctx.lang,
+                entities=entities,
+                candidate_ids=clarify_ids,
+            )
+            ctx.path = PATH_CLARIFY
+            return ctx
 
     ctx.path = PATH_AGENT
     ctx.confidence = top.score
     ctx.goal = gc.goal_from_hypothesis(top, text)
-    ctx.world_snippet = wm.snippet_for_query(entities, text, area=top.area, limit=10)
+    # Wide snippet: include every near candidate so the agent can pick by name.
+    ctx.world_snippet = wm.snippet_for_query(entities, text, area=top.area, limit=12)
     return ctx
 
 
