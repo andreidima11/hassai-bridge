@@ -19,7 +19,6 @@ log = logging.getLogger("hassai.experience")
 
 STATUS_SHADOW = "shadow"
 STATUS_ACTIVE = "active"
-STATUS_RETIRED = "retired"
 
 _PROMOTE_SUCCESSES = 3
 _PROMOTE_MIN_RATE = 0.8
@@ -105,44 +104,18 @@ def maybe_promote(skill_id: str) -> dict | None:
 
 
 def match_skill(user_id: str, user_text: str, *, include_shadow: bool = False) -> dict | None:
+    """A skill fires only when the message *is* its trigger (folded). Fuzzy
+    matching is the model's job; a deterministic path must not guess."""
     folded = wm.fold(user_text)
     if not folded:
         return None
-    from services import goal_compiler as gc
-
-    topic_shift = gc.is_topic_shift(user_text)
     statuses = [STATUS_ACTIVE]
     if include_shadow:
         statuses.append(STATUS_SHADOW)
-    best = None
-    best_score = 0.0
     for row in db.list_experience_skills(user_id, statuses=statuses):
-        trig = wm.fold(row.get("trigger") or "")
-        if not trig:
-            continue
-        if trig == folded:
-            score = 1.0
-        elif topic_shift:
-            # After a subject change, only exact skill triggers may fire
-            continue
-        elif trig in folded or folded in trig:
-            # Require near-full containment, not a short trigger inside a long chat message
-            if min(len(trig), len(folded)) < 8:
-                continue
-            score = 0.85
-        else:
-            # token overlap
-            tt = set(wm.tokenize(trig))
-            ut = set(wm.tokenize(folded))
-            if not tt or not ut:
-                continue
-            score = len(tt & ut) / max(len(tt), len(ut))
-            if score < 0.85:
-                continue
-        if score > best_score:
-            best_score = score
-            best = row
-    return best if best_score >= 0.85 else None
+        if wm.fold(row.get("trigger") or "") == folded:
+            return row
+    return None
 
 
 async def run_skill_shadow(skill: dict, *, user_text: str) -> dict:

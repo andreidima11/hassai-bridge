@@ -95,7 +95,7 @@ def test_toolkit_savings_stats(memory_db):
         tools_tokens_before=800,
         tools_tokens_after=180,
     )
-    out = db.get_toolkit_savings_stats(30)
+    out = db.get_usage_stats(30)["dynamic_toolkits"]
     assert out["events"] == 2
     assert out["saved_tokens"] == 1000 - 250 + 800 - 180
     assert out["saved_percent"] > 0

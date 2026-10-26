@@ -1,8 +1,8 @@
 """Cognitive Kernel — unified turn decision for HASSAI.
 
-Builds a structured TurnContext before the main LLM path. Deterministic
-reflexes win when confident; otherwise the existing cloud + small-router
-stack continues with richer context.
+Builds a structured TurnContext before the main LLM path. A reflex executes
+only when the target is certain; otherwise the agent continues with richer
+context (house index, recent actions, learned aliases).
 """
 
 from __future__ import annotations
@@ -19,20 +19,18 @@ RISK_LOW = "low"
 RISK_MEDIUM = "medium"
 RISK_HIGH = "high"
 
-LATENCY_FAST = "fast"       # <100ms local reflex target
-LATENCY_NORMAL = "normal"
-LATENCY_DEEP = "deep"
-
 PATH_REFLEX = "reflex"
-PATH_CLARIFY = "clarify"
 PATH_AGENT = "agent"
 PATH_SKILL = "skill"
 PATH_SHADOW = "shadow"
 
+# Recent actions older than this are not worth mentioning to the model.
+RECENT_ACTION_TTL_S = 15 * 60
+
 
 @dataclass
 class Hypothesis:
-    """One plausible interpretation of the user turn."""
+    """The reflex's single interpretation of a command."""
 
     intent: str
     score: float
@@ -54,8 +52,6 @@ class GoalContract:
     goal: str
     success_criteria: str = ""
     risk_class: str = RISK_LOW
-    latency_budget: str = LATENCY_NORMAL
-    packs_hint: list[str] = field(default_factory=list)
     reversible: bool = True
     needs_approval: bool = False
 
@@ -78,15 +74,12 @@ class TurnContext:
     hypotheses: list[Hypothesis] = field(default_factory=list)
     goal: GoalContract | None = None
     working_memory: dict = field(default_factory=dict)
+    recent_actions_text: str = ""
     world_snippet: str = ""
     aliases_used: list[dict] = field(default_factory=list)
-    clarification_chips: list[dict] = field(default_factory=list)
     plan: dict | None = None
     policy_decision: str = "allow"
     shadow: bool = False
-    # Deterministic "which one?" from the reflex layer. Off by default: when
-    # the reflex is not sure it hands off to the agent instead of asking.
-    clarify_allowed: bool = False
     metrics: dict = field(default_factory=dict)
     started_at: float = field(default_factory=time.time)
 
@@ -103,9 +96,9 @@ class TurnContext:
             "hypotheses": [h.to_dict() for h in self.hypotheses],
             "goal": self.goal.to_dict() if self.goal else None,
             "working_memory": self.working_memory,
+            "recent_actions_text": self.recent_actions_text,
             "world_snippet": self.world_snippet,
             "aliases_used": self.aliases_used,
-            "clarification_chips": self.clarification_chips,
             "plan": self.plan,
             "policy_decision": self.policy_decision,
             "shadow": self.shadow,
@@ -136,12 +129,6 @@ def shadow_mode(cfg: dict | None) -> bool:
     return bool(perf.get("cognitive_shadow", False))
 
 
-def reflex_clarify_enabled(cfg: dict | None) -> bool:
-    """Opt-in: let the reflex layer ask "which one?" instead of deferring to the agent."""
-    perf = (cfg or {}).get("performance") or {}
-    return bool(perf.get("reflex_clarify", False))
-
-
 def build_turn_context(
     *,
     user_text: str,
@@ -160,55 +147,19 @@ def build_turn_context(
         lang="ro" if str(lang or "").lower().startswith("ro") else "en",
         route_klass=str(route_klass or "simple"),
         shadow=shadow_mode(cfg),
-        clarify_allowed=reflex_clarify_enabled(cfg),
         metrics={"t0": time.time()},
     )
 
 
-def pick_dominant_hypothesis(
-    hypotheses: list[Hypothesis],
-    *,
-    margin: float = 0.18,
-    floor: float = 0.72,
-) -> Hypothesis | None:
-    """Return the top hypothesis if it clearly beats the rest."""
-    if not hypotheses:
-        return None
-    ranked = sorted(hypotheses, key=lambda h: h.score, reverse=True)
-    top = ranked[0]
-    if top.score < floor:
-        return None
-    if len(ranked) == 1:
-        return top
-    if top.score - ranked[1].score < margin:
-        return None
-    return top
-
-
-def late_context_block(ctx: TurnContext, *, include_working_memory: bool | None = None) -> str:
+def late_context_block(ctx: TurnContext) -> str:
     """Compact block injected on the last user turn (KV-cache friendly).
 
-    Working memory (last light entities, etc.) is included only for discourse
-    follow-ups — otherwise a topic shift would keep forcing the previous device.
+    Recent actions are *described*, never applied: the model decides whether
+    "and that one too" refers to them. The house index lets it resolve names.
     """
     parts: list[str] = []
-    use_wm = include_working_memory
-    if use_wm is None:
-        try:
-            from services import goal_compiler as gc
-            use_wm = gc.is_discourse_followup(ctx.user_text or "")
-        except Exception:
-            use_wm = False
-    if use_wm and ctx.working_memory:
-        refs = []
-        if ctx.working_memory.get("last_entities"):
-            refs.append("entities=" + ", ".join(ctx.working_memory["last_entities"][:6]))
-        if ctx.working_memory.get("last_area"):
-            refs.append(f"area={ctx.working_memory['last_area']}")
-        if ctx.working_memory.get("open_goal"):
-            refs.append(f"open_goal={ctx.working_memory['open_goal']}")
-        if refs:
-            parts.append("[Working memory]\n" + "; ".join(refs))
+    if ctx.recent_actions_text:
+        parts.append("[Recent actions]\n" + ctx.recent_actions_text.strip())
     if ctx.aliases_used:
         lines = [
             f"- {a.get('surface')} → {a.get('resolves_to')}"
@@ -216,7 +167,7 @@ def late_context_block(ctx: TurnContext, *, include_working_memory: bool | None 
             if a.get("surface") and a.get("resolves_to")
         ]
         if lines:
-            parts.append("[Lexicon]\n" + "\n".join(lines))
+            parts.append("[Learned names]\n" + "\n".join(lines))
     if ctx.world_snippet:
         parts.append("[House index]\n" + ctx.world_snippet.strip())
     if ctx.goal and ctx.goal.goal:

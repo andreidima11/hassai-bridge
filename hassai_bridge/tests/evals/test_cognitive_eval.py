@@ -40,14 +40,7 @@ def test_cognitive_eval_fixtures():
         expected = case["expected_path"]
         targets = case.get("expected_targets")
         ctx = ck.build_turn_context(user_text=utterance, lang=case.get("lang") or "en")
-        if ac.can_attempt_reflex(utterance):
-            ctx = ac.compile_reflex(ctx, entities=entities)
-        else:
-            ctx.path = ck.PATH_AGENT
-        # pause with media present may become reflex
-        if "pause" in utterance.lower() and expected == "agent":
-            if ctx.path in {ck.PATH_REFLEX, ck.PATH_SHADOW, ck.PATH_CLARIFY}:
-                continue
+        ctx = ac.compile_reflex(ctx, entities=entities)
         result = cm.eval_fixture_result(
             utterance=utterance,
             expected_path=expected,

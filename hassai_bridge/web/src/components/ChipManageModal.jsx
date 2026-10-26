@@ -4,7 +4,7 @@ import { XIcon } from "./Icons.jsx";
 import { tr } from "../lib/i18n.js";
 
 export function ChipManageModal({ chip, lang, onClose, onSave, onSuppress }) {
-  const isStructured = Boolean(chip?.action?.type) || ["undo", "clarify"].includes(String(chip?.kind || chip?.topic || ""));
+  const isStructured = Boolean(chip?.action?.type) || String(chip?.kind || chip?.topic || "") === "undo";
   const [label, setLabel] = useState(String(chip?.label || chip?.display_text || ""));
   const [prompt, setPrompt] = useState(
     isStructured
@@ -17,7 +17,7 @@ export function ChipManageModal({ chip, lang, onClose, onSave, onSuppress }) {
   useEffect(() => {
     const structured =
       Boolean(chip?.action?.type) ||
-      ["undo", "clarify"].includes(String(chip?.kind || chip?.topic || ""));
+      String(chip?.kind || chip?.topic || "") === "undo";
     setLabel(String(chip?.label || chip?.display_text || ""));
     setPrompt(
       structured

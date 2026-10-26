@@ -49,6 +49,7 @@ def _load():
 def test_all_groups_default_on():
     assert bta.merged_bridge_tools_config({}) == {
         "memory": True, "status": True, "control": True, "media": True,
+        "browser": False,
     }
 
 

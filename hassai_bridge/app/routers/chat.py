@@ -750,14 +750,6 @@ def _message_reasoning(message: dict | None) -> str:
     return _clip_reasoning(tt.merge_thinking(field, inline))
 
 
-def _message_reasoning_full(message: dict | None) -> str:
-    if not isinstance(message, dict):
-        return ""
-    field = tt.message_reasoning_text(message)
-    _, inline = tt.split_inline_thinking(message.get("content") or "")
-    return _store_reasoning(tt.merge_thinking(field, inline))
-
-
 def _finalize_assistant_text(text: str | None, message: dict | None = None) -> tuple[str, str]:
     """Strip inline thinking tags + DSML tool markup; merge with API reasoning fields."""
     visible, inline = tt.split_inline_thinking(text)
@@ -1022,18 +1014,6 @@ async def _build_followups_for_turn(
         )
     except Exception:
         return []
-
-
-def _reasoning_from_row_meta(meta: dict | None) -> str:
-    if not isinstance(meta, dict):
-        return ""
-    direct = _store_reasoning(meta.get("reasoning_content") or "")
-    if direct:
-        return direct
-    for ev in reversed(meta.get("activity") or []):
-        if isinstance(ev, dict) and ev.get("name") == "think" and ev.get("detail"):
-            return _store_reasoning(str(ev.get("detail") or ""))
-    return ""
 
 
 def _markdown_for_generated_attachments(
@@ -1709,14 +1689,18 @@ async def _append_parallel_ready_tools(
             "sources": list(sources_bucket),
         })
 
-    # Cognitive OS: refresh discourse working set from successful HA mutations
+    # Cognitive OS: remember what the agent acted on (and learn the name it
+    # resolved, so the same short command becomes a reflex next time).
     try:
         from services import cognitive_runtime as cogrt
 
         acted: list[str] = []
         action = ""
-        for job in prepared:
-            if job["fn_name"] != "ha_call_service":
+        for job, result in zip(prepared, results):
+            if job["fn_name"] != "ha_call_service" or isinstance(result, Exception):
+                continue
+            content = result[0] if isinstance(result, tuple) else result
+            if not (isinstance(content, str) and content.startswith("OK:")):
                 continue
             args = job.get("args") or {}
             eid = str(args.get("entity_id") or "").strip()
@@ -1728,8 +1712,13 @@ async def _append_parallel_ready_tools(
                 acted.append(raw.strip())
             action = str(args.get("service") or action)
         if acted and user_id and session_id:
+            user_text = ""
+            for msg in reversed(augmented):
+                if isinstance(msg, dict) and msg.get("role") == "user":
+                    user_text = cc.content_text(msg.get("content"))
+                    break
             cogrt.note_agent_entities(
-                user_id, session_id, entity_ids=acted, action=action,
+                user_id, session_id, entity_ids=acted, action=action, user_text=user_text,
             )
     except Exception:
         log.debug("working set update failed", exc_info=True)
@@ -2330,6 +2319,50 @@ def _get_local_ip() -> str:
         return "127.0.0.1"
 
 
+async def _undo_message(
+    ledger_id: str,
+    *,
+    cfg: dict,
+    user_id: str,
+    latest_if_missing: bool = False,
+) -> str:
+    """Undo a ledger entry and return the user-facing message.
+
+    Shared by the ``/undo`` slash command and the structured Undo chip so
+    both paths speak the same way.
+    """
+    from services import plan_engine as pe
+    from core import database as db
+
+    ro = (cfg.get("language") or "en") == "ro"
+    ledger_id = str(ledger_id or "").strip()
+    if not ledger_id and latest_if_missing:
+        try:
+            with db.get_db() as conn:
+                row = conn.execute(
+                    """SELECT ledger_id FROM mutation_ledger
+                       WHERE user_id = ? AND undone_at IS NULL
+                       ORDER BY ts DESC LIMIT 1""",
+                    (user_id,),
+                ).fetchone()
+            ledger_id = row["ledger_id"] if row else ""
+        except Exception:
+            ledger_id = ""
+    if not ledger_id:
+        return "Nimic de anulat." if ro else "Nothing to undo."
+
+    result = await pe.undo_ledger(ledger_id, cfg=cfg, user_id=user_id)
+    if not result.get("ok"):
+        err = result.get("error") or ", ".join(result.get("errors") or []) or "failed"
+        return f"Undo failed: {err}"
+    if result.get("already_undone"):
+        return "Deja anulat." if ro else "Already undone."
+    restored = ", ".join(result.get("restored") or [])
+    if restored:
+        return f"Anulat: {restored}." if ro else f"Undone: {restored}."
+    return "Anulat." if ro else "Undone."
+
+
 async def _handle_command(cmd: str, user_id: str) -> str | None:
     """Handle slash commands. Returns response text or None if not a command."""
     cmd = cmd.strip()
@@ -2357,41 +2390,9 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
         return "\n".join(lines)
 
     elif command == "/undo":
-        from services import plan_engine as pe
-        from core import database as db
-
-        ledger_id = arg.strip()
-        if not ledger_id:
-            # Latest ledger for this user
-            try:
-                with db.get_db() as conn:
-                    row = conn.execute(
-                        """SELECT ledger_id FROM mutation_ledger
-                           WHERE user_id = ? AND undone_at IS NULL
-                           ORDER BY ts DESC LIMIT 1""",
-                        (str(user_id or ""),),
-                    ).fetchone()
-                ledger_id = row["ledger_id"] if row else ""
-            except Exception:
-                ledger_id = ""
-        if not ledger_id:
-            return "Nothing to undo." if (cfg.get("language") or "en") != "ro" else "Nimic de anulat."
-        result = await pe.undo_ledger(ledger_id, cfg=cfg, user_id=str(user_id or ""))
-        if result.get("ok"):
-            if result.get("already_undone"):
-                return (
-                    "Deja anulat."
-                    if (cfg.get("language") or "en") == "ro"
-                    else "Already undone."
-                )
-            restored = ", ".join(result.get("restored") or []) or ledger_id
-            return (
-                f"Anulat: {restored}."
-                if (cfg.get("language") or "en") == "ro"
-                else f"Undone: {restored}."
-            )
-        err = result.get("error") or ", ".join(result.get("errors") or [])
-        return f"Undo failed: {err}"
+        return await _undo_message(
+            arg.strip(), cfg=cfg, user_id=str(user_id or ""), latest_if_missing=True,
+        )
 
     elif command == "/scorecard":
         from services import cognitive_metrics as cmet
@@ -2403,7 +2404,6 @@ async def _handle_command(cmd: str, user_id: str) -> str | None:
         sr = card.get("success_rate")
         lines.append(f"• success_rate: {sr if sr is not None else 'n/a'}")
         lines.append(f"• avg_elapsed_ms: {card.get('avg_elapsed_ms')}")
-        lines.append(f"• clarify_rate: {card.get('clarify_rate')}")
         lines.append(f"• shadow_turns: {card.get('shadow_turns')}")
         lines.append(f"• verify_failures: {card.get('verify_failures')}")
         return "\n".join(lines)
@@ -3744,7 +3744,7 @@ async def chat_completions(request: Request):
     # Visible text saved to history (may differ from internal rewrite for chips).
     history_user_text = last_user_msg
 
-    # Structured chip actions (Undo / clarify) — separate from the visible user text.
+    # Structured chip actions (Undo) — separate from the visible user text.
     hassai_action = body.get("hassai_action") if isinstance(body.get("hassai_action"), dict) else None
     if hassai_action:
         action_type = str(hassai_action.get("type") or "").strip().lower()
@@ -3754,38 +3754,16 @@ async def chat_completions(request: Request):
         if display_override:
             history_user_text = display_override
         if action_type == "undo":
-            from services import plan_engine as pe
-
-            ledger_id = str(hassai_action.get("ledger_id") or "").strip()
             lang_code = str(cfg.get("language") or "en")
-            if not ledger_id:
-                undo_msg = "Nothing to undo." if lang_code != "ro" else "Nimic de anulat."
-            else:
-                result = await pe.undo_ledger(ledger_id, cfg=cfg, user_id=str(user_id or ""))
-                if result.get("ok"):
-                    if result.get("already_undone"):
-                        undo_msg = "Deja anulat." if lang_code == "ro" else "Already undone."
-                    else:
-                        restored = ", ".join(result.get("restored") or []) or ledger_id
-                        undo_msg = (
-                            f"Anulat."
-                            if lang_code == "ro"
-                            else "Undone."
-                        )
-                        if restored and restored != ledger_id:
-                            undo_msg = (
-                                f"Anulat: {restored}."
-                                if lang_code == "ro"
-                                else f"Undone: {restored}."
-                            )
-                else:
-                    err = result.get("error") or "failed"
-                    undo_msg = f"Undo failed: {err}"
+            undo_msg = await _undo_message(
+                str(hassai_action.get("ledger_id") or ""),
+                cfg=cfg,
+                user_id=str(user_id or ""),
+            )
             display_user = history_user_text or ("Anulează" if lang_code == "ro" else "Undo")
-            if display_user:
-                add_conversation_message(
-                    user_id, "user", display_user, session_id=session_id,
-                )
+            add_conversation_message(
+                user_id, "user", display_user, session_id=session_id,
+            )
             add_conversation_message(
                 user_id, "assistant", undo_msg, session_id=session_id,
             )
@@ -3800,33 +3778,6 @@ async def chat_completions(request: Request):
                     provider_name="hassai-reflex",
                 )
             return JSONResponse(content=_command_response_openai(undo_msg, model))
-
-        if action_type == "clarify":
-            eid = str(hassai_action.get("entity_id") or "").strip()
-            intent = str(hassai_action.get("intent") or "turn_off").strip()
-            lang_code = str(cfg.get("language") or "en")
-            if eid:
-                # Rewrite the cognitive input to a direct entity_id command;
-                # the visible bubble stays as display_text / last_user_msg.
-                verb_map_ro = {
-                    "turn_on": "aprinde",
-                    "turn_off": "stinge",
-                    "open": "deschide",
-                    "close": "închide",
-                    "toggle": "comută",
-                }
-                verb_map_en = {
-                    "turn_on": "turn on",
-                    "turn_off": "turn off",
-                    "open": "open",
-                    "close": "close",
-                    "toggle": "toggle",
-                }
-                verb = (verb_map_ro if lang_code == "ro" else verb_map_en).get(intent, intent)
-                last_user_msg = f"{verb} {eid}"
-                # Patch the last user message content so downstream uses the rewrite
-                if last_user_message is not None:
-                    last_user_message["content"] = last_user_msg
 
     route = sc.resolve_route_for_session(
         cfg,
@@ -4091,7 +4042,7 @@ async def chat_completions(request: Request):
             return StreamingResponse(cmd_stream(), media_type="text/event-stream")
         return JSONResponse(content=_command_response_openai(cmd_result, model))
 
-    # ── Cognitive OS: reflex / clarify / late context ──
+    # ── Cognitive OS: exact-match reflex, otherwise agent context ──
     cognitive_late = ""
     cognitive_ctx_dict: dict | None = None
     try:

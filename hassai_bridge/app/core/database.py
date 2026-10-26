@@ -1314,23 +1314,6 @@ def get_usage_stats(days=30):
     }
 
 
-def get_toolkit_savings_stats(days: int = 30) -> dict:
-    """Aggregate tool-schema token savings from Dynamic toolkit audit events."""
-    try:
-        d = max(1, min(int(days), 365))
-    except (TypeError, ValueError):
-        d = 30
-    stats = get_usage_stats(d)
-    return stats.get("dynamic_toolkits") or {
-        "events": 0,
-        "saved_tokens": 0,
-        "tools_tokens_before": 0,
-        "tools_tokens_after": 0,
-        "saved_percent": 0.0,
-        "daily": [],
-    }
-
-
 def cleanup_old_conversations(days: int = 90) -> int:
     """Delete conversation messages older than N days (#11). Returns count deleted."""
     cutoff = time.time() - (days * 86400)
@@ -1342,25 +1325,12 @@ def cleanup_old_conversations(days: int = 90) -> int:
     return deleted
 
 
-def rebuild_fts_index():
-    """Rebuild FTS5 index from the memories table. Call after bulk operations."""
-    with get_db() as conn:
-        try:
-            conn.execute("DELETE FROM memories_fts")
-            conn.execute(
-                "INSERT INTO memories_fts(rowid, content, keywords) "
-                "SELECT id, content, keywords FROM memories WHERE active = 1"
-            )
-        except sqlite3.OperationalError:
-            pass  # FTS not available
 
 # ── Session state (provider override + toolkit sticky) ──
 
 KIND_CHAT_OVERRIDE = "chat_override"
 KIND_TOOLKIT_STICKY = "toolkit_sticky"
 KIND_WORKING_SET = "working_set"
-KIND_DISCOURSE = "discourse"
-KIND_GOAL = "goal"
 
 
 def upsert_session_state(user_id: str, session_id: str, kind: str, data: dict) -> None:

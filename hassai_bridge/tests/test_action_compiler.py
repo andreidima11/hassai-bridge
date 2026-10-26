@@ -1,7 +1,13 @@
-"""Reflex compiler + intent beam tests (no live HA)."""
+"""Reflex compiler tests (no live HA).
+
+Contract: the reflex executes only on a certain target — raw entity_id,
+learned alias, or a phrase equal to exactly one friendly name. Everything
+else goes to the agent with the full house index. It never asks "which one?".
+"""
 
 from services import action_compiler as ac
 from services import cognitive_kernel as ck
+from services import cognitive_runtime as cogrt
 from services import goal_compiler as gc
 from services import world_model as wm
 
@@ -32,6 +38,10 @@ def _entities():
          "attributes": {"friendly_name": "Lampă pat"}},
         {"entity_id": "light.lamp_pat_b", "state": "off",
          "attributes": {"friendly_name": "Lampă pat"}},
+        {"entity_id": "lock.front", "state": "locked",
+         "attributes": {"friendly_name": "Yala"}},
+        {"entity_id": "media_player.living", "state": "playing",
+         "attributes": {"friendly_name": "Boxa Living"}},
     ]
     registry = {
         "light.living_main": {"area_id": "living"},
@@ -46,6 +56,8 @@ def _entities():
         "light.lampa_dormitor_2": {"area_id": "dorm2", "name": "Lampa Dormitor 2"},
         "light.lamp_pat_a": {"area_id": "dorm1", "name": "Lampă pat"},
         "light.lamp_pat_b": {"area_id": "dorm2", "name": "Lampă pat"},
+        "lock.front": {"area_id": "hol"},
+        "media_player.living": {"area_id": "living"},
     }
     areas = {
         "living": "Living",
@@ -54,192 +66,172 @@ def _entities():
         "balcon": "Balcon",
         "dorm1": "Dormitor 1",
         "dorm2": "Dormitor 2",
+        "hol": "Hol",
     }
     return wm.build_from_rows(states, registry=registry, area_labels=areas)
 
 
+def _compile(text: str, lang: str = "ro", aliases=None, cfg=None):
+    ctx = ck.build_turn_context(user_text=text, lang=lang, cfg=cfg)
+    return ac.compile_reflex(ctx, entities=_entities(), aliases=aliases)
+
+
+# ── Intent lexicon ──────────────────────────────────────
+
+
+def test_parse_command_verbs_and_target():
+    assert gc.parse_command("stinge lampa dormitor 1") == ("turn_off", "off", "lampa dormitor 1")
+    assert gc.parse_command("Turn on the kitchen light!") == ("turn_on", "on", "kitchen light")
+    assert gc.parse_command("aprinde-mi te rog bec balcon") == ("turn_on", "on", "bec balcon")
+    assert gc.parse_command("închide jaluzele living") == ("close", "closed", "jaluzele living")
+    assert gc.parse_command("pause boxa living") == ("pause", "paused", "boxa living")
+
+
+def test_parse_command_rejects_questions_and_prose():
+    assert gc.parse_command("De ce s-a aprins lumina?")[0] == ""
+    assert gc.parse_command("creează o automatizare la apus")[0] == ""
+    assert gc.parse_command("ce glumă știi?")[0] == ""
+    assert gc.parse_command("")[0] == ""
+
+
 def test_can_attempt_short_control():
-    assert ac.can_attempt_reflex("stinge lumina din living")
+    assert ac.can_attempt_reflex("stinge lumina living")
     assert ac.can_attempt_reflex("turn on kitchen light")
     assert not ac.can_attempt_reflex("creează o automatizare pentru lumină")
     assert not ac.can_attempt_reflex("De ce s-a aprins lumina?")
+    assert not ac.can_attempt_reflex("hello")
 
 
-def test_kitchen_light_unique_reflex():
-    ctx = ck.build_turn_context(user_text="turn on kitchen light", lang="en")
-    ctx = ac.compile_reflex(ctx, entities=_entities())
-    assert ctx.path in {ck.PATH_REFLEX, ck.PATH_SHADOW}
-    assert ctx.hypotheses
+# ── Exact resolution → reflex ───────────────────────────
+
+
+def test_exact_name_is_reflex():
+    ctx = _compile("turn on kitchen light", lang="en")
+    assert ctx.path == ck.PATH_REFLEX
     assert ctx.hypotheses[0].targets == ["light.kitchen"]
+    assert ctx.hypotheses[0].service == "turn_on"
+    assert ctx.hypotheses[0].expected_state == "on"
 
 
-def test_dormitor_1_no_clarify():
-    ctx = ck.build_turn_context(user_text="stinge lampa dormitor 1", lang="ro")
-    ctx = ac.compile_reflex(ctx, entities=_entities())
-    assert ctx.path in {ck.PATH_REFLEX, ck.PATH_SHADOW}
+def test_numbered_lamps_resolve_exactly():
+    ctx = _compile("stinge lampa dormitor 1")
+    assert ctx.path == ck.PATH_REFLEX
     assert ctx.hypotheses[0].targets == ["light.lampa_dormitor_1"]
-    assert not ctx.clarification_chips
-
-
-def test_dormitor_2_no_clarify():
-    ctx = ck.build_turn_context(user_text="stinge lampa dormitor 2", lang="ro")
-    ctx = ac.compile_reflex(ctx, entities=_entities())
-    assert ctx.path in {ck.PATH_REFLEX, ck.PATH_SHADOW}
+    ctx = _compile("stinge lampa dormitor 2")
+    assert ctx.path == ck.PATH_REFLEX
     assert ctx.hypotheses[0].targets == ["light.lampa_dormitor_2"]
 
 
-def test_bec_living_ignores_slug_on_l1():
-    ctx = ck.build_turn_context(user_text="aprinde bec living", lang="ro")
-    ctx = ac.compile_reflex(ctx, entities=_entities())
-    assert ctx.path in {ck.PATH_REFLEX, ck.PATH_SHADOW}
+def test_friendly_name_beats_entity_slug():
+    """'bec living' is the friendly name of releu_l3; slug of l1 contains 'living'."""
+    ctx = _compile("aprinde bec living")
+    assert ctx.path == ck.PATH_REFLEX
     assert ctx.hypotheses[0].targets == ["light.releu_living_l3"]
 
 
-def test_duplicate_names_defer_to_agent_by_default():
-    """Reflex never asks 'which one?' unless opted in — the agent resolves it."""
-    ctx = ck.build_turn_context(user_text="stinge lampa pat", lang="ro")
-    ctx = ac.compile_reflex(ctx, entities=_entities())
-    assert ctx.path == ck.PATH_AGENT
-    assert not ctx.clarification_chips
-    # Agent gets both candidates with friendly names + areas
-    assert "light.lamp_pat_a" in ctx.world_snippet
-    assert "light.lamp_pat_b" in ctx.world_snippet
-    assert "Dormitor 1" in ctx.world_snippet and "Dormitor 2" in ctx.world_snippet
+def test_diacritics_and_case_are_folded():
+    ctx = _compile("Stinge Lumină Living")
+    assert ctx.path == ck.PATH_REFLEX
+    assert ctx.hypotheses[0].targets == ["light.living_main"]
 
 
-def test_duplicate_names_clarify_with_areas():
-    ctx = ck.build_turn_context(
-        user_text="stinge lampa pat", lang="ro",
-        cfg={"performance": {"reflex_clarify": True}},
-    )
-    ctx = ac.compile_reflex(ctx, entities=_entities())
-    assert ctx.path == ck.PATH_CLARIFY
-    assert len(ctx.clarification_chips) >= 2
-    labels = " ".join(c["label"] for c in ctx.clarification_chips)
-    assert "Dormitor 1" in labels or "Dormitor 2" in labels
-    for chip in ctx.clarification_chips:
-        assert chip.get("action", {}).get("type") == "clarify"
-        assert chip.get("entity_id")
-        assert "light." not in chip.get("label", "")
-        assert not str(chip.get("prompt") or "").startswith("/undo")
+def test_duplicate_name_plus_area_is_exact():
+    ctx = _compile("stinge lampă pat din dormitor 2")
+    assert ctx.path == ck.PATH_REFLEX
+    assert ctx.hypotheses[0].targets == ["light.lamp_pat_b"]
 
 
-def test_extract_target_phrase_strips_verb():
-    assert "dormitor" in gc.extract_target_phrase("stinge lampa dormitor 1")
-    assert "1" in wm.tokenize(gc.extract_target_phrase("stinge lampa dormitor 1"))
-
-
-def test_extract_area_longest_match():
-    areas = ["Dormitor", "Dormitor 1", "Dormitor 2"]
-    assert gc.extract_area("stinge lampa din Dormitor 1", areas) == "Dormitor 1"
-    assert gc.extract_area("stinge lampa din Dormitor 2", areas) == "Dormitor 2"
-
-
-def test_ambiguous_bath_never_clarifies_by_default():
-    ctx = ck.build_turn_context(user_text="stinge lumina din baie", lang="ro")
-    ctx = ac.compile_reflex(ctx, entities=_entities())
-    assert ctx.path != ck.PATH_CLARIFY
-    assert not ctx.clarification_chips
-
-
-def test_named_light_executes_not_asks():
-    """'stinge lumina X' with a clear name must execute, not ask."""
-    for text, target in [
-        ("stinge lumina living", "light.living_main"),
-        ("stinge bec balcon", "light.releu_living_l1"),
-        ("stinge oglinda baie", "light.bath_mirror"),
-    ]:
-        ctx = ck.build_turn_context(user_text=text, lang="ro")
-        ctx = ac.compile_reflex(ctx, entities=_entities())
-        assert ctx.path != ck.PATH_CLARIFY, text
-        if ctx.path in {ck.PATH_REFLEX, ck.PATH_SHADOW}:
-            assert ctx.hypotheses[0].targets == [target], text
-        else:
-            assert target in ctx.world_snippet, text
-
-
-def test_close_living_beams_cover_and_lights():
-    hyps = gc.compile_hypotheses("închide livingul", entities=_entities())
-    domains = {h.domain for h in hyps}
-    assert "cover" in domains or any("cover" in (h.targets[0] if h.targets else "") for h in hyps)
-
-
-def test_pronoun_uses_working_memory():
-    ctx = ck.build_turn_context(user_text="stinge și pe aia", lang="ro")
-    ctx.working_memory = {
-        "last_entities": ["light.kitchen"],
-        "last_area": "Kitchen",
-        "last_action": "turn_on",
-    }
-    ctx = ac.compile_reflex(ctx, entities=_entities())
-    assert ctx.hypotheses
-    assert "light.kitchen" in (ctx.hypotheses[0].targets or [])
-
-
-def test_topic_shift_ignores_previous_lights():
-    """After talking about lights, a new subject must not reuse last_entities."""
-    ctx = ck.build_turn_context(user_text="ce glumă știi?", lang="ro")
-    ctx.working_memory = {
-        "last_entities": ["light.kitchen"],
-        "last_area": "Kitchen",
-        "last_action": "turn_on",
-    }
-    # Full compile path via hypotheses — WM must not pin kitchen light
-    hyps = gc.compile_hypotheses(
-        "ce glumă știi?",
-        entities=_entities(),
-        working_memory=ctx.working_memory,
-    )
-    assert not any(
-        "light.kitchen" in (h.targets or [])
-        for h in hyps
-        if h.intent not in {"chat", "complex"}
-    )
-    assert gc.is_topic_shift("ce glumă știi?")
-    assert not gc.is_discourse_followup("aprinde lampa dormitor 1")
-    assert gc.is_discourse_followup("stinge și pe aia")
-
-
-def test_direct_entity_id_from_chip():
-    ctx = ck.build_turn_context(user_text="stinge light.kitchen", lang="ro")
-    ctx = ac.compile_reflex(ctx, entities=_entities())
-    assert ctx.path in {ck.PATH_REFLEX, ck.PATH_SHADOW}
+def test_direct_entity_id_is_reflex():
+    ctx = _compile("stinge light.kitchen")
+    assert ctx.path == ck.PATH_REFLEX
     assert ctx.hypotheses[0].targets == ["light.kitchen"]
+    assert ctx.hypotheses[0].reason == "resolved=entity_id"
 
 
-def test_automation_falls_to_agent():
-    ctx = ck.build_turn_context(user_text="creează o automatizare la apus", lang="ro")
-    ctx = ac.compile_reflex(ctx, entities=_entities())
+def test_learned_alias_is_reflex():
+    aliases = [{"surface": "becul de pe balcon", "resolves_to": "light.releu_living_l1"}]
+    ctx = _compile("aprinde becul de pe balcon", aliases=aliases)
+    assert ctx.path == ck.PATH_REFLEX
+    assert ctx.hypotheses[0].targets == ["light.releu_living_l1"]
+    assert ctx.hypotheses[0].reason == "resolved=alias"
+
+
+def test_cover_service_mapping():
+    ctx = _compile("închide jaluzele living")
+    assert ctx.path == ck.PATH_REFLEX
+    hyp = ctx.hypotheses[0]
+    assert hyp.service == "close_cover"
+    assert hyp.expected_state == "closed"
+
+
+def test_shadow_mode_logs_instead_of_executing():
+    ctx = _compile("stinge lampa dormitor 1", cfg={"performance": {"cognitive_shadow": True}})
+    assert ctx.path == ck.PATH_SHADOW
+    assert ctx.hypotheses[0].targets == ["light.lampa_dormitor_1"]
+
+
+# ── Anything uncertain → agent, never a question ───────
+
+
+def test_partial_name_goes_to_agent():
+    ctx = _compile("stinge lampa dormitor")
+    assert ctx.path == ck.PATH_AGENT
+    assert not ctx.hypotheses
+
+
+def test_duplicate_names_go_to_agent():
+    ctx = _compile("stinge lampa pat")
+    assert ctx.path == ck.PATH_AGENT
+    assert not ctx.hypotheses
+
+
+def test_area_only_goes_to_agent():
+    ctx = _compile("stinge lumina din baie")
     assert ctx.path == ck.PATH_AGENT
 
 
-def test_confirmation_ro():
-    hyp = gc.Hypothesis(
+def test_pronoun_goes_to_agent():
+    ctx = _compile("stinge și pe aia")
+    assert ctx.path == ck.PATH_AGENT
+
+
+def test_verb_domain_mismatch_goes_to_agent():
+    ctx = _compile("aprinde yala")
+    assert ctx.path == ck.PATH_AGENT
+
+
+def test_locks_never_silent_reflex():
+    ctx = _compile("încuie yala")
+    assert ctx.path == ck.PATH_AGENT
+    assert ctx.goal is not None and ctx.goal.needs_approval
+
+
+def test_automation_goes_to_agent():
+    ctx = _compile("creează o automatizare la apus")
+    assert ctx.path == ck.PATH_AGENT
+
+
+def test_no_clarify_path_exists():
+    assert not hasattr(ck, "PATH_CLARIFY")
+    assert not hasattr(ck.TurnContext, "clarification_chips")
+
+
+# ── Confirmation + undo chip ───────────────────────────
+
+
+def test_confirmation_ro_uses_friendly_name():
+    hyp = ck.Hypothesis(
         intent="turn_off", score=0.9, targets=["light.kitchen"], area="Kitchen",
     )
     text = ac.confirmation_text(hyp, lang="ro", entities=_entities())
-    assert "Am stins" in text
-    assert "Kitchen" in text or "Kitchen" in text
+    assert text == "Am stins Kitchen Light din Kitchen."
 
 
-def test_detect_correction():
-    c = gc.detect_correction("nu becul mare, ambientul")
-    assert c
-    assert c.get("prefer")
-
-
-def test_undo_chip_shape_has_structured_action():
-    """Mirror of cognitive_runtime undo chip contract."""
-    ledger_id = "mut_abc123def456"
-    chip = {
-        "id": f"undo_{ledger_id}",
-        "label": "Anulează",
-        "display_text": "Anulează",
-        "prompt": "Anulează",
-        "topic": "undo",
-        "kind": "undo",
-        "action": {"type": "undo", "ledger_id": ledger_id},
-    }
+def test_undo_chip_is_structured():
+    chip = cogrt._undo_chip("mut_abc123def456", "ro")
+    assert chip["action"] == {"type": "undo", "ledger_id": "mut_abc123def456"}
+    assert chip["kind"] == "undo"
     assert "/undo" not in chip["prompt"]
     assert "mut_" not in chip["label"]
-    assert chip["action"]["ledger_id"].startswith("mut_")
+    assert chip["display_text"] == "Anulează"
+    assert cogrt._undo_chip("mut_x", "en")["label"] == "Undo"

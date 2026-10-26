@@ -3,13 +3,34 @@
     "utterance": "turn on kitchen light",
     "expected_path": "reflex",
     "expected_targets": ["light.kitchen"],
-    "lang": "en"
+    "lang": "en",
+    "note": "exact friendly name"
   },
   {
     "utterance": "stinge light.kitchen",
     "expected_path": "reflex",
     "expected_targets": ["light.kitchen"],
-    "lang": "ro"
+    "lang": "ro",
+    "note": "raw entity_id"
+  },
+  {
+    "utterance": "aprinde lumina living",
+    "expected_path": "reflex",
+    "expected_targets": ["light.living_main"],
+    "lang": "ro",
+    "note": "exact friendly name, diacritics folded"
+  },
+  {
+    "utterance": "aprinde lumina",
+    "expected_path": "agent",
+    "lang": "ro",
+    "note": "partial name — the model resolves with the house index"
+  },
+  {
+    "utterance": "pause the music",
+    "expected_path": "agent",
+    "lang": "en",
+    "note": "'the music' is not an entity name"
   },
   {
     "utterance": "hello",
@@ -25,11 +46,5 @@
     "utterance": "creează o automatizare la apus",
     "expected_path": "agent",
     "lang": "ro"
-  },
-  {
-    "utterance": "pause the music",
-    "expected_path": "agent",
-    "note": "no media_player in tiny fixture → agent/clarify ok",
-    "lang": "en"
   }
 ]

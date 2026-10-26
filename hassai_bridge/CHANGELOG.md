@@ -1,5 +1,23 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.11.0
+
+### Changed
+- **Reflex limited to exact matches** — the deterministic fast path now executes only when the command names a device unambiguously: a learned alias, a raw `entity_id`, or a phrase equal to exactly one friendly name (optionally followed by its area). Partial names, duplicates, pronouns and room-wide requests are handed to the model.
+- **Language understanding moved to the model** — the heuristic intent beam, fuzzy entity scoring, area extraction, pronoun resolution, topic-shift detection and correction parsing have been removed. The reflex keeps a small verb lexicon and nothing else.
+- **Full house index for the agent** — control-class turns inject a compact list of every controllable entity (`entity_id | name | area | state`, up to 100 rows) so the model resolves names directly, without extra lookup calls.
+- **Working memory is described, not applied** — the last action is surfaced as a one-line note ("Last action (40s ago): turn on — Lampa Dormitor 1") and the model decides whether a follow-up refers to it. Previous entities are no longer injected as targets.
+- **Alias learning from the agent** — when the model resolves a short command to a single entity, the phrase-to-entity mapping is remembered so the same command becomes a reflex next time.
+- **Skills match exact triggers only** — containment and token-overlap matching were removed from the experience layer.
+
+### Removed
+- Deterministic clarification prompts and the `performance.reflex_clarify` option; the assistant no longer asks "Which one?" from the reflex layer.
+- Dead code left over from earlier iterations: legacy token fields and index invalidation in the world model, unused session-state kinds, FTS rebuild and toolkit-savings helpers, duplicated reasoning helpers in the chat router, and the clarify branch of structured chip actions.
+
+### Fixed
+- Undo messages are produced by a single helper shared by the `/undo` command and the Undo chip, so both paths behave identically.
+- Agent-side working-memory updates now count only successful `ha_call_service` calls.
+
 ## 1.10.3
 
 ### Fix

@@ -1,4 +1,4 @@
-"""Cognitive OS scorecard — latency, success, clarifications, cost."""
+"""Cognitive OS scorecard — latency, success, cost."""
 
 from __future__ import annotations
 
@@ -33,7 +33,6 @@ def record_turn(ctx: TurnContext, *, outcome: dict | None = None) -> None:
                 "time_to_first_action_ms": ctx.metrics.get("t_action_ms"),
                 "shadow": ctx.shadow,
                 "policy": ctx.policy_decision,
-                "clarify_chips": len(ctx.clarification_chips),
             },
         )
     except Exception:
@@ -53,7 +52,6 @@ def scorecard(*, user_id: str = "", since_hours: float = 24.0) -> dict[str, Any]
             "paths": {},
             "success_rate": None,
             "avg_elapsed_ms": None,
-            "clarify_rate": None,
             "shadow_turns": 0,
         }
 
@@ -61,7 +59,6 @@ def scorecard(*, user_id: str = "", since_hours: float = 24.0) -> dict[str, Any]
     successes = 0
     known = 0
     elapsed: list[int] = []
-    clarify = 0
     shadow = 0
     verify_fail = 0
     undo = 0
@@ -73,8 +70,6 @@ def scorecard(*, user_id: str = "", since_hours: float = 24.0) -> dict[str, Any]
         outcome = row.get("outcome") or {}
         if metrics.get("shadow") or row.get("path") == "shadow":
             shadow += 1
-        if int(metrics.get("clarify_chips") or 0) > 0 or path == "clarify":
-            clarify += 1
         ms = metrics.get("elapsed_ms")
         if ms is not None:
             try:
@@ -98,7 +93,6 @@ def scorecard(*, user_id: str = "", since_hours: float = 24.0) -> dict[str, Any]
         "success_known": known,
         "avg_elapsed_ms": int(sum(elapsed) / len(elapsed)) if elapsed else None,
         "p50_elapsed_ms": sorted(elapsed)[len(elapsed) // 2] if elapsed else None,
-        "clarify_rate": clarify / len(rows),
         "shadow_turns": shadow,
         "verify_failures": verify_fail,
         "undos": undo,

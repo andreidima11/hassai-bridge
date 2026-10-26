@@ -1,145 +1,112 @@
-"""World model / house index unit tests."""
+"""World model: index building, exact matching, agent index block."""
+
+from __future__ import annotations
 
 from services import world_model as wm
 
 
-def _sample_entities():
+def _home():
     states = [
-        {"entity_id": "light.living_main", "state": "on",
-         "attributes": {"friendly_name": "Lumina Living"}},
-        {"entity_id": "switch.living_ambient", "state": "off",
-         "attributes": {"friendly_name": "Ambient Living"}},
-        {"entity_id": "light.kitchen", "state": "off",
-         "attributes": {"friendly_name": "Kitchen Light"}},
-        {"entity_id": "cover.living_blinds", "state": "open",
-         "attributes": {"friendly_name": "Jaluzele Living"}},
-        {"entity_id": "sensor.temp", "state": "22",
-         "attributes": {"friendly_name": "Temp"}},
-        {"entity_id": "light.releu_living_l1", "state": "off",
-         "attributes": {"friendly_name": "Bec balcon"}},
-        {"entity_id": "light.releu_living_l3", "state": "off",
-         "attributes": {"friendly_name": "Bec living"}},
-        {"entity_id": "light.lampa_dormitor_1", "state": "on",
+        {"entity_id": "light.lampa_dormitor_1", "state": "off",
          "attributes": {"friendly_name": "Lampa Dormitor 1"}},
         {"entity_id": "light.lampa_dormitor_2", "state": "on",
          "attributes": {"friendly_name": "Lampa Dormitor 2"}},
-        {"entity_id": "light.lamp_pat_a", "state": "on",
-         "attributes": {"friendly_name": "Lampă pat"}},
-        {"entity_id": "light.lamp_pat_b", "state": "off",
-         "attributes": {"friendly_name": "Lampă pat"}},
+        {"entity_id": "light.living_main", "state": "on",
+         "attributes": {"friendly_name": "Lumină Living"}},
+        {"entity_id": "switch.releu_1", "state": "off",
+         "attributes": {"friendly_name": "Bec Balcon"}},
+        {"entity_id": "cover.living_blind", "state": "closed",
+         "attributes": {"friendly_name": "Jaluzea"}},
+        {"entity_id": "cover.bedroom_blind", "state": "open",
+         "attributes": {"friendly_name": "Jaluzea"}},
+        {"entity_id": "sensor.temp", "state": "21",
+         "attributes": {"friendly_name": "Temperatura"}},
+        {"entity_id": "light.hidden", "state": "on",
+         "attributes": {"friendly_name": "Hidden"}},
     ]
     registry = {
-        "light.living_main": {"area_id": "living", "name": "Lumina Living"},
-        "switch.living_ambient": {"area_id": "living", "name": "Ambient Living"},
-        "light.kitchen": {"area_id": "kitchen", "name": "Kitchen Light"},
-        "cover.living_blinds": {"area_id": "living", "name": "Jaluzele Living"},
-        "light.releu_living_l1": {"area_id": "balcon", "name": "Bec balcon"},
-        "light.releu_living_l3": {"area_id": "living", "name": "Bec living"},
-        "light.lampa_dormitor_1": {"area_id": "dorm1", "name": "Lampa Dormitor 1"},
-        "light.lampa_dormitor_2": {"area_id": "dorm2", "name": "Lampa Dormitor 2"},
-        "light.lamp_pat_a": {"area_id": "dorm1", "name": "Lampă pat"},
-        "light.lamp_pat_b": {"area_id": "dorm2", "name": "Lampă pat"},
+        "light.lampa_dormitor_1": {"area_id": "bedroom"},
+        "light.lampa_dormitor_2": {"area_id": "bedroom"},
+        "light.living_main": {"area_id": "living"},
+        "switch.releu_1": {"area_id": "balcony", "device_id": "dev1"},
+        "cover.living_blind": {"area_id": "living"},
+        "cover.bedroom_blind": {"area_id": "bedroom"},
+        "light.hidden": {"hidden_by": "user"},
     }
-    areas = {
-        "living": "Living",
-        "kitchen": "Kitchen",
-        "balcon": "Balcon",
-        "dorm1": "Dormitor 1",
-        "dorm2": "Dormitor 2",
-    }
-    return wm.build_from_rows(states, registry=registry, area_labels=areas)
+    areas = {"bedroom": "Dormitor", "living": "Living", "balcony": "Balcon"}
+    devices = {"dev1": "Sonoff Relay"}
+    return wm.build_from_rows(
+        states, registry=registry, area_labels=areas, device_labels=devices,
+    )
 
 
-def test_fold_strips_diacritics():
-    assert wm.fold("Lumină") == "lumina"
-    assert wm.fold("șțâîă") == "staia"
+def test_fold_strips_diacritics_and_punctuation():
+    assert wm.fold("Lumină  Living!") == "lumina living"
+    assert wm.tokenize("Lampa Dormitor 1") == ["lampa", "dormitor", "1"]
 
 
-def test_tokenize_keeps_digits():
-    assert "1" in wm.tokenize("dormitor 1")
-    assert "2" in wm.tokenize("lampa dormitor 2")
-    assert "l1" in wm.tokenize("releu living l1")
-
-
-def test_build_filters_control_domains():
-    nodes = _sample_entities()
-    ids = {n.entity_id for n in nodes}
-    assert "light.living_main" in ids
+def test_build_filters_domains_and_hidden():
+    ents = _home()
+    ids = {e.entity_id for e in ents}
     assert "sensor.temp" not in ids
+    assert "light.hidden" not in ids
+    relay = wm.by_id(ents, "switch.releu_1")
+    assert relay.name == "Bec Balcon"
+    assert relay.area == "Balcon"
+    assert relay.device_name == "Sonoff Relay"
 
 
-def test_search_living_light():
-    nodes = _sample_entities()
-    hits = wm.search(nodes, "stinge lumina din living", area="Living", limit=5)
-    assert hits
-    assert hits[0][0].entity_id in {"light.living_main", "switch.living_ambient", "light.releu_living_l3"}
+def test_find_exact_distinguishes_numbered_lamps():
+    ents = _home()
+    hits = wm.find_exact(ents, "lampa dormitor 1")
+    assert [h.entity_id for h in hits] == ["light.lampa_dormitor_1"]
+    hits = wm.find_exact(ents, "Lampa Dormitor 2")
+    assert [h.entity_id for h in hits] == ["light.lampa_dormitor_2"]
 
 
-def test_dormitor_1_beats_dormitor_2():
-    nodes = _sample_entities()
-    hits = wm.search(nodes, "lampa dormitor 1", limit=5)
-    assert hits
-    assert hits[0][0].entity_id == "light.lampa_dormitor_1"
-    # Wrong number must not even appear as a near candidate
-    assert all(n.entity_id != "light.lampa_dormitor_2" for n, _ in hits)
-    targets, mode = wm.pick_targets(hits, query="lampa dormitor 1")
-    assert mode == "unique"
-    assert targets == ["light.lampa_dormitor_1"]
+def test_find_exact_partial_name_is_not_a_match():
+    ents = _home()
+    assert wm.find_exact(ents, "lampa dormitor") == []
+    assert wm.find_exact(ents, "lampa") == []
+    assert wm.find_exact(ents, "dormitor") == []
 
 
-def test_aprinde_lampa_dormitor_1_never_clarifies():
-    """User regression: numbered lamp must execute, not ask which one."""
-    from services import action_compiler as ac
-    from services import cognitive_kernel as ck
-
-    nodes = _sample_entities()
-    ctx = ck.build_turn_context(user_text="aprinde lampa dormitor 1", lang="ro")
-    ctx = ac.compile_reflex(ctx, entities=nodes)
-    assert ctx.path in {ck.PATH_REFLEX, ck.PATH_SHADOW}
-    assert ctx.hypotheses[0].targets == ["light.lampa_dormitor_1"]
-    assert not ctx.clarification_chips
+def test_find_exact_accepts_name_plus_area():
+    ents = _home()
+    hits = wm.find_exact(ents, "jaluzea din living")
+    assert [h.entity_id for h in hits] == ["cover.living_blind"]
+    hits = wm.find_exact(ents, "jaluzea dormitor")
+    assert [h.entity_id for h in hits] == ["cover.bedroom_blind"]
 
 
-def test_dormitor_2_unique():
-    nodes = _sample_entities()
-    hits = wm.search(nodes, "stinge lampa dormitor 2", limit=5)
-    assert hits[0][0].entity_id == "light.lampa_dormitor_2"
-    assert all(n.entity_id != "light.lampa_dormitor_1" for n, _ in hits)
-    targets, mode = wm.pick_targets(hits, query="stinge lampa dormitor 2")
-    assert mode == "unique"
-    assert targets == ["light.lampa_dormitor_2"]
+def test_find_exact_returns_all_duplicates():
+    ents = _home()
+    hits = wm.find_exact(ents, "jaluzea")
+    assert {h.entity_id for h in hits} == {"cover.living_blind", "cover.bedroom_blind"}
 
 
-def test_friendly_name_beats_entity_id_slug():
-    """releu_living_l1 has 'living' in slug but friendly name is Bec balcon."""
-    nodes = _sample_entities()
-    hits = wm.search(nodes, "bec living", domains=["light"], limit=5)
-    assert hits
-    assert hits[0][0].entity_id == "light.releu_living_l3"
-    targets, mode = wm.pick_targets(hits, query="bec living")
-    assert mode == "unique"
-    assert targets == ["light.releu_living_l3"]
+def test_find_exact_by_friendly_name_of_relay():
+    ents = _home()
+    hits = wm.find_exact(ents, "bec balcon")
+    assert [h.entity_id for h in hits] == ["switch.releu_1"]
 
 
-def test_duplicate_friendly_names_clarify():
-    nodes = _sample_entities()
-    hits = wm.search(nodes, "lampa pat", limit=5)
-    assert len(hits) >= 2
-    targets, mode = wm.pick_targets(hits, query="lampa pat")
-    assert mode == "clarify"
-    assert set(targets) >= {"light.lamp_pat_a", "light.lamp_pat_b"}
+def test_index_block_lists_every_controllable_entity():
+    ents = _home()
+    block = wm.index_block(ents)
+    assert block.startswith("entities (entity_id | name | area | state):")
+    for e in ents:
+        assert f"- {e.entity_id} | {e.name} | {e.area or '-'} | {e.state}" in block
+    assert "sensor.temp" not in block
 
 
-def test_name_tokens_separated_from_slug():
-    nodes = _sample_entities()
-    balcon = next(n for n in nodes if n.entity_id == "light.releu_living_l1")
-    assert "living" in balcon.slug_tokens
-    assert "living" not in balcon.name_tokens
-    assert "balcon" in balcon.name_tokens
+def test_index_block_trims_with_hint():
+    ents = _home()
+    block = wm.index_block(ents, limit=3)
+    assert block.count("\n- ") == 3
+    assert "more" in block and "ha_list_entities" in block
 
 
-def test_snippet_includes_candidates():
-    nodes = _sample_entities()
-    text = wm.snippet_for_query(nodes, "kitchen light")
-    assert "light.kitchen" in text
-    assert "candidates:" in text
+def test_areas_summary():
+    summary = wm.areas_summary(_home())
+    assert summary[0].startswith("Dormitor (3)")
