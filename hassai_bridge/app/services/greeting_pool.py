@@ -29,6 +29,7 @@ ALLOWED_TAGS = frozenset({
     "assumption", "st_andrew", "union_day",
 })
 _DEFAULTS = {
+    "auto_generate": True,
     "refresh_days": 7,
     "pool_size": 40,
     "provider_id": "",
@@ -57,7 +58,11 @@ def normalize_greetings_cfg(raw: Any) -> dict:
         last = float(src.get("last_generated_at") or 0)
     except (TypeError, ValueError):
         last = 0.0
+    # Missing key → on (legacy configs). Explicit false disables AI refresh only;
+    # existing pool messages are kept and remain editable.
+    auto_generate = src.get("auto_generate", True) is not False
     return {
+        "auto_generate": auto_generate,
         "refresh_days": days,
         "pool_size": size,
         "provider_id": str(src.get("provider_id") or "").strip()[:120],
@@ -68,6 +73,14 @@ def normalize_greetings_cfg(raw: Any) -> dict:
         "status": str(src.get("status") or "idle"),
         "error": str(src.get("error") or "")[:300],
     }
+
+
+def auto_generate_enabled(cfg: dict | None = None) -> bool:
+    """Whether the LLM may refresh the pool (background or Generate now)."""
+    cfg = cfg or load_config()
+    if cfg.get("dynamic_greetings") is False:
+        return False
+    return _cfg_block(cfg).get("auto_generate") is not False
 
 
 def resolve_greeting_provider(cfg: dict | None = None) -> dict:
@@ -331,6 +344,7 @@ def status_payload(cfg: dict | None = None) -> dict:
     model = resolve_greeting_model(provider, block)
     return {
         "enabled": cfg.get("dynamic_greetings") is not False,
+        "auto_generate": block.get("auto_generate") is not False,
         "refresh_days": block["refresh_days"],
         "pool_size": block["pool_size"],
         "provider_id": block["provider_id"],
@@ -351,7 +365,7 @@ def status_payload(cfg: dict | None = None) -> dict:
 
 def needs_refresh(cfg: dict | None = None) -> bool:
     cfg = cfg or load_config()
-    if cfg.get("dynamic_greetings") is False:
+    if not auto_generate_enabled(cfg):
         return False
     block = _cfg_block(cfg)
     pool = load_pool()
@@ -467,7 +481,10 @@ async def regenerate(*, force: bool = False) -> dict:
     """Generate a fresh pool via the active AI provider. Safe to call concurrently."""
     global _gen_lock
     cfg = load_config()
+    # Manual "Generate now" uses force=True and may run even when auto_generate is off.
     if cfg.get("dynamic_greetings") is False and not force:
+        return status_payload(cfg)
+    if not force and not auto_generate_enabled(cfg):
         return status_payload(cfg)
     if _gen_lock:
         block = _cfg_block(cfg)
@@ -540,7 +557,7 @@ async def ensure_fresh(*, force: bool = False) -> dict:
     """Refresh if stale/forced; otherwise return status. Never raises."""
     try:
         cfg = load_config()
-        if cfg.get("dynamic_greetings") is False and not force:
+        if not force and not auto_generate_enabled(cfg):
             return status_payload(cfg)
         if force or needs_refresh(cfg):
             return await regenerate(force=force)

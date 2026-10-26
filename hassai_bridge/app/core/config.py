@@ -188,6 +188,7 @@ DEFAULT_CONFIG = {
         "model": "",
     },
     "greetings": {
+        "auto_generate": True,
         "refresh_days": 7,
         "pool_size": 40,
         "provider_id": "",

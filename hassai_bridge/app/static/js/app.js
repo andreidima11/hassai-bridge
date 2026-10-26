@@ -1000,7 +1000,18 @@ function onAcScheduleChange() {
 function onDynamicGreetingsToggle() {
   const on = document.getElementById('settingsDynamicGreetings')?.checked !== false;
   const box = document.getElementById('greetingsPoolSettings');
+  const keep = document.getElementById('greetingsPoolKeepEdit');
   if (box) box.style.display = on ? '' : 'none';
+  if (keep) keep.style.display = on ? 'none' : '';
+  if (on) onGreetingsAutoGenerateToggle();
+}
+
+function onGreetingsAutoGenerateToggle() {
+  const auto = document.getElementById('settingsGreetingsAutoGenerate')?.checked !== false;
+  const genBox = document.getElementById('greetingsAutoGenerateSettings');
+  const genBtn = document.getElementById('greetingsGenerateBtn');
+  if (genBox) genBox.style.display = auto ? '' : 'none';
+  if (genBtn) genBtn.style.display = auto ? '' : 'none';
 }
 
 function onRecsModeChange() {
@@ -1277,6 +1288,7 @@ function collectGreetingsSettings() {
     ?? document.getElementById('greetingsModel')?.value
     ?? '';
   return {
+    auto_generate: document.getElementById('settingsGreetingsAutoGenerate')?.checked !== false,
     refresh_days: parseInt(document.getElementById('greetingsRefreshDays')?.value, 10) || 7,
     pool_size: parseInt(document.getElementById('greetingsPoolSize')?.value, 10) || 40,
     provider_id: String(providerId || '').trim(),
@@ -1305,6 +1317,7 @@ async function resetGreetingsPrompt() {
 
 function applyGreetingsSettings(g) {
   const block = g && typeof g === 'object' ? g : {};
+  setChecked('settingsGreetingsAutoGenerate', block.auto_generate !== false);
   setVal('greetingsRefreshDays', block.refresh_days ?? 7);
   setVal('greetingsPoolSize', block.pool_size ?? 40);
   const wantProv = block.provider_id || '';
@@ -1319,6 +1332,7 @@ function applyGreetingsSettings(g) {
   if (ta && typeof block.prompt_template === 'string') {
     ta.value = block.prompt_template;
   }
+  onGreetingsAutoGenerateToggle();
 }
 
 function fillGreetingsProviderSelect(providers, selectedId) {
@@ -1549,9 +1563,10 @@ async function generateGreetingsNow() {
     // Persist provider/model/interval before forcing a run.
     await api('PUT', '/api/settings/', {
       dynamic_greetings: true,
-      greetings: collectGreetingsSettings(),
+      greetings: { ...collectGreetingsSettings(), auto_generate: true },
     });
     setChecked('settingsDynamicGreetings', true);
+    setChecked('settingsGreetingsAutoGenerate', true);
     onDynamicGreetingsToggle();
     const st = await api('POST', '/api/settings/greetings/regenerate');
     if (el) el.textContent = _formatGreetingsStatus(st);

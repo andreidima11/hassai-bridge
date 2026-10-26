@@ -14,14 +14,25 @@ from services.greeting_pool import (
 
 def test_normalize_defaults_and_bounds():
     n = normalize_greetings_cfg({})
+    assert n["auto_generate"] is True
     assert n["refresh_days"] == 7
     assert n["pool_size"] == 40
     assert n["provider_id"] == ""
     assert n["model"] == ""
+    assert normalize_greetings_cfg({"auto_generate": False})["auto_generate"] is False
     assert normalize_greetings_cfg({"refresh_days": 0})["refresh_days"] == 1
     assert normalize_greetings_cfg({"pool_size": 999})["pool_size"] == 80
     assert normalize_greetings_cfg({"provider_id": " openai_1 ", "model": " gpt "})["provider_id"] == "openai_1"
     assert normalize_greetings_cfg({"provider_id": " openai_1 ", "model": " gpt "})["model"] == "gpt"
+
+
+def test_needs_refresh_respects_auto_generate(monkeypatch):
+    from services import greeting_pool as gp
+
+    monkeypatch.setattr(gp, "load_pool", lambda: {"items": [], "generated_at": 0, "season_key": ""})
+    assert gp.needs_refresh({"dynamic_greetings": True, "greetings": {"auto_generate": False}}) is False
+    assert gp.needs_refresh({"dynamic_greetings": True, "greetings": {"auto_generate": True}}) is True
+    assert gp.needs_refresh({"dynamic_greetings": False, "greetings": {"auto_generate": True}}) is False
 
 
 def test_season_key_december_christmas():

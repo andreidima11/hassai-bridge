@@ -30,6 +30,8 @@ const I18N = {
     thinking: "Thinking",
     thinkingLive: "Thinking…",
     thinkingBrieflyLive: "Thinking briefly…",
+    actionsLive: "Running actions…",
+    actionsLiveCount: "Running {n} actions…",
     thoughtBriefly: "Thought briefly",
     approvalTitle: "Allow tool?",
     approvalApprove: "Approve",
@@ -301,6 +303,8 @@ const I18N = {
     thinking: "Gândește",
     thinkingLive: "Gândește…",
     thinkingBrieflyLive: "Gândește puțin…",
+    actionsLive: "Se execută acțiunile…",
+    actionsLiveCount: "Se execută {n} acțiuni…",
     thoughtBriefly: "A gândit puțin",
     approvalTitle: "Permiți tool-ul?",
     approvalApprove: "Aprobă",
@@ -607,16 +611,24 @@ export function activityVerb(lang, name) {
 }
 
 export function liveThinkingLabel(lang, thinking) {
-  const awaiting = (thinking.steps || []).find((step) => step.status === "awaiting_approval");
+  const steps = thinking.steps || [];
+  const awaiting = steps.find((step) => step.status === "awaiting_approval");
   if (awaiting) return tr(lang, "approvalWaiting");
-  const runningTool = (thinking.steps || []).find((step) => step.status === "running" && step.name !== "think");
-  if (runningTool) {
-    const verb = activityVerb(lang, runningTool.name);
-    const detail = String(runningTool.detail || "").trim();
-    if (detail) return `${verb} · ${detail}`;
-    return `${verb}…`;
+
+  // Collapsed header stays a short status line; tool names/details live in the dropdown.
+  const tools = steps.filter((step) => step.name !== "think" && step.name !== "say");
+  const runningTools = tools.filter((step) => step.status === "running");
+  if (runningTools.length) {
+    const started = tools.filter((step) => step.status === "running" || step.status === "done" || step.status === "skip").length;
+    return started > 1
+      ? tr(lang, "actionsLiveCount", { n: started })
+      : tr(lang, "actionsLive");
   }
-  const runningThink = (thinking.steps || []).find((step) => step.status === "running" && step.name === "think");
+  if (tools.some((step) => step.status === "done" || step.status === "skip") && thinking.active) {
+    return tr(lang, "thinkingLive");
+  }
+
+  const runningThink = steps.find((step) => step.status === "running" && step.name === "think");
   if (runningThink || thinking.active) return tr(lang, "thinkingLive");
   return thinking.label || tr(lang, "thoughtBrief");
 }

@@ -1,5 +1,11 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.11.1
+
+### Changed
+- **Activity panel stays collapsed** — while a turn runs, the header shows a short status (`Thinking…` / `Running actions…`) instead of expanding the full tool trail; open the dropdown to see details.
+- **AI greeting pool is optional** — Settings → General adds an **AI greeting pool** toggle. Turn it off to stop automatic LLM refresh; existing pool messages are kept and remain editable by hand. When Dynamic greetings is off, View / edit messages stays available so the pool is never locked away.
+
 ## 1.11.0
 
 ### Changed

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronIcon } from "./Icons.jsx";
 import {
   activityVerb,
@@ -184,44 +184,12 @@ export function Thinking({ thinking, lang, streaming = false }) {
   const tools = toolSteps(steps);
   const hasSteps = steps.length > 0;
   const hasTools = tools.length > 0;
-  const hasActionTrail = tools.length > 0 || steps.some((s) => s.name === "say");
   const awaiting = steps.some((s) => s.status === "awaiting_approval");
   const isLive = Boolean(thinking.active || streaming || awaiting);
   const canToggle = isLive || hasSteps;
+  // Stay collapsed by default — header shows a short status; details open on demand.
   const [open, setOpen] = useState(false);
   const [userToggled, setUserToggled] = useState(false);
-  const [autoClosed, setAutoClosed] = useState(false);
-  const wasLive = useRef(false);
-
-  useEffect(() => {
-    if (awaiting) setAutoClosed(false);
-  }, [awaiting]);
-
-  // Auto-expand when the first real action/say appears while live.
-  useEffect(() => {
-    if (isLive && hasActionTrail && !userToggled) {
-      setOpen(true);
-      setAutoClosed(false);
-    }
-  }, [isLive, hasActionTrail, userToggled]);
-
-  useEffect(() => {
-    if (isLive) {
-      wasLive.current = true;
-      return undefined;
-    }
-    // After a live turn finishes: keep open briefly, then collapse unless user pinned it open.
-    if (wasLive.current && hasSteps && open && !autoClosed && !awaiting && !userToggled) {
-      const timer = window.setTimeout(() => {
-        setOpen(false);
-        setAutoClosed(true);
-        wasLive.current = false;
-      }, 3500);
-      return () => window.clearTimeout(timer);
-    }
-    if (!isLive) wasLive.current = false;
-    return undefined;
-  }, [isLive, hasSteps, open, autoClosed, awaiting, userToggled]);
 
   useEffect(() => {
     if (thinking.collapsed && !isLive && !awaiting && !userToggled) setOpen(false);
@@ -247,12 +215,12 @@ export function Thinking({ thinking, lang, streaming = false }) {
         aria-expanded={canToggle ? open : undefined}
       >
         <ChevronIcon className={`mt-px shrink-0 transition-transform duration-200 ${open && canToggle ? "rotate-180" : ""}`} />
-        {isLive && !hasTools ? (
+        {isLive ? (
           <span className="thinking-shimmer truncate">{headerLabel}</span>
         ) : (
           <span className="truncate">{headerLabel}</span>
         )}
-        {!open && hasTools && !isLive ? (
+        {!open && hasTools ? (
           <span className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground/75">
             {tools.length}
           </span>
