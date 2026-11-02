@@ -1,5 +1,10 @@
 # Changelog — HASSAI Bridge add-on
 
+## 1.12.0
+
+### Removed
+- **Companion notify for chat replies** — HASSAI no longer pushes a Home Assistant / Companion notification when an async chat answer finishes while you are away from the app. Durable async jobs still complete and land in the conversation; only the phone alert is gone. Per-user notify service settings and the chat-job public deep-link URL were removed with it. Background-task phone notify is unchanged.
+
 ## 1.11.1
 
 ### Changed

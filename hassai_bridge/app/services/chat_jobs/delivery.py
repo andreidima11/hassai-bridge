@@ -1,13 +1,11 @@
-"""Finalize chat jobs into conversation placeholders + HA private notify."""
+"""Finalize chat jobs into conversation placeholders."""
 
 from __future__ import annotations
 
 import logging
-import time
 
-from core.config import load_config
 from core.database import update_conversation_message
-from services.chat_jobs import manager, store
+from services.chat_jobs import store
 
 log = logging.getLogger("hassai.chat_jobs.delivery")
 
@@ -147,11 +145,6 @@ async def try_deliver(delivery_id: str) -> bool:
         )
         return False
 
-    # Private HA notify (best-effort, never blocks delivery)
-    try:
-        await _maybe_notify(job, content=content)
-    except Exception:
-        log.debug("chat job notify failed", exc_info=True)
     return True
 
 
@@ -170,87 +163,3 @@ async def retry_pending(limit: int = 5) -> None:
             )
             continue
         await try_deliver(row["delivery_id"])
-
-
-def build_chat_url(session_id: str, *, cfg: dict | None = None, job_id: str = "") -> str:
-    cfg = cfg or load_config()
-    cj = manager._cj_cfg(cfg)
-    base = cj.get("public_base_url") or ""
-    sid = str(session_id or "").strip()
-    q = f"session={sid}"
-    if job_id:
-        q += f"&job={job_id}"
-    if base:
-        return f"{base}/?{q}"
-    return f"/?{q}"
-
-
-async def _maybe_notify(job: dict, *, content: str) -> None:
-    cfg = load_config()
-    cj = manager._cj_cfg(cfg)
-    scope = job.get("permission_scope") or {}
-    if scope.get("notify_on_complete") is False or not cj["notify_on_complete"]:
-        return
-    if job.get("status") not in ("completed", "failed"):
-        return
-    # Dedup notify via separate delivery kind
-    nid = _delivery_id(job["job_id"], "notify")
-    existing = store.get_delivery(nid)
-    if existing and existing.get("status") == "delivered":
-        return
-
-    from services.chat_jobs import notify as cj_notify
-
-    service = await cj_notify.resolve_private_notify(
-        str(job.get("owner_id") or ""),
-        cfg=cfg,
-        preferred=str(scope.get("notify_service") or ""),
-        ha_id=str(scope.get("ha_id") or ""),
-    )
-    if not service:
-        store.upsert_delivery(
-            nid,
-            job_id=job["job_id"],
-            kind="notify",
-            status="delivered",
-            payload={"skipped": True, "reason": "no_private_target"},
-        )
-        log.info(
-            "chat job notify skipped job=%s owner=%s reason=no_private_target",
-            job.get("job_id"),
-            job.get("owner_id"),
-        )
-        return
-
-    preview = " ".join(str(content or "").split())
-    if len(preview) > 160:
-        preview = preview[:157] + "…"
-    title = "HASSAI"
-    if job.get("status") == "failed":
-        title = "HASSAI — eroare"
-        if not preview:
-            preview = "Răspunsul nu a putut fi generat."
-    elif not preview:
-        preview = "Răspunsul este gata."
-
-    url = build_chat_url(
-        str(job.get("session_id") or ""),
-        cfg=cfg,
-        job_id=str(job.get("job_id") or ""),
-    )
-    ok = await cj_notify.send_private_notify(
-        service,
-        title=title,
-        message=preview,
-        url=url,
-        tag=f"hassai_chat_{job.get('job_id')}",
-    )
-    store.upsert_delivery(
-        nid,
-        job_id=job["job_id"],
-        kind="notify",
-        status="delivered" if ok else "pending",
-        payload={"service": service, "url": url},
-        attempts=1,
-        last_error="" if ok else "notify_failed",
-    )

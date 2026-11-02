@@ -1,4 +1,4 @@
-"""Durable chat jobs — create, isolate, recover, finalize, notify."""
+"""Durable chat jobs — create, isolate, recover, finalize."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ def test_create_idempotent_and_one_per_session(cj_db, monkeypatch):
     monkeypatch.setattr(manager, "load_config", lambda: {"chat_jobs": {"enabled": True}})
     monkeypatch.setattr(
         "services.chat_jobs.manager.get_profile",
-        lambda uid: {"ha_id": "ha-1", "display_name": uid, "notify_service": ""},
+        lambda uid: {"ha_id": "ha-1", "display_name": uid},
     )
     job = manager.create_job(job_id="t1", owner_id="andrei", session_id="s1")
     assert job["job_id"] == "t1"
@@ -54,7 +54,7 @@ def test_owner_isolation_on_activity(cj_db, monkeypatch):
 
 
 def test_placeholder_finalize_once(cj_db, monkeypatch):
-    monkeypatch.setattr(manager, "load_config", lambda: {"chat_jobs": {"notify_on_complete": False}})
+    monkeypatch.setattr(manager, "load_config", lambda: {"chat_jobs": {}})
     monkeypatch.setattr(
         "services.chat_jobs.manager.get_profile",
         lambda uid: {"ha_id": "x", "display_name": uid},
@@ -80,7 +80,7 @@ def test_placeholder_finalize_once(cj_db, monkeypatch):
 
 
 def test_recover_on_boot_marks_interrupted(cj_db, monkeypatch):
-    monkeypatch.setattr(manager, "load_config", lambda: {"chat_jobs": {"notify_on_complete": False}})
+    monkeypatch.setattr(manager, "load_config", lambda: {"chat_jobs": {}})
     monkeypatch.setattr(
         "services.chat_jobs.manager.get_profile",
         lambda uid: {"ha_id": "x", "display_name": uid},
@@ -114,47 +114,6 @@ def test_tool_fingerprint_dedupe(cj_db, monkeypatch):
     runner.record_tool_fingerprint("jfp", "fp1", "OK: light.kitchen")
     assert runner.tool_fingerprint_hit("jfp", "fp1") == "OK: light.kitchen"
     assert runner.tool_fingerprint_hit("jfp", "missing") is None
-
-
-def test_private_notify_skips_sole_phone(monkeypatch):
-    from services.chat_jobs import notify as cj_notify
-
-    async def fake_core(method, path, **kwargs):
-        if path == "/states":
-            return [
-                {
-                    "entity_id": "person.alice",
-                    "attributes": {"user_id": "ha-alice", "friendly_name": "Alice", "device_trackers": ["device_tracker.phone_a"]},
-                },
-                {
-                    "entity_id": "person.bob",
-                    "attributes": {"user_id": "ha-bob", "friendly_name": "Bob", "device_trackers": ["device_tracker.phone_b"]},
-                },
-            ]
-        if path == "/services":
-            return [{"domain": "notify", "services": {"mobile_app_phone_a": {}, "mobile_app_phone_b": {}}}]
-        return {}
-
-    monkeypatch.setattr(
-        "services.chat_jobs.notify.get_profile",
-        lambda uid: {"ha_id": "", "display_name": uid, "notify_service": ""},
-    )
-    monkeypatch.setattr("services.homeassistant.is_available", lambda: True)
-    monkeypatch.setattr("services.homeassistant._core", fake_core)
-
-    async def _run():
-        # No ha_id → must not pick sole/any phone
-        svc = await cj_notify.resolve_private_notify("charlie")
-        assert svc == ""
-
-        monkeypatch.setattr(
-            "services.chat_jobs.notify.get_profile",
-            lambda uid: {"ha_id": "ha-alice", "display_name": "Alice", "notify_service": ""},
-        )
-        svc = await cj_notify.resolve_private_notify("alice")
-        assert svc == "notify.mobile_app_phone_a"
-
-    asyncio.run(_run())
 
 
 def test_turn_events_protocol():

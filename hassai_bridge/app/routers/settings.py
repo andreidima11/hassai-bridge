@@ -297,12 +297,11 @@ async def update_settings(data: SettingsUpdate):
         merged = dict(prev)
         if "enabled" in incoming:
             merged["enabled"] = bool(incoming.get("enabled"))
-        if "notify_on_complete" in incoming:
-            merged["notify_on_complete"] = bool(incoming.get("notify_on_complete"))
         if "max_job_seconds" in incoming:
             merged["max_job_seconds"] = max(60, min(int(incoming.get("max_job_seconds") or 1800), 7200))
-        if "public_base_url" in incoming:
-            merged["public_base_url"] = str(incoming.get("public_base_url") or "").strip().rstrip("/")
+        # Drop legacy Companion notify keys if still present in older configs.
+        merged.pop("notify_on_complete", None)
+        merged.pop("public_base_url", None)
         cfg["chat_jobs"] = merged
     if data.memory is not None:
         incoming = dict(data.memory)
@@ -445,54 +444,6 @@ async def add_user(data: dict):
 async def user_profiles():
     from core.identity import list_profiles
     return {"users": list_profiles()}
-
-
-@router.put("/users/{username}/notify")
-async def set_user_notify(username: str, request: Request):
-    """Set per-user Companion notify.mobile_app_* service (private chat-job push)."""
-    from core.identity import list_profiles, set_profile_notify_service
-
-    username = str(username or "").strip()
-    if not any(p["username"] == username for p in list_profiles()):
-        return JSONResponse(status_code=404, content={"error": "user not found"})
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    service = str((body or {}).get("notify_service") or "").strip()
-    row = set_profile_notify_service(username, service)
-    return {"ok": True, "user": row}
-
-
-@router.post("/users/{username}/notify/test")
-async def test_user_notify(username: str, request: Request):
-    """Probe + optionally send a test private notification."""
-    from core.identity import list_profiles
-    from services.chat_jobs import delivery as cj_delivery
-    from services.chat_jobs import notify as cj_notify
-
-    username = str(username or "").strip()
-    if not any(p["username"] == username for p in list_profiles()):
-        return JSONResponse(status_code=404, content={"error": "user not found"})
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    send = bool((body or {}).get("send"))
-    probe = await cj_notify.probe_private_notify(username)
-    if not send:
-        return probe
-    if not probe.get("notify_service"):
-        return JSONResponse(status_code=400, content={**probe, "error": "no_private_target"})
-    url = cj_delivery.build_chat_url("", cfg=load_config())
-    ok = await cj_notify.send_private_notify(
-        probe["notify_service"],
-        title="HASSAI",
-        message="Test notification — private chat alerts work.",
-        url=url or "/",
-        tag="hassai_notify_test",
-    )
-    return {**probe, "sent": ok}
 
 
 @router.post("/users/sync-ha")

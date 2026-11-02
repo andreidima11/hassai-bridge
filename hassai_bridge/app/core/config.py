@@ -109,8 +109,6 @@ DEFAULT_CONFIG = {
         "worker_lease_seconds": 60,
         "max_concurrent": 3,
         "max_result_days": 30,
-        "notify_on_complete": True,
-        "public_base_url": "",
         "feed_poll_seconds": 2,
     },
     "voice": {

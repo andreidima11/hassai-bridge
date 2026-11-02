@@ -16,34 +16,23 @@ log = logging.getLogger("hassai.chat_jobs")
 def _cj_cfg(cfg: dict | None = None) -> dict:
     cfg = cfg or load_config()
     raw = dict(cfg.get("chat_jobs") or {})
-    bg = dict(cfg.get("background_tasks") or {})
     return {
         "enabled": raw.get("enabled", True) is not False,
         "max_job_seconds": max(60, min(int(raw.get("max_job_seconds") or 1800), 7200)),
         "worker_lease_seconds": max(15, min(int(raw.get("worker_lease_seconds") or 60), 300)),
         "max_concurrent": max(1, min(int(raw.get("max_concurrent") or 3), 8)),
         "max_result_days": max(1, min(int(raw.get("max_result_days") or 30), 365)),
-        "notify_on_complete": (
-            raw.get("notify_on_complete")
-            if "notify_on_complete" in raw
-            else bg.get("notify_on_complete", True)
-        ) is not False,
-        "public_base_url": str(raw.get("public_base_url") or "").strip().rstrip("/"),
         "feed_poll_seconds": max(1, min(int(raw.get("feed_poll_seconds") or 2), 30)),
     }
 
 
-def snapshot_notify_scope(owner_id: str, *, cfg: dict | None = None) -> dict:
-    """Pin identity + preferred notify at job create (no sole-phone guess)."""
+def snapshot_job_scope(owner_id: str, *, cfg: dict | None = None) -> dict:
+    """Pin identity snapshot at job create (permissions / ownership context)."""
     cfg = cfg or load_config()
     prof = get_profile(owner_id) or {}
-    ha_id = str(prof.get("ha_id") or "").strip()
-    notify_service = str(prof.get("notify_service") or "").strip()
     return {
-        "ha_id": ha_id,
+        "ha_id": str(prof.get("ha_id") or "").strip(),
         "display_name": str(prof.get("display_name") or owner_id),
-        "notify_service": notify_service,
-        "notify_on_complete": _cj_cfg(cfg)["notify_on_complete"],
     }
 
 
@@ -82,7 +71,7 @@ def create_job(
     cj = _cj_cfg(cfg)
     now = time.time()
     deadline = now + float(cj["max_job_seconds"])
-    scope = snapshot_notify_scope(owner_id, cfg=cfg)
+    scope = snapshot_job_scope(owner_id, cfg=cfg)
     existing = store.get_job(job_id)
     if existing:
         return existing

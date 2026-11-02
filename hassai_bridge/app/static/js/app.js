@@ -918,8 +918,6 @@ async function loadSettings() {
     setChecked('bgTasksNotifyOnComplete', bg.notify_on_complete !== false);
     const cj = cfg.chat_jobs || {};
     setChecked('chatJobsEnabled', cj.enabled !== false);
-    setChecked('chatJobsNotifyOnComplete', cj.notify_on_complete !== false);
-    setVal('chatJobsPublicBaseUrl', cj.public_base_url || '');
     setVal('chatJobsMaxJobSeconds', cj.max_job_seconds ?? 1800);
 
     // Voice
@@ -1625,8 +1623,6 @@ async function saveSettings() {
       },
       chat_jobs: {
         enabled: document.getElementById('chatJobsEnabled')?.checked !== false,
-        notify_on_complete: document.getElementById('chatJobsNotifyOnComplete')?.checked !== false,
-        public_base_url: (document.getElementById('chatJobsPublicBaseUrl')?.value || '').trim(),
         max_job_seconds: parseInt(document.getElementById('chatJobsMaxJobSeconds')?.value, 10) || 1800,
       },
       memory: {
@@ -3064,7 +3060,6 @@ async function fetchSecProviderModels() {
 let _selectedUser = null;
 let allMemories = [];
 let _userKeysMap = {};  // username -> api key
-let _userNotifyMap = {};  // username -> notify_service
 let _userModalKeyVisible = false;
 
 function catLabel(cat) {
@@ -3084,12 +3079,10 @@ async function loadUsersTab() {
 
     const userMap = {};
     _userKeysMap = {};
-    _userNotifyMap = {};
     const profileByName = {};
     for (const p of (profiles.users || [])) {
       profileByName[p.username] = p;
       if (p.api_key) _userKeysMap[p.username] = p.api_key;
-      _userNotifyMap[p.username] = p.notify_service || '';
     }
     for (const [key, name] of Object.entries(apiKeys)) {
       if (!userMap[name]) userMap[name] = { keys: [], hasMemories: false, profile: profileByName[name] };
@@ -3230,46 +3223,12 @@ async function selectUser(username) {
     keySection.style.display = 'none';
   }
 
-  const notifyEl = document.getElementById('userNotifyService');
-  if (notifyEl) notifyEl.value = _userNotifyMap[username] || '';
-
   document.getElementById('usersMain').style.display = 'none';
   document.getElementById('userDetailPage').style.display = '';
   document.querySelectorAll('.user-card').forEach(c => {
     c.classList.toggle('selected', c.querySelector('.user-name')?.textContent === username);
   });
   await loadStats(username);
-}
-
-async function saveUserNotify() {
-  if (!_selectedUser) return;
-  const service = (document.getElementById('userNotifyService')?.value || '').trim();
-  try {
-    const result = await api('PUT', `/api/settings/users/${encodeURIComponent(_selectedUser)}/notify`, {
-      notify_service: service,
-    });
-    const saved = (result.user && result.user.notify_service) || service;
-    _userNotifyMap[_selectedUser] = saved;
-    if (document.getElementById('userNotifyService')) {
-      document.getElementById('userNotifyService').value = saved;
-    }
-    toast(t('users.notifySaved'));
-  } catch (e) {
-    toast(t('toast.error', { msg: e.message }), true);
-  }
-}
-
-async function testUserNotify() {
-  if (!_selectedUser) return;
-  try {
-    const result = await api('POST', `/api/settings/users/${encodeURIComponent(_selectedUser)}/notify/test`, {
-      send: true,
-    });
-    if (result.sent) toast(t('users.notifyTestOk'));
-    else toast(t('users.notifyTestFail'), true);
-  } catch (e) {
-    toast(t('toast.error', { msg: e.message }), true);
-  }
 }
 
 function toggleUserModalKey() {
